@@ -299,4 +299,5 @@ Compose:
   # project-specific overrides
   CompositionLocalAllowlist:
     active: true
-    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalPlatformUi
+    # LocalNav*: core:navigation:compose passes host-wide rendering context (animations, shared transition scope) to nested hosts
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes

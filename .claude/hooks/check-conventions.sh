@@ -86,6 +86,13 @@ $hits"
     [ -n "$hits" ] && add "core не зависит от features и design-system.
 $hits"
   fi
+
+  # 6. core:*:impl (di, profile-facade) is wired only by platform-main:di-bundle
+  if [[ "$rel" != platform-main/di-bundle/* && "$rel" != core/di/impl/* && "$rel" != core/profile-facade/impl/* ]]; then
+    hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.(di|profilefacade)\.impl\.')"
+    [ -n "$hits" ] && add "core:di:impl / core:profile-facade:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions…). См. docs/adr/0002-di-scopes.md
+$hits"
+  fi
 fi
 
 # ---------- Gradle scripts ----------

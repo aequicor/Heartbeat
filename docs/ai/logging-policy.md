@@ -23,7 +23,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Intent / Action / смена State стора | плагин логирования в `core:mvi` (`heartbeatStore { }`) | D (intent/action), V (state diff) |
 | Переход state-machine (`from --event--> to`), отклонённое событие | listener в `core:state-machine`, ставится на каждую машину при регистрации | I (переход), W (отклонено) |
 | Отправка события в чужую машину через `MachineRegistry` | `core:state-machine` | I |
-| Навигация (push/pop/replace, конфиги) | обёртка навигации в `core:navigation` | I |
+| Навигация (операция, путь хоста, `serialName` маршрута, стек — без полей маршрутов), результаты, deep links (шаблон, не ссылка) | хосты `core:navigation:impl` | I |
 | HTTP-запрос/ответ, статус, длительность | Ktor `Logging` с адаптером в `core:network` | I (метод, url, статус, ms), D (заголовки без секретов) |
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
 | Запись/чтение DataStore | логирующая обёртка в `core:datastore` | D (ключ), I (изменение конфигурации) |
@@ -41,7 +41,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 ## Теги
 
 - Тег = имя класса-источника (`ChatStore`, `ChatMachine`, `HttpClient`).
-- Инфраструктурные теги с префиксом: `SM/<machine>`, `MVI/<store>`, `NAV`, `NET`, `AI`, `DB`, `DS`, `FT`.
+- Инфраструктурные теги с префиксом: `SM/<machine>`, `MVI/<store>`, `NAV`, `NET`, `AI`, `DB`, `DS`, `FT`, `DI` (создание/закрытие скоупов).
 
 ## Запрещено логировать
 

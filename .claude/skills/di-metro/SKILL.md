@@ -1,6 +1,6 @@
 ---
 name: di-metro
-description: "Внедрение зависимостей в Heartbeat на Metro — AppScope, @DependencyGraph в platform-main, @Inject, @SingleIn, @ContributesTo/@ContributesBinding для api/impl, мультибиндинги @ContributesIntoMap/@ContributesIntoSet (машины, тоглы, рендереры), @Provides/@BindingContainer, graph extensions, платформенные зависимости через Factory. Используй при добавлении класса в граф, связывании api с impl, ошибках компиляции Metro."
+description: "Внедрение зависимостей в Heartbeat на Metro — скоупы app → profile → feature → screen (core:di, core:profile-facade), граф в platform-main:di-bundle (per-platform @DependencyGraph), @GraphExtension фич, @ForScope, retainedGraph/retainedScope/retainedShared (core:di:ext), восстановление после смерти процесса через ScopeSavedState, @ContributesBinding/IntoMap/IntoSet, @BindingContainer, assisted-фабрики компонентов. Используй при добавлении класса в граф, графа фичи, связывании api с impl, ошибках компиляции Metro."
 ---
 
 # DI (Metro)
@@ -9,8 +9,22 @@ description: "Внедрение зависимостей в Heartbeat на Metr
 
 ## Скоупы
 
-- `AppScope` — из `dev.zacsweers.metro.AppScope` (встроен в Metro). Единственный граф — `HeartbeatGraph` в `platform-main`.
-- Экранные/фичевые подграфы — только если реально нужны (graph extension, см. ниже). Жизненный цикл экрана обычно даёт Decompose (`retainedStore`/`instanceKeeper`), а не DI.
+Решение и мотивация — [ADR-0002](../../../docs/adr/0002-di-scopes.md).
+
+```
+AppScope (Metro)     HeartbeatGraph   :platform-main:di-bundle
+└ ProfileScope       ProfileGraph     core:profile-facade:api (маркер ProfileScope — core:di:api)
+  ├ <Feature>Scope   <Feature>Graph   features/<x>/impl
+  │ └ screen         retainedScope()  без графа
+  └ shared:<key>     SharedScopes     ref-counted объект по SharedKey
+```
+
+- У каждого уровня — `@ForScope(<Scope>::class) ScopeHandle` (корутины, `savedState`, `onClose`) и, для App/Profile,
+  `@ForScope(...) CoroutineScope`. Без квалификатора дочерний граф конфликтовал бы с родительским биндингом.
+- Закрытие профиля (логаут/смена) каскадно закрывает фичи и shared-объекты.
+- Состояние, которое должно пережить смерть процесса, — в `scope.savedState` (`consume` + `register`), не в полях графа.
+- Модули: `core:di:api` (контракты) ← фичи; `core:di:ext` (`retainedGraph`/`retainedScope`/`retainedShared`) ← impl фич;
+  `core:di:impl`, `core:profile-facade:impl` ← только `di-bundle`.
 
 ## Типовые приёмы
 
@@ -48,41 +62,76 @@ interface NetworkProviders {
 @Inject
 internal class DefaultMachineRegistry(
     private val factories: Map<String, MachineFactory>,
-    @AppCoroutineScope private val scope: CoroutineScope,
+    @ForScope(AppScope::class) private val scope: CoroutineScope,
 ) : MachineRegistry
 ```
 
-## Граф приложения (`platform-main`)
+## Граф приложения (`:platform-main:di-bundle`)
+
+Metro собирает контрибуции там, где компилируется `@DependencyGraph`, а при контрибуциях из платформенных source set'ов
+граф обязан быть объявлен в платформенном source set'е:
 
 ```kotlin
-@DependencyGraph(AppScope::class)
+// commonMain — без аннотации: то, что нужно точкам входа
 interface HeartbeatGraph {
-    val rootComponentFactory: RootComponentFactory
-    val initializers: Set<AppInitializer>
+    val profileSessions: ProfileSessions
+}
 
-    @DependencyGraph.Factory
+// androidMain / jvmMain / iosMain — по одному на платформу
+@DependencyGraph(AppScope::class)
+internal interface JvmHeartbeatGraph : HeartbeatGraph
+
+fun createHeartbeatGraph(): HeartbeatGraph = createGraph<JvmHeartbeatGraph>()
+```
+
+`di-bundle` — единственный модуль, который зависит от `…:impl`; фичи графов не создают. Проверка всего графа без сборки
+приложения: `./gradlew :platform-main:di-bundle:compileKotlinJvm` (+ `jvmTest` — интеграционные тесты скоупов).
+
+## Граф фичи (graph extension)
+
+```kotlin
+// features/chat/impl
+abstract class ChatScope private constructor()
+
+@GraphExtension(ChatScope::class)
+interface ChatGraph {
+    val rootFactory: ChatRootComponent.Factory
+
+    @ContributesTo(ProfileScope::class)          // генерируется вместе с ProfileGraph в di-bundle
+    @GraphExtension.Factory
     fun interface Factory {
-        fun create(@Provides platform: PlatformContext): HeartbeatGraph   // Android Context / пути / флаги сборки
+        fun create(@Provides route: ChatRoute, @Provides @ForScope(ChatScope::class) scope: ScopeHandle): ChatGraph
     }
 }
 
-val graph = createGraphFactory<HeartbeatGraph.Factory>().create(platformContext)
-```
+@SingleIn(ChatScope::class)
+@ContributesBinding(ChatScope::class)
+@Inject
+internal class ChatRepositoryImpl(
+    private val api: ChatApi,                                         // из ProfileScope
+    @ForScope(ChatScope::class) private val scope: ScopeHandle,
+) : ChatRepository
 
-Граф собирается только в `platform-main` — там видны все `impl`, и Metro агрегирует их контрибуции. Модули фич графов не создают.
-
-## Graph extension (при необходимости)
-
-```kotlin
-@GraphExtension(ChatScope::class)
-interface ChatGraph {
-    val root: ChatRootComponentFactory
-    @GraphExtension.Factory interface Factory { fun create(@Provides args: ChatArgs): ChatGraph }
+// Маршрут фичи (скилл navigation): граф удерживается компонентом (поворот — тот же, смерть процесса — пересоздан, destroy — закрыт)
+@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
+@Inject
+internal class ChatRouteEntry(
+    private val scopes: ScopeFactory,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val graphs: ChatGraph.Factory,
+) : RouteEntry<ChatRoute>(ChatRoute::class, ChatRoute.serializer()) {
+    override fun create(route: ChatRoute, context: ComponentContext, navigator: Navigator) =
+        context.retainedGraph(scopes, profile, name = "chat") { scope -> graphs.create(route, scope) }
+            .rootFactory.create(context, navigator)
 }
-
-@ContributesTo(AppScope::class)
-interface ChatGraphParent { val chatGraphFactory: ChatGraph.Factory }
 ```
+
+- Один маркер скоупа на фичу; общий `FeatureScope` смешал бы контрибуции разных фич.
+- Экран без своего графа: `ctx.retainedScope(scopes, featureScope, name = "screen")` → передай в assisted-фабрику стора.
+- Общий объект нескольких фич: `SharedKey` (object в api владельца) + `@ContributesIntoMap(ProfileScope::class) @StringKey(...)
+  SharedFactory` в impl; в компоненте — `retainedShared(sharedScopes, Key)`.
+- Точка входа платформы достаёт профильные entry point'ы через аксессор `@ContributesTo(ProfileScope::class) interface X`
+  и `session.graph as X`.
 
 ## Ассистед-фабрики для компонентов
 
@@ -106,7 +155,13 @@ internal class ChatScreenComponent(
 
 ## Правила
 
-- Реализации — `internal`; наружу видны только интерфейсы.
+- Реализации — `internal`; наружу видны только интерфейсы (`heartbeat.metro` включает `generateContributionProviders`).
+  Не инжектируй реализацию напрямую — только её интерфейс (Metro предупредит).
+- `@BindingContainer` / `@ContributesTo`-контейнеры из другого модуля — `public` (на них `generateContributionProviders`
+  не распространяется; `internal` контейнер молча не попадёт в граф → MissingBinding).
+- Пустой мультибиндинг — ошибка компиляции; объявляй `@Multibinds(allowEmpty = true)`.
+- Дефолтная реализация, которую можно перекрыть (`ActiveProfileStorage`): `@ContributesBinding(..., priority = N)` —
+  побеждает больший приоритет.
 - Никаких ручных `SomeImpl(...)` в продовом коде, если класс может быть в графе.
 - Замена реализации в тестах/флейворах — `replaces = [...]` или `excludes` у графа, либо `priority`.
 - Ошибки Metro (missing binding, cycle) показываются при компиляции `platform-main` — читай путь зависимостей в сообщении. Обычно причина — забытый `@Inject`, отсутствие `@ContributesBinding` или модуль `impl` не подключён в `platform-main`.

@@ -31,7 +31,7 @@ build-logic/
 |---|---|
 | `heartbeat.kmp.library` | `kotlin("multiplatform")`, `com.android.kotlin.multiplatform.library`; таргеты `android { namespace = "io.aequicor.heartbeat.<path>" }`, `jvm()`, `iosArm64()`, `iosSimulatorArm64()`; `jvmToolchain(17)`; `explicitApi()` для `core` и `api`; `commonTest` ← kotlin-test, coroutines-test; + `heartbeat.detekt` |
 | `heartbeat.kmp.compose` | + `org.jetbrains.compose`, `kotlin.plugin.compose`; compose runtime/foundation/ui/resources; compose compiler reports в `build/compose-reports` |
-| `heartbeat.feature.api` | `kmp.library` + `metro` + `kotlinx-serialization`; deps: `core:state-machine`, `core:navigation`, `core:common`; **запрет** Compose-плагина |
+| `heartbeat.feature.api` | `kmp.library` + `metro` + `kotlinx-serialization`; deps: `core:state-machine`, `core:navigation:api`, `core:common`; **запрет** Compose-плагина |
 | `heartbeat.feature.impl` | `kmp.compose` + `metro` + `serialization`; deps: `core:*` (logging, mvi, navigation, state-machine, feature-toggles, resources), `design-system:components`, `design-system:theme`; проверка: падение конфигурации, если в зависимостях есть `:features:*:impl` |
 | `heartbeat.metro` | плагин `dev.zacsweers.metro` |
 | `heartbeat.detekt` | плагин `dev.detekt`; `buildUponDefaultConfig = true`; `config.setFrom(rootProject.file("config/detekt/detekt.yml"))`; `parallel = true`; `source` = все `src/*/kotlin`; `detektPlugins(libs.detekt.ktlint.wrapper)`, `detektPlugins(libs.compose.rules.detekt)`; baseline `detekt-baseline.xml` |

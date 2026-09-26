@@ -20,9 +20,10 @@
 ## Группы модулей
 
 ```
-platform-main/   точки входа: android, desktop, ios (+ shared umbrella/framework), сборка DI-графа
-core/            инфраструктура: navigation, mvi, state-machine, di, resources, database,
-                 datastore, network, ai, feature-toggles, logging, common
+platform-main/   точки входа: android, desktop, ios (+ shared umbrella/framework);
+                 di-bundle — единственный модуль, видящий все impl: Metro-граф (per-platform)
+core/            инфраструктура: navigation, mvi, state-machine, di (api/ext/impl), profile-facade (api/impl),
+                 resources, database, datastore, network, ai, feature-toggles, logging, common
 design-system/   tokens (Mission), theme, components, adaptive (material | fluent | macos)
 features/<name>/ api  — контракт: state-machine (состояния, события, переходы), MachineKey, фабрики компонентов
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции
@@ -30,17 +31,18 @@ build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartb
 lint/            detekt-rules — собственный набор правил `heartbeat` (политика логирования и обработки ошибок)
 ```
 
-> Текущее состояние: репозиторий — шаблон KMP (`androidApp`, `desktopApp`, `iosApp`, `shared`); из `build-logic` пока есть
-> только `heartbeat.detekt` (подключён ко всем модулям). Целевая раскладка — выше;
-> при миграции следуй [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
+> Текущее состояние: шаблонные модули (`androidApp`, `desktopApp`, `iosApp`, `shared`) ещё не перенесены.
+> Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`), `core:logging`, `core:common`,
+> `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)).
+> Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)
 
-1. **Зависимости**: `feature:impl` → только `api` других фич. `impl → impl` запрещено. `core` не знает о `features` и `design-system`. `feature:api` без Compose/UI.
+1. **Зависимости**: `feature:impl` → только `api` других фич. От любого `…:impl` (фич и `core`) зависит только `:platform-main:di-bundle` (проверяет `build-logic` через `heartbeat.detekt`, подключённый ко всем модулям). `core` не знает о `features` и `design-system`. `feature:api` без Compose/UI.
 2. **State-machine фичи живёт в `api`** (KStateMachine): все состояния, события, переходы. Другие фичи общаются с машиной только через `MachineKey` + `MachineRegistry` → `send(Event)`. Никаких прямых ссылок на классы `impl`.
 3. **UI-состояние** — FlowMVI-стор в `impl`. Машина = бизнес-флоу фичи, стор = состояние экрана. Стор не дублирует состояние машины, а подписывается на него.
-4. **Навигация** — только Decompose (`ComponentContext`, `childStack`, `@Serializable` конфиги). Никаких navigation-compose.
-5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@DependencyGraph`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.
+4. **Навигация** — только Decompose через `core:navigation` ([ADR-0003](docs/adr/0003-navigation.md)): фичи открывают друг друга `Navigator.navigate(Route)`, маршруты — `@Serializable @SerialName` в `api`, `RouteEntry` в реестре своего скоупа (`binding<ProfileRouteBinding>()` / `AppRouteBinding`), результаты — `ResultContract`. Никаких navigation-compose и ссылок на чужие компоненты.
+5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@GraphExtension`). Граф — только в `platform-main:di-bundle`; скоупы app → profile → feature → screen, граф фичи — через `retainedGraph` (`core:di:ext`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.
 6. **Логирование через `core:logging` (Napier)**: каждое действие пользователя, смена состояния (машины/стора), запрос в сеть, чтение/запись БД/DataStore, изменение конфигурации/тоглов. `println`, `android.util.Log`, `NSLog` запрещены. Секреты и API-ключи не логируются никогда. Проверяется detekt (набор `heartbeat`, см. [logging-policy.md](docs/ai/logging-policy.md#автоматическая-проверка-detekt)).
 7. **Цвета/типографика/отступы — только токены `design-system`**. `Color(0x…)`, `.sp`/`.dp`-литералы для стилей вне `design-system` запрещены.
 8. **Тоглы** — через `core:feature-toggles`; новая функциональность за тоглом по умолчанию.
@@ -58,6 +60,7 @@ Windows: `.\gradlew.bat`, macOS: `./gradlew`.
 ./gradlew :androidApp:assembleDebug            # android
 ./gradlew allTests                             # все KMP-тесты
 ./gradlew :shared:jvmTest                      # быстрые тесты (JVM)
+./gradlew :platform-main:di-bundle:jvmTest     # сборка всего Metro-графа + интеграционные тесты скоупов
 ./gradlew detekt                               # lint всех модулей (без type resolution, быстро)
 ./gradlew detekt --auto-correct                # автоформат ktlint-правил
 ./gradlew :shared:detektMainJvm                # detekt с type resolution (KMP jvm; :<app>:detektMain для JVM-модулей)

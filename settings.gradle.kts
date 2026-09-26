@@ -1,4 +1,5 @@
 rootProject.name = "heartbeat"
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
 pluginManagement {
     includeBuild("build-logic")
@@ -35,6 +36,19 @@ plugins {
 include(":androidApp")
 include(":desktopApp")
 include(":shared")
+
+include(":core:logging")
+include(":core:common")
+include(":core:di:api")
+include(":core:di:ext")
+include(":core:di:impl")
+include(":core:navigation:api")
+include(":core:navigation:impl")
+include(":core:navigation:compose")
+include(":core:profile-facade:api")
+include(":core:profile-facade:impl")
+include(":platform-main:di-bundle")
+include(":platform-main:root")
 
 // Кастомный набор правил detekt (политика логирования и обработки ошибок)
 include(":lint:detekt-rules")
