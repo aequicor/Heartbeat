@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew:*)",
+      "Bash(./gradlew.bat:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(bash .claude/hooks/:*)",
+      "WebFetch(domain:arkivanov.github.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:docs.koog.ai)",
+      "WebFetch(domain:ktor.io)",
+      "WebFetch(domain:detekt.dev)",
+      "WebFetch(domain:mrmans0n.github.io)",
+      "WebFetch(domain:developer.android.com)",
+      "WebFetch(domain:kotlinlang.org)",
+      "WebFetch(domain:zacsweers.github.io)",
+      "WebFetch(domain:opensource.respawn.pro)",
+      "WebFetch(domain:kstatemachine.github.io)"
+    ],
+    "deny": [
+      "Read(./**/secrets.properties)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.keystore)",
+      "Read(./**/.env)",
+      "Read(./**/.env.*)",
+      "Edit(./gradle/wrapper/**)",
+      "Bash(./gradlew publish:*)",
+      "Bash(git push --force:*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-context.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-conventions.sh\"",
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

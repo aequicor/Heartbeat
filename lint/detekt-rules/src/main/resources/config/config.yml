@@ -1,0 +1,27 @@
+# Значения по умолчанию набора правил `heartbeat` (подмешиваются detekt при buildUponDefaultConfig).
+# Проектные переопределения — в config/detekt/detekt.yml.
+heartbeat:
+  active: true
+  RawLoggingCall:
+    active: true
+    allowedPackages:
+      - 'io.aequicor.heartbeat.core.logging'
+  SwallowedError:
+    active: true
+    requireErrorReference: true
+  CancellationSwallowed:
+    active: true
+  GenericExceptionCaught:
+    active: true
+    allowedAfterCancellationRethrow:
+      - 'Exception'
+  UnhandledResultFailure:
+    active: true
+  StateChangeNotLogged:
+    active: true
+  DataAccessNotLogged:
+    active: true
+  LoggingInfrastructureBypass:
+    active: true
+  SensitiveDataLogged:
+    active: true

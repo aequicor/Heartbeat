@@ -1,0 +1,27 @@
+---
+paths:
+  - "features/*/impl/**"
+---
+
+# Модуль `features/<name>/impl`
+
+Структура пакета `io.aequicor.heartbeat.feature.<name>.impl`:
+
+```
+di/          Metro-контрибуции: @ContributesBinding (EntryPoint, Effects), @ContributesIntoMap (машина в реестр), @ContributesIntoSet (тоглы)
+machine/     <Name>EffectsImpl, регистрация машины
+data/        репозитории, DAO-адаптеры, мапперы DTO ↔ domain
+component/   Decompose-компоненты (<Screen>Component), навигационные конфиги внутри фичи
+store/       FlowMVI-сторы (<Screen>State / <Screen>Intent / <Screen>Action + <Screen>Store)
+ui/          Compose-экраны (<Screen>Screen), приватные composable, @Preview
+```
+
+Правила:
+- Зависимости: свой `api`, чужие `api`, `core:*`, `design-system:*`. **Чужой `impl` — никогда.**
+- Взаимодействие с другой фичей — `machineRegistry[OtherMachineKey].send(OtherEvent.Public.X)` или её `EntryPoint` для навигации.
+- Стор создаётся через `heartbeatStore(name = …)` из `core:mvi` (логирование и обработка ошибок подключены). Стор подписывается на машину, а не хранит её состояние у себя.
+- Компонент владеет стором (`retainedStore`/`instanceKeeper`), экран получает только компонент.
+- UI — только `Hb*` компоненты и токены `HbTheme`. Строки — Compose Resources.
+- Новая функциональность — за тоглом `FeatureToggle` (default `false`, пока фича не готова).
+- Эффекты машины: `suspend`, main-safe, результат возвращается событием `<Name>Event.Internal.*`; ошибки → `Internal.Failed`, с логом.
+- Тесты: сторы (FlowMVI test DSL), эффекты (фейки репозиториев), репозитории (in-memory Room / fake DataStore).

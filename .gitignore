@@ -1,0 +1,105 @@
+# ============================================================
+# Aequicor Heartbeat — KMP (Android, iOS, Desktop macOS/Windows)
+# ============================================================
+
+# --- Gradle / Kotlin -----------------------------------------
+.gradle/
+.kotlin/
+**/build/
+!src/**/build/
+build-logic/**/build/
+# Gradle wrapper jar должен быть в репозитории
+!gradle/wrapper/gradle-wrapper.jar
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# Локальная конфигурация и секреты (API-ключи AI/сети не коммитим)
+local.properties
+secrets.properties
+*.secrets.properties
+.env
+.env.*
+!.env.example
+
+# --- Android --------------------------------------------------
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+# Подписи релизных сборок
+*.jks
+*.keystore
+!debug.keystore
+keystore.properties
+google-services.json
+# Room: схемы (`schemas/`) коммитим — они нужны для миграций
+
+# --- iOS / Xcode ---------------------------------------------
+xcuserdata/
+DerivedData/
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.ipa
+*.dSYM
+*.dSYM.zip
+# CocoaPods / SPM / Carthage
+Pods/
+**/Podfile.lock.bak
+.swiftpm/
+.build/
+Carthage/Build/
+# Kotlin/Native framework, собранный для Xcode
+*.xcframework
+iosApp/**/*.framework
+# Локальные переопределения xcconfig (TEAM_ID и т.п.)
+*.local.xcconfig
+
+# --- Desktop (Compose Desktop packaging) ---------------------
+*.dmg
+*.msi
+*.exe
+*.pkg
+*.deb
+*.rpm
+
+# --- IDE ------------------------------------------------------
+*.iml
+*.ipr
+*.iws
+.idea/
+.fleet/
+.vscode/
+out/
+
+# --- OS -------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Tools ----------------------------------------------------
+node_modules/
+*.log
+# Detekt baseline коммитим; отчёты лежат в build/
+.detekt/
+
+# --- Claude Code (personal) ----------------------------------
+.claude/settings.local.json
+CLAUDE.local.md

@@ -1,0 +1,302 @@
+# Heartbeat detekt config (detekt 2.0.0-alpha.6 + ktlint-wrapper + compose-rules 0.6.x).
+# Used with buildUponDefaultConfig = true: only deviations from detekt defaults are listed here.
+# Rule sets: https://detekt.dev/docs/rules/comments ... /style, https://mrmans0n.github.io/compose-rules/latest/detekt/
+
+config:
+  validation: true
+  warningsAsErrors: true
+  # compose-rules properties are unknown to the core validator
+  excludes: ['Compose>.*']
+
+comments:
+  UndocumentedPublicClass:
+    active: true
+    excludes: &tests ['**/test/**', '**/commonTest/**', '**/jvmTest/**', '**/iosTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/platform-main/**', '**/*App/**']
+  UndocumentedPublicFunction:
+    active: true
+    excludes: *tests
+  DeprecatedBlockTag:
+    active: true
+  OutdatedDocumentation:
+    active: true
+  KDocReferencesNonPublicProperty:
+    active: true
+
+complexity:
+  TooManyFunctions:
+    ignorePrivate: true
+    ignoreOverridden: true
+    ignoreAnnotatedFunctions: ['Preview']
+  CognitiveComplexMethod:
+    active: true
+  LongParameterList:
+    # Composables and DI constructors naturally take many params
+    ignoreDefaultParameters: true
+    ignoreAnnotated: ['Composable', 'Inject']
+  LongMethod:
+    ignoreAnnotated: ['Composable', 'Preview']
+  NestedScopeFunctions:
+    active: true
+
+coroutines:
+  GlobalCoroutineUsage:
+    active: true
+  SuspendFunSwallowedCancellation:
+    active: true
+  SuspendFunWithCoroutineScopeReceiver:
+    active: true
+  CoroutineLaunchedInTestWithoutRunTest:
+    active: true
+  SuspendFunInFinallySection:
+    active: true
+
+# Error handling policy: no error is ignored (except CancellationException, which is rethrown).
+# Names like `ignored`/`expected` must not silence the rules below.
+empty-blocks:
+  EmptyCatchBlock:
+    allowedExceptionNameRegex: '^$'
+
+exceptions:
+  ErrorUsageWithThrowable:
+    active: true
+  SwallowedException:
+    ignoredExceptionTypes: []
+    allowedExceptionNameRegex: '^$'
+  TooGenericExceptionCaught:
+    # replaced by heartbeat:GenericExceptionCaught — allows `catch (e: Exception)` after rethrowing CancellationException
+    active: false
+  NotImplementedDeclaration:
+    active: true
+  ObjectExtendsThrowable:
+    active: true
+
+naming:
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+  TopLevelPropertyNaming:
+    # Compose guidelines: PascalCase top-level constants (SCREAMING_CASE still allowed)
+    constantPattern: '[A-Z][_A-Za-z0-9]*'
+  BooleanPropertyNaming:
+    active: true
+  NonBooleanPropertyPrefixedWithIs:
+    active: true
+
+performance:
+  CouldBeSequence:
+    active: true
+  UnnecessaryTypeCasting:
+    active: true
+
+potential-bugs:
+  CastNullableToNonNullableType:
+    active: true
+  DontDowncastCollectionTypes:
+    active: true
+  ElseCaseInsteadOfExhaustiveWhen:
+    active: true
+  ExitOutsideMain:
+    active: true
+  LateinitUsage:
+    active: true
+    excludes: *tests
+  MissingPackageDeclaration:
+    active: true
+  NullableToStringCall:
+    active: true
+  UnnecessaryNotNullCheck:
+    active: true
+
+style:
+  ReturnCount:
+    # early `?: return` / `if (...) return` guards are the idiomatic way to keep nesting flat
+    excludeGuardClauses: true
+  MagicNumber:
+    ignorePropertyDeclaration: true
+    ignoreAnnotated: ['Composable', 'Preview']
+    excludes: ['**/test/**', '**/*Test/**', '**/*.kts', '**/design-system/tokens/**']
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - value: 'io.github.aakira.napier.*'
+        reason: 'Log only through core:logging (io.aequicor.heartbeat.core.logging.Log).'
+      - value: 'android.util.Log'
+        reason: 'Log only through core:logging.'
+      - value: 'androidx.navigation.*'
+        reason: 'Navigation is Decompose only.'
+      - value: 'kotlinx.coroutines.GlobalScope'
+        reason: 'Inject a scope instead.'
+    excludes: ['**/core/logging/**']
+  ForbiddenMethodCall:
+    active: true
+    methods:
+      - value: 'kotlin.io.print'
+        reason: 'Use core:logging.'
+      - value: 'kotlin.io.println'
+        reason: 'Use core:logging.'
+      - value: 'kotlinx.coroutines.runBlocking'
+        reason: 'No blocking in production code.'
+    excludes: *tests
+  ForbiddenSuppress:
+    active: true
+    rules:
+      - 'ForbiddenImport'
+      - 'ForbiddenMethodCall'
+      - 'GlobalCoroutineUsage'
+      # heartbeat: errors and secrets are never silenced
+      - 'SwallowedError'
+      - 'CancellationSwallowed'
+      - 'RawLoggingCall'
+      - 'SensitiveDataLogged'
+  DataClassShouldBeImmutable:
+    active: true
+  ExpressionBodySyntax:
+    active: true
+  RedundantExplicitType:
+    active: true
+  UnnecessaryLet:
+    active: true
+  UnusedImport:
+    active: true
+  UseEmptyCounterpart:
+    active: true
+  UseIfEmptyOrIfBlank:
+    active: true
+  UseDataClass:
+    active: true
+  UnusedPrivateFunction:
+    ignoreAnnotated: ['Preview', 'PreviewLightDark', 'PreviewScreenSizes', 'PreviewFontScale', 'PreviewDynamicColors']
+
+# Custom rule set (lint/detekt-rules): logging policy docs/ai/logging-policy.md + error handling.
+# Defaults: lint/detekt-rules/src/main/resources/config/config.yml; rule docs — KDoc of each rule class.
+heartbeat:
+  active: true
+  # Raw output (println, printStackTrace, System.out, android.util.Log, NSLog, Napier) outside core:logging
+  RawLoggingCall:
+    active: true
+  # catch / Flow.catch / onFailure / getOrElse / fold / CoroutineExceptionHandler must log (w/e + throwable) or propagate
+  SwallowedError:
+    active: true
+    requireErrorReference: true
+  # catch (CancellationException) must rethrow; generic catch / runCatching in coroutines swallow cancellation
+  CancellationSwallowed:
+    active: true
+  # generic catches (Throwable, RuntimeException, ...) are forbidden; `Exception` only after
+  # `catch (e: CancellationException) { throw e }` or `if (e is CancellationException) throw e`
+  GenericExceptionCaught:
+    active: true
+    excludes: &testSources ['**/test/**', '**/*Test/**']
+    allowedAfterCancellationRethrow: ['Exception']
+  # runCatching { } without onFailure/getOrElse/fold/recover, or collapsed by getOrNull()
+  UnhandledResultFailure:
+    active: true
+  # MutableStateFlow / MutableSharedFlow / mutableStateOf mutated without a log in the same function
+  StateChangeNotLogged:
+    active: true
+    excludes: *testSources
+  # public operations of *Repository / *DataSource / *Storage / *Api / *Client must log (network, DB, DataStore)
+  DataAccessNotLogged:
+    active: true
+    excludes: *testSources
+  # HttpClient, DataStore, Room, FlowMVI store, KStateMachine created outside their logging core:* module
+  LoggingInfrastructureBypass:
+    active: true
+    excludes: *testSources
+  # API keys, tokens, passwords, Authorization, cookies in log calls
+  SensitiveDataLogged:
+    active: true
+
+ktlint:
+  active: true
+  code_style: 'ktlint_official'
+  autoCorrect: true
+  FunctionName:
+    # compose-rules owns composable naming
+    active: false
+
+Compose:
+  ComposableAnnotationNaming:
+    active: true
+  ComposableNaming:
+    active: true
+  ComposableNestingDepth:
+    active: false
+  ComposableParamOrder:
+    active: true
+  CompositionLocalNaming:
+    active: true
+  ConditionHoist:
+    active: true
+  ContentEmitterReturningValues:
+    active: true
+  ContentTrailingLambda:
+    active: true
+  ContentSlotReused:
+    active: true
+  DefaultsVisibility:
+    active: true
+  InvalidReadOnlyComposable:
+    active: true
+  LambdaParameterEventTrailing:
+    active: true
+  LambdaParameterInRestartableEffect:
+    active: true
+  Material2:
+    active: false
+  MissingNonRestartableComposable:
+    active: true
+  MissingReadOnlyComposable:
+    active: true
+  ModifierClickableOrder:
+    active: true
+  ModifierComposed:
+    active: true
+  ModifierMissing:
+    active: true
+  ModifierNaming:
+    active: true
+  ModifierNotUsedAtRoot:
+    active: true
+  ModifierReused:
+    active: true
+  ModifierWithoutDefault:
+    active: true
+  MultipleEmitters:
+    active: true
+  MutableParams:
+    active: true
+  MutableStateAutoboxing:
+    active: true
+  MutableStateParam:
+    active: true
+  ParameterNaming:
+    active: true
+  PreviewAnnotationNaming:
+    active: true
+  PreviewNaming:
+    active: false
+  PreviewPublic:
+    active: true
+  RememberContentMissing:
+    active: true
+  RememberMissing:
+    active: true
+  StaleRememberUpdatedStateInRemember:
+    active: true
+  StateParam:
+    active: true
+  UnnecessaryComposable:
+    active: true
+  UnnecessaryLaunchedEffect:
+    active: true
+  UnstableCollections:
+    active: false
+  VarsWithoutStateBacking:
+    active: true
+  ViewModelForwarding:
+    active: true
+  ViewModelInjection:
+    active: true
+  # project-specific overrides
+  CompositionLocalAllowlist:
+    active: true
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalPlatformUi
