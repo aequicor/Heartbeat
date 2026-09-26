@@ -25,7 +25,9 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RootIntegrationTest {
@@ -93,6 +95,51 @@ class RootIntegrationTest {
         process.graph.profileSessions.close()
         advanceUntilIdle()
         assertIs<RootChild.Guest>(process.root.child)
+    }
+
+    @Test
+    fun `conflated sign-out and sign-in recreates the tree for the same profile`() = runRootTest {
+        val process = Process(PersistedProfile(suspendOperations = false))
+        advanceUntilIdle()
+        val sessions = process.graph.profileSessions
+        val first = sessions.open(ProfileId("p1"))
+        advanceUntilIdle()
+        val oldChild = assertIs<RootChild.Profile>(process.root.child)
+        val oldHost = oldChild.host.value
+        oldHost?.navigator?.navigate(FeedRoute)
+
+        sessions.close()
+        val reopened = sessions.open(first.id)
+        // Neither storage operation suspends: the collector sees only the new session, skipping null.
+        assertSame(oldChild, process.root.child)
+        assertNotSame(first.graph, reopened.graph)
+        advanceUntilIdle()
+
+        val newChild = assertIs<RootChild.Profile>(process.root.child)
+        assertNotSame(oldChild, newChild)
+        assertNotSame(oldHost, newChild.host.value)
+        assertEquals(listOf<Route>(WelcomeRoute), process.root.host?.routes)
+        process.root.host?.navigator?.navigate(FeedRoute)
+        assertEquals(listOf(WelcomeRoute, FeedRoute), process.root.host?.routes)
+    }
+
+    @Test
+    fun `opening the already active session preserves its navigation tree`() = runRootTest {
+        val process = Process(PersistedProfile(suspendOperations = false))
+        advanceUntilIdle()
+        val sessions = process.graph.profileSessions
+        val session = sessions.open(ProfileId("p1"))
+        advanceUntilIdle()
+        val child = process.root.child
+        val host = process.root.host
+        host?.navigator?.navigate(FeedRoute)
+
+        assertSame(session, sessions.open(session.id))
+        advanceUntilIdle()
+
+        assertSame(child, process.root.child)
+        assertSame(host, process.root.host)
+        assertEquals(listOf(WelcomeRoute, FeedRoute), host?.routes)
     }
 
     @Test

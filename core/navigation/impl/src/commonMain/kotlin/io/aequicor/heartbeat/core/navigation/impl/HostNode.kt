@@ -58,7 +58,7 @@ internal abstract class HostNode(params: HostParams) : NavHost {
     fun dispatch(route: Route, options: NavOptions, request: ResultRequest?) {
         val hosts = generateSequence(this) { it.owner?.host }
         val target = when (options.target) {
-            NavTarget.Root -> hosts.last()
+            NavTarget.Root -> hosts.last().takeIf { it.canShow(route) }
 
             NavTarget.Nearest -> hosts.firstOrNull { it.acceptsNearest(route) }
 

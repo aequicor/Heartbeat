@@ -5,6 +5,7 @@ import com.arkivanov.decompose.router.slot.ChildSlot
 import com.arkivanov.decompose.router.slot.SlotNavigation
 import com.arkivanov.decompose.router.slot.activate
 import com.arkivanov.decompose.router.slot.childSlot
+import com.arkivanov.decompose.router.slot.dismiss
 import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import io.aequicor.heartbeat.core.logging.Log
@@ -91,12 +92,20 @@ class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph
 
     private fun show(session: ProfileSession?) {
         val config = session?.let { RootConfig.Profile(it.id) } ?: RootConfig.Guest
-        if (slot.value.child?.configuration != config) {
-            navigation.activate(config) { log.i { "root: ${config.logName}" } }
+        val child = slot.value.child
+        val profile = child?.instance as? RootChild.Profile
+        if (session != null && child?.configuration == config && profile?.hasDifferentGraph(session) == true) {
+            // StateFlow can conflate sign-out and sign-in. The same profile id can now own a new graph;
+            // destroy the old child context (including retained instances) before reusing its configuration.
+            navigation.dismiss { show(session) }
+            return
         }
-        // restored after process death before the session existed — create the profile tree now
-        if (session != null) (slot.value.child?.instance as? RootChild.Profile)?.attach(session)
-        applyPendingLink()
+        navigation.activate(config) {
+            log.i { "root: ${config.logName}" }
+            // After process death the restored child has no graph yet, so attach without losing its saved state.
+            if (session != null) (slot.value.child?.instance as? RootChild.Profile)?.attach(session)
+            applyPendingLink()
+        }
     }
 
     private fun createChild(config: RootConfig, context: ComponentContext): RootChild = when (config) {
@@ -176,14 +185,19 @@ sealed interface RootChild {
     ) : RootChild {
         private val log = Log.tag("NAV")
         private val mutableHost = MutableStateFlow<RootHost?>(null)
+        private var attachedSession: ProfileSession? = null
 
         /** Root host of the profile tree. */
         val host: StateFlow<RootHost?> = mutableHost.asStateFlow()
+
+        internal fun hasDifferentGraph(session: ProfileSession): Boolean =
+            attachedSession?.let { it.graph !== session.graph } == true
 
         internal fun attach(session: ProfileSession) {
             if (mutableHost.value != null || session.id != id) return
             val navigation = (session.graph as ProfileNavigation).navigation
             mutableHost.value = navigation.create(context, initial, name = "profile")
+            attachedSession = session
             log.i { "root: profile tree of ${id.value} attached" }
         }
     }

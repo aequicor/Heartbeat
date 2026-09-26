@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.Job
-import kotlinx.serialization.json.Json
 
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -42,9 +41,6 @@ internal fun createRootScope(dispatchers: DispatcherProvider): OwnedScope =
         .also { Log.tag(ScopeHandleImpl.LOG_TAG).i { "scope $ROOT_SCOPE_NAME created" } }
 
 private fun createScope(dispatchers: DispatcherProvider, name: String, parentJob: Job?, restored: SavedBundle?) =
-    ScopeHandleImpl(name, parentJob, dispatchers.main, ScopeSavedStateImpl(name, restored, ScopeJson))
+    ScopeHandleImpl(name, parentJob, dispatchers.main, ScopeSavedStateImpl(name, restored))
 
 private const val ROOT_SCOPE_NAME = "app"
-
-/** Tolerates fields removed between app versions in saved state. */
-private val ScopeJson = Json { ignoreUnknownKeys = true }

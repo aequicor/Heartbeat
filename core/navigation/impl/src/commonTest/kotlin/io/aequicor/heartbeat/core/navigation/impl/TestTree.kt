@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.core.navigation.routeEntry
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 
 // ---- routes of fake features ----
 
@@ -136,7 +137,11 @@ internal class TestTree(
     val root: RootHost = RootNavHostFactoryImpl(routes, DeepLinkRouter(TestDeepLinkConfig, testDeepLinks))
         .create(context, initial)
 
-    fun save(): SerializableContainer = stateKeeper.save()
+    /** Serializes the lazy container so tests exercise the same serializers as process restoration. */
+    fun save(): SerializableContainer = Json.decodeFromString(
+        SerializableContainer.serializer(),
+        Json.encodeToString(SerializableContainer.serializer(), stateKeeper.save()),
+    )
 }
 
 val StackHost.routes: List<Route> get() = stack.value.items.map { it.configuration.route }

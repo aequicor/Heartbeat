@@ -36,7 +36,7 @@ internal fun newEntry(route: Route, transition: NavTransition, request: ResultRe
 /**
  * Saves an [Entry] as `{type, route JSON}`: the route serializer is found by the stable type name in the host's
  * [RouteLookup], so no polymorphic registration is needed. An unknown type (feature removed between versions)
- * fails the restore with [SerializationException] — Decompose then starts from the initial configuration.
+ * fails the restore with [SerializationException] — the host catches it and uses its initial configuration.
  */
 internal class EntrySerializer(private val routes: RouteLookup) : KSerializer<Entry> {
 

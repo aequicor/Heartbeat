@@ -44,7 +44,7 @@ interface TestAppGraph : HeartbeatGraph {
     }
 }
 
-class PersistedProfile {
+class PersistedProfile(val suspendOperations: Boolean = true) {
     var id: ProfileId? = null
 }
 
@@ -52,14 +52,14 @@ class PersistedProfile {
 @ContributesBinding(AppScope::class, priority = 1)
 @Inject
 class FakeActiveProfileStorage(private val persisted: PersistedProfile) : ActiveProfileStorage {
-    // suspends like a real DataStore: exposes cancellation bugs that an in-memory storage would hide
+    // Usually suspends like DataStore; tests can also exercise an in-memory implementation with no suspension.
     override suspend fun read(): ProfileId? {
-        yield()
+        if (persisted.suspendOperations) yield()
         return persisted.id
     }
 
     override suspend fun write(id: ProfileId?) {
-        yield()
+        if (persisted.suspendOperations) yield()
         persisted.id = id
     }
 }

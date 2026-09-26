@@ -100,6 +100,8 @@ navigator.finishWithResult(PickContactResult, contact)            // доста�
 ```
 
 Результат переживает поворот и смерть процесса, выдаётся один раз. «Назад» — без результата.
+Для `navigateForResult` режимы `SingleTop` и `BringToFront` заменяют совпавшую запись новой: её получатель результата
+должен соответствовать текущему запросу. Обычный `navigate` по-прежнему сохраняет компонент при повторном открытии.
 
 ## 6. Планшеты: список + детали
 
@@ -165,7 +167,8 @@ setContent { HbTheme { RootContent(root, loading = { Splash() }) } }
 ```
 
 - Слот `Guest` / `Profile(id)` по `ProfileSessions.active`: вход, выход и смена профиля переключают дерево сами
-  (фича вызывает только `profileSessions.open/close`). Профильное дерево пересоздаётся вместе с профилем.
+  (фича вызывает только `profileSessions.open/close`). Профильное дерево пересоздаётся при замене графа сессии,
+  в том числе при быстром выходе и повторном входе в тот же профиль, когда `StateFlow` пропустил промежуточный `null`.
 - Холодный старт: `slot.child == null` («loading») до `profileSessions.restore()`; после смерти процесса слот
   восстанавливается как `Profile(id)`, а дерево создаётся из сохранённого стека, как только сессия восстановлена.
 - Deep link в гостевом дереве, который оно не показывает (`NoMatch`), и ссылка во время загрузки откладываются
@@ -184,5 +187,8 @@ val context = DefaultComponentContext(LifecycleRegistry().apply { resume() }, St
 ```
 
 Навигацию проверяют через `host.stack.value.items`, `panels.value.details`, `BackDispatcher.back()`; смерть процесса —
-`StateKeeperDispatcher.save()` → новый контекст с сохранённым состоянием. Примеры: `core/navigation/impl/src/commonTest`,
+`StateKeeperDispatcher.save()` → сериализация и десериализация `SerializableContainer` в JSON → новый контекст.
+Без JSON-преобразования контейнер может сохранить исходные объекты, и сериализаторы маршрутов не будут проверены.
+При несовместимом сохранённом маршруте хост начинает с исходной конфигурации и удаляет ожидающие результаты его дерева.
+Примеры: `core/navigation/impl/src/commonTest`,
 интеграция с Metro — `platform-main/di-bundle/src/jvmTest/.../NavigationIntegrationTest.kt`.

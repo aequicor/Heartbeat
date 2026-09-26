@@ -4,6 +4,7 @@ import com.arkivanov.decompose.router.stack.ChildStack
 import com.arkivanov.decompose.router.stack.StackNavigation
 import com.arkivanov.decompose.router.stack.childStack
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.essenty.statekeeper.SerializableContainer
 import io.aequicor.heartbeat.core.navigation.GlobalRoutes
 import io.aequicor.heartbeat.core.navigation.LaunchMode
 import io.aequicor.heartbeat.core.navigation.NavComponent
@@ -12,6 +13,7 @@ import io.aequicor.heartbeat.core.navigation.NavOptions
 import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.navigation.StackHost
+import kotlinx.serialization.builtins.ListSerializer
 
 /** [StackHost] over Decompose `childStack`; "back" pops while more than one entry is left. */
 internal open class StackHostImpl(params: HostParams, private val global: GlobalRoutes, initial: List<Route>) :
@@ -25,9 +27,11 @@ internal open class StackHostImpl(params: HostParams, private val global: Global
     init {
         require(initial.isNotEmpty()) { "$path: a stack needs at least one initial route" }
         initial.forEach(::requireShowable)
+        val serializer = ListSerializer(EntrySerializer(lookup))
         stack = context.childStack(
             source = navigation,
-            serializer = EntrySerializer(lookup),
+            saveStack = { SerializableContainer(it, serializer) },
+            restoreStack = { restoreState(it, serializer) },
             initialStack = { initial.map { newEntry(it, NavTransition.Default) } },
             key = key,
             handleBackButton = true,
@@ -92,11 +96,15 @@ internal open class StackHostImpl(params: HostParams, private val global: Global
 private fun List<Entry>.launch(entry: Entry, mode: LaunchMode): List<Entry> = when (mode) {
     LaunchMode.Push -> this + entry
 
-    LaunchMode.SingleTop -> if (lastOrNull()?.route == entry.route) this else this + entry
+    LaunchMode.SingleTop -> when {
+        lastOrNull()?.route != entry.route -> this + entry
+        entry.request != null -> dropLast(1) + entry
+        else -> this
+    }
 
     LaunchMode.BringToFront -> {
         val existing = firstOrNull { it.route == entry.route }
-        if (existing == null) this + entry else this - existing + existing
+        if (existing == null) this + entry else this - existing + if (entry.request == null) existing else entry
     }
 
     LaunchMode.ReplaceCurrent -> dropLast(1) + entry

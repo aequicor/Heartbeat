@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.Child
 import com.arkivanov.decompose.ExperimentalDecomposeApi
@@ -14,6 +16,7 @@ import com.arkivanov.decompose.extensions.compose.experimental.stack.animation.P
 import com.arkivanov.decompose.extensions.compose.experimental.stack.animation.stackAnimation
 import com.arkivanov.decompose.extensions.compose.stack.animation.Direction
 import com.arkivanov.decompose.extensions.compose.stack.animation.isFront
+import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import com.arkivanov.decompose.router.panels.ChildPanelsMode
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.NavEntry
@@ -57,12 +60,15 @@ public fun NavPanels(
     modifier: Modifier = Modifier,
     animations: NavAnimations = LocalNavAnimations.current,
 ) {
+    val panels by host.panels.subscribeAsState()
+    val panelAnimations = remember(host) { NavPanelAnimations() }
     SideEffect { host.setMode(mode) } // idempotent: no-op when the mode is unchanged
     ChildPanels(
-        panels = host.panels,
+        panels = panels,
         mainChild = { NavEntryContent(it.configuration, it.instance, animatedScope = this) },
         detailsChild = { NavEntryContent(it.configuration, it.instance, animatedScope = this) },
         modifier = modifier,
+        animators = panelAnimations.select(panels.details?.configuration, animations),
         predictiveBackParams = { host.predictiveBackParams(animations) },
     )
 }

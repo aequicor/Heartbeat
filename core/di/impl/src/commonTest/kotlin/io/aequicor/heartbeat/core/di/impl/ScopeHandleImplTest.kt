@@ -6,7 +6,6 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -18,7 +17,7 @@ class ScopeHandleImplTest {
         name = name,
         parentJob = null,
         dispatcher = StandardTestDispatcher(testScheduler),
-        savedState = ScopeSavedStateImpl(name, restored = null, json = Json),
+        savedState = ScopeSavedStateImpl(name, restored = null),
     )
 
     @Test

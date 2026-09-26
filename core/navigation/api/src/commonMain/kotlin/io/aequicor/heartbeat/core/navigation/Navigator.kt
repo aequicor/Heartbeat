@@ -14,6 +14,9 @@ public interface Navigator {
     /**
      * Opens [route] expecting a result of [contract]; the opened entry answers with [finishWithResult],
      * the result arrives in [results] of this navigator. Closing the entry by "back" gives no result.
+     * With [LaunchMode.SingleTop] or [LaunchMode.BringToFront], an equal entry is replaced with a fresh
+     * component so this request cannot inherit another caller's result address. Ordinary [navigate] keeps
+     * the component according to the launch mode.
      */
     public fun <R : Any> navigateForResult(
         route: Route,

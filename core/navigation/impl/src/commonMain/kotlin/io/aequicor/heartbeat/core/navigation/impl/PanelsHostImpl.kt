@@ -10,6 +10,7 @@ import com.arkivanov.decompose.router.panels.childPanels
 import com.arkivanov.decompose.router.panels.dismissDetails
 import com.arkivanov.decompose.router.panels.setMode
 import com.arkivanov.decompose.value.Value
+import com.arkivanov.essenty.statekeeper.SerializableContainer
 import io.aequicor.heartbeat.core.navigation.LaunchMode
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.NavEntry
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.PanelsHost
 import io.aequicor.heartbeat.core.navigation.Route
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.builtins.NothingSerializer
 
 /**
  * [PanelsHost] over Decompose `childPanels` (main + details). Opening a route replaces the details entry;
@@ -35,9 +37,12 @@ internal class PanelsHostImpl(params: HostParams, main: Route, details: Route?) 
     init {
         requireShowable(main)
         details?.let(::requireShowable)
+        val entrySerializer = EntrySerializer(lookup)
+        val serializer = Panels.serializer(entrySerializer, entrySerializer, NothingSerializer())
         panels = context.childPanels(
             source = navigation,
-            serializers = EntrySerializer(lookup) to EntrySerializer(lookup),
+            savePanels = { SerializableContainer(it, serializer) },
+            restorePanels = { restoreState(it, serializer) },
             initialPanels = {
                 Panels(
                     main = newEntry(main, NavTransition.Default),
@@ -58,7 +63,7 @@ internal class PanelsHostImpl(params: HostParams, main: Route, details: Route?) 
     override fun acceptsNearest(route: Route): Boolean = localRoutes.contains(route::class)
 
     override fun open(route: Route, options: NavOptions, request: ResultRequest?) {
-        if (options.launch == LaunchMode.SingleTop && detailsEntry?.route == route) {
+        if (options.launch == LaunchMode.SingleTop && detailsEntry?.route == route && request == null) {
             log.i { "$path: details ${typeOf(route)} already shown, ignored" }
             return
         }
