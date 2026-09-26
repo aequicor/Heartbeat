@@ -70,14 +70,17 @@ $hits"
             | grep -vE "feature\.${self}\.impl" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl → чужой impl запрещён. Используй api другой фичи (MachineKey / EntryPoint).
 $hits"
+    hits="$(grep_lines 'import ru\.nsk\.kstatemachine\.')"
+    [ -n "$hits" ] && add "KStateMachine — внутренность core:state-machine:impl. Фича описывает машину через machineSpec { } (core:state-machine:api), запускает через MachineLauncher. См. docs/adr/0004-state-machine.md
+$hits"
     hits="$(grep_lines 'import (io\.github\.composefluent|dev\.nucleusframework|androidx\.compose\.material3)\.')"
     [ -n "$hits" ] && add "Фичи используют только Hb*-компоненты design-system, не UI-киты напрямую.
 $hits"
   fi
 
   if [[ "$rel" =~ ^features/[^/]+/api/ ]]; then
-    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl)')"
-    [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core и без impl. См. .claude/rules/feature-api.md
+    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl|ru\.nsk\.kstatemachine\.|pro\.respawn\.flowmvi\.)')"
+    [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core, без impl, KStateMachine и FlowMVI (машина — machineSpec { }). См. .claude/rules/feature-api.md
 $hits"
   fi
 
@@ -87,10 +90,11 @@ $hits"
 $hits"
   fi
 
-  # 6. core:*:impl (di, profile-facade) is wired only by platform-main:di-bundle
-  if [[ "$rel" != platform-main/di-bundle/* && "$rel" != core/di/impl/* && "$rel" != core/profile-facade/impl/* ]]; then
-    hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.(di|profilefacade)\.impl\.')"
-    [ -n "$hits" ] && add "core:di:impl / core:profile-facade:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions…). См. docs/adr/0002-di-scopes.md
+  # 6. core:*:impl (di, profile-facade, state-machine) is wired only by platform-main:di-bundle
+  if [[ "$rel" != platform-main/di-bundle/* && "$rel" != core/di/impl/* && "$rel" != core/profile-facade/impl/* \
+        && "$rel" != core/state-machine/impl/* ]]; then
+    hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.(di|profilefacade|statemachine)\.impl\.')"
+    [ -n "$hits" ] && add "core:di:impl / core:profile-facade:impl / core:state-machine:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, MachineLauncher, MachineRegistry…). См. docs/adr/0002-di-scopes.md, docs/adr/0004-state-machine.md
 $hits"
   fi
 fi

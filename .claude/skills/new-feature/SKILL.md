@@ -31,16 +31,16 @@ features/<name>/
 
 ## 2. `api` — контракт (скилл `state-machine`)
 
-1. `<Name>MachineKey`, `<Name>Event` (`Public`/`Internal`), `<Name>State`, `<Name>Effects`, `<Name>MachineSpec` с KDoc-таблицей.
+1. `<Name>MachineKey`, `<Name>State`, `<Name>Intent` (`Public`/`Internal`), `<Name>Effect`, `<Name>Output`, `<Name>MachineSpec = machineSpec { }` с KDoc-таблицей.
 2. `<Name>Route` (`@Serializable @SerialName`) и `ResultContract`, если фичу открывают извне / она возвращает результат (скилл `navigation`).
 3. Тоглы, которые читают другие фичи (скилл `feature-toggle`).
-4. Тесты переходов → `./gradlew :features:<name>:api:jvmTest`.
+4. Тесты переходов (`assertTransition` / `assertIgnored`) → `./gradlew :features:<name>:api:jvmTest`.
 
 ## 3. `impl` — исполнение
 
-1. `machine/`: `<Name>EffectsImpl` (`@ContributesBinding`), `<Name>MachineFactory` (`@ContributesIntoMap @StringKey`). Скилл `di-metro`.
+1. `machine/`: `<Name>EffectHandler` (`@ContributesBinding(<Name>Scope::class)`); `di/<Name>MachineBindings` — `@Provides @SingleIn(<Name>Scope::class)` машины через `MachineLauncher`. Скиллы `state-machine`, `di-metro`.
 2. `data/`: репозитории, DAO/DataStore/сеть (скиллы `data-storage`, `network`), ИИ — скилл `ai-koog`.
-3. `store/`: FlowMVI-сторы экранов (скилл `mvi-store`).
+3. `store/`: FlowMVI-сторы экранов, отражающие машину через `reflect` (скилл `mvi-store`).
 4. `component/`: Decompose-компоненты (`ComposableComponent`), `<Name>RootComponent` со своим `StackHost`/`PanelsHost` (скилл `navigation`).
 5. `ui/`: экраны только из `Hb*` + токены (скилл `design-system`), `@Preview` light/dark.
 6. `di/`: `RouteEntry` и `DeepLinkEntry` (`@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())`), тоглы (`@ContributesIntoSet`).
@@ -48,14 +48,14 @@ features/<name>/
 
 ## 4. Интеграция
 
-- Открытие из другой фичи — `navigator.navigate(<Name>Route(…))`; бизнес-взаимодействие — `MachineRegistry[<Name>MachineKey]`.
+- Открытие из другой фичи — `navigator.navigate(<Name>Route(…))`; бизнес-взаимодействие — `machineRegistry.send(<Name>MachineKey, Public intent)` (пока фича открыта).
 - Проверь, что фичи-потребители зависят только от `api`.
 
 ## 5. Проверка
 
 1. Скилл `verify` (компиляция, jvmTest, detekt).
 2. Субагенты `architecture-reviewer` и `ui-reviewer` на изменённые файлы; исправь блокеры.
-3. Запусти desktop (`./gradlew :desktopApp:run` / `:platform-main:desktop:run`) и пройди основной флоу, проверь логи переходов (`SM/<name>`).
+3. Запусти desktop (`./gradlew :desktopApp:run` / `:platform-main:desktop:run`) и пройди основной флоу, проверь логи машины (`SM/<name>`: интенты, переходы, эффекты).
 
 ## Чек-лист готовности
 

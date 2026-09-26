@@ -20,13 +20,14 @@ model: opus
 - `api(...)` в Gradle только для типов публичного контракта.
 
 **State-machine**
-- Все состояния и переходы фичи объявлены в `api`; `impl` не добавляет переходы.
-- Внешние фичи шлют только `Event.Public` через `MachineRegistry[Key]`; `Internal`-события шлют только эффекты своей фичи.
-- Эффекты в `onEntry` через интерфейс `Effects`, ошибки → событие `Internal.Failed…`, нет «зависших» состояний без выхода.
-- Есть тесты переходов в `api/src/commonTest`, включая запрещённые переходы.
+- Все состояния, переходы, эффекты и outputs объявлены в `machineSpec { }` в `api`; `impl` не добавляет переходы и не использует KStateMachine напрямую.
+- Внешние фичи шлют только `Intent.Public` через `MachineRegistry.send(Key, …)`; `Internal` шлют только сама фича и её `EffectHandler`.
+- Лямбды спеки чистые (без IO); ошибки эффектов → `onEffectFailure` → `Internal.Failed…`; нет «зависших» состояний без выхода.
+- Машина запускается в скоупе фичи (`@Provides @SingleIn(<Feature>Scope)` + `MachineLauncher`), не в `AppScope`.
+- Есть тесты `assertTransition`/`assertIgnored` в `api/src/commonTest`, включая запрещённые переходы.
 
 **MVI / навигация / DI**
-- Стор создан через `heartbeatStore` из `core:mvi`, не дублирует состояние машины, нет бизнес-решений в `reduce`, которые должны быть переходом машины.
+- Стор создан через `heartbeatStore` из `core:mvi`, отражает машину через `reflect` (исчерпывающий `when`, без `else`), шлёт интенты через `sendTo`; нет бизнес-решений в `reduce`, которые должны быть переходом машины.
 - Навигация только Decompose; конфиги `@Serializable`; компоненты не держат ссылок на UI.
 - DI только Metro, реализации `internal` + `@ContributesBinding`; нет `object`-синглтонов с состоянием; нет ручного `new` зависимостей, которые должны инжектиться.
 

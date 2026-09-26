@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.core.di.SharedFactory
 import io.aequicor.heartbeat.core.di.SharedKey
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.serializer
 
@@ -35,6 +37,8 @@ interface TestAppGraph : HeartbeatGraph {
 
     @ForScope(AppScope::class)
     val appScope: ScopeHandle
+
+    val machines: MachineRegistry
 
     @DependencyGraph.Factory
     fun interface Factory {
@@ -71,6 +75,7 @@ abstract class TestFeatureScope private constructor()
 @GraphExtension(TestFeatureScope::class)
 interface TestFeatureGraph {
     val draft: Draft
+    val machine: Machine<CounterState, CounterIntent, CounterOutput>
 
     @ForScope(TestFeatureScope::class)
     val scope: ScopeHandle

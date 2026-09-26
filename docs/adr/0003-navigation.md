@@ -63,7 +63,7 @@ RootHost (StackHost)                         глобальные маршрут
   Ожидающие результаты адресуются путём записи (`root/<id>/<host>/<id>`), хранятся в `ResultStore` корня
   (InstanceKeeper + StateKeeper) и переживают смерть процесса. Результат выдаётся один раз и удаляется, когда запись
   уничтожена окончательно.
-- Бизнес-события — по-прежнему `MachineRegistry[Key].send(Event.Public)`. Общий живой объект — `SharedScopes` (ADR-0002).
+- Бизнес-события — `MachineRegistry.send(Key, Intent.Public)` ([ADR-0004](0004-state-machine.md)). Общий живой объект — `SharedScopes` (ADR-0002).
 
 ### Анимации
 
