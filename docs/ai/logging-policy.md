@@ -24,7 +24,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Переход state-machine (`from --event--> to`), отклонённое событие | listener в `core:state-machine`, ставится на каждую машину при регистрации | I (переход), W (отклонено) |
 | Отправка события в чужую машину через `MachineRegistry` | `core:state-machine` | I |
 | Навигация (операция, путь хоста, `serialName` маршрута, стек — без полей маршрутов), результаты, deep links (шаблон, не ссылка) | хосты `core:navigation:impl` | I |
-| HTTP-запрос/ответ, статус, длительность | Ktor `Logging` с адаптером в `core:network` | I (метод, url, статус, ms), D (заголовки без секретов) |
+| HTTP-запрос/ответ, статус, длительность (каждая попытка, ретраи, таймауты) | плагин `NetworkLogging` в `core:network:impl`, тег `NET` | I (метод, url без значений query, статус, ms), W (не-2xx, сбой — с throwable), D (заголовки без секретов); тела — никогда |
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
 | Запись/чтение DataStore | логирующая обёртка в `core:datastore` | D (ключ), I (изменение конфигурации) |
 | Изменение тогла | `core:feature-toggles` | I (`toggle key: old -> new, source`) |
@@ -45,7 +45,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 
 ## Запрещено логировать
 
-- API-ключи, токены, пароли, заголовки `Authorization`, cookies — редактируются `Log.redact()` и Ktor `sanitizeHeader`.
+- API-ключи, токены, пароли, заголовки `Authorization`, cookies — редактируются `Log.redact()` (в том числе значения чувствительных заголовков в `NetworkLogging`).
 - Полный текст пользовательских промптов/ответов LLM и файлов — только в debug-сборке на уровне `D`; в release — длина, хэш, id.
 - Персональные данные пользователя.
 

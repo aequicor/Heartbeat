@@ -33,7 +33,8 @@ lint/            detekt-rules — собственный набор правил
 
 > Текущее состояние: шаблонные модули (`androidApp`, `desktopApp`, `iosApp`, `shared`) ещё не перенесены.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`), `core:logging`, `core:common`,
-> `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)).
+> `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)),
+> `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:network:{api,impl}` ([ADR-0005](docs/adr/0005-network.md)).
 > Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)

@@ -15,7 +15,7 @@
 | SQLite-драйвер | sqlite-bundled | `androidx.sqlite:sqlite-bundled` | 2.7.1 | ↑ |
 | KSP | KSP2 | плагин `com.google.devtools.ksp` | 2.3.12 | https://github.com/google/ksp |
 | Настройки | DataStore KMP | `androidx.datastore:datastore-preferences-core` | 1.2.1 (1.3.0-alpha) | https://developer.android.com/kotlin/multiplatform/datastore |
-| Сеть | Ktor client | `io.ktor:ktor-client-core`, `-content-negotiation`, `-serialization-kotlinx-json`, `-logging`, engines `-okhttp` (android/jvm), `-darwin` (ios) | 3.6.0 | https://ktor.io/docs/client-create-new-application.html |
+| Сеть | Ktor client | `io.ktor:ktor-client-core`, `-content-negotiation`, `-serialization-kotlinx-json`, engines `-okhttp` (android/jvm), `-darwin` (ios), `-mock` (тесты); `-logging` не используется — HTTP логирует свой плагин `core:network:impl` (ADR-0005) | 3.6.0 | https://ktor.io/docs/client-create-new-application.html |
 | Сериализация | kotlinx.serialization | `org.jetbrains.kotlinx:kotlinx-serialization-json` + плагин `org.jetbrains.kotlin.plugin.serialization` | 1.11.0 | — |
 | ИИ-агенты | Koog | `ai.koog:koog-agents` (есть android, jvm, ios варианты) | 1.3.0 | https://docs.koog.ai/ |
 | Логирование | Napier | `io.github.aakira:napier` | 2.7.1 | https://github.com/AAkira/Napier |

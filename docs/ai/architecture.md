@@ -34,7 +34,7 @@
 | `features:X:api` | `core:state-machine`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:database/network/ai` |
 | `design-system:*` | `core:resources`, `core:logging`, `core:common`, UI-киты | `features:*`, остальной `core` |
 | `core:X` | `core:logging`, `core:common`, другие `core` без циклов | `features:*`, `design-system:*`, любой `impl` |
-| `core:X:impl` (`di`, `profile-facade`) | свой `api`, другие `core` | — ; от него зависит только `di-bundle` |
+| `core:X:impl` (`di`, `profile-facade`, `network`) | свой `api`, другие `core` | — ; от него зависит только `di-bundle` |
 | `core:logging` | Napier | всё прочее в проекте |
 
 `api`-модули экспортируют (`api(...)`) только то, что входит в их публичный контракт; всё остальное — `implementation`.
@@ -48,13 +48,13 @@
 - `io.aequicor.heartbeat.ds.tokens`, `io.aequicor.heartbeat.ds.components`
 - `io.aequicor.heartbeat.platform.android`
 
-Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `:design-system:tokens`, `:platform-main:android`.
+Gradle-пути: `:core:network:api`, `:features:chat:api`, `:features:chat:impl`, `:design-system:tokens`, `:platform-main:android`.
 
 ## Core-модули
 
 | Модуль | Ответственность | Библиотека |
 |---|---|---|
-| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/Ktor/KStateMachine/Koog | Napier |
+| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/KStateMachine/Koog (HTTP логирует `core:network:impl`) | Napier |
 | `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, Result/ошибки, Clock | coroutines |
 | `core:di:api` | скоупы (`ProfileScope`, `@ForScope`), `ScopeHandle`, `ScopeSavedState`, `ScopeFactory`, shared-скоупы | Metro, kotlinx-serialization (api) |
 | `core:di:ext` | `retainedGraph` / `retainedScope` / `retainedShared` — скоуп, привязанный к компоненту | Essenty |
@@ -69,7 +69,8 @@ Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `
 | `core:resources` | общие строки/иконки/шрифты, локализация | Compose Resources |
 | `core:database` | `HeartbeatDatabase`, драйвер, миграции, фабрики per-platform | Room KMP + BundledSQLiteDriver |
 | `core:datastore` | фабрика `DataStore<Preferences>` per-platform, логирующая обёртка | DataStore KMP |
-| `core:network` | `HttpClient` c engine per-platform, JSON, ретраи, логирование | Ktor 3 |
+| `core:network:api` | `HttpClient` (тип Ktor) для API-классов фич, `NetworkConfig`, `NetworkException`, `networkResult { }` ([ADR-0005](../adr/0005-network.md)) | Ktor 3 (core) |
+| `core:network:impl` | клиент приложения: engine per-platform (OkHttp / Darwin), JSON, таймауты, ретраи идемпотентных запросов, логи `NET` | Ktor 3 |
 | `core:ai` | провайдеры LLM, `PromptExecutor`, реестр инструментов, агенты, ключи из безопасного хранилища | Koog |
 | `core:feature-toggles` | `FeatureToggle<T>`, `FeatureToggles` (Flow), хранение в DataStore, реестр | DataStore |
 

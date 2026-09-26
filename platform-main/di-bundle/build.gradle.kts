@@ -14,9 +14,11 @@ kotlin {
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
             implementation(projects.core.logging)
+            implementation(projects.core.network.api)
             implementation(projects.core.di.impl)
             implementation(projects.core.profileFacade.impl)
             implementation(projects.core.navigation.impl)
+            implementation(projects.core.network.impl)
         }
         jvmTest.dependencies {
             implementation(projects.core.di.ext)

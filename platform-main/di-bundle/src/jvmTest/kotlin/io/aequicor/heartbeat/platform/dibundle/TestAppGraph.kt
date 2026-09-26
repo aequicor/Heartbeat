@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.core.di.SharedFactory
 import io.aequicor.heartbeat.core.di.SharedKey
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.serializer
 
@@ -35,6 +37,10 @@ interface TestAppGraph : HeartbeatGraph {
 
     @ForScope(AppScope::class)
     val appScope: ScopeHandle
+
+    val httpClient: HttpClient
+
+    val httpEngine: HttpClientEngine
 
     @DependencyGraph.Factory
     fun interface Factory {
