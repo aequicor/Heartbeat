@@ -52,7 +52,7 @@ features/chat/api/src/commonMain/kotlin/io/aequicor/heartbeat/feature/chat/api/
   ChatState.kt          состояния (object / DataState)
   ChatEffects.kt        interface ChatEffects — suspend-операции для onEntry
   ChatMachineSpec.kt    fun BuildingStateMachine.chatMachine(effects: ChatEffects) — граф
-  ChatEntryPoint.kt     фабрика корневого компонента + @Serializable конфиг входа
+  ChatRoute.kt          @Serializable @SerialName("chat") data class ChatRoute(chatId) : Route (+ ResultContract, если есть)
 src/commonTest/…        ChatMachineSpecTest — переходы с FakeChatEffects
 ```
 
@@ -147,7 +147,7 @@ class OpenChatUseCase(private val machines: MachineRegistry) {
 
 - Только `Event.Public`. `Internal` — приватный протокол фичи (в `api` из-за sealed-иерархии, но KDoc помечает, что слать его извне запрещено; ревью это проверяет).
 - Реакция на состояние чужой машины — подписка на `machines[Key].activeStates`, без синхронных ожиданий «A ждёт B, B ждёт A».
-- Навигация в чужую фичу — через её `EntryPoint` (Decompose-фабрика из `api`), а не через конфиги её `impl`.
+- Навигация в чужую фичу — `navigator.navigate(OtherRoute(…))` по маршруту из её `api` (скилл `navigation`), а не через компоненты/конфиги её `impl`.
 
 ## Что в `impl`
 

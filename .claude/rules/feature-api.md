@@ -13,7 +13,7 @@ paths:
 - `object <Name>MachineKey : MachineKey<<Name>Event.Public>` — единственный способ адресовать машину извне.
 - `<Name>MachineSpec` — функция/класс, строящий граф состояний и переходов. Без IO: побочные эффекты — через интерфейс `<Name>Effects`.
 - `<Name>Effects` — интерфейс эффектов (реализует `impl`).
-- `<Name>EntryPoint` / фабрика корневого Decompose-компонента и `@Serializable` конфиг входа (если фича открывается извне).
+- Публичные маршруты `@Serializable @SerialName("<name>") <Name>Route : Route` и `ResultContract`-ы (если фича открывается извне / возвращает результат). Скилл `navigation`.
 - Определения тоглов фичи, если их читают другие модули.
 
 Запрещено:

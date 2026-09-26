@@ -32,7 +32,7 @@ features/<name>/
 ## 2. `api` — контракт (скилл `state-machine`)
 
 1. `<Name>MachineKey`, `<Name>Event` (`Public`/`Internal`), `<Name>State`, `<Name>Effects`, `<Name>MachineSpec` с KDoc-таблицей.
-2. `<Name>EntryPoint` + `@Serializable` args/output (скилл `navigation`), если фичу открывают извне.
+2. `<Name>Route` (`@Serializable @SerialName`) и `ResultContract`, если фичу открывают извне / она возвращает результат (скилл `navigation`).
 3. Тоглы, которые читают другие фичи (скилл `feature-toggle`).
 4. Тесты переходов → `./gradlew :features:<name>:api:jvmTest`.
 
@@ -41,14 +41,14 @@ features/<name>/
 1. `machine/`: `<Name>EffectsImpl` (`@ContributesBinding`), `<Name>MachineFactory` (`@ContributesIntoMap @StringKey`). Скилл `di-metro`.
 2. `data/`: репозитории, DAO/DataStore/сеть (скиллы `data-storage`, `network`), ИИ — скилл `ai-koog`.
 3. `store/`: FlowMVI-сторы экранов (скилл `mvi-store`).
-4. `component/`: Decompose-компоненты, `Default<Name>RootComponent`, реализация `EntryPoint` (скилл `navigation`).
+4. `component/`: Decompose-компоненты (`ComposableComponent`), `<Name>RootComponent` со своим `StackHost`/`PanelsHost` (скилл `navigation`).
 5. `ui/`: экраны только из `Hb*` + токены (скилл `design-system`), `@Preview` light/dark.
-6. `di/`: тоглы (`@ContributesIntoSet`), рендерер (`FeatureRenderer`).
+6. `di/`: `RouteEntry` и `DeepLinkEntry` (`@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())`), тоглы (`@ContributesIntoSet`).
 7. Новая функциональность под тоглом `<name>.enabled` с `default = false`, пока фича не готова.
 
 ## 4. Интеграция
 
-- Точка входа в root (`RootConfig.<Name>`) или вызов из другой фичи через `MachineRegistry[<Name>MachineKey]` / `EntryPoint`.
+- Открытие из другой фичи — `navigator.navigate(<Name>Route(…))`; бизнес-взаимодействие — `MachineRegistry[<Name>MachineKey]`.
 - Проверь, что фичи-потребители зависят только от `api`.
 
 ## 5. Проверка

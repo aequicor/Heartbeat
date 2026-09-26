@@ -23,6 +23,8 @@ class DetektConventionPlugin : Plugin<Project> {
 
     override fun apply(target: Project) = with(target) {
         pluginManager.apply("dev.detekt")
+        // every module applies detekt — the natural carrier for project-wide module boundary checks
+        checkImplDependencies()
 
         val libs = extensions.getByType<VersionCatalogsExtension>().named("libs")
 
