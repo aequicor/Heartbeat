@@ -5,6 +5,7 @@
 | Тип | Назначение |
 |---|---|
 | `DispatcherProvider` | `main` / `default` / `io`. Всегда инжектируется, `Dispatchers.*` напрямую в продовом коде не используется |
+| `Clock` (`kotlin.time`) | `ClockBindings` отдаёт `Clock.System`. Всегда инжектируется, чтобы тесты управляли временем |
 | `PlatformInfo`, `HostPlatform` | ОС, на которой запущено приложение (`Android`, `Ios`, `MacOs`, `Windows`, `Linux`); по ней точка входа выбирает UI-кит |
 
 ## Использование

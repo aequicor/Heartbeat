@@ -47,6 +47,8 @@ include(":core:navigation:impl")
 include(":core:navigation:compose")
 include(":core:profile-facade:api")
 include(":core:profile-facade:impl")
+include(":core:datastore:api")
+include(":core:datastore:impl")
 include(":platform-main:di-bundle")
 include(":platform-main:root")
 

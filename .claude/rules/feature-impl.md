@@ -10,7 +10,7 @@ paths:
 ```
 di/          Metro-контрибуции: @ContributesBinding (Effects), @ContributesIntoSet (RouteEntry / DeepLinkEntry с binding<Profile|AppRouteBinding>()), @ContributesIntoMap (машина в реестр), @ContributesIntoSet (тоглы)
 machine/     <Name>EffectsImpl, регистрация машины
-data/        репозитории, DAO-адаптеры, мапперы DTO ↔ domain
+data/        репозитории, своя Room-БД (@Database, Entity, DAO, DatabaseSpec — плагин heartbeat.room), мапперы DTO ↔ domain
 component/   Decompose-компоненты (ComposableComponent), внутренние Route фичи, вложенные хосты (NavHostFactory)
 store/       FlowMVI-сторы (<Screen>State / <Screen>Intent / <Screen>Action + <Screen>Store)
 ui/          Compose-экраны (<Screen>Screen), приватные composable, @Preview
@@ -24,4 +24,6 @@ ui/          Compose-экраны (<Screen>Screen), приватные composabl
 - UI — только `Hb*` компоненты и токены `HbTheme`. Строки — Compose Resources.
 - Новая функциональность — за тоглом `FeatureToggle` (default `false`, пока фича не готова).
 - Эффекты машины: `suspend`, main-safe, результат возвращается событием `<Name>Event.Internal.*`; ошибки → `Internal.Failed`, с логом.
-- Тесты: сторы (FlowMVI test DSL), эффекты (фейки репозиториев), репозитории (in-memory Room / fake DataStore).
+- Данные — только через `@ForScope(AppScope|ProfileScope) DataStores` из `core:datastore` (KV и своя БД). Время жизни записей
+  задаётся `Retention` / `RecordRetention` — таймеры и чистки не писать (ADR-0006, скилл `data-storage`).
+- Тесты: сторы (FlowMVI test DSL), эффекты (фейки репозиториев), репозитории (in-memory Room / fake `KeyValueStore`).

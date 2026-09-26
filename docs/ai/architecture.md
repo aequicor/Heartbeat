@@ -18,7 +18,7 @@
           ▼         ▼                 ▼                    ▼
        ┌───────────────────────── core/* ─────────────────────────┐
        │ logging ← common ← di, state-machine, mvi, navigation,   │
-       │ network, database, datastore, feature-toggles, ai,       │
+       │ network, datastore (key-value + БД фич), feature-toggles, ai, │
        │ resources                                                │
        └──────────────────────────────────────────────────────────┘
 ```
@@ -31,10 +31,10 @@
 | `platform-main:root` | `di-bundle` (`HeartbeatRoot`), `core:navigation:compose` — Compose-корень `RootContent` | любой `impl` напрямую |
 | `platform-main:android/desktop/shared` | `di-bundle`, `root`, `design-system:*`, `core:*` (api) | любой `impl` напрямую |
 | `features:X:impl` | `features:X:api`, `features:*:api`, `core:*`, `design-system:*` | `features:*:impl` |
-| `features:X:api` | `core:state-machine`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:database/network/ai` |
+| `features:X:api` | `core:state-machine`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:datastore/network/ai` |
 | `design-system:*` | `core:resources`, `core:logging`, `core:common`, UI-киты | `features:*`, остальной `core` |
 | `core:X` | `core:logging`, `core:common`, другие `core` без циклов | `features:*`, `design-system:*`, любой `impl` |
-| `core:X:impl` (`di`, `profile-facade`) | свой `api`, другие `core` | — ; от него зависит только `di-bundle` |
+| `core:X:impl` (`di`, `profile-facade`, `network`, `datastore`) | свой `api`, другие `core` (api) | — ; от него зависит только `di-bundle` |
 | `core:logging` | Napier | всё прочее в проекте |
 
 `api`-модули экспортируют (`api(...)`) только то, что входит в их публичный контракт; всё остальное — `implementation`.
@@ -55,7 +55,7 @@ Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `
 | Модуль | Ответственность | Библиотека |
 |---|---|---|
 | `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/Ktor/KStateMachine/Koog | Napier |
-| `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, Result/ошибки, Clock | coroutines |
+| `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, `Clock` (`kotlin.time`), Result/ошибки | coroutines |
 | `core:di:api` | скоупы (`ProfileScope`, `@ForScope`), `ScopeHandle`, `ScopeSavedState`, `ScopeFactory`, shared-скоупы | Metro, kotlinx-serialization (api) |
 | `core:di:ext` | `retainedGraph` / `retainedScope` / `retainedShared` — скоуп, привязанный к компоненту | Essenty |
 | `core:di:impl` | жизненный цикл скоупов (каскадное закрытие, saved state), корневой app-скоуп | Metro |
@@ -67,8 +67,8 @@ Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `
 | `core:navigation:impl` | хосты на `childStack`/`childPanels`, реестры маршрутов (App/Profile), результаты, deep links, логи `NAV` | Decompose |
 | `core:navigation:compose` | `ComposableComponent`, `NavStack`, `NavPanels`, анимации, shared-element «раскрытие из превью» | Decompose extensions-compose(-experimental) |
 | `core:resources` | общие строки/иконки/шрифты, локализация | Compose Resources |
-| `core:database` | `HeartbeatDatabase`, драйвер, миграции, фабрики per-platform | Room KMP + BundledSQLiteDriver |
-| `core:datastore` | фабрика `DataStore<Preferences>` per-platform, логирующая обёртка | DataStore KMP |
+| `core:datastore:api` | `DataStores` (владелец app/profile через `@ForScope`): `KeyValueStore`, Room-БД фичи по `DatabaseSpec`; удержание записей `Retention` (срок / событие), колонки `RecordRetention`, `StorageMaintenance` ([ADR-0006](../adr/0006-datastore.md)) | Room KMP (api), kotlinx-datetime |
+| `core:datastore:impl` | файлы per-owner, один DataStore на файл, открытие Room-БД (BundledSQLiteDriver, миграции), таймеры и журнал событий, логи `DS`/`DB`, постоянный `ActiveProfileStorage` | DataStore KMP, Room KMP, okio |
 | `core:network` | `HttpClient` c engine per-platform, JSON, ретраи, логирование | Ktor 3 |
 | `core:ai` | провайдеры LLM, `PromptExecutor`, реестр инструментов, агенты, ключи из безопасного хранилища | Koog |
 | `core:feature-toggles` | `FeatureToggle<T>`, `FeatureToggles` (Flow), хранение в DataStore, реестр | DataStore |

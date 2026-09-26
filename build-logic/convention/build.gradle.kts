@@ -10,6 +10,7 @@ dependencies {
     compileOnly(libs.kotlin.gradlePlugin)
     compileOnly(libs.android.gradlePlugin)
     compileOnly(libs.metro.gradlePlugin)
+    compileOnly(libs.room.gradlePlugin)
 }
 
 gradlePlugin {
@@ -29,6 +30,10 @@ gradlePlugin {
         register("heartbeatMetro") {
             id = libs.plugins.heartbeat.metro.get().pluginId
             implementationClass = "io.aequicor.heartbeat.buildlogic.MetroConventionPlugin"
+        }
+        register("heartbeatRoom") {
+            id = libs.plugins.heartbeat.room.get().pluginId
+            implementationClass = "io.aequicor.heartbeat.buildlogic.RoomConventionPlugin"
         }
     }
 }

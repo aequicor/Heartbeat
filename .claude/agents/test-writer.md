@@ -19,7 +19,7 @@ model: sonnet
 - Фейки вместо моков (классы `Fake<Name>Repository` в `commonTest`); переиспользуемые фейки — в `testFixtures`-подобном модуле `core:testing` (если есть).
 - Для машины: создай машину через спеку фичи с фейковыми эффектами, отправь событие, проверь активное состояние и вызовы эффектов.
 - Для стора: тест-DSL FlowMVI; проверяй state и actions, а не внутренние поля.
-- Для Ktor: `MockEngine`; для Room: `inMemoryDatabaseBuilder` + `BundledSQLiteDriver`; для DataStore: временная директория.
+- Для Ktor: `MockEngine`; для Room-БД фичи: `inMemoryDatabaseBuilder` + `BundledSQLiteDriver` (в тестах разрешено); для key-value: fake `KeyValueStore`; инфраструктура `core:datastore:impl` — временная директория + виртуальное время (`StorageTestEnv`).
 - Имена тестов — поведение в бэктиках.
 
 В ответе: какие тесты добавлены (файл → сценарии), результат прогона (вывод Gradle при падении), найденные баги.

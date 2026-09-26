@@ -26,9 +26,11 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Навигация (операция, путь хоста, `serialName` маршрута, стек — без полей маршрутов), результаты, deep links (шаблон, не ссылка) | хосты `core:navigation:impl` | I |
 | HTTP-запрос/ответ, статус, длительность | Ktor `Logging` с адаптером в `core:network` | I (метод, url, статус, ms), D (заголовки без секретов) |
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
-| Запись/чтение DataStore | логирующая обёртка в `core:datastore` | D (ключ), I (изменение конфигурации) |
+| Запись/чтение key-value | `LoggingKeyValueStore` в `core:datastore:impl`, тег `DS` | D (ключ + удержание), I (значения — только `KeyValueSpec.areValuesLogged`), W/E (ошибка чтения / повреждённый файл) |
+| Чистка по сроку, события удержания | `core:datastore:impl`, теги `DS` / `DB` | I (сколько записей удалено, без содержимого) |
 | Изменение тогла | `core:feature-toggles` | I (`toggle key: old -> new, source`) |
-| Транзакции/миграции БД | `core:database` (callback'и + логирующие репозитории) | I (миграции), D (DAO-операции) |
+| Открытие/миграции БД фич | `core:datastore:impl` (Room callback + обёртка миграций), тег `DB` | I (открытие: версия, таблицы удержания; миграции `n -> m`) |
+| DAO-операции | репозитории фич (вручную) | D |
 | Жизненный цикл компонентов | `core:navigation` (Essenty lifecycle callbacks) | V |
 
 ## Что логируется вручную

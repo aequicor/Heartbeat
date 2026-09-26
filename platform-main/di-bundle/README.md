@@ -11,7 +11,7 @@ Metro собирает контрибуции там, где компилиру�
 
 ```
 commonMain/HeartbeatGraph.kt          interface HeartbeatGraph { dispatchers, platformInfo, profileSessions }
-androidMain/AndroidHeartbeatGraph.kt  @DependencyGraph(AppScope::class) + createHeartbeatGraph()
+androidMain/AndroidHeartbeatGraph.kt  @DependencyGraph(AppScope::class) + Factory(@Provides Context) + createHeartbeatGraph(context)
 jvmMain/JvmHeartbeatGraph.kt          то же
 iosMain/IosHeartbeatGraph.kt          то же (оба iOS-таргета)
 ```
@@ -20,7 +20,7 @@ iosMain/IosHeartbeatGraph.kt          то же (оба iOS-таргета)
 
 ```kotlin
 Log.init(isDebug)
-val graph = createHeartbeatGraph()
+val graph = createHeartbeatGraph()            // Android: createHeartbeatGraph(application) — хранится applicationContext
 graph.profileSessions.restore()
 ```
 
@@ -37,6 +37,7 @@ graph.profileSessions.restore()
 
 `./gradlew :platform-main:di-bundle:jvmTest`. Тестовый граф `TestAppGraph` собирает реальные контрибуции всех модулей
 плюс тестовые: фичу с `@GraphExtension`, shared-фабрики и приостанавливающееся «дисковое» хранилище профиля.
+Хранилища `core:datastore` пишут во временный каталог «устройства» (`PersistedProfile.storageRoot`, `TestStorageRoot`).
 
 | Тест | Что проверяет |
 |---|---|
@@ -47,5 +48,6 @@ graph.profileSessions.restore()
 | retained-граф | тот же граф после поворота; после смерти процесса — новый граф с состоянием, изменённым **после** поворота; закрыт при уничтожении |
 | shared-объект | живёт, пока его держит хоть один компонент; повторный `close` аренды безопасен; упавшая фабрика не оставляет скоуп |
 | выход и смена профиля из корутины профиля | запись в хранилище выполняется до конца, промежуточного `null` нет |
+| `DataStoreIntegrationTest` | `@ForScope(AppScope)` / `@ForScope(ProfileScope)` `DataStores` — разные владельцы; хранилища профиля закрываются при смене и возвращаются с теми же данными; app-событие чистит записи всех владельцев; `wipeProfile` только для неактивного профиля; закрытие app-скоупа закрывает хранилища |
 
 iOS-тесты (`iosSimulatorArm64Test`) требуют установленного Xcode. Компиляция под iOS работает и без него.
