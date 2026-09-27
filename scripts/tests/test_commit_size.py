@@ -177,6 +177,40 @@ class CommitSizeTests(unittest.TestCase):
         text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
         self.assertEqual("FAIL", policy.measure(merge, text, stats, self.encodings).status)
 
+    def test_octopus_base_sync_uses_first_parent_and_enforces_budget(self):
+        self.write("base.kt", "base\n")
+        root = self.commit()
+        self.git("checkout", "-b", "feature")
+        self.write("feature.kt", "feature\n")
+        self.commit()
+        for branch in ("side-one", "side-two"):
+            self.git("checkout", "-b", branch, root)
+            self.write(f"{branch}.kt", f"{branch}\n")
+            self.commit()
+        self.git("checkout", "main")
+        self.git("merge", "--no-ff", "--no-edit", "side-one", "side-two")
+        base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "feature")
+        self.git("merge", "--no-ff", "--no-edit", "side-one", "side-two")
+        merge = self.git("rev-parse", "HEAD")
+        parents = self.git("rev-list", "--parents", "--max-count=1", merge).split()[1:]
+        self.assertEqual(3, len(parents))
+        self.assertTrue(all(policy.is_ancestor(parent, base, cwd=self.repo) for parent in parents[1:]))
+
+        command = [sys.executable, str(Path(policy.__file__).resolve()), "--base", base, "--head", "HEAD"]
+        clean = subprocess.run(command, cwd=self.repo, capture_output=True, text=True)
+        self.assertEqual(0, clean.returncode, clean.stdout + clean.stderr)
+        self.assertNotIn("(base sync)", clean.stdout)
+        self.assertFalse(policy.is_base_sync(merge, base, cwd=self.repo))
+
+        self.write("hidden.kt", 'val hidden = "evil"\n' * 6000)
+        self.git("add", "hidden.kt")
+        self.git("commit", "--amend", "--no-edit", "--quiet")
+        oversized = subprocess.run(command, cwd=self.repo, capture_output=True, text=True)
+        self.assertEqual(1, oversized.returncode, oversized.stdout + oversized.stderr)
+        self.assertIn("FAIL", oversized.stdout)
+        self.assertNotIn("(base sync)", oversized.stdout)
+
     def test_merging_unreviewed_branch_is_not_a_base_sync(self):
         self.write("base.kt", "base\n")
         base = self.commit()

@@ -53,9 +53,10 @@ def is_ancestor(ancestor, descendant, cwd=None):
 
 
 def is_base_sync(commit, base, cwd=None):
-    """A merge whose side parents are all in base only brings reviewed base history into the branch."""
+    """Use remerge only for two-parent merges whose side parent is already in base."""
     parents = git("rev-list", "--parents", "--max-count=1", commit, cwd=cwd).decode().split()[1:]
-    return len(parents) > 1 and all(is_ancestor(parent, base, cwd) for parent in parents[1:])
+    # Git skips remerge diffs for octopus merges; keep their first-parent measurement.
+    return len(parents) == 2 and is_ancestor(parents[1], base, cwd)
 
 
 def read_diff(commit=None, cwd=None, base_sync=False):
