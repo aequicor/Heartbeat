@@ -96,10 +96,16 @@ class ActiveSessionMachineTest {
             unavailable,
             ActiveSessionIntent.Public.Recheck,
             unavailable,
-            effects = listOf(ActiveSessionEffect.Recheck),
+            effects = listOf(ActiveSessionEffect.Recheck(TestTurn.id)),
         )
         spec.assertIgnored(unavailable, ActiveSessionIntent.Public.Submit(TestPrompt, TestTurn))
-        spec.assertTransition(unavailable, ActiveSessionIntent.Internal.Synchronized(null), ActiveSessionState.Ready())
+        val completed = TestTurn.copy(outcome = TurnOutcome.Unknown)
+        spec.assertTransition(
+            unavailable,
+            ActiveSessionIntent.Internal.Synchronized(null),
+            ActiveSessionState.Ready(completed),
+            outputs = listOf(ActiveSessionOutput.Finished(completed)),
+        )
         spec.assertTransition(
             unavailable,
             ActiveSessionIntent.Internal.Synchronized(TestTurn),

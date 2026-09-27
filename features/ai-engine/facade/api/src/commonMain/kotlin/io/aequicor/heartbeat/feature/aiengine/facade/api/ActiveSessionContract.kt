@@ -18,7 +18,7 @@ public sealed interface ActiveSessionState : MachineState {
         }
     }
 
-    /** Sending has not yet been acknowledged; no accepted-turn event has been emitted. */
+    /** No acceptance has been observed yet; correlated native completion or permission also proves acceptance. */
     @Serializable
     public data class Submitting(val request: PromptRequest, val turn: Turn) : ActiveSessionState
 
@@ -114,11 +114,18 @@ public sealed interface ActiveSessionIntent : MachineIntent {
         /**
          * Authoritative runtime reconciliation, never a local assumption that a remote turn stopped.
          * Active turns include all previously acknowledged permission ids, including decisions from other clients.
+         * Before publishing, look up the outcome of the turn requested by Recheck if it is no longer active.
+         * [completed] carries that correlated outcome; null means native outcome recovery was exhausted.
+         * A displaced remembered turn is reported once as Finished, using Unknown when its outcome is unavailable.
          */
-        public data class Synchronized(val active: Turn?, val pending: List<PermissionRequest> = emptyList()) :
-            Internal {
+        public data class Synchronized(
+            val active: Turn?,
+            val pending: List<PermissionRequest> = emptyList(),
+            val completed: Finished? = null,
+        ) : Internal {
             init {
                 require(active == null || active.outcome == null)
+                require(completed == null || completed.turn != active?.id)
                 require(pending.all { it.turn == active?.id && it.id !in active.resolvedPermissions })
                 require(pending.map { it.id }.distinct().size == pending.size)
             }
@@ -141,8 +148,8 @@ public sealed interface ActiveSessionEffect : MachineEffect {
     /** Deliver a decision to an outstanding request. */
     public data class Decide(val decision: PermissionDecision) : ActiveSessionEffect
 
-    /** Read native state after a failure; never replay a prompt. */
-    public data object Recheck : ActiveSessionEffect
+    /** Read native state and recover this remembered turn's outcome if it ended; never replay a prompt. */
+    public data class Recheck(val turn: TurnId?) : ActiveSessionEffect
 
     /** Detach this handle's observation lease. */
     public data object Release : ActiveSessionEffect
@@ -153,7 +160,7 @@ public sealed interface ActiveSessionOutput : MachineOutput {
     /** send() may now complete successfully. */
     public data class Accepted(val turn: Turn) : ActiveSessionOutput
 
-    /** The runtime established one terminal result. */
+    /** One terminal observation, including an explicit Unknown when native outcome recovery was exhausted. */
     public data class Finished(val turn: Turn) : ActiveSessionOutput
 
     /** send() must fail with this reason; it is not an accepted-turn failure. */

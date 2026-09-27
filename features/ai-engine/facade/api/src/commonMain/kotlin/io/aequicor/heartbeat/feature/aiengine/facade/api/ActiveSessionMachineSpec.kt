@@ -18,19 +18,24 @@ private typealias SessionStateBuilder<S> =
  * | Ready | Submit | Submitting | Submit |
  * | Submitting | Accepted | Running | Accepted |
  * | Submitting | Failed | Unavailable | SubmissionFailed |
+ * | Submitting | Finished | Ready | Accepted, then Finished |
+ * | Submitting | PermissionNeeded | AwaitingUserAction | Accepted; pending request retained |
  * | Running | PermissionNeeded | AwaitingUserAction | pending request retained |
  * | AwaitingUserAction | Decide | same | Decide; duplicate decisions ignored |
  * | AwaitingUserAction | PermissionResolved | Running / same | acknowledgement removes request |
  * | Running / AwaitingUserAction | Cancel | Interrupting | Cancel |
  * | Running / AwaitingUserAction / Interrupting | Finished | Ready | Finished |
  * | active | Failed | Unavailable | never assume a remote turn stopped |
- * | Unavailable | Recheck / Synchronized | same / reconciled state | Recheck only, never resubmit |
+ * | Unavailable | Recheck | same | recover remembered turn; never resubmit |
+ * | Unavailable | Synchronized | reconciled state | Finished for a displaced remembered turn, even if Unknown |
  * | Unavailable | Finished | same, terminal outcome retained | Finished |
  * | live | Close | Closing | Release; native turn continues |
  * | Closing | Released / Failed | Closed / retryable Closing | no implicit cleanup success |
  *
  * A profile-owned event bridge delivers native observations independently of state-scoped effects. The facade
  * translates ignored commands into domain errors and waits for native acceptance before completing send().
+ * Correlated completion/permission proves acceptance even when the explicit acknowledgement arrives later.
+ * Reconciliation looks up the remembered turn before replacing it; unavailable native outcomes stay explicit.
  */
 public fun activeSessionMachineSpec(
     key: ActiveSessionMachineKey,
@@ -73,6 +78,8 @@ private fun SessionSpecBuilder.submissionStates() {
         }
     }
     state<ActiveSessionState.Submitting> {
+        terminalTurn()
+        pendingPermission()
         on<ActiveSessionIntent.Public.Close> {
             goto<ActiveSessionState.Closing> { ActiveSessionState.Closing() }
             effect { ActiveSessionEffect.Release }
@@ -98,13 +105,7 @@ private fun SessionSpecBuilder.executionStates() {
     state<ActiveSessionState.Running> {
         terminalTurn()
         cancellableTurn()
-        on<ActiveSessionIntent.Internal.PermissionNeeded>(guard = {
-            intent.request.turn == state.turn.id && intent.request.id !in state.turn.resolvedPermissions
-        }) {
-            goto<ActiveSessionState.AwaitingUserAction> {
-                ActiveSessionState.AwaitingUserAction(state.turn, listOf(intent.request))
-            }
-        }
+        pendingPermission()
     }
     state<ActiveSessionState.Interrupting> { terminalTurn() }
 }
@@ -116,7 +117,20 @@ private fun <S : ActiveSessionState> SessionStateBuilder<S>.terminalTurn() {
                 checkNotNull(state.currentTurn()).copy(outcome = intent.outcome),
             )
         }
+        output { (state as? ActiveSessionState.Submitting)?.let { ActiveSessionOutput.Accepted(it.turn) } }
         output { ActiveSessionOutput.Finished(checkNotNull(state.currentTurn()).copy(outcome = intent.outcome)) }
+    }
+}
+
+private fun <S : ActiveSessionState> SessionStateBuilder<S>.pendingPermission() {
+    on<ActiveSessionIntent.Internal.PermissionNeeded>(guard = {
+        val turn = state.currentTurn()
+        turn != null && intent.request.turn == turn.id && intent.request.id !in turn.resolvedPermissions
+    }) {
+        goto<ActiveSessionState.AwaitingUserAction> {
+            ActiveSessionState.AwaitingUserAction(checkNotNull(state.currentTurn()), listOf(intent.request))
+        }
+        output { (state as? ActiveSessionState.Submitting)?.let { ActiveSessionOutput.Accepted(it.turn) } }
     }
 }
 
@@ -180,19 +194,21 @@ private fun SessionSpecBuilder.recoveryState() {
             }
             output { ActiveSessionOutput.Finished(checkNotNull(state.activeTurn).copy(outcome = intent.outcome)) }
         }
-        on<ActiveSessionIntent.Public.Recheck> { effect { ActiveSessionEffect.Recheck } }
+        on<ActiveSessionIntent.Public.Recheck> { effect { ActiveSessionEffect.Recheck(state.activeTurn?.id) } }
         on<ActiveSessionIntent.Internal.Failed>(
             guard = { intent.turn == null || intent.turn == state.activeTurn?.id },
         ) {
             stay { state.copy(failure = intent.failure) }
         }
         on<ActiveSessionIntent.Internal.Synchronized>(guard = { intent.active == null }) {
-            goto<ActiveSessionState.Ready> { ActiveSessionState.Ready(state.lastTurn) }
+            goto<ActiveSessionState.Ready> { ActiveSessionState.Ready(intent.finishedTurn(state) ?: state.lastTurn) }
+            output { intent.finishedTurn(state)?.let { ActiveSessionOutput.Finished(it) } }
         }
         on<ActiveSessionIntent.Internal.Synchronized>(guard = {
             intent.active != null && intent.active?.id != state.lastTurn?.id && intent.pending.isEmpty()
         }) {
             goto<ActiveSessionState.Running> { ActiveSessionState.Running(checkNotNull(intent.active)) }
+            output { intent.finishedTurn(state)?.let { ActiveSessionOutput.Finished(it) } }
         }
         on<ActiveSessionIntent.Internal.Synchronized>(
             guard = {
@@ -202,8 +218,15 @@ private fun SessionSpecBuilder.recoveryState() {
             goto<ActiveSessionState.AwaitingUserAction> {
                 ActiveSessionState.AwaitingUserAction(checkNotNull(intent.active), intent.pending)
             }
+            output { intent.finishedTurn(state)?.let { ActiveSessionOutput.Finished(it) } }
         }
     }
+}
+
+private fun ActiveSessionIntent.Internal.Synchronized.finishedTurn(state: ActiveSessionState.Unavailable): Turn? {
+    val previous = state.activeTurn?.takeIf { it.id != active?.id } ?: return null
+    val outcome = completed?.takeIf { it.turn == previous.id }?.outcome ?: TurnOutcome.Unknown
+    return previous.copy(outcome = outcome)
 }
 
 private fun ActiveSessionState.validatedInitial(): ActiveSessionState {
@@ -237,7 +260,7 @@ private fun ActiveSessionEffect.failureIntent(error: Throwable): ActiveSessionIn
         is ActiveSessionEffect.Submit -> turn.id
         is ActiveSessionEffect.Cancel -> turn
         is ActiveSessionEffect.Decide -> decision.turn
-        ActiveSessionEffect.Recheck, ActiveSessionEffect.Release -> null
+        is ActiveSessionEffect.Recheck, ActiveSessionEffect.Release -> null
     }
     val failure = if (error is EngineException) {
         error.failure
@@ -246,7 +269,7 @@ private fun ActiveSessionEffect.failureIntent(error: Throwable): ActiveSessionIn
             is ActiveSessionEffect.Submit -> EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id)
 
             is ActiveSessionEffect.Cancel, is ActiveSessionEffect.Decide,
-            ActiveSessionEffect.Recheck, ActiveSessionEffect.Release,
+            is ActiveSessionEffect.Recheck, ActiveSessionEffect.Release,
             -> EngineFailure.Unknown()
         }
     }

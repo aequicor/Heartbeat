@@ -88,6 +88,14 @@ public sealed interface TurnOutcome {
     @Serializable
     public data object Cancelled : TurnOutcome
 
+    /**
+     * Authoritative reconciliation confirms the turn is no longer active, but its native outcome is unavailable.
+     * This is neither success nor confirmed failure and must not trigger an automatic retry.
+     * Later history reads may recover the exact result; this handle emits its terminal notification only once.
+     */
+    @Serializable
+    public data object Unknown : TurnOutcome
+
     /** Failure after request acceptance. */
     @Serializable
     public data class Failed(val failure: EngineFailure) : TurnOutcome
