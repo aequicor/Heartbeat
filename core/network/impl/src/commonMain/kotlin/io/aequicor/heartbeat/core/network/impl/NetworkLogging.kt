@@ -12,7 +12,7 @@ import kotlin.time.TimeSource
 internal const val NET_LOG_TAG = "NET"
 
 /**
- * Logs every attempt of every request (logging-policy: `NET`):
+ * Logs every attempt of every request (tag `NET`):
  * - `I` — method, URL (query values hidden), status, duration; non-2xx and failures — `W`;
  * - `D` — request and response headers, values of sensitive ones hidden.
  *

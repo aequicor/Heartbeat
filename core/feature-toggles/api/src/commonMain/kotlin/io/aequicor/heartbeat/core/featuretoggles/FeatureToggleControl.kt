@@ -46,7 +46,7 @@ public data class ToggleState<T : Any>(
 
 /**
  * Where the value of a toggle comes from, in priority order: the first present source wins.
- * A remote source (between the two) is a later decision — see ADR-0007.
+ * A remote source (between the two) is a later decision.
  */
 public enum class ToggleSource {
     /** Set on this device through [FeatureToggleControl]. */

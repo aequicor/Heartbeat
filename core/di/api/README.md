@@ -1,7 +1,6 @@
 # core:di:api
 
 Контракты DI-скоупов Heartbeat. Только интерфейсы и маркеры, без Essenty, Decompose и FlowMVI. От модуля может зависеть кто угодно.
-Решение и мотивация — [ADR-0002](../../../docs/adr/0002-di-scopes.md).
 
 ```
 AppScope (Metro)     HeartbeatGraph   platform-main:di-bundle

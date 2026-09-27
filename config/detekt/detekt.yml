@@ -166,7 +166,7 @@ style:
   UnusedPrivateFunction:
     ignoreAnnotated: ['Preview', 'PreviewLightDark', 'PreviewScreenSizes', 'PreviewFontScale', 'PreviewDynamicColors']
 
-# Custom rule set (lint/detekt-rules): logging policy docs/ai/logging-policy.md + error handling.
+# Custom rule set (lint/detekt-rules): logging policy (CLAUDE.md, rule 6) + error handling.
 # Defaults: lint/detekt-rules/src/main/resources/config/config.yml; rule docs — KDoc of each rule class.
 heartbeat:
   active: true
@@ -201,7 +201,7 @@ heartbeat:
   LoggingInfrastructureBypass:
     active: true
     excludes: *testSources
-  # Feature package placement and dependency direction (ADR-0014)
+  # Feature package placement and dependency direction
   FeatureLayerPlacement:
     active: true
     excludes: ['**/test/**', '**/*Test/**']

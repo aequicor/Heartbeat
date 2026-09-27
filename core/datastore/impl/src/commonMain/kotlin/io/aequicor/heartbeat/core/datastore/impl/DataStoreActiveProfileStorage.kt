@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 
-/** Persistent active profile (ADR-0002): overrides the in-memory default of core:profile-facade:impl. */
+/** Persistent active profile: overrides the in-memory default of core:profile-facade:impl. */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class, priority = 0)
 @Inject

@@ -1,7 +1,7 @@
 # core:datastore:api
 
 Контракт хранения данных: key-value и собственные Room-БД фич, владелец (app / profile), время жизни отдельных записей.
-Решение — [ADR-0006](../../../docs/adr/0006-datastore.md), инструкция для фич — скилл `data-storage`. Реализация —
+Инструкция для фич — скилл `data-storage`. Реализация —
 [core:datastore:impl](../impl/README.md) (подключается только в `di-bundle`).
 
 | Тип | Назначение |

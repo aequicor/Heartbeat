@@ -1,7 +1,7 @@
 # core:feature-toggles:api
 
 Контракт фича-тоглов: объявление, чтение и единая точка управления локальными переопределениями.
-Решение — [ADR-0007](../../../docs/adr/0007-feature-toggles.md), инструкция для фич — скилл `feature-toggle`.
+Инструкция для фич — скилл `feature-toggle`.
 Реализация — [core:feature-toggles:impl](../impl/README.md) (подключается только в `di-bundle`).
 
 Зависит только от `kotlinx-coroutines-core` (`api`): модуль можно подключать в `api`-модули фич.

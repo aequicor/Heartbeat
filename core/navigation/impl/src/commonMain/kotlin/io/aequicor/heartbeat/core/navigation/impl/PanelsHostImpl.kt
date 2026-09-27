@@ -23,7 +23,7 @@ import kotlinx.serialization.builtins.NothingSerializer
 
 /**
  * [PanelsHost] over Decompose `childPanels` (main + details). Opening a route replaces the details entry;
- * "back" dismisses details. `childPanels` is experimental in Decompose 3.5 (ADR-0003).
+ * "back" dismisses details. `childPanels` is experimental in Decompose 3.5.
  */
 @OptIn(ExperimentalDecomposeApi::class, ExperimentalSerializationApi::class) // childPanels signature
 internal class PanelsHostImpl(params: HostParams, main: Route, details: Route?) :
