@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -59,6 +60,20 @@ public interface EngineFactory {
     /** Non-sensitive key for significant context parts; never raw paths, accounts, keys or tokens. */
     public fun authContext(context: EngineContext): AuthContextKey
 
+    /**
+     * Stores the adapter-side route of [binding] to [source]. Called only by the facade's `EngineBindings`
+     * implementation after [EngineRegistration.accepts] and toggle gates passed. Replacing a binding's source
+     * retires runtimes of the previous source that no other binding uses.
+     * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
+     */
+    public suspend fun bind(binding: EngineBindingId, source: AuthSource)
+
+    /**
+     * Forgets the adapter-side route of [binding]; unknown bindings are ignored. Called only by the facade's
+     * `EngineBindings` implementation. Retires runtimes of the removed source that no other binding uses.
+     */
+    public suspend fun unbind(binding: EngineBindingId)
+
     /** Lists models visible through the exact source/context; source material is resolved inside trusted adapters. */
     public suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo>
 
@@ -91,8 +106,16 @@ public data class RuntimeIdentity(val engine: EngineId, val source: AuthSourceId
 /**
  * Validates the complete registration set before exposing any descriptors or constructing factories.
  * CLI owner namespaces must be unique, otherwise one engine could accept another engine's login.
+ * Every platform has at most one [EngineDescriptor.isDefault] registration.
  */
 public fun validateEngineRegistrations(registrations: Collection<EngineRegistration>) {
     require(registrations.map { it.descriptor.id }.distinct().size == registrations.size) { "Duplicate engine id" }
     require(registrations.map { it.authOwner }.distinct().size == registrations.size) { "Duplicate auth owner" }
+    val defaults = registrations.map { it.descriptor }.filter { it.isDefault }
+    EnginePlatform.entries.forEach { platform ->
+        val conflicting = defaults.filter { platform in it.platforms }
+        require(conflicting.size <= 1) {
+            "Multiple default engines for $platform: ${conflicting.joinToString { it.id.value }}"
+        }
+    }
 }

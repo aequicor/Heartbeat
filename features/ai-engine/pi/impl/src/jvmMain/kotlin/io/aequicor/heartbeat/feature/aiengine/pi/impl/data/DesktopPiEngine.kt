@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -25,12 +26,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
-import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -39,12 +40,14 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 @Inject
 @SingleIn(ProfileScope::class)
-@ContributesBinding(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<PiAdapter>())
 internal class DesktopPiEngine(
     private val settings: PiSettings,
     private val processes: PiProcessLauncher,
@@ -52,7 +55,7 @@ internal class DesktopPiEngine(
     private val toggles: FeatureToggles,
     private val environment: PiSessionEnvironment,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
-) : PiEngine {
+) : PiAdapter {
     private val log = Log.tag("DesktopPiEngine")
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<AuthSourceId, PiRuntime>()
@@ -74,21 +77,44 @@ internal class DesktopPiEngine(
     override fun authContext(context: EngineContext): AuthContextKey =
         AuthContextKey("pi." + fingerprint(context.engine.value + ":" + context.binding.value))
 
-    override suspend fun configure(binding: EngineBindingId, source: AuthSource.ManagedKey) = mutex.withLock {
-        require(accepts(source, EngineContext(PiEngineId, binding))) { "Unsupported Pi credential scope" }
-        require(source.info.revision is AuthRevision.Known) { "Pi requires an explicit credential revision" }
-        log.i { "Configuring Pi credential route" }
-        runtimes.values.forEach { it.close() }
-        runtimes.clear()
-        settings.configure(binding, source)
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = mutex.withLock {
+        if (source !is AuthSource.ManagedKey || !accepts(source, EngineContext(PiEngineId, binding))) {
+            authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
+        }
+        if (source.info.revision !is AuthRevision.Known) piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
+        log.i { "Binding Pi credential route" }
+        val before = settings.snapshot().bindings
+        settings.bind(binding, source)
+        val after = settings.snapshot().bindings
+        retireUnused(before.values.filter { it !in after.values }.map { it.info.id }.toSet())
+    }
+
+    override suspend fun unbind(binding: EngineBindingId): Unit = mutex.withLock {
+        val removed = settings.unbind(binding) ?: return@withLock
+        log.i { "Unbinding Pi credential route" }
+        val remaining = settings.snapshot().bindings.values
+        if (remaining.none { it == removed }) retireUnused(setOf(removed.info.id))
     }
 
     override suspend fun configureWorkspace(workspace: WorkspaceRef, directory: String) {
         val path = withContext(dispatchers.io) {
-            Path.of(directory).toRealPath().also { require(Files.isDirectory(it)) { "Workspace must be a directory" } }
-        }
+            try {
+                Path.of(directory).toRealPath().takeIf { Files.isDirectory(it) }
+            } catch (e: IOException) {
+                log.w(e) { "Pi workspace directory is unavailable" }
+                null
+            } catch (e: InvalidPathException) {
+                log.w(e) { "Pi workspace directory is invalid" }
+                null
+            }
+        } ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
         log.i { "Configuring Pi workspace" }
         settings.workspace(workspace, path.toString())
+    }
+
+    /** Closes pooled runtimes of [sources] whose stored route changed or disappeared; caller holds [mutex]. */
+    private suspend fun retireUnused(sources: Set<AuthSourceId>) {
+        sources.forEach { id -> runtimes.remove(id)?.close() }
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {

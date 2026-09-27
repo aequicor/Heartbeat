@@ -36,24 +36,21 @@ internal class PiSettings(
 
     suspend fun snapshot(): PiConfiguration = store.get(key) ?: PiConfiguration()
 
-    suspend fun configure(binding: EngineBindingId, source: AuthSource.ManagedKey) = mutex.withLock {
+    /** Routes [binding] to [source]; other bindings of the same source id receive its new revision. */
+    suspend fun bind(binding: EngineBindingId, source: AuthSource.ManagedKey) = mutex.withLock {
         val current = snapshot()
-        store.set(
-            key,
-            current.copy(
-                bindings =
-                    current.bindings.mapValues { (_, value) ->
-                        if (value.info.id ==
-                            source.info.id
-                        ) {
-                            source
-                        } else {
-                            value
-                        }
-                    } +
-                        (binding.value to source),
-            ),
-        )
+        val refreshed = current.bindings.mapValues { (_, value) ->
+            if (value.info.id == source.info.id) source else value
+        }
+        store.set(key, current.copy(bindings = refreshed + (binding.value to source)))
+    }
+
+    /** Removes the route of [binding]; returns the removed source, if any. */
+    suspend fun unbind(binding: EngineBindingId): AuthSource.ManagedKey? = mutex.withLock {
+        val current = snapshot()
+        val removed = current.bindings[binding.value] ?: return@withLock null
+        store.set(key, current.copy(bindings = current.bindings - binding.value))
+        removed
     }
 
     suspend fun workspace(ref: WorkspaceRef, directory: String) = mutex.withLock {
