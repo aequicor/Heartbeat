@@ -140,6 +140,56 @@ class CommitSizeTests(unittest.TestCase):
         self.assertNotIn("+main", text)
         self.assertEqual((1, 1), (self.measure(merged).files, self.measure(merged).lines))
 
+    def sync_base_into_feature(self, extra=None):
+        """Feature merges a large upstream change with a conflict; returns (base, merge)."""
+        self.write("shared.kt", "val shared = 0\n")
+        self.commit()
+        self.git("checkout", "-b", "feature")
+        self.write("shared.kt", "val shared = 1\n")
+        self.commit()
+        self.git("checkout", "main")
+        self.write("upstream.kt", 'val value = "upstream"\n' * 6000)
+        self.write("shared.kt", "val shared = 2\n")
+        base = self.commit()
+        self.git("checkout", "feature")
+        with self.assertRaises(RuntimeError):
+            self.git("merge", "--no-edit", "main")
+        self.write("shared.kt", "val shared = 3\n")
+        if extra:
+            self.write(*extra)
+        self.git("add", "--all")
+        self.git("commit", "--quiet", "--no-edit")
+        return base, self.git("rev-parse", "HEAD")
+
+    def test_base_sync_merge_counts_only_conflict_resolution(self):
+        base, merge = self.sync_base_into_feature()
+        self.assertIn(merge, policy.select_commits(base, merge, cwd=self.repo))
+        self.assertTrue(policy.is_base_sync(merge, base, cwd=self.repo))
+        text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
+        result = policy.measure(merge, text, stats, self.encodings)
+        self.assertIn("+val shared = 3", text)
+        self.assertNotIn("upstream", text)
+        self.assertEqual("PASS", result.status)
+        self.assertEqual("FAIL", self.measure(merge).status)
+
+    def test_base_sync_merge_still_counts_extra_changes(self):
+        base, merge = self.sync_base_into_feature(extra=("hidden.kt", 'val hidden = "evil"\n' * 6000))
+        text, stats = policy.read_diff(merge, cwd=self.repo, base_sync=True)
+        self.assertEqual("FAIL", policy.measure(merge, text, stats, self.encodings).status)
+
+    def test_merging_unreviewed_branch_is_not_a_base_sync(self):
+        self.write("base.kt", "base\n")
+        base = self.commit()
+        self.git("checkout", "-b", "side")
+        self.write("side.kt", "side\n")
+        self.commit()
+        self.git("checkout", "main")
+        self.write("main.kt", "main\n")
+        self.commit()
+        self.git("merge", "--no-ff", "--no-edit", "side")
+        self.assertFalse(policy.is_base_sync(self.git("rev-parse", "HEAD"), base, cwd=self.repo))
+        self.assertFalse(policy.is_base_sync(base, base, cwd=self.repo))
+
     def test_diff_configuration_does_not_change_measurement(self):
         self.write("code.kt", "".join(f"val x{i} = {i}\n" for i in range(30)))
         self.commit()

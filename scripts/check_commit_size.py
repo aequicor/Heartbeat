@@ -42,12 +42,30 @@ def select_commits(base, head, cwd=None):
     return git("rev-list", "--reverse", "--topo-order", f"{base_sha}..{head_sha}", cwd=cwd).decode().splitlines()
 
 
-def read_diff(commit=None, cwd=None):
+def is_ancestor(ancestor, descendant, cwd=None):
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+    )
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.decode("utf-8", errors="replace").strip())
+    return result.returncode == 0
+
+
+def is_base_sync(commit, base, cwd=None):
+    """A merge whose side parents are all in base only brings reviewed base history into the branch."""
+    parents = git("rev-list", "--parents", "--max-count=1", commit, cwd=cwd).decode().split()[1:]
+    return len(parents) > 1 and all(is_ancestor(parent, base, cwd) for parent in parents[1:])
+
+
+def read_diff(commit=None, cwd=None, base_sync=False):
+    """Base syncs are measured by their remerge diff: only the manual conflict resolution needs review."""
     if commit is None:
         command = ("diff", "--cached")
     else:
+        merges = "remerge" if base_sync else "first-parent"
         command = ("show", "--format=", "--no-notes", "--no-show-signature",
-                   "--diff-merges=first-parent", commit)
+                   f"--diff-merges={merges}", commit)
     patch = git(*command, *DIFF_OPTIONS, "--patch", "--", cwd=cwd)
     numstat = git(*command, *DIFF_OPTIONS, "--no-patch", "--numstat", "-z", "--", cwd=cwd)
     return patch.decode("utf-8", errors="replace"), numstat
@@ -137,8 +155,10 @@ def main(argv=None):
         encodings = [tiktoken.get_encoding(name) for name in ENCODINGS]
         results = []
         for commit in commits:
-            patch, numstat = read_diff(commit)
-            results.append(measure(commit[:12] if commit else "staged", patch, numstat, encodings))
+            base_sync = bool(args.base and commit) and is_base_sync(commit, resolve_commit(args.base))
+            patch, numstat = read_diff(commit, base_sync=base_sync)
+            label = (commit[:12] + (" (base sync)" if base_sync else "")) if commit else "staged"
+            results.append(measure(label, patch, numstat, encodings))
         return report(results)
     except ImportError as error:
         print(f"ERROR: {error}. Install scripts/requirements-commit-policy.txt.", file=sys.stderr)
