@@ -1,6 +1,6 @@
 ---
 name: logging
-description: "Логирование в Heartbeat через core:logging (Napier) — фасад Log, инициализация Antilog по платформам и сборкам, адаптеры для FlowMVI StoreLogger, Ktor Logger (state-machine логирует свой рантайм), Koog handleEvents, DataStore/Room, редактирование секретов; аудит, что всё действие/IO залогировано. Используй при создании core:logging, добавлении нового источника событий или при проверке покрытия логами."
+description: "Логирование в Heartbeat через core:logging (Napier) — фасад Log, инициализация Antilog по платформам и сборкам, адаптеры для FlowMVI StoreLogger и Koog handleEvents (HTTP логирует core:network:impl, state-machine — свой рантайм), DataStore/Room, редактирование секретов; аудит, что всё действие/IO залогировано. Используй при создании core:logging, добавлении нового источника событий или при проверке покрытия логами."
 ---
 
 # Логирование

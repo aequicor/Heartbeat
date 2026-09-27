@@ -28,7 +28,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Отправка интента в чужую машину через `MachineRegistry` / машина не запущена | `core:state-machine:impl` | I / W |
 | Стор ← машина: отражённое состояние и outputs, отклонённый `sendTo` | `core:state-machine:flowmvi-ext` (`MVI/<store>`) | D / W |
 | Навигация (операция, путь хоста, `serialName` маршрута, стек — без полей маршрутов), результаты, deep links (шаблон, не ссылка) | хосты `core:navigation:impl` | I |
-| HTTP-запрос/ответ, статус, длительность | Ktor `Logging` с адаптером в `core:network` | I (метод, url, статус, ms), D (заголовки без секретов) |
+| HTTP-запрос/ответ, статус, длительность (каждая попытка, ретраи, таймауты) | плагин `NetworkLogging` в `core:network:impl`, тег `NET` | I (метод, url без значений query, статус, ms), W (не-2xx, сбой — с throwable), D (заголовки без секретов); тела — никогда |
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
 | Запись/чтение key-value | `LoggingKeyValueStore` в `core:datastore:impl`, тег `DS` | D (ключ + удержание), I (значения — только `KeyValueSpec.areValuesLogged`), W/E (ошибка чтения / повреждённый файл) |
 | Чистка по сроку, события удержания | `core:datastore:impl`, теги `DS` / `DB` | I (сколько записей удалено, без содержимого) |
@@ -51,7 +51,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 
 ## Запрещено логировать
 
-- API-ключи, токены, пароли, заголовки `Authorization`, cookies — редактируются `Log.redact()` и Ktor `sanitizeHeader`.
+- API-ключи, токены, пароли, заголовки `Authorization`, cookies — редактируются `Log.redact()` (в том числе значения чувствительных заголовков в `NetworkLogging`).
 - Полный текст пользовательских промптов/ответов LLM и файлов — только в debug-сборке на уровне `D`; в release — длина, хэш, id.
 - Персональные данные пользователя.
 

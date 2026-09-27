@@ -48,13 +48,13 @@
 - `io.aequicor.heartbeat.ds.tokens`, `io.aequicor.heartbeat.ds.components`
 - `io.aequicor.heartbeat.platform.android`
 
-Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `:design-system:tokens`, `:platform-main:android`.
+Gradle-пути: `:core:network:api`, `:features:chat:api`, `:features:chat:impl`, `:design-system:tokens`, `:platform-main:android`.
 
 ## Core-модули
 
 | Модуль | Ответственность | Библиотека |
 |---|---|---|
-| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/Ktor/Koog (state-machine логирует свой рантайм) | Napier |
+| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/Koog (HTTP логирует `core:network:impl`, state-machine — свой рантайм) | Napier |
 | `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, `Clock` (`kotlin.time`), Result/ошибки | coroutines |
 | `core:di:api` | скоупы (`ProfileScope`, `@ForScope`), `ScopeHandle`, `ScopeSavedState`, `ScopeFactory`, shared-скоупы | Metro, kotlinx-serialization (api) |
 | `core:di:ext` | `retainedGraph` / `retainedScope` / `retainedShared` — скоуп, привязанный к компоненту | Essenty |
@@ -71,7 +71,8 @@ Gradle-пути: `:core:network`, `:features:chat:api`, `:features:chat:impl`, `
 | `core:resources` | общие строки/иконки/шрифты, локализация | Compose Resources |
 | `core:datastore:api` | `DataStores` (владелец app/profile через `@ForScope`): `KeyValueStore`, Room-БД фичи по `DatabaseSpec`; удержание записей `Retention` (срок / событие), колонки `RecordRetention`, `StorageMaintenance` ([ADR-0006](../adr/0006-datastore.md)) | Room KMP (api), kotlinx-datetime |
 | `core:datastore:impl` | файлы per-owner, один DataStore на файл, открытие Room-БД (BundledSQLiteDriver, миграции), таймеры и журнал событий, логи `DS`/`DB`, постоянный `ActiveProfileStorage` | DataStore KMP, Room KMP, okio |
-| `core:network` | `HttpClient` c engine per-platform, JSON, ретраи, логирование | Ktor 3 |
+| `core:network:api` | `HttpClient` (тип Ktor) для API-классов фич, `NetworkConfig`, `NetworkException`, `networkResult { }` ([ADR-0005](../adr/0005-network.md)) | Ktor 3 (core) |
+| `core:network:impl` | клиент приложения: engine per-platform (OkHttp / Darwin), JSON, таймауты, ретраи идемпотентных запросов, логи `NET` | Ktor 3 |
 | `core:ai` | провайдеры LLM, `PromptExecutor`, реестр инструментов, агенты, ключи из безопасного хранилища | Koog |
 | `core:feature-toggles` | `FeatureToggle<T>`, `FeatureToggles` (Flow), хранение в DataStore, реестр | DataStore |
 

@@ -51,11 +51,17 @@ internal class UploadSessionFactory(private val api: UploadApi) : SharedFactory<
 @Inject
 internal class ChatStartup(/* … */) : AppInitializer
 
-// 4. Провайдеры сторонних типов — интерфейс с @ContributesTo (или @BindingContainer)
+// 4. Провайдеры сторонних типов — public @BindingContainer с @ContributesTo (так сделан core:network:impl).
+//    Параметр со значением по умолчанию — опциональная зависимость: берётся из графа, если там есть биндинг.
 @ContributesTo(AppScope::class)
-interface NetworkProviders {
+@BindingContainer
+public object NetworkBindings {
     @Provides @SingleIn(AppScope::class)
-    fun httpClient(engine: HttpClientEngine, json: Json): HttpClient = createHttpClient(engine, json)
+    public fun httpClient(
+        engine: HttpClientEngine,
+        @ForScope(AppScope::class) appScope: ScopeHandle,
+        config: NetworkConfig = NetworkConfig(),
+    ): HttpClient = createHttpClient(engine, config).also { client -> appScope.onClose(client::close) } // ресурс — закрыть со скоупом
 }
 
 // 5. Потребление мультибиндинга

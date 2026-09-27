@@ -17,7 +17,7 @@
 | Настройки | DataStore KMP | `androidx.datastore:datastore-preferences-core` | 1.2.1 (1.3.0-alpha) | https://developer.android.com/kotlin/multiplatform/datastore |
 | Дата/время | kotlinx-datetime | `org.jetbrains.kotlinx:kotlinx-datetime` (`LocalTime`, часовые пояса; `Instant`/`Clock` — из `kotlin.time`) | 0.8.0 | https://github.com/Kotlin/kotlinx-datetime |
 | Файлы | okio | `com.squareup.okio:okio` (в `core:datastore:impl`; DataStore тянет его и так) | 3.18.2 | https://square.github.io/okio/ |
-| Сеть | Ktor client | `io.ktor:ktor-client-core`, `-content-negotiation`, `-serialization-kotlinx-json`, `-logging`, engines `-okhttp` (android/jvm), `-darwin` (ios) | 3.6.0 | https://ktor.io/docs/client-create-new-application.html |
+| Сеть | Ktor client | `io.ktor:ktor-client-core`, `-content-negotiation`, `-serialization-kotlinx-json`, engines `-okhttp` (android/jvm), `-darwin` (ios), `-mock` (тесты); `-logging` не используется — HTTP логирует свой плагин `core:network:impl` (ADR-0005) | 3.6.0 | https://ktor.io/docs/client-create-new-application.html |
 | Сериализация | kotlinx.serialization | `org.jetbrains.kotlinx:kotlinx-serialization-json` + плагин `org.jetbrains.kotlin.plugin.serialization` | 1.11.0 | — |
 | ИИ-агенты | Koog | `ai.koog:koog-agents` (есть android, jvm, ios варианты) | 1.3.0 | https://docs.koog.ai/ |
 | Логирование | Napier | `io.github.aakira:napier` | 2.7.1 | https://github.com/AAkira/Napier |

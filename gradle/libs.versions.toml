@@ -28,6 +28,7 @@ datastore = "1.2.1"
 ksp = "2.3.12"
 okio = "3.18.2"
 decompose = "3.5.0"
+ktor = "3.6.0"
 kstatemachine = "0.38.1"
 flowmvi = "3.2.1"
 
@@ -67,6 +68,12 @@ essenty-stateKeeper = { module = "com.arkivanov.essenty:state-keeper", version.r
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }
 decompose-extensionsCompose = { module = "com.arkivanov.decompose:extensions-compose", version.ref = "decompose" }
 decompose-extensionsComposeExperimental = { module = "com.arkivanov.decompose:extensions-compose-experimental", version.ref = "decompose" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-contentNegotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinxJson = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 kstatemachine = { module = "io.github.nsk90:kstatemachine", version.ref = "kstatemachine" }
 flowmvi-core = { module = "pro.respawn.flowmvi:core", version.ref = "flowmvi" }
 flowmvi-test = { module = "pro.respawn.flowmvi:test", version.ref = "flowmvi" }

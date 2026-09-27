@@ -27,6 +27,8 @@ import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.serializer
 import java.nio.file.Files
@@ -48,6 +50,9 @@ interface TestAppGraph : HeartbeatGraph {
 
     val storageMaintenance: StorageMaintenance
     val machines: MachineRegistry
+    val httpClient: HttpClient
+
+    val httpEngine: HttpClientEngine
 
     @DependencyGraph.Factory
     fun interface Factory {
