@@ -1,7 +1,6 @@
 ---
 paths:
-  - "features/*/impl/**"
-  - "features/ai-engine/*/impl/**"
+  - "features/**/impl/**"
 ---
 
 # Модуль `features/<name>/impl`

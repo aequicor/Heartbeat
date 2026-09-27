@@ -33,6 +33,30 @@ case "$rel" in
   */src/*Test/*|*/src/test/*) is_test=true ;;
 esac
 
+# Feature module of the file, independent of nesting depth: the module is everything before `/src/`
+# (or the directory of build.gradle.kts); it is a feature module when it lives under features/ and ends in api|impl.
+#   features/welcome/impl/src/...                 -> feature_path=welcome,          feature_kind=impl
+#   features/ai-engine/facade/api/build.gradle.kts -> feature_path=ai-engine/facade, feature_kind=api
+module="${rel%%/src/*}"
+module="${module%/build.gradle.kts}"
+feature_path=""; feature_kind=""
+if [[ "$module" =~ ^features/(.+)/(api|impl)$ ]]; then
+  feature_path="${BASH_REMATCH[1]}"
+  feature_kind="${BASH_REMATCH[2]}"
+fi
+# Derived names (mirror KmpLibraryConventionPlugin.namespaceFor and Gradle typesafe accessors):
+#   package  ai-engine/facade -> aiengine\.facade   gradle path -> ai-engine:facade   accessor -> aiEngine\.facade
+feature_pkg="$(printf '%s' "$feature_path" | sed 's#-##g; s#/#\\.#g')"
+feature_gradle="${feature_path//\//:}"
+feature_accessor="$(printf '%s' "$feature_path" | awk -F/ '{
+  for (i = 1; i <= NF; i++) {
+    n = split($i, p, "-"); s = p[1]
+    for (j = 2; j <= n; j++) s = s toupper(substr(p[j], 1, 1)) substr(p[j], 2)
+    o = o (i > 1 ? "\\." : "") s
+  }
+  print o
+}')"
+
 # ---------- Kotlin sources ----------
 if [[ "$rel" == *.kt ]]; then
 
@@ -64,11 +88,9 @@ $hits"
   fi
 
   # 5. Feature boundaries
-  if [[ "$rel" =~ ^features/((ai-engine/)?[^/]+)/impl/ ]]; then
-    self="${BASH_REMATCH[1]//-/}"
-    self="${self//\//.}"
+  if [[ "$feature_kind" == impl ]]; then
     hits="$(grep -nE 'import io\.aequicor\.heartbeat\.feature\.[a-z0-9_.]+\.impl' "$file_path" \
-            | grep -vE "feature\.${self}\.impl" | head -n 5 | sed 's/^/    /')"
+            | grep -vE "feature\.${feature_pkg}\.impl" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl → чужой impl запрещён. Используй api другой фичи (MachineKey / EntryPoint).
 $hits"
     hits="$(grep_lines 'import ru\.nsk\.kstatemachine\.')"
@@ -79,7 +101,7 @@ $hits"
 $hits"
   fi
 
-  if [[ "$rel" =~ ^features/(ai-engine/)?[^/]+/api/ ]]; then
+  if [[ "$feature_kind" == api ]]; then
     hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_.]+\.impl|ru\.nsk\.kstatemachine\.|pro\.respawn\.flowmvi\.)')"
     [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core, без impl, KStateMachine и FlowMVI (машина — machineSpec { }). См. .claude/rules/feature-api.md
 $hits"
@@ -115,12 +137,9 @@ if [[ "$rel" == *.gradle.kts ]]; then
   [ -n "$hits" ] && add "Координаты зависимостей — только через gradle/libs.versions.toml (libs.*).
 $hits"
 
-  if [[ "$rel" =~ ^features/((ai-engine/)?[^/]+)/impl/ ]]; then
-    self="${BASH_REMATCH[1]}"
-    self_path="${self//\//:}"
-    self_accessor="$(printf '%s' "$self" | sed -E 's/-([a-z])/\U\1/g; s#/#.#g')"
+  if [[ "$feature_kind" == impl ]]; then
     hits="$(grep -nE '(projects\.features\.[A-Za-z0-9.]+\.impl|":features:[a-z0-9:-]+:impl")' "$file_path" \
-            | grep -vE "(features:${self_path}:impl|features\.${self_accessor}\.impl)" | head -n 5 | sed 's/^/    /')"
+            | grep -vE "(features:${feature_gradle}:impl|features\.${feature_accessor}\.impl)" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl-модуль фичи не может зависеть от impl другой фичи.
 $hits"
   fi

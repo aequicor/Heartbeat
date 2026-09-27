@@ -1,7 +1,7 @@
 ---
 paths:
   - "design-system/**"
-  - "features/*/impl/**/ui/**"
+  - "features/**/impl/**/ui/**"
   - "**/*Screen.kt"
   - "**/*Content.kt"
 ---
