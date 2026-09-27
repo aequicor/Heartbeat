@@ -66,7 +66,12 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
     private val restoration: Restoration<S, E>? = saved?.let(spec::restore)
     private val mutableState = MutableStateFlow(restoration?.state ?: spec.initial)
     private val mutableOutputs = MutableSharedFlow<O>(extraBufferCapacity = OUTPUT_BUFFER)
-    private val nodes: Map<KClass<out S>, DefaultState> = spec.states.associateWith { DefaultState(it.simpleName) }
+
+    // Engine names must distinguish equal simple names and must never collide with the machine root.
+    private val nodes: Map<KClass<out S>, DefaultState> = spec.states.mapIndexed { index, type ->
+        type to DefaultState("${spec.name}/state/$index:${type.simpleName ?: "?"}")
+    }.toMap()
+
     private val engine: StateMachine = createEngine(start = mutableState.value)
 
     /** Parent of all effect coroutines: cancelled once on [stop], so no effect outlives the machine. */
@@ -117,11 +122,18 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
     override suspend fun send(intent: I): SendResult = dispatch(intent, source = "own feature")
 
     /** Delivers [intent]; [source] explains in the log who sent it. */
-    suspend fun dispatch(intent: I, source: String): SendResult = mutex.withLock {
+    suspend fun dispatch(intent: I, source: String): SendResult = dispatch(intent, source, originScope = null)
+
+    private suspend fun dispatch(intent: I, source: String, originScope: CoroutineScope?): SendResult = mutex.withLock {
         currentCoroutineContext().ensureActive()
         if (!isRunning) {
             log.w { "← ${intent.label()} ($source) dropped: machine is not running" }
             return SendResult.NotRunning
+        }
+        // Check after acquiring the mutex: another intent may have exited the originating state while we waited.
+        if (originScope != null && (originScope !== stateScope || !originScope.isActive)) {
+            log.w { "← ${intent.label()} ($source) dropped: effect state is no longer active" }
+            return SendResult.Ignored
         }
         log.d { "← ${intent.label()} ($source)" }
         val from = mutableState.value
@@ -178,10 +190,11 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
 
     private fun launchEffect(effect: E) {
         val label = effect.label()
-        val feedback = object : EffectScope<I> {
-            override suspend fun send(intent: I): SendResult = dispatch(intent, source = "effect $label")
-        }
         val effectScope = stateScope
+        val feedback = object : EffectScope<I> {
+            override suspend fun send(intent: I): SendResult =
+                dispatch(intent, source = "effect $label", originScope = effectScope)
+        }
         // An effect whose own result leaves the state is cancelled after it has finished: not a cancellation.
         var isFinished = false
         val job = effectScope.launch {
@@ -217,7 +230,7 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
 
     private suspend fun reportFailure(effect: E, label: String, error: Throwable, effectScope: CoroutineScope) {
         val failure = spec.onEffectFailure(effect, error) ?: return
-        if (effectScope.isActive) dispatch(failure, source = "failure of effect $label")
+        dispatch(failure, source = "failure of effect $label", originScope = effectScope)
     }
 
     /** Coroutines of the current state's effects: cancelled when the state is left or the machine stops. */
@@ -234,7 +247,7 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
         spec.transitions.forEach { descriptor ->
             val owner: IState = descriptor.source?.let(nodes::getValue) ?: this
             val target = descriptor.target?.let(nodes::getValue)
-            owner.transition<IntentEvent>(name = descriptor.describe()) {
+            owner.transition<IntentEvent>(name = "${descriptor.id}: ${descriptor.describe()}") {
                 guard = { event.transition === descriptor }
                 targetState = target
                 // Re-entering the same state must exit it; LOCAL keeps a parent (machine root) active.

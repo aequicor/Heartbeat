@@ -62,7 +62,9 @@ public enum class SendResult {
     /** A transition (or a `stay` update) handled the intent. */
     Accepted,
 
-    /** The current state has no transition for the intent (or its guard rejected it). Logged as WARN. */
+    /**
+     * No transition matches (including its guard), or effect feedback belongs to an exited state. Logged as WARN.
+     */
     Ignored,
 
     /** The machine is not running: its feature scope is not open or already closed. Logged as WARN. */

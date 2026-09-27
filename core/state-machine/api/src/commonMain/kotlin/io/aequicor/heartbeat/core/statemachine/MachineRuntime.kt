@@ -26,7 +26,10 @@ public fun interface EffectHandler<in E : MachineEffect, out I : MachineIntent> 
 
 /** Feedback channel of an effect into its machine. */
 public interface EffectScope<in I : MachineIntent> {
-    /** Sends the result of the effect back to the machine (usually an internal intent). */
+    /**
+     * Sends the result of the effect back to the machine (usually an internal intent).
+     * Returns [SendResult.Ignored] after the originating state is exited, or [SendResult.NotRunning] after stop.
+     */
     public suspend fun send(intent: I): SendResult
 }
 
