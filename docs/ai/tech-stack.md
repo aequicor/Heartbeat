@@ -30,6 +30,13 @@
 | Стеклянные поверхности | Haze | `dev.chrisbanes.haze:haze`, `dev.chrisbanes.haze:haze-blur` | 2.0.0 | [Blur API](https://chrisbanes.github.io/haze/latest/blur/usage/), [ADR-0011](../adr/0011-glass-surfaces.md) |
 | Markdown в чате | JetBrains Markdown | `org.jetbrains:markdown` | 0.7.9 | [KMP-парсер](https://github.com/JetBrains/markdown), [ADR-0010](../adr/0010-markdown-tool-results.md) |
 
+## Инструменты процесса разработки
+
+Проверка размера коммитов: Python ≥3.12, `tiktoken==0.14.0`, кодировки `o200k_base` и
+`cl100k_base`. Зависимость закреплена в `scripts/requirements-commit-policy.txt`, не входит
+в приложение или Gradle-граф. Основание — [ADR-0016](../adr/0016-commit-review-budget.md),
+команды и правила — [политика коммитов](commit-policy.md).
+
 ## Важные замечания по совместимости
 
 - **detekt**: стабильная 1.23.8 не поддерживает синтаксис Kotlin 2.4 → используем 2.0.0-alpha.6 (новый id плагина `dev.detekt`,

@@ -11,6 +11,7 @@
 | Архитектура, группы модулей, правила зависимостей | [docs/ai/architecture.md](docs/ai/architecture.md) |
 | Контракт фичи: state-machine в `api`, связь машин через object-key | [docs/ai/feature-contract.md](docs/ai/feature-contract.md) |
 | Политика логирования (обязательна) | [docs/ai/logging-policy.md](docs/ai/logging-policy.md) |
+| PR целиком на фичу, логические коммиты, бюджет ревью | [docs/ai/commit-policy.md](docs/ai/commit-policy.md) |
 | Дизайн-система Glass UI, пастельные токены, blur и платформенные киты | [docs/ai/design-system.md](docs/ai/design-system.md), [ADR-0011](docs/adr/0011-glass-surfaces.md) |
 | Стек и версии библиотек, ссылки на доки | [docs/ai/tech-stack.md](docs/ai/tech-stack.md) |
 | Архитектурные решения (ADR) | [docs/adr/](docs/adr/) |
@@ -56,7 +57,8 @@ lint/            detekt-rules — собственный набор правил
 9. **Корутины**: без `GlobalScope`, `runBlocking` в продовом коде; диспетчеры инжектятся (`DispatcherProvider`); `CancellationException` не глотаем.
    **Ошибки**: никакая ошибка не игнорируется — минимум `log.w(e)`/`log.e(e)` с throwable или проброс (rethrow / `Result.failure(e)`); исключение — `CancellationException`, она пробрасывается. `@Suppress` этих правил запрещён (`ForbiddenSuppress`).
 10. **Detekt + compose-rules + ktlint** обязаны быть зелёными. `@Suppress` — только с комментарием-причиной.
-11. Версии библиотек — только в `gradle/libs.versions.toml`.
+11. Версии библиотек приложения — только в `gradle/libs.versions.toml`. Python-инструмент проверки коммитов закреплён отдельно ([ADR-0016](docs/adr/0016-commit-review-budget.md)).
+12. **PR содержит законченную фичу; коммиты — отдельные логические шаги.** Каждый коммит должен оставлять проект собираемым, тесты изменённого поведения идут вместе с реализацией. Бюджет каждого коммита — **не более 25 000 токенов полного diff**; свыше 20 000 токенов или 20 файлов — предупреждение. Ориентир — 700–1000 добавленных и удалённых строк суммарно, без жёсткого лимита строк и размера PR. Метод подсчёта и команды — [политика коммитов](docs/ai/commit-policy.md).
 
 ## Команды
 
@@ -81,6 +83,7 @@ iOS собирается только на macOS (Xcode, `iosApp/`). На Window
 ## Как работать
 
 - Перед изменением фичи прочитай её `api` (машину) — это спецификация поведения.
+- Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью.
 - После правок кода → скилл `verify` (сборка, тесты, detekt). Для крупных изменений — субагент `architecture-reviewer`.
 
 | Задача | Скилл (`.claude/skills/`) |

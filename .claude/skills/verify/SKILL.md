@@ -46,13 +46,33 @@ git status --porcelain
 grep -rnE 'projects\.features\.[A-Za-z0-9]+\.impl' features/*/impl/build.gradle.kts
 ```
 
-## 5. Отчёт
+## 5. Политика коммитов
+
+PR содержит фичу целиком, коммиты — логические, собираемые шаги с тестами изменённого поведения.
+До создания коммита проверь подготовленные изменения, перед ревью — каждый коммит ветки:
+
+```bash
+python -m pip install -r scripts/requirements-commit-policy.txt
+python scripts/check_commit_size.py --staged
+python scripts/check_commit_size.py --base <base-ref> --head HEAD
+```
+
+Предел — **25 000 токенов полного diff на коммит**. Свыше 20 000 токенов или 20 файлов —
+предупреждение; 700–1000 изменённых строк — ориентир, а не блокер. Общего лимита размера PR нет.
+Методика и ограничения — [commit-policy.md](../../../docs/ai/commit-policy.md).
+Не подменяй подсчёт токенов оценкой по строкам и не считай отсутствие зависимости успешной проверкой.
+
+Для изменений только Python-инструмента, workflow и документации Gradle-проверки не нужны;
+выполни `python -m unittest discover -s scripts/tests -v` и проверку размера изменений.
+
+## 6. Отчёт
 
 ```
 Модули: …
 Компиляция: OK / FAIL (первая ошибка)
 Тесты: N passed, M failed (имена упавших)
 Detekt: OK / K issues (правила)
+Коммиты: OK / FAIL (SHA, токены, файлы; предупреждения)
 Не проверено: iOS (Windows) / …
 ```
 
