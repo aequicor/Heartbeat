@@ -14,6 +14,9 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.StringKey
+import io.aequicor.heartbeat.core.datastore.DataStores
+import io.aequicor.heartbeat.core.datastore.StorageMaintenance
+import io.aequicor.heartbeat.core.datastore.impl.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
@@ -22,12 +25,18 @@ import io.aequicor.heartbeat.core.di.SharedFactory
 import io.aequicor.heartbeat.core.di.SharedKey
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.yield
 import kotlinx.serialization.builtins.serializer
+import java.nio.file.Files
 
 /**
  * App graph for integration tests: the real contributions of all modules plus the test ones below.
  * [PersistedProfile] plays the role of disk — it outlives a graph, i.e. "survives process death".
+ * Storages of core:datastore live in its temporary [PersistedProfile.storageRoot].
  */
 @DependencyGraph(AppScope::class)
 interface TestAppGraph : HeartbeatGraph {
@@ -35,6 +44,15 @@ interface TestAppGraph : HeartbeatGraph {
 
     @ForScope(AppScope::class)
     val appScope: ScopeHandle
+
+    @ForScope(AppScope::class)
+    val appStores: DataStores
+
+    val storageMaintenance: StorageMaintenance
+    val machines: MachineRegistry
+    val httpClient: HttpClient
+
+    val httpEngine: HttpClientEngine
 
     @DependencyGraph.Factory
     fun interface Factory {
@@ -46,9 +64,26 @@ interface TestAppGraph : HeartbeatGraph {
 
 class PersistedProfile(val suspendOperations: Boolean = true) {
     var id: ProfileId? = null
+
+    /** Storage directory of the "device"; created lazily, deleted by the tests that use storages. */
+    val storageRoot: String by lazy { Files.createTempDirectory("hb-storage").toString() }
 }
 
-/** Overrides the in-memory default of core:profile-facade:impl — the way a DataStore implementation will. */
+/** Keeps the storages of core:datastore in the temporary directory of the "device". */
+@ContributesBinding(AppScope::class, priority = 1)
+@Inject
+class TestStorageRoot(private val persisted: PersistedProfile) : StorageRoot {
+    override fun path(): String = persisted.storageRoot
+}
+
+/** Accessor to profile-owned storages. */
+@ContributesTo(ProfileScope::class)
+interface TestStorageAccessors {
+    @ForScope(ProfileScope::class)
+    val stores: DataStores
+}
+
+/** Overrides the DataStore implementation of core:datastore:impl (priority 0) and the in-memory default. */
 @ContributesBinding(AppScope::class, priority = 1)
 @Inject
 class FakeActiveProfileStorage(private val persisted: PersistedProfile) : ActiveProfileStorage {
@@ -71,6 +106,7 @@ abstract class TestFeatureScope private constructor()
 @GraphExtension(TestFeatureScope::class)
 interface TestFeatureGraph {
     val draft: Draft
+    val machine: Machine<CounterState, CounterIntent, CounterOutput>
 
     @ForScope(TestFeatureScope::class)
     val scope: ScopeHandle

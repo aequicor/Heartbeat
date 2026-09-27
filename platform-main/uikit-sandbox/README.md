@@ -108,7 +108,7 @@ Computer-use подтвердил hover, раскрытие инструмент
 их анализ с типами неполон.
 Это ограничение следует учитывать отдельно от компиляции и обычного Detekt.
 
-Архитектура: [ADR-0004](../../docs/adr/0004-design-system-sandbox.md).
-Markdown и инструменты: [ADR-0006](../../docs/adr/0006-markdown-tool-results.md).
-Текущий визуальный стиль: [ADR-0007](../../docs/adr/0007-glass-surfaces.md).
-История пастельной палитры: [ADR-0005](../../docs/adr/0005-pastel-neumorphism.md).
+Архитектура: [ADR-0008](../../docs/adr/0008-design-system-sandbox.md).
+Markdown и инструменты: [ADR-0010](../../docs/adr/0010-markdown-tool-results.md).
+Текущий визуальный стиль: [ADR-0011](../../docs/adr/0011-glass-surfaces.md).
+История пастельной палитры: [ADR-0009](../../docs/adr/0009-pastel-neumorphism.md).

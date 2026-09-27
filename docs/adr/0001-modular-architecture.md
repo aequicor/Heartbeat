@@ -13,7 +13,8 @@ Heartbeat — ИИ-студия на KMP для Android, iOS, macOS и Windows. 
 
 - Группы модулей `platform-main / core / design-system / features`; фича = `api` + `impl`.
 - Поведение фичи — конечный автомат **KStateMachine**, объявленный в `api`. Межфичевое взаимодействие — только через
-  `MachineKey` (object) + `MachineRegistry` и публичные события машины.
+  `MachineKey` (object) + `MachineRegistry` и публичные события машины. Уточнено [ADR-0004](0004-state-machine.md):
+  типизированный `machineSpec { }` в `api`, KStateMachine — движок в `core:state-machine:impl`.
 - UI-состояние — **FlowMVI**; навигация — **Decompose**; DI — **Metro**; сеть — **Ktor**; БД — **Room KMP**;
   настройки — **DataStore KMP**; ИИ — **Koog**; ресурсы — **Compose Resources**; логи — **Napier**; lint — **detekt** + ktlint-wrapper + compose-rules.
 - Дизайн-система Mission; UI-киты: Material 3 (Android/iOS), compose-fluent-ui (Windows), compose-macos-26-ui (macOS).

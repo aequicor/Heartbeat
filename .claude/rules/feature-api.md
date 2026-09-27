@@ -7,21 +7,22 @@ paths:
 
 Это **спецификация поведения** фичи. Подробно: `docs/ai/feature-contract.md`, процедура — скилл `state-machine`.
 
-Содержит только:
-- `<Name>Event` — sealed-иерархия событий; публичные (для других фич) — `<Name>Event.Public`, внутренние (от эффектов) — `<Name>Event.Internal`.
-- `<Name>State` — sealed-иерархия состояний машины (KStateMachine), с данными через `DataState`.
-- `object <Name>MachineKey : MachineKey<<Name>Event.Public>` — единственный способ адресовать машину извне.
-- `<Name>MachineSpec` — функция/класс, строящий граф состояний и переходов. Без IO: побочные эффекты — через интерфейс `<Name>Effects`.
-- `<Name>Effects` — интерфейс эффектов (реализует `impl`).
+Содержит только (всё на `core:state-machine:api`, [ADR-0004](../../docs/adr/0004-state-machine.md)):
+- `<Name>State : MachineState` — sealed-иерархия **всех** состояний (`data object` / `data class` с данными; `@Serializable`, если машина `persist`).
+- `<Name>Intent : MachineIntent` — `Public` (шлют другие фичи и стор) и `Internal` (результаты эффектов, внутренний ввод).
+- `<Name>Effect : MachineEffect` — команды на IO (исполняет `EffectHandler` в `impl`); `<Name>Output : MachineOutput` — одноразовые события наружу.
+- `object <Name>MachineKey : MachineKey<State, Intent, Intent.Public, Effect, Output>` — единственный способ адресовать машину извне.
+- `<Name>MachineSpec` — `machineSpec(<Name>MachineKey, initial) { … }`: состояния, переходы, эффекты, outputs. Лямбды чистые, без IO.
 - Публичные маршруты `@Serializable @SerialName("<name>") <Name>Route : Route` и `ResultContract`-ы (если фича открывается извне / возвращает результат). Скилл `navigation`.
 - Определения тоглов фичи, если их читают другие модули.
 
 Запрещено:
 - Compose / UI / `design-system`, ресурсы экранов.
-- Зависимости на `core:network`, `core:database`, `core:ai`, `core:datastore` и любые `impl`.
+- Зависимости на `core:network`, `core:ai`, `core:datastore` и любые `impl`.
+- KStateMachine и FlowMVI (движок — внутренность `core:state-machine:impl`, стор — в `impl` фичи).
 - Логика с IO, репозитории, реализации.
 
 Каждое изменение состояний/переходов:
 1. Обнови KDoc спеки и таблицу переходов в KDoc `<Name>MachineSpec`.
-2. Обнови/добавь тест графа переходов в `api/src/commonTest` (переходы тестируются без impl — с фейковыми эффектами).
-3. Проверь потребителей `<Name>MachineKey` в других фичах (`Grep`), если меняется `Event.Public`.
+2. Обнови/добавь тесты переходов в `api/src/commonTest`: `assertTransition` / `assertIgnored` — без рантайма и фейков.
+3. Проверь потребителей `<Name>MachineKey` в других фичах (`Grep`), если меняется `Intent.Public` или состояния.

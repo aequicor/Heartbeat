@@ -13,7 +13,7 @@ description: "Проверка изменений Heartbeat перед заве�
 git status --porcelain
 ```
 
-Путь файла → Gradle-путь: `features/chat/impl/src/...` → `:features:chat:impl`, `core/network/...` → `:core:network`.
+Путь файла → Gradle-путь: `features/chat/impl/src/...` → `:features:chat:impl`, `core/network/impl/...` → `:core:network:impl`.
 Если изменён `api`-модуль фичи или `core` — затронуты и все зависящие (`Grep` по `projects.features.<name>.api` / `projects.core.<x>` в `**/build.gradle.kts`).
 
 ## 2. Компиляция и тесты (быстрый контур — JVM)

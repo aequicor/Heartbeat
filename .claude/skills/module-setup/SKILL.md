@@ -31,11 +31,11 @@ build-logic/
 |---|---|
 | `heartbeat.kmp.library` | `kotlin("multiplatform")`, `com.android.kotlin.multiplatform.library`; таргеты `android { namespace = "io.aequicor.heartbeat.<path>" }`, `jvm()`, `iosArm64()`, `iosSimulatorArm64()`; `jvmToolchain(17)`; `explicitApi()` для `core` и `api`; `commonTest` ← kotlin-test, coroutines-test; + `heartbeat.detekt` |
 | `heartbeat.kmp.compose` | + `org.jetbrains.compose`, `kotlin.plugin.compose`; compose runtime/foundation/ui/resources; compose compiler reports в `build/compose-reports` |
-| `heartbeat.feature.api` | `kmp.library` + `metro` + `kotlinx-serialization`; deps: `core:state-machine`, `core:navigation:api`, `core:common`; **запрет** Compose-плагина |
-| `heartbeat.feature.impl` | `kmp.compose` + `metro` + `serialization`; deps: `core:*` (logging, mvi, navigation, state-machine, feature-toggles, resources), `design-system:components`, `design-system:theme`; проверка: падение конфигурации, если в зависимостях есть `:features:*:impl` |
+| `heartbeat.feature.api` | `kmp.library` + `metro` + `kotlinx-serialization`; deps: `core:state-machine:api`, `core:navigation:api`, `core:common`; **запрет** Compose-плагина |
+| `heartbeat.feature.impl` | `kmp.compose` + `metro` + `serialization`; deps: `core:*` (logging, mvi, navigation, `state-machine:api` + `state-machine:flowmvi-ext`, feature-toggles:api, resources), `design-system:components`, `design-system:theme`; проверка: падение конфигурации, если в зависимостях есть `:features:*:impl` |
 | `heartbeat.metro` | плагин `dev.zacsweers.metro` |
 | `heartbeat.detekt` | плагин `dev.detekt`; `buildUponDefaultConfig = true`; `config.setFrom(rootProject.file("config/detekt/detekt.yml"))`; `parallel = true`; `source` = все `src/*/kotlin`; `detektPlugins(libs.detekt.ktlint.wrapper)`, `detektPlugins(libs.compose.rules.detekt)`; baseline `detekt-baseline.xml` |
-| `heartbeat.room` | `androidx.room`, `com.google.devtools.ksp`, `room { schemaDirectory(...) }`, `ksp<Target>` для всех таргетов |
+| `heartbeat.room` (`RoomConventionPlugin`, готов) | `heartbeat.kmp.library` + `androidx.room` (`schemaDirectory("$projectDir/schemas")`) + `com.google.devtools.ksp`; `room-compiler` в `kspAndroid`/`kspJvm`/`kspIosArm64`/`kspIosSimulatorArm64`; `implementation(:core:datastore:api)` (БД открывает `DataStores.database`, ADR-0006). Модулю без своей БД не нужен; тестовая БД в `jvmTest` — плагин `ksp` + `kspJvmTest` (как в `core:datastore:impl`) |
 
 Проверка запрета `impl → impl` в `heartbeat.feature.impl`:
 
@@ -83,7 +83,6 @@ flowmvi-compose = { module = "pro.respawn.flowmvi:compose", version.ref = "flowm
 flowmvi-essenty = { module = "pro.respawn.flowmvi:essenty", version.ref = "flowmvi" }
 flowmvi-test = { module = "pro.respawn.flowmvi:test", version.ref = "flowmvi" }
 kstatemachine = { module = "io.github.nsk90:kstatemachine", version.ref = "kstatemachine" }
-kstatemachine-coroutines = { module = "io.github.nsk90:kstatemachine-coroutines", version.ref = "kstatemachine" }
 koog-agents = { module = "ai.koog:koog-agents", version.ref = "koog" }
 napier = { module = "io.github.aakira:napier", version.ref = "napier" }
 detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }

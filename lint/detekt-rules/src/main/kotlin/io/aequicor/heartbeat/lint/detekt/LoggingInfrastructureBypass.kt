@@ -15,8 +15,8 @@ import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 
 /**
  * Network requests, storage access, configuration, navigation and state changes are logged centrally by
- * `core:*` adapters (Ktor Logging, DataStore/Room wrappers, the `heartbeatStore` plugin, the machine listener).
- * Creating the underlying primitives elsewhere bypasses that logging.
+ * `core:*` adapters (the `NET` plugin of core:network, DataStore/Room wrappers, the `heartbeatStore` plugin,
+ * the machine listener). Creating the underlying primitives elsewhere bypasses that logging.
  *
  * Each `forbidden` entry is `<symbol> -> <package allowed to use it>` with a reason (the replacement).
  * `<symbol>` with a dot is an import prefix (`pro.respawn.flowmvi.dsl.store`); without a dot it is a call name
@@ -41,15 +41,15 @@ class LoggingInfrastructureBypass(config: Config) :
     private val forbidden by config(
         valuesWithReason(
             "HttpClient -> io.aequicor.heartbeat.core.network" to
-                "inject HttpClient from core:network (Ktor Logging with secret redaction)",
+                "inject HttpClient from core:network (NET logging with secret redaction)",
             "PreferenceDataStoreFactory -> io.aequicor.heartbeat.core.datastore" to
                 "use the logging DataStore from core:datastore",
             "DataStoreFactory -> io.aequicor.heartbeat.core.datastore" to
                 "use the logging DataStore from core:datastore",
-            "databaseBuilder -> io.aequicor.heartbeat.core.database" to
-                "use HeartbeatDatabase from core:database",
-            "inMemoryDatabaseBuilder -> io.aequicor.heartbeat.core.database" to
-                "use the test factory from core:database",
+            "databaseBuilder -> io.aequicor.heartbeat.core.datastore" to
+                "open the feature database via DataStores.database(DatabaseSpec) from core:datastore",
+            "inMemoryDatabaseBuilder -> io.aequicor.heartbeat.core.datastore" to
+                "open the feature database via DataStores.database(DatabaseSpec) from core:datastore",
             "pro.respawn.flowmvi.dsl.store -> io.aequicor.heartbeat.core.mvi" to
                 "use heartbeatStore { } from core:mvi (logging plugin)",
             "pro.respawn.flowmvi.dsl.lazyStore -> io.aequicor.heartbeat.core.mvi" to

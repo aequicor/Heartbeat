@@ -45,8 +45,12 @@ class DetektConventionPlugin : Plugin<Project> {
         rules.isTransitive = false
         dependencies.add(DETEKT_PLUGINS, rules)
 
+        val buildDir = layout.buildDirectory.get().asFile
         tasks.withType<Detekt>().configureEach {
             exclude("**/build/**", "**/generated/**")
+            // type-resolution tasks take the sources of the compilation, including KSP output (Room `*_Impl`),
+            // whose paths relative to their source root do not contain `build/`
+            exclude { element -> element.file.startsWith(buildDir) }
             reports {
                 html.required.set(true)
                 sarif.required.set(true)
