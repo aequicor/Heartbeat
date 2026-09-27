@@ -16,29 +16,41 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.BindingStorage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineSettingsSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.FeatureToggleEngineGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ModelCacheSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ModelCacheStorage
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.RoomSessionIndex
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.SessionCursorCodec
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.SessionIndexDatabaseSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnabledEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineSessionListing
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FeatureTable
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ModelCatalogService
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.NoEngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.SessionCatalogService
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.StoredSession
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.available
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -61,7 +73,7 @@ interface EngineRegistrationBindings {
     fun registrations(): Set<EngineRegistration>
 }
 
-/** Profile-owned facade services. */
+/** Profile-owned facade infrastructure: registry, toggles, environment and bindings. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object AiEngineFacadeBindings {
@@ -74,6 +86,12 @@ object AiEngineFacadeBindings {
     /** Toggle gate of engines. */
     @Provides
     fun toggles(toggles: FeatureToggles): EngineToggles = FeatureToggleEngineGate(toggles)
+
+    /** Engines enabled by toggles. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun enabled(registry: EngineRegistry, toggles: EngineToggles, context: FacadeContext): EnabledEngines =
+        EnabledEngines(registry, toggles, context.scope)
 
     /** Shared toggle/registration check. */
     @Provides
@@ -112,17 +130,24 @@ object AiEngineFacadeBindings {
     @Provides
     fun bindings(service: EngineBindingsService): EngineBindings = service
 
+    private const val TOKEN_LENGTH = 20
+}
+
+/** Profile-owned catalogs of engines, models and sessions. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+object AiEngineCatalogBindings {
     /** Engine catalog with cached availability. */
     @Provides
     @SingleIn(ProfileScope::class)
     fun catalogService(
-        registry: EngineRegistry,
-        toggles: EngineToggles,
         gate: EngineGate,
+        enabled: EnabledEngines,
         bindings: EngineBindingsService,
+        sessions: SessionCatalogService,
         context: FacadeContext,
-    ): EngineCatalogService = EngineCatalogService(registry, toggles, gate, bindings.state, context) {
-        NoEngineFeatures
+    ): EngineCatalogService = EngineCatalogService(gate, enabled, bindings.state, context) { registration ->
+        FeatureTable(mapOf(ListsSessions.id to available(EngineSessionListing(registration.descriptor.id, sessions))))
     }
 
     /** Public catalog API. */
@@ -143,7 +168,26 @@ object AiEngineFacadeBindings {
         context: FacadeContext,
     ): ModelCatalog = ModelCatalogService(ModelCacheStorage(stores.keyValue(ModelCacheSpec)), routes, context)
 
-    private const val TOKEN_LENGTH = 20
+    /** Unified session catalog over the profile index. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun sessionService(
+        registry: EngineRegistry,
+        enabled: EnabledEngines,
+        @ForScope(ProfileScope::class) stores: DataStores,
+        profile: ProfileId,
+        context: FacadeContext,
+    ): SessionCatalogService = SessionCatalogService(
+        registry,
+        enabled,
+        RoomSessionIndex(stores.database(SessionIndexDatabaseSpec)),
+        SessionCursorCodec(profile.value),
+        context,
+    ) { _, stored -> StoredSession(stored) { FeatureAccess.Unsupported } }
+
+    /** Public session catalog API. */
+    @Provides
+    fun sessions(service: SessionCatalogService): SessionCatalog = service
 }
 
 private fun HostPlatform.enginePlatform(): EnginePlatform? = when (this) {

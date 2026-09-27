@@ -33,12 +33,12 @@ class EngineCatalogServiceTest {
         platform: EnginePlatform? = EnginePlatform.DesktopWindows,
     ): EngineCatalogService {
         val registry = EngineRegistry(registrations, platform)
+        val context = facadeContext(clock)
         return EngineCatalogService(
-            registry,
-            toggles,
             EngineGate(registry, toggles),
+            EnabledEngines(registry, toggles, context.scope),
             bindings,
-            facadeContext(clock),
+            context,
         ) { NoEngineFeatures }
     }
 

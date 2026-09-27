@@ -11,13 +11,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
@@ -29,20 +26,17 @@ import kotlin.coroutines.cancellation.CancellationException
  * come from [engineFeatures] and are blocked while the engine is disabled.
  */
 class EngineCatalogService(
-    private val registry: EngineRegistry,
-    private val toggles: EngineToggles,
     private val gate: EngineGate,
+    private val enabled: EnabledEngines,
     private val bindings: StateFlow<List<EngineBinding>>,
     private val context: FacadeContext,
     private val engineFeatures: (EngineRegistration) -> EngineFeatures,
 ) : EngineCatalog {
     private val log = Log.tag("EngineCatalog")
+    private val registry = gate.registry
     private val probes = MutableStateFlow(emptyMap<EngineId, Probe>())
 
-    /** Engines enabled by toggles right now; synchronous capability resolution reads it. */
-    val enabled: StateFlow<Set<EngineId>> = enabledEngines().stateIn(context.scope, SharingStarted.Eagerly, emptySet())
-
-    override val state: StateFlow<List<EngineInfo>> = combine(enabled, probes, bindings) { on, probed, saved ->
+    override val state: StateFlow<List<EngineInfo>> = combine(enabled.state, probes, bindings) { on, probed, saved ->
         registry.all.filter { it.descriptor.id in on }.map { info(it, probed, saved) }
     }.stateIn(context.scope, SharingStarted.Eagerly, emptyList())
 
@@ -61,7 +55,8 @@ class EngineCatalogService(
 
     override fun features(engine: EngineId): EngineFeatures {
         val registration = registry.find(engine) ?: return NoEngineFeatures
-        return if (engine in enabled.value) engineFeatures(registration) else BlockedEngineFeatures(EngineUnavailable)
+        if (engine !in enabled.state.value) return BlockedEngineFeatures(EngineUnavailable)
+        return engineFeatures(registration)
     }
 
     private suspend fun probe(registration: EngineRegistration): EngineAvailability = try {
@@ -74,14 +69,6 @@ class EngineCatalogService(
     } catch (e: Exception) {
         log.e(e) { "requirements check crashed engine=${registration.descriptor.id.value}" }
         EngineAvailability.Unavailable(EngineFailure.Unknown())
-    }
-
-    private fun enabledEngines(): Flow<Set<EngineId>> {
-        if (registry.all.isEmpty()) return flowOf(emptySet())
-        val flags = registry.all.map { registration ->
-            toggles.observe(registration.descriptor).map { on -> registration.descriptor.id.takeIf { on } }
-        }
-        return combine(flags) { ids -> ids.filterNotNull().toSet() }
     }
 
     private fun info(registration: EngineRegistration, probed: Map<EngineId, Probe>, saved: List<EngineBinding>) =

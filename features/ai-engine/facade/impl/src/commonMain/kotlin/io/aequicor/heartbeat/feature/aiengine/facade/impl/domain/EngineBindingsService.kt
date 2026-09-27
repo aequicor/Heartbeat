@@ -44,7 +44,7 @@ fun interface BindingUsage {
 }
 
 /** Toggle and registration gate shared by every operation that may start engine work. */
-class EngineGate(private val registry: EngineRegistry, private val toggles: EngineToggles) {
+class EngineGate(val registry: EngineRegistry, private val toggles: EngineToggles) {
     private val log = Log.tag("EngineGate")
 
     /** Registration of an engine enabled by toggles, rechecked at call time. */

@@ -15,6 +15,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.validateEngineRegis
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlin.time.Clock
 
 /**
@@ -44,6 +50,27 @@ class EngineRegistry(registrations: Collection<EngineRegistration>, val platform
     /** Configured store that owns [ref], or null. */
     fun source(ref: SessionRef): EngineSessionSource? =
         find(ref.engine)?.sessionSources?.firstOrNull { it.source.id == ref.source }
+}
+
+/** Engines currently enabled by toggles; synchronous capability resolution and catalog filters read it. */
+class EnabledEngines(registry: EngineRegistry, toggles: EngineToggles, scope: CoroutineScope) {
+    private val read: suspend () -> Set<EngineId> = {
+        registry.all.filter { toggles.isEnabled(it.descriptor) }.mapTo(mutableSetOf()) { it.descriptor.id }
+    }
+
+    /** Enabled engine ids; empty until toggles are read. */
+    val state: StateFlow<Set<EngineId>> = if (registry.all.isEmpty()) {
+        MutableStateFlow(emptySet())
+    } else {
+        combine(
+            registry.all.map { registration ->
+                toggles.observe(registration.descriptor).map { on -> registration.descriptor.id.takeIf { on } }
+            },
+        ) { ids -> ids.filterNotNull().toSet() }.stateIn(scope, SharingStarted.Eagerly, emptySet())
+    }
+
+    /** Enabled engine ids read from the toggles now; never the empty placeholder of an unread state. */
+    suspend fun current(): Set<EngineId> = read()
 }
 
 /** Toggle gate of engines: the global AI-engine flag combined with the engine's own flag. */
