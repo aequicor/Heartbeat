@@ -55,7 +55,7 @@ features/<name>/
 
 1. Скилл `verify` (компиляция, jvmTest, detekt).
 2. Субагенты `architecture-reviewer` и `ui-reviewer` на изменённые файлы; исправь блокеры.
-3. Запусти desktop (`./gradlew :desktopApp:run` / `:platform-main:desktop:run`) и пройди основной флоу, проверь логи машины (`SM/<name>`: интенты, переходы, эффекты).
+3. Запусти desktop (`./gradlew :platform-main:desktop:run`) и пройди основной флоу, проверь логи машины (`SM/<name>`: интенты, переходы, эффекты).
 
 ## Чек-лист готовности
 

@@ -11,7 +11,7 @@ config:
 comments:
   UndocumentedPublicClass:
     active: true
-    excludes: &tests ['**/test/**', '**/commonTest/**', '**/jvmTest/**', '**/iosTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/platform-main/**', '**/*App/**']
+    excludes: &tests ['**/test/**', '**/commonTest/**', '**/jvmTest/**', '**/iosTest/**', '**/androidHostTest/**', '**/androidDeviceTest/**', '**/platform-main/**']
   UndocumentedPublicFunction:
     active: true
     excludes: *tests
