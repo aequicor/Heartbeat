@@ -48,7 +48,10 @@ class AiStudioEffectsTest {
     fun `created session is titled by the first prompt line`() = runTest {
         val fixture = Fixture(this, agent = { flowOf() })
         val prompt = "Design the engine facade\nwith details"
-        fixture.effects.handle(AiStudioEffect.CreateSession(3, "p-heartbeat", prompt), fixture.machine)
+        fixture.effects.handle(
+            AiStudioEffect.CreateSession(3, "p-heartbeat", prompt, DefaultRunSettings),
+            fixture.machine,
+        )
         val created = assertIs<AiStudioIntent.Internal.SessionCreated>(fixture.machine.sent.single())
         assertEquals(3, created.paneId)
         val session = fixture.repository.observeWorkspace().first().session(created.sessionId)

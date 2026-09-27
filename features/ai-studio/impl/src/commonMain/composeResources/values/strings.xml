@@ -97,4 +97,8 @@
     <string name="tool_diff">Changes</string>
     <string name="tool_copy_path">Copy file path</string>
     <string name="tool_path_copied">Path copied</string>
+    <string name="connect_model_hint">Connect and select a model in settings</string>
+    <string name="stop_failed">Could not confirm the stop. The engine may still be running. Try Stop again.</string>
+    <string name="session_read_only">This session cannot be continued right now. Its saved history is available; start a new chat to continue working.</string>
+    <string name="stop_unsupported">This engine does not support stopping an accepted request.</string>
 </resources>

@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
+import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
@@ -53,7 +54,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_unsupported
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.streaming
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.submit_failed
@@ -99,6 +103,33 @@ internal fun StudioPaneView(
                     }
                 }
             }
+            if (content.session?.isContinuable == false) {
+                HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
+            } else if (content.session?.isRunning == true && !content.isStoppable) {
+                HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
+            }
+            if (content.isStopFailed) {
+                HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
+            }
+            content.permissions.forEach { request ->
+                HbColumn(Modifier.padding(HbTheme.spacing.m), gap = HbTheme.spacing.s) {
+                    HbText(request.title)
+                    request.options.forEach { option ->
+                        HbButton(
+                            text = option.title,
+                            onClick = {
+                                onIntent(
+                                    AiStudioScreenIntent.RespondPermission(
+                                        request.sessionId,
+                                        request.requestId,
+                                        option.id,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                }
+            }
             PaneFooter(content, onIntent, layout.isCompact)
         }
     }
@@ -137,7 +168,7 @@ private fun PaneHeader(content: PaneContent, layout: PaneLayout, onIntent: (AiSt
             HbMenuButton(
                 icon = HbIcons.More,
                 contentDescription = stringResource(Res.string.session_actions),
-                items = sessionMenu(session, canOpenBeside = false),
+                items = sessionMenu(session, isOpenBesideAllowed = false),
                 isExpanded = isMenuOpen,
                 onExpandedChange = { isMenuOpen = it },
                 onItem = { sessionAction(session, it, paneOrigin(pane.id))?.let(onIntent) },
@@ -156,7 +187,7 @@ private fun PaneLayoutActions(
     modifier: Modifier = Modifier,
 ) {
     HbRow(modifier, gap = HbTheme.spacing.xs) {
-        if (layout.canSplit) {
+        if (layout.isSplitAllowed) {
             HbIconButton(
                 icon = HbIcons.Grid,
                 contentDescription = stringResource(Res.string.pane_split),
@@ -164,7 +195,7 @@ private fun PaneLayoutActions(
                 modifier = Modifier.testTag("pane-split"),
             )
         }
-        if (layout.canClose) {
+        if (layout.isCloseAllowed) {
             HbIconButton(
                 icon = HbIcons.Close,
                 contentDescription = stringResource(Res.string.pane_close),

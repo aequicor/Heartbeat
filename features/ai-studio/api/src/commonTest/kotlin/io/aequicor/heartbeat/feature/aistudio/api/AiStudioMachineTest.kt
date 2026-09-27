@@ -36,7 +36,7 @@ class AiStudioMachineTest {
             from = AiStudioState.Loading,
             intent = AiStudioIntent.Internal.Loaded(isEnabled = true, defaults = defaults),
             to = home,
-            effects = listOf(AiStudioEffect.ObserveAvailability),
+            effects = listOf(AiStudioEffect.ObserveAvailability, AiStudioEffect.ObserveRuntime),
         )
     }
 
@@ -75,13 +75,16 @@ class AiStudioMachineTest {
         )
         assertEquals(
             AiStudioIntent.Internal.CreateFailed(0, "Design"),
-            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.CreateSession(0, "p", "Design"), error),
+            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.CreateSession(0, "p", "Design", settings), error),
         )
         assertEquals(
             AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Failed),
             AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Run("s1", "Next", settings), error),
         )
-        assertEquals(null, AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Cancel("s1"), error))
+        assertEquals(
+            AiStudioIntent.Internal.CancelFailed("s1"),
+            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Cancel("s1"), error),
+        )
         assertEquals(
             null,
             AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Apply("s1", SessionEdit.SetPinned(true)), error),
@@ -183,7 +186,7 @@ class AiStudioMachineTest {
             from = home,
             intent = AiStudioIntent.Public.Submit(0, "  Design the facade "),
             to = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true))),
-            effects = listOf(AiStudioEffect.CreateSession(0, "heartbeat", "Design the facade")),
+            effects = listOf(AiStudioEffect.CreateSession(0, "heartbeat", "Design the facade", settings)),
         )
         AiStudioMachineSpec.assertIgnored(home, AiStudioIntent.Public.Submit(0, "   "))
         val creating = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true)))
@@ -195,7 +198,7 @@ class AiStudioMachineTest {
         val creating = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true)))
         AiStudioMachineSpec.assertTransition(
             from = creating,
-            intent = AiStudioIntent.Internal.SessionCreated(0, "s9", "Design"),
+            intent = AiStudioIntent.Internal.SessionCreated(0, "s9", "Design", settings),
             to = home.copy(panes = listOf(StudioPane(0, sessionId = "s9")), running = setOf("s9")),
             effects = listOf(AiStudioEffect.Run("s9", "Design", settings)),
         )
@@ -237,7 +240,7 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.Stop("s1"))
         AiStudioMachineSpec.assertTransition(
             from = running.copy(stopping = setOf("s1")),
-            intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Stopped),
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState()),
             to = session,
         )
     }
@@ -247,8 +250,85 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = home.copy(running = setOf("s3")),
             intent = AiStudioIntent.Internal.RunFinished("s3", RunOutcome.Completed),
-            to = home,
+            to = home.copy(running = setOf("s3")),
             effects = listOf(AiStudioEffect.Apply("s3", SessionEdit.SetUnread(true))),
+        )
+    }
+
+    @Test
+    fun `unsupported native cancellation is not offered as a stop operation`() {
+        AiStudioMachineSpec.assertIgnored(
+            session.copy(running = setOf("s1"), uncancellable = setOf("s1")),
+            AiStudioIntent.Public.Stop("s1"),
+        )
+    }
+
+    @Test
+    fun `first prompt uses settings captured before asynchronous chat creation`() {
+        val creating = home.copy(
+            settings = settings.copy(modelId = "another-route"),
+            panes = listOf(StudioPane(0, isCreating = true)),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = creating,
+            intent = AiStudioIntent.Internal.SessionCreated(0, "s1", "First prompt", settings),
+            to = creating.copy(panes = listOf(StudioPane(0, sessionId = "s1")), running = setOf("s1")),
+            effects = listOf(AiStudioEffect.Run("s1", "First prompt", settings)),
+        )
+    }
+
+    @Test
+    fun `runtime restoration exposes only current permission choices`() {
+        val permission = StudioPermission(
+            "s1",
+            "request",
+            "Allow action",
+            listOf(StudioPermissionOption("once", "Once")),
+        )
+        val live = session.copy(running = setOf("s1"), permissions = listOf(permission))
+        AiStudioMachineSpec.assertTransition(
+            from = session,
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"), listOf(permission))),
+            to = live,
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = live,
+            intent = AiStudioIntent.Public.RespondPermission("s1", "request", "once"),
+            to = live,
+            effects = listOf(AiStudioEffect.RespondPermission("s1", "request", "once")),
+        )
+        AiStudioMachineSpec.assertIgnored(live, AiStudioIntent.Public.RespondPermission("s1", "request", "always"))
+        AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.RespondPermission("s1", "request", "once"))
+    }
+
+    @Test
+    fun `late run completion never clears a newer native run`() {
+        AiStudioMachineSpec.assertTransition(
+            from = session.copy(running = setOf("s1")),
+            intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Completed),
+            to = session.copy(running = setOf("s1")),
+        )
+    }
+
+    @Test
+    fun `deferred native stop failure enables retry after early stop returned`() {
+        val running = session.copy(running = setOf("s1"), stopping = setOf("s1"))
+        AiStudioMachineSpec.assertTransition(
+            from = running,
+            intent = AiStudioIntent.Internal.RuntimeChanged(
+                StudioRuntimeState(running = setOf("s1"), stopFailures = setOf("s1")),
+            ),
+            to = running.copy(stopping = emptySet(), stopFailures = setOf("s1")),
+        )
+    }
+
+    @Test
+    fun `failed stop preserves execution and enables another attempt`() {
+        val running = session.copy(running = setOf("s1"), stopping = setOf("s1"))
+        AiStudioMachineSpec.assertTransition(
+            from = running,
+            intent = AiStudioIntent.Internal.CancelFailed("s1"),
+            to = running.copy(stopping = emptySet(), stopFailures = setOf("s1")),
         )
     }
 

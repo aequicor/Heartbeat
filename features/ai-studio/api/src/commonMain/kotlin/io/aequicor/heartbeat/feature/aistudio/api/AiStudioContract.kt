@@ -9,7 +9,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** AI studio workspace: projects, agent sessions and their conversations. Available without a profile. */
+/** AI studio workspace: projects, agent sessions and their conversations. Owned by the active profile. */
 @Serializable
 @SerialName("ai_studio")
 public data object AiStudioRoute : Route
@@ -40,6 +40,9 @@ public sealed interface AiStudioState : MachineState {
         val defaultProjectId: String? = null,
         val running: Set<String> = emptySet(),
         val stopping: Set<String> = emptySet(),
+        val stopFailures: Set<String> = emptySet(),
+        val uncancellable: Set<String> = emptySet(),
+        val permissions: List<StudioPermission> = emptyList(),
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -85,6 +88,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Asks the running agent of [sessionId] to stop. */
         public data class Stop(val sessionId: String) : Public
 
+        /** Answers one currently pending engine permission. */
+        public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Public
+
         /** Changes the metadata of [sessionId]. */
         public data class Edit(val sessionId: String, val edit: SessionEdit) : Public
     }
@@ -94,6 +100,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The workspace toggle and defaults are resolved. */
         public data class Loaded(val isEnabled: Boolean, val defaults: StudioDefaults) : Internal
 
+        /** Snapshot of executions which survive closing the studio. */
+        public data class RuntimeChanged(val snapshot: StudioRuntimeState) : Internal
+
         /** The workspace could not be prepared. */
         public data object LoadFailed : Internal
 
@@ -101,10 +110,18 @@ public sealed interface AiStudioIntent : MachineIntent {
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
 
         /** The prompt submitted from [paneId] created [sessionId]; its run starts now. */
-        public data class SessionCreated(val paneId: Int, val sessionId: String, val prompt: String) : Internal
+        public data class SessionCreated(
+            val paneId: Int,
+            val sessionId: String,
+            val prompt: String,
+            val settings: RunSettings,
+        ) : Internal
 
         /** The session for a prompt of [paneId] could not be created. */
         public data class CreateFailed(val paneId: Int, val prompt: String) : Internal
+
+        /** Explicit stop failed; keep observing the native turn and permit another stop attempt. */
+        public data class CancelFailed(val sessionId: String) : Internal
 
         /** The agent run of [sessionId] ended. */
         public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
@@ -119,8 +136,20 @@ public sealed interface AiStudioEffect : MachineEffect {
     /** Reports changes of the workspace toggle for as long as the current state lasts. */
     public data object ObserveAvailability : AiStudioEffect
 
+    /** Observes profile-owned execution and pending permissions. */
+    public data object ObserveRuntime : AiStudioEffect
+
+    /** Sends an explicit engine-offered decision. */
+    public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) :
+        AiStudioEffect
+
     /** Creates a session for the first [prompt] of [paneId] inside [projectId]. */
-    public data class CreateSession(val paneId: Int, val projectId: String?, val prompt: String) : AiStudioEffect
+    public data class CreateSession(
+        val paneId: Int,
+        val projectId: String?,
+        val prompt: String,
+        val settings: RunSettings,
+    ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
     public data class Run(val sessionId: String, val prompt: String, val settings: RunSettings) : AiStudioEffect

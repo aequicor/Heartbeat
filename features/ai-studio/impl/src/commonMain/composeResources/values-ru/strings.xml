@@ -97,4 +97,8 @@
     <string name="tool_diff">Изменения</string>
     <string name="tool_copy_path">Скопировать путь</string>
     <string name="tool_path_copied">Путь скопирован</string>
+    <string name="connect_model_hint">Подключите и выберите модель в настройках</string>
+    <string name="stop_failed">Не удалось подтвердить остановку. Движок может ещё работать. Нажмите «Остановить» повторно.</string>
+    <string name="session_read_only">Продолжение этой сессии сейчас недоступно. Сохранённая история доступна; для продолжения работы создайте новый чат.</string>
+    <string name="stop_unsupported">Этот движок не поддерживает остановку принятого запроса.</string>
 </resources>

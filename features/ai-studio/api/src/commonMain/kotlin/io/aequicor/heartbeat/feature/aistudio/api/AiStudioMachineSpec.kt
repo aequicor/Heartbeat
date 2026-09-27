@@ -31,14 +31,16 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
- * | Ready | RunFinished | | Ready (not running) | Apply(SetUnread(true)) when not shown |
+ * | Ready | RunFinished | | Ready | Apply(SetUnread(true)) when not shown |
+ * | Ready | RuntimeChanged | | Ready (profile execution snapshot) | |
+ * | Ready | CancelFailed | | Ready (stop can be retried) | |
  * | Ready | Edit | valid edit | Ready (archived session leaves panes) | Apply |
  *
  * Runs are effects of Ready and continue across every Ready update; several sessions may run at once.
- * Switching the workspace toggle off leaves Ready, which cancels the runs.
+ * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed); failed
  * Cancel, Apply and ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
- * process opens a fresh workspace, so the machine is not persisted.
+ * process restores stored chats while the transient pane machine starts afresh.
  */
 public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStudioEffect, AiStudioOutput> =
     machineSpec(AiStudioMachineKey, AiStudioState.Idle) {
@@ -52,6 +54,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             on<AiStudioIntent.Internal.Loaded>(guard = { intent.isEnabled }) {
                 goto<AiStudioState.Ready> { initialWorkspace(intent.defaults) }
                 effect { AiStudioEffect.ObserveAvailability }
+                effect { AiStudioEffect.ObserveRuntime }
             }
             on<AiStudioIntent.Internal.Loaded>(guard = { !intent.isEnabled }) {
                 goto<AiStudioState.Disabled> { AiStudioState.Disabled }
@@ -74,8 +77,29 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { !intent.isEnabled })
         }
         state<AiStudioState.Ready> {
+            on<AiStudioIntent.Internal.RuntimeChanged> {
+                stay {
+                    state.copy(
+                        running = intent.snapshot.running,
+                        stopping = state.stopping.intersect(intent.snapshot.running) - intent.snapshot.stopFailures,
+                        permissions = intent.snapshot.permissions,
+                        uncancellable = intent.snapshot.uncancellable,
+                        stopFailures = (state.stopFailures + intent.snapshot.stopFailures)
+                            .intersect(intent.snapshot.running),
+                    )
+                }
+            }
+            on<AiStudioIntent.Public.RespondPermission>(guard = {
+                state.permissions.any {
+                    it.sessionId == intent.sessionId && it.requestId == intent.requestId &&
+                        it.options.any { option -> option.id == intent.optionId }
+                }
+            }) {
+                effect { AiStudioEffect.RespondPermission(intent.sessionId, intent.requestId, intent.optionId) }
+            }
             navigation()
             conversations()
+            executions()
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { !intent.isEnabled }) {
                 goto<AiStudioState.Disabled> { AiStudioState.Disabled }
                 effect { AiStudioEffect.ObserveAvailability }
@@ -90,9 +114,16 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
         onEffectFailure { effect, _ ->
             when (effect) {
                 AiStudioEffect.Load -> AiStudioIntent.Internal.LoadFailed
+
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(effect.paneId, effect.prompt)
+
                 is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
-                AiStudioEffect.ObserveAvailability, is AiStudioEffect.Cancel, is AiStudioEffect.Apply -> null
+
+                is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
+
+                AiStudioEffect.ObserveRuntime, is AiStudioEffect.RespondPermission,
+                AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
+                -> null
             }
         }
     }
@@ -143,7 +174,12 @@ private fun ReadyTransitions.conversations() {
     ) {
         stay { state.replacePane(intent.paneId) { it.copy(isCreating = true) } }
         effect {
-            AiStudioEffect.CreateSession(intent.paneId, state.pane(intent.paneId)?.projectId, intent.prompt.trim())
+            AiStudioEffect.CreateSession(
+                intent.paneId,
+                state.pane(intent.paneId)?.projectId,
+                intent.prompt.trim(),
+                state.settings,
+            )
         }
     }
     on<AiStudioIntent.Public.Submit>(
@@ -165,20 +201,39 @@ private fun ReadyTransitions.conversations() {
                 running = state.running + intent.sessionId,
             )
         }
-        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, state.settings) }
+        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, intent.settings) }
     }
     on<AiStudioIntent.Internal.CreateFailed> {
         stay { state.updatePane(intent.paneId) { it.copy(isCreating = false) } }
         output { AiStudioOutput.SubmitFailed(intent.paneId, intent.prompt) }
     }
+}
+
+private fun ReadyTransitions.executions() {
     on<AiStudioIntent.Public.Stop>(
-        guard = { intent.sessionId in state.running && intent.sessionId !in state.stopping },
+        guard = {
+            intent.sessionId in state.running && intent.sessionId !in state.stopping &&
+                intent.sessionId !in state.uncancellable
+        },
     ) {
-        stay { state.copy(stopping = state.stopping + intent.sessionId) }
+        stay {
+            state.copy(
+                stopping = state.stopping + intent.sessionId,
+                stopFailures = state.stopFailures - intent.sessionId,
+            )
+        }
         effect { AiStudioEffect.Cancel(intent.sessionId) }
     }
+    on<AiStudioIntent.Internal.CancelFailed> {
+        stay {
+            state.copy(
+                stopping = state.stopping - intent.sessionId,
+                stopFailures = state.stopFailures + intent.sessionId,
+            )
+        }
+    }
     on<AiStudioIntent.Internal.RunFinished> {
-        stay { state.copy(running = state.running - intent.sessionId, stopping = state.stopping - intent.sessionId) }
+        // Runtime snapshots own completion; an older effect result must not clear a newer run.
         effect {
             val isShown = state.panes.any { it.sessionId == intent.sessionId }
             if (isShown) null else AiStudioEffect.Apply(intent.sessionId, SessionEdit.SetUnread(true))

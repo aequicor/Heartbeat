@@ -6,6 +6,9 @@ import kotlinx.coroutines.flow.Flow
 
 /** Storage of studio projects, sessions and transcripts. Every write is visible to observers immediately. */
 interface StudioRepository {
+    /** Enabled engine, connection and model choices; ids identify the complete route. */
+    fun observeModels(): Flow<List<StudioModel>> = kotlinx.coroutines.flow.flowOf(StudioModels)
+
     /** Projects and sessions, including archived ones. */
     fun observeWorkspace(): Flow<StudioWorkspace>
 

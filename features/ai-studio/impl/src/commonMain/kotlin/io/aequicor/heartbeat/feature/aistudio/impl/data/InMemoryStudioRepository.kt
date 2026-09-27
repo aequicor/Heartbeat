@@ -71,7 +71,7 @@ internal class InMemoryStudioRepository(private val clock: Clock) : StudioReposi
             val transcript = current.messages[sessionId].orEmpty() + message
             current.copy(sessions = sessions, messages = current.messages + (sessionId to transcript))
         }
-        log.d { "message appended id=${message.id} type=${message::class.simpleName}" }
+        log.d { "message appended id=${message.id} type=${message::class.simpleName.orEmpty()}" }
     }
 
     override suspend fun replace(sessionId: String, message: StudioMessage) {
@@ -86,7 +86,7 @@ internal class InMemoryStudioRepository(private val clock: Clock) : StudioReposi
         data.update { current ->
             current.copy(sessions = current.sessions.map { if (it.id == sessionId) it.edited(edit) else it })
         }
-        log.i { "conversation edited change=${edit::class.simpleName}" }
+        log.i { "conversation edited change=${edit::class.simpleName.orEmpty()}" }
     }
 
     override suspend fun setBranch(sessionId: String, branch: String) {
