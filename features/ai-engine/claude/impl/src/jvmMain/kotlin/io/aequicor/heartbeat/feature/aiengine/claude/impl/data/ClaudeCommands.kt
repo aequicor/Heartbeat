@@ -1,0 +1,12 @@
+package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+
+/** No ambient settings, helpers, MCP or tool permissions are inherited by this text-only adapter. */
+internal fun claudeArguments(model: ModelId? = null, session: String? = null, resume: Boolean = false): List<String> =
+    buildList {
+        addAll(listOf("--print", "--verbose", "--output-format", "stream-json", "--setting-sources="))
+        addAll(listOf("--tools=", "--strict-mcp-config", "--mcp-config={\"mcpServers\":{}}"))
+        model?.let { add("--model=${it.value}") }
+        session?.let { add(if (resume) "--resume=$it" else "--session-id=$it") }
+    }

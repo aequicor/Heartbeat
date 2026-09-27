@@ -27,7 +27,10 @@ lint/            detekt-rules — собственный набор правил
 
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
 > Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
-> Контракты AI-движков: `features:ai-engine:facade:api` и `authenticator:api`; runtime, хранилища и UI подключения пока не реализованы.
+> AI-движки: общие контракты `features:ai-engine:facade:api` и `authenticator:api`;
+> `features:ai-engine:claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий,
+> CLI-авторизация, обнаружение моделей, частичная история наблюдённых ходов; тогл `ai.claude` выключен.
+> Внешняя история CLI, инструменты/permissions, общий facade runtime и UI подключения пока не реализованы.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы app → profile → feature → screen),
 > `core:navigation:{api,impl,compose}`, `core:state-machine:{api,impl,flowmvi-ext}`,
