@@ -30,6 +30,8 @@ lint/            detekt-rules — собственный набор правил
 > AI-движки: общие контракты `features:ai-engine:facade:api` и `authenticator:api`; адаптер `koog:{api,impl}`
 > (OpenAI, Anthropic, локальный Ollama, потоковые текстовые сессии, история и подключения профиля) подключён в DI.
 > Включение — тогл `ai.koog` (по умолчанию false); UI подключения и общий facade runtime пока не реализованы.
+> `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
+> логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы app → profile → feature → screen),
 > `core:navigation:{api,impl,compose}`, `core:state-machine:{api,impl,flowmvi-ext}`,
@@ -79,8 +81,9 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 ## Как работать
 
 - Перед изменением фичи прочитай её `api` (машину) — это спецификация поведения.
-- Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью.
+- Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью; правки по итогам ревью — отдельный коммит с трейлером `Addresses-Review:` (скилл `pr-fix`).
 - После правок кода → скилл `verify` (сборка, тесты, detekt). Для крупных изменений — субагент `architecture-reviewer`.
+- Мерж в `master` — только после ревью: комментарий `/reviewed [sha]` владельца превращается в approve бота. Правила для агента — раздел «Ревью PR» в `AGENTS.md`.
 
 | Задача | Скилл (`.claude/skills/`) |
 |---|---|
@@ -97,6 +100,9 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Логирование, аудит логов | `logging` |
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |
+| Ревью PR и подпись `/reviewed` | `pr-review` |
+| Исправление PR по ревью/комментариям/CI | `pr-fix` |
+| Ревью + исправления до подписи (цикл) | `pr-review-and-fix` |
 
 Субагенты (`.claude/agents/`): `feature-architect` (дизайн фичи до кода), `architecture-reviewer`, `ui-reviewer`, `test-writer`, `build-doctor`.
 Хук `.claude/hooks/check-conventions.sh` проверяет каждый изменённый `.kt`/`.kts` (логи, корутины, цвета, границы модулей) и возвращает нарушения — исправляй сразу.

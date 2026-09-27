@@ -63,6 +63,9 @@ data class HbColors(
     val hoverOverlay: Color = Color.White.copy(alpha = 0.10f)
     val interactionHoverOverlay: Color = brand.copy(alpha = 0.16f)
     val pressedOverlay: Color = Color.Black.copy(alpha = 0.08f)
+
+    /** Dims content behind a modal drawer or sheet. */
+    val scrim: Color = shadowDark.copy(alpha = if (isDark) 0.72f else 0.56f)
     val glassHighlight: Color = Color.White.copy(alpha = if (isDark) 0.16f else 0.84f)
     val glassBorder: Color = textPrimary.copy(alpha = if (isDark) 0.14f else 0.08f)
     val glassShadow: Color = shadowDark.copy(alpha = if (isDark) 0.28f else 0.18f)

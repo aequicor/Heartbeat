@@ -5,38 +5,141 @@ import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
-import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.MachineState
-import io.aequicor.heartbeat.core.statemachine.machineSpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Offline studio landing page; does not create a profile or an AI session. */
+/** AI studio workspace: projects, agent sessions and their conversations. Available without a profile. */
 @Serializable
 @SerialName("ai_studio")
 public data object AiStudioRoute : Route
 
-/** The placeholder has no loading or generation phase. */
-public data object AiStudioState : MachineState
+/** Studio workflow: workspace loading, open panes, model preferences and running agent sessions. */
+public sealed interface AiStudioState : MachineState {
+    /** The component has not started the workflow yet. */
+    public data object Idle : AiStudioState
 
-/** Reserved contract for future studio user actions. */
-public sealed interface AiStudioIntent : MachineIntent {
-    /** Intents accepted from screens and other features. */
-    public sealed interface Public : AiStudioIntent
+    /** The workspace availability and defaults are being resolved. */
+    public data object Loading : AiStudioState
+
+    /** The workspace is switched off by its feature toggle; only the placeholder is shown. */
+    public data object Disabled : AiStudioState
+
+    /** The workspace could not be prepared and can be retried. */
+    public data object LoadError : AiStudioState
+
+    /**
+     * The workspace is usable. [panes] are shown side by side (one on compact screens: the focused one).
+     * [running] sessions have an active agent run; [stopping] ones were asked to stop and await its end.
+     * Archived sessions leave their panes for the new-session page of [defaultProjectId].
+     */
+    public data class Ready(
+        val panes: List<StudioPane>,
+        val focusedPaneId: Int,
+        val settings: RunSettings,
+        val defaultProjectId: String? = null,
+        val running: Set<String> = emptySet(),
+        val stopping: Set<String> = emptySet(),
+    ) : AiStudioState {
+        init {
+            require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
+            require(panes.any { it.id == focusedPaneId }) { "The focused pane must be open" }
+        }
+    }
 }
 
-/** The placeholder performs no IO. */
-public sealed interface AiStudioEffect : MachineEffect
+/** User requests and effect results of the studio. */
+public sealed interface AiStudioIntent : MachineIntent {
+    /** Intents accepted from screens and other features. */
+    public sealed interface Public : AiStudioIntent {
+        /** Starts the workflow once. */
+        public data object Start : Public
 
-/** The placeholder emits no business results. */
-public sealed interface AiStudioOutput : MachineOutput
+        /** Prepares the workspace again after a failure. */
+        public data object Retry : Public
+
+        /** Shows the new-session page for [projectId] in [paneId] (the focused pane when `null`). */
+        public data class NewSession(val projectId: String?, val paneId: Int? = null) : Public
+
+        /** Changes the project a new session of [paneId] will belong to. */
+        public data class SelectProject(val paneId: Int, val projectId: String?) : Public
+
+        /** Shows [sessionId] in [paneId] (the focused pane when `null`), or focuses the pane already showing it. */
+        public data class OpenSession(val sessionId: String, val paneId: Int? = null) : Public
+
+        /** Shows [sessionId] (or a new-session page when `null`) next to the focused pane. */
+        public data class OpenBeside(val sessionId: String?) : Public
+
+        /** Closes one of several panes. */
+        public data class ClosePane(val paneId: Int) : Public
+
+        /** Moves the keyboard and composer focus to another pane. */
+        public data class FocusPane(val paneId: Int) : Public
+
+        /** Replaces the model preferences for the next runs. */
+        public data class UpdateSettings(val settings: RunSettings) : Public
+
+        /** Sends [prompt] from the composer of [paneId]: creates a session if needed and starts a run. */
+        public data class Submit(val paneId: Int, val prompt: String) : Public
+
+        /** Asks the running agent of [sessionId] to stop. */
+        public data class Stop(val sessionId: String) : Public
+
+        /** Changes the metadata of [sessionId]. */
+        public data class Edit(val sessionId: String, val edit: SessionEdit) : Public
+    }
+
+    /** Results produced by the studio effects. */
+    public sealed interface Internal : AiStudioIntent {
+        /** The workspace toggle and defaults are resolved. */
+        public data class Loaded(val isEnabled: Boolean, val defaults: StudioDefaults) : Internal
+
+        /** The workspace could not be prepared. */
+        public data object LoadFailed : Internal
+
+        /** The workspace toggle reports [isEnabled]; the first report repeats the current value. */
+        public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
+
+        /** The prompt submitted from [paneId] created [sessionId]; its run starts now. */
+        public data class SessionCreated(val paneId: Int, val sessionId: String, val prompt: String) : Internal
+
+        /** The session for a prompt of [paneId] could not be created. */
+        public data class CreateFailed(val paneId: Int, val prompt: String) : Internal
+
+        /** The agent run of [sessionId] ended. */
+        public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
+    }
+}
+
+/** IO commands of the studio, executed by the feature's effect handler. */
+public sealed interface AiStudioEffect : MachineEffect {
+    /** Resolves the workspace toggle and defaults. */
+    public data object Load : AiStudioEffect
+
+    /** Reports changes of the workspace toggle for as long as the current state lasts. */
+    public data object ObserveAvailability : AiStudioEffect
+
+    /** Creates a session for the first [prompt] of [paneId] inside [projectId]. */
+    public data class CreateSession(val paneId: Int, val projectId: String?, val prompt: String) : AiStudioEffect
+
+    /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
+    public data class Run(val sessionId: String, val prompt: String, val settings: RunSettings) : AiStudioEffect
+
+    /** Signals the run of [sessionId] to stop; the run itself reports its end. */
+    public data class Cancel(val sessionId: String) : AiStudioEffect
+
+    /** Persists a metadata [edit] of [sessionId]. */
+    public data class Apply(val sessionId: String, val edit: SessionEdit) : AiStudioEffect
+}
+
+/** One-shot events of the studio. */
+public sealed interface AiStudioOutput : MachineOutput {
+    /** The prompt of [paneId] was not sent; the composer can restore it. */
+    public data class SubmitFailed(val paneId: Int, val prompt: String) : AiStudioOutput
+}
 
 /** Address of the studio machine. */
 public object AiStudioMachineKey :
     MachineKey<AiStudioState, AiStudioIntent, AiStudioIntent.Public, AiStudioEffect, AiStudioOutput> {
     override val name: String = "ai_studio"
 }
-
-/** Ready is the only state until a real studio workflow is implemented. */
-public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStudioEffect, AiStudioOutput> =
-    machineSpec(AiStudioMachineKey, AiStudioState) { state<AiStudioState>() }

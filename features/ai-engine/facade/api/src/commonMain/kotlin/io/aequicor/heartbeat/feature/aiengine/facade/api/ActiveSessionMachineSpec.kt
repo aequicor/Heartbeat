@@ -4,7 +4,6 @@ import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.MachineSpecBuilder
 import io.aequicor.heartbeat.core.statemachine.StateBuilder
 import io.aequicor.heartbeat.core.statemachine.machineSpec
-import kotlin.coroutines.cancellation.CancellationException
 
 private typealias SessionSpecBuilder =
     MachineSpecBuilder<ActiveSessionState, ActiveSessionIntent, ActiveSessionEffect, ActiveSessionOutput>
@@ -36,6 +35,9 @@ private typealias SessionStateBuilder<S> =
  * translates ignored commands into domain errors and waits for native acceptance before completing send().
  * Correlated completion/permission proves acceptance even when the explicit acknowledgement arrives later.
  * Reconciliation looks up the remembered turn before replacing it; unavailable native outcomes stay explicit.
+ *
+ * Effect failures map to Failed: EngineException keeps its domain failure; anything else, including a
+ * cancellation escaping from inside a running effect, becomes OutcomeUnknown for Submit and Unknown otherwise.
  */
 public fun activeSessionMachineSpec(
     key: ActiveSessionMachineKey,
@@ -67,6 +69,8 @@ public fun activeSessionMachineSpec(
                 }
             }
         }
+        // The runtime only reports cancellations escaping from inside a still-current effect (e.g. a timeout);
+        // they must still fail the effect, otherwise Submitting/Interrupting/Closing would never be left.
         onEffectFailure { effect, error -> effect.failureIntent(error) }
     }
 
@@ -255,7 +259,6 @@ private fun SessionSpecBuilder.closingStates() {
 }
 
 private fun ActiveSessionEffect.failureIntent(error: Throwable): ActiveSessionIntent.Internal.Failed {
-    if (error is CancellationException) throw error
     val turn = when (this) {
         is ActiveSessionEffect.Submit -> turn.id
         is ActiveSessionEffect.Cancel -> turn

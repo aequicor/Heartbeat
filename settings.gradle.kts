@@ -82,3 +82,4 @@ include(":features:ai-engine:authenticator:api")
 include(":features:ai-engine:facade:api")
 
 include(":features:ai-engine:koog:api", ":features:ai-engine:koog:impl")
+include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
