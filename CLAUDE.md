@@ -11,7 +11,7 @@
 | Архитектура, группы модулей, правила зависимостей | [docs/ai/architecture.md](docs/ai/architecture.md) |
 | Контракт фичи: state-machine в `api`, связь машин через object-key | [docs/ai/feature-contract.md](docs/ai/feature-contract.md) |
 | Политика логирования (обязательна) | [docs/ai/logging-policy.md](docs/ai/logging-policy.md) |
-| Дизайн-система Mission, токены, платформенные киты | [docs/ai/design-system.md](docs/ai/design-system.md) |
+| Дизайн-система Glass UI, пастельные токены, blur и платформенные киты | [docs/ai/design-system.md](docs/ai/design-system.md), [ADR-0011](docs/adr/0011-glass-surfaces.md) |
 | Стек и версии библиотек, ссылки на доки | [docs/ai/tech-stack.md](docs/ai/tech-stack.md) |
 | Архитектурные решения (ADR) | [docs/adr/](docs/adr/) |
 
@@ -24,7 +24,7 @@ platform-main/   точки входа: android, desktop, ios (+ shared umbrella
                  di-bundle — единственный модуль, видящий все impl: Metro-граф (per-platform)
 core/            инфраструктура: navigation, mvi, state-machine, di (api/ext/impl), profile-facade (api/impl),
                  resources, datastore, network, ai, feature-toggles, logging, common
-design-system/   tokens (Mission), theme, components, adaptive (material | fluent | macos)
+design-system/   tokens (pastel), theme, components, layouts, resources, catalog, adaptive (material | fluent | macos)
 features/<name>/ api  — контракт: state-machine (состояния, интенты, переходы, эффекты), MachineKey, маршруты
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции
 build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartbeat.feature.api/impl, heartbeat.detekt…)
@@ -38,6 +38,8 @@ lint/            detekt-rules — собственный набор правил
 > `core:network:{api,impl}` ([ADR-0005](docs/adr/0005-network.md)),
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)),
 > `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
+> Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
+> отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md), [ADR-0008](docs/adr/0008-design-system-sandbox.md).
 > Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)

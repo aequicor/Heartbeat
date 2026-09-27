@@ -27,6 +27,8 @@
 | Тесты | coroutines-test, Turbine | `org.jetbrains.kotlinx:kotlinx-coroutines-test`, `app.cash.turbine:turbine` | 1.11.0, 1.2.1 | — |
 | UI Windows | compose-fluent-ui | `io.github.compose-fluent:fluent` (+ `fluent-icons-extended`) | `v0.1.0` (версия с префиксом `v`!) | https://github.com/compose-fluent/compose-fluent-ui |
 | UI macOS | compose-macos-26-ui | `dev.nucleusframework:compose-macos-ui` (+ `-icons-extended`, `-markdown`) | 1.1.0 | https://github.com/NucleusFramework/compose-macos-26-ui |
+| Стеклянные поверхности | Haze | `dev.chrisbanes.haze:haze`, `dev.chrisbanes.haze:haze-blur` | 2.0.0 | [Blur API](https://chrisbanes.github.io/haze/latest/blur/usage/), [ADR-0011](../adr/0011-glass-surfaces.md) |
+| Markdown в чате | JetBrains Markdown | `org.jetbrains:markdown` | 0.7.9 | [KMP-парсер](https://github.com/JetBrains/markdown), [ADR-0010](../adr/0010-markdown-tool-results.md) |
 
 ## Важные замечания по совместимости
 
@@ -48,6 +50,20 @@
 - **Koog** требует JDK 17+ на JVM. Ключи провайдеров не храним в коде.
 - **Fluent** публикуется с версией `v0.1.0` (буква `v` — часть версии).
 - **macOS-кит** мультиплатформенный, но подключаем его только в `jvmMain` модуля `design-system:adaptive`.
+- **macOS-кит 1.1.0** содержит Java 21 bytecode. Desktop sandbox и UI-тесты каталога используют JDK 21;
+  общий KMP/Android target остаётся JVM 17 (ADR-0008). `HbTheme` загружает тему кита только в стиле
+  `HbVisualStyle.Platform`, поэтому Glass/Neumorphic-UI и их тесты не трогают кит на JDK 17 под macOS.
+- **AWT Desktop + macOS-кит**: из зависимости кита исключён `nucleus.decorated-window-tao`.
+  Его `TaoMainDispatcherFactory` перекрывает Swing `Dispatchers.Main` и нарушает проверку
+  главного потока AndroidX Lifecycle при запуске `ComposeWindow`. Контракт AWT-диспетчера
+  закреплён в `DesktopDispatcherTest`; runtime упаковки включает `java.instrument` и `jdk.unsupported`.
+- **Haze 2.0.0** подключён в `design-system:components` через `libs.haze` и `libs.haze.blur`.
+  Размытие использует явные Compose sources для перекрывающих панелей; строки истории
+  используют простую заливку без blur. Нейтральные ответы ассистента имеют непрозрачную
+  `assistantSurface` для читаемости. При недоступном blur панелей применяется сплошная заливка (ADR-0011).
+- **JetBrains Markdown 0.7.9** подключён в `design-system:components` через `libs.markdown`.
+  GFM AST преобразуется в собственные ограниченные по размеру блоки; классы парсера не входят
+  в публичный контракт. Ссылки обрабатывает вызывающий код, HTML и изображения не исполняются (ADR-0010).
 
 ## Ключевые пакеты (для импортов)
 
@@ -62,3 +78,5 @@
 | Napier | `io.github.aakira.napier` (только в `core:logging`) |
 | Fluent | `io.github.composefluent`, `io.github.composefluent.component` |
 | macOS | `dev.nucleusframework.macoscompose.theme`, `dev.nucleusframework.macoscompose.components` |
+| Haze | `dev.chrisbanes.haze`, `dev.chrisbanes.haze.blur` |
+| JetBrains Markdown | `org.intellij.markdown`, `org.intellij.markdown.parser`, `org.intellij.markdown.flavours.gfm` |

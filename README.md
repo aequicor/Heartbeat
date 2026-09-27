@@ -1,5 +1,12 @@
 This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
 
+Пастельная дизайн-система Aequicor Glass UI (Glassmorphism) и отдельное приложение **UIKit Sandbox**:
+[запуск, платформы и проверка](platform-main/uikit-sandbox/README.md).
+
+```powershell
+.\gradlew.bat :platform-main:uikit-sandbox:desktop:run
+```
+
 * [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
   you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
 
