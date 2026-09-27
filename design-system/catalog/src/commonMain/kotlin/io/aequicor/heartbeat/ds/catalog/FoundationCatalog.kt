@@ -23,7 +23,6 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 @Composable
 internal fun FoundationCatalog(modifier: Modifier = Modifier) {
     HbLazyColumn(modifier = modifier) {
-        item { IconsCatalog(modifier = Modifier.fillMaxWidth()) }
         item {
             HbColumn(
                 modifier = Modifier.fillMaxWidth()

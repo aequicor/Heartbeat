@@ -14,6 +14,8 @@ private val log = Log.tag("DS/Sandbox")
 
 internal enum class SandboxPage(val title: HbString) {
     Foundation(HbString.Foundation),
+    Icons(HbString.Icons),
+    Illustrations(HbString.Illustrations),
     Components(HbString.Components),
     Layouts(HbString.Layouts),
     Chat(HbString.Chat),

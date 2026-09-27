@@ -289,7 +289,7 @@ private fun navigationBackground(isSelected: Boolean, isHovered: Boolean, isPres
 @Composable
 private fun CompactNavigation(state: SandboxState, modifier: Modifier = Modifier) {
     val pages = remember {
-        listOf(SandboxPage.Chat, SandboxPage.Foundation, SandboxPage.Components, SandboxPage.Layouts)
+        listOf(SandboxPage.Chat) + SandboxPage.entries.filter { it != SandboxPage.Chat }
     }
     HbPanel(modifier = modifier.fillMaxWidth().testTag("sandbox-compact-navigation")) {
         HbRow(
@@ -313,6 +313,8 @@ private fun CatalogContent(
 ) {
     when (state.page) {
         SandboxPage.Foundation -> FoundationCatalog(modifier = modifier)
+        SandboxPage.Icons -> IconsCatalog(modifier = modifier)
+        SandboxPage.Illustrations -> IllustrationsCatalog(modifier = modifier)
         SandboxPage.Components -> ComponentsCatalog(state = state, modifier = modifier)
         SandboxPage.Layouts -> LayoutsCatalog(modifier = modifier)
         SandboxPage.Chat -> ChatCatalog(state = chat, copy = copy, isCompact = isCompact, modifier = modifier)
@@ -345,6 +347,8 @@ private fun PlatformUi.title(): HbString = when (this) {
 
 private fun SandboxPage.icon(isSelected: Boolean): ImageVector = when (this) {
     SandboxPage.Foundation -> if (isSelected) HbIcons.HomeFilled else HbIcons.Home
+    SandboxPage.Icons -> HbIcons.Grid
+    SandboxPage.Illustrations -> HbIcons.Images
     SandboxPage.Components -> HbIcons.Library
     SandboxPage.Layouts -> HbIcons.Sidebar
     SandboxPage.Chat -> HbIcons.Chat

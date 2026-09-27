@@ -46,7 +46,7 @@ class SandboxUiTest {
         onNodeWithText("Dark").performClick()
         onNodeWithText("System").performClick()
         onNodeWithText("Foundation").performClick()
-        onNodeWithText("Icons").assertIsDisplayed()
+        onNodeWithText("A softer spectrum").assertIsDisplayed()
         savePreview("desktop-foundation-light", captureToImage().toAwtImage())
     }
 
@@ -73,7 +73,7 @@ class SandboxUiTest {
     @Test
     fun `outline icon catalog renders in both themes`() {
         listOf(false, true).forEach { isDark ->
-            runSkikoComposeUiTest(size = Size(900f, 370f)) {
+            runSkikoComposeUiTest(size = Size(1280f, 2300f)) {
                 setContent {
                     HbTheme(darkTheme = isDark) {
                         Box(
