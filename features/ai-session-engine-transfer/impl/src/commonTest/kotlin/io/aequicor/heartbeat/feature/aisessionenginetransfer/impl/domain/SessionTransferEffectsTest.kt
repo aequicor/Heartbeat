@@ -5,14 +5,17 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationId
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationSegment
@@ -32,6 +35,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -141,6 +145,50 @@ class SessionTransferEffectsTest {
     }
 
     @Test
+    fun `failures that may follow a delivery are recorded as unknown and keep the segment`() = runTest {
+        listOf(
+            EngineFailure.Transport(TransportFailureReason.Timeout),
+            EngineFailure.Transport(TransportFailureReason.ProtocolViolation),
+            EngineFailure.Engine(EngineFailureReason.Crashed),
+            EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed),
+            EngineFailure.Unknown(),
+        ).forEach { failure ->
+            sent.clear()
+            session.onSend = { throw EngineException(failure) }
+            effects.handle(seed(), machine)
+            assertEquals(listOf<SessionTransferIntent>(seeded(segment(HandoffStatus.Unknown))), sent, failure.code)
+            assertEquals(HandoffStatus.Unknown, journal.stored.getValue(newConversation.id).tail, failure.code)
+        }
+    }
+
+    @Test
+    fun `only failures proving non-delivery are rejections`() {
+        listOf(
+            EngineFailure.Session(SessionFailureReason.Busy),
+            EngineFailure.Request(RequestFailureReason.Invalid),
+            EngineFailure.Engine(EngineFailureReason.UnsupportedCapability),
+            EngineFailure.Transport(TransportFailureReason.NetworkUnavailable),
+            EngineFailure.ContextLimitExceeded(),
+        ).forEach { assertTrue(it.isRejection(), it.code) }
+        listOf(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown),
+            EngineFailure.Transport(TransportFailureReason.Timeout),
+            EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed),
+            EngineFailure.Unknown(),
+        ).forEach { assertFalse(it.isRejection(), it.code) }
+    }
+
+    @Test
+    fun `a failed rollback keeps the pending segment and still fails`() = runTest {
+        val busy = EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+        session.onSend = { throw busy }
+        journal.failingRemove = true
+        assertEquals(busy, assertFailsWith<EngineException> { effects.handle(seed(), machine) })
+        assertEquals(HandoffStatus.Pending, journal.stored.getValue(newConversation.id).tail)
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test
     fun `a failed pending record releases the session without submitting`() = runTest {
         journal.failingWrite = 1
         assertFailsWith<IllegalStateException> { effects.handle(seed(), machine) }
@@ -232,7 +280,10 @@ class SessionTransferEffectsTest {
             stored[conversation.id] = conversation
         }
 
+        var failingRemove = false
+
         override suspend fun remove(id: ConversationId) {
+            check(!failingRemove) { "store unavailable" }
             stored.remove(id)
         }
     }

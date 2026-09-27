@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.ConversationSegment
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.Handoff
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.HandoffStatus
@@ -108,22 +110,19 @@ internal class SessionTransferEffects(
         }
     }
 
-    /** Never resends: an ambiguous delivery is recorded as Unknown, a definite rejection rolls back. */
+    /** Never resends: an ambiguous delivery is recorded as Unknown, only a proven rejection rolls back. */
     private suspend fun deliver(effect: SessionTransferEffect.Seed, session: SeedSession): HandoffStatus = try {
         session.send(effect.prompt)
         HandoffStatus.Accepted
     } catch (e: CancellationException) {
         throw e
     } catch (e: EngineException) {
-        val failure = e.failure
-        if (failure is EngineFailure.Request && failure.reason == RequestFailureReason.OutcomeUnknown) {
-            val isCorrelated = failure.request == null || failure.request == effect.prompt.id
-            log.w(e) { "handoff delivery is unknown, correlated=$isCorrelated" }
-            HandoffStatus.Unknown
-        } else {
+        if (e.failure.isRejection()) {
             rollback(effect)
             throw e
         }
+        log.w(e) { "handoff delivery is unknown: ${e.failure.code}" }
+        HandoffStatus.Unknown
     } catch (e: Exception) {
         // Like the active session machine: a non-domain submit failure cannot prove non-delivery.
         log.e(e) { "handoff delivery failed unexpectedly, recorded as unknown" }
@@ -153,6 +152,26 @@ internal class SessionTransferEffects(
             log.w(e) { "target session handle release failed" }
         }
     }
+}
+
+/**
+ * Failures proving the engine did not take the handoff, so a rollback cannot hide a delivered transcript.
+ * Timeouts, protocol violations, crashes, closed handles and unclassified failures may follow a delivery.
+ */
+internal fun EngineFailure.isRejection(): Boolean = when (this) {
+    is EngineFailure.Authentication, is EngineFailure.RateLimited, is EngineFailure.QuotaExceeded,
+    is EngineFailure.ContextLimitExceeded, is EngineFailure.Access, is EngineFailure.Session,
+    is EngineFailure.History,
+    -> true
+
+    is EngineFailure.Request -> reason != RequestFailureReason.OutcomeUnknown
+
+    is EngineFailure.Engine -> reason != EngineFailureReason.Crashed
+
+    is EngineFailure.Transport ->
+        reason == TransportFailureReason.NetworkUnavailable || reason == TransportFailureReason.ServiceUnavailable
+
+    is EngineFailure.Lifecycle, is EngineFailure.Unknown -> false
 }
 
 private fun TransferRequest.failed(failure: TransferFailure) = SessionTransferIntent.Internal.Failed(transfer, failure)

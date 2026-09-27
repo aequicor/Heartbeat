@@ -22,13 +22,13 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.impl.domain.approxi
 @Inject
 internal class FacadeSessionTranscripts(
     // Optional until an application bundle installs the AI engine facade.
-    private val facade: EngineFacade? = null,
+    private val facade: EngineFacade = MissingEngineFacade,
 ) : SessionTranscripts {
 
     private val log = Log.tag("FacadeSessionTranscripts")
 
     override suspend fun read(source: SessionRef, budgetChars: Int): Transcript {
-        val history = requireFacade(facade).sessions.get(source).features.resolve(SessionHistory).orThrow()
+        val history = facade.sessions.get(source).features.resolve(SessionHistory).orThrow()
         val items = ArrayDeque<SessionItem>()
         var coverage = HistoryCoverage.Complete
         var request: HistoryPageRequest? = HistoryPageRequest()

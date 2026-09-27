@@ -21,13 +21,13 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.impl.domain.SeedSes
 @Inject
 internal class FacadeEngineSessions(
     // Optional until an application bundle installs the AI engine facade.
-    private val facade: EngineFacade? = null,
+    private val facade: EngineFacade = MissingEngineFacade,
 ) : EngineSessions {
 
     private val log = Log.tag("FacadeEngineSessions")
 
     override suspend fun create(target: EngineTarget, workspace: WorkspaceRef?): SeedSession {
-        val creates = requireFacade(facade).engines.features(target.engine).resolve(CreatesSessions).orThrow()
+        val creates = facade.engines.features(target.engine).resolve(CreatesSessions).orThrow()
         log.i { "creating session on ${target.engine.value}" }
         return ActiveSeedSession(creates.create(CreateSessionRequest(target, workspace)), log)
     }

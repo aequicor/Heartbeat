@@ -58,20 +58,41 @@ class SessionTransferMachineTest {
     }
 
     @Test
-    fun `preparation results must match the request`() {
+    fun `stale preparation results are ignored`() {
         spec.assertIgnored(
             preparing,
             SessionTransferIntent.Internal.Prepared(TransferId("stale"), TestConversation, TestHandoffPrompt),
         )
+    }
+
+    @Test
+    fun `mismatching preparation results fail instead of hanging`() {
+        val notLatest = TransferResult.Failed(TestRequest.transfer, TransferFailure.NotLatestSegment)
         val foreignTail = TestConversation + TestSegment
-        spec.assertIgnored(
+        spec.assertTransition(
             preparing,
             SessionTransferIntent.Internal.Prepared(TestRequest.transfer, foreignTail, TestHandoffPrompt),
+            SessionTransferState.Idle(notLatest),
+            outputs = listOf(SessionTransferOutput.Finished(notLatest)),
         )
         val existing = SessionTransferState.Preparing(TestRequest.copy(conversation = ConversationId("existing")))
-        spec.assertIgnored(
+        val unknown = TransferResult.Failed(TestRequest.transfer, TransferFailure.Unknown)
+        spec.assertTransition(
             existing,
             SessionTransferIntent.Internal.Prepared(TestRequest.transfer, TestConversation, TestHandoffPrompt),
+            SessionTransferState.Idle(unknown),
+            outputs = listOf(SessionTransferOutput.Finished(unknown)),
+        )
+    }
+
+    @Test
+    fun `a matching existing conversation is seeded`() {
+        val request = TestRequest.copy(conversation = TestConversation.id)
+        spec.assertTransition(
+            SessionTransferState.Preparing(request),
+            SessionTransferIntent.Internal.Prepared(request.transfer, TestConversation, TestHandoffPrompt),
+            SessionTransferState.Seeding(request, TestConversation.id),
+            effects = listOf(SessionTransferEffect.Seed(request, TestConversation, TestHandoffPrompt)),
         )
     }
 
@@ -84,9 +105,16 @@ class SessionTransferMachineTest {
             SessionTransferState.Idle(completed),
             outputs = listOf(SessionTransferOutput.Finished(completed)),
         )
-        spec.assertIgnored(
+        val mismatch = TransferResult.Failed(TestRequest.transfer, TransferFailure.Unknown, TestConversation.id)
+        spec.assertTransition(
             seeding,
             SessionTransferIntent.Internal.Seeded(TestRequest.transfer, ConversationId("other"), TestSegment),
+            SessionTransferState.Idle(mismatch),
+            outputs = listOf(SessionTransferOutput.Finished(mismatch)),
+        )
+        spec.assertIgnored(
+            seeding,
+            SessionTransferIntent.Internal.Seeded(TransferId("stale"), TestConversation.id, TestSegment),
         )
         spec.assertIgnored(
             SessionTransferState.Idle(completed),
@@ -123,10 +151,12 @@ class SessionTransferMachineTest {
     }
 
     @Test
-    fun `failures finish the matching transfer without a segment`() {
+    fun `failures finish the matching transfer and point at a possibly journaled conversation`() {
         val failure = TransferFailure.NotLatestSegment
-        val failed = TransferResult.Failed(TestRequest.transfer, failure)
-        listOf(preparing, seeding).forEach { state ->
+        listOf(
+            preparing to TransferResult.Failed(TestRequest.transfer, failure),
+            seeding to TransferResult.Failed(TestRequest.transfer, failure, TestConversation.id),
+        ).forEach { (state, failed) ->
             spec.assertTransition(
                 state,
                 SessionTransferIntent.Internal.Failed(TestRequest.transfer, failure),

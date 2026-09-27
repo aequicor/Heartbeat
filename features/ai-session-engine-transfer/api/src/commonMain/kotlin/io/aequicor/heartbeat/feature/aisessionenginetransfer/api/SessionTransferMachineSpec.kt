@@ -15,9 +15,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
  * |---|---|---|---|---|
  * | Idle | Start | target engine differs from source engine | Preparing | Prepare |
  * | Preparing | Prepared | same transfer and requested conversation, source is its current segment | Seeding | Seed |
+ * | Preparing | Prepared | same transfer, other conversation or current segment | Idle(Failed) | Finished |
  * | Preparing | Cancel | same transfer | Idle(Cancelled) | Finished; Prepare is cancelled |
- * | Preparing / Seeding | Failed | same transfer | Idle(Failed) | Finished |
+ * | Preparing / Seeding | Failed | same transfer | Idle(Failed) | Finished; from Seeding with the conversation |
  * | Seeding | Seeded | same transfer and conversation | Idle(Completed) | Finished |
+ * | Seeding | Seeded | same transfer, other conversation | Idle(Failed(Unknown)) | Finished |
  * | Seeding | Cancel | — | ignored | creation and delivery are not interruptible |
  * | Preparing / Seeding | Start | — | ignored | one transfer at a time |
  *
@@ -35,14 +37,21 @@ public val SessionTransferMachineSpec:
         }
         state<SessionTransferState.Preparing> {
             on<SessionTransferIntent.Internal.Prepared>(guard = {
-                intent.transfer == state.request.transfer &&
-                    intent.conversation.current.ref == state.request.source &&
-                    (state.request.conversation == null || state.request.conversation == intent.conversation.id)
+                intent.transfer == state.request.transfer && state.request.mismatch(intent.conversation) == null
             }) {
                 goto<SessionTransferState.Seeding> {
                     SessionTransferState.Seeding(state.request, intent.conversation.id)
                 }
                 effect { SessionTransferEffect.Seed(state.request, intent.conversation, intent.prompt) }
+            }
+            // The effect has finished: ignoring a mismatching result would leave Preparing until a Cancel.
+            on<SessionTransferIntent.Internal.Prepared>(guard = {
+                intent.transfer == state.request.transfer && state.request.mismatch(intent.conversation) != null
+            }) {
+                finish {
+                    val failure = state.request.mismatch(intent.conversation) ?: TransferFailure.Unknown
+                    TransferResult.Failed(intent.transfer, failure)
+                }
             }
             on<SessionTransferIntent.Public.Cancel>(guard = { intent.transfer == state.request.transfer }) {
                 finish { TransferResult.Cancelled(intent.transfer) }
@@ -57,8 +66,14 @@ public val SessionTransferMachineSpec:
             }) {
                 finish { TransferResult.Completed(intent.transfer, intent.conversation, intent.segment) }
             }
+            // Seeding cannot be cancelled, so a mismatching result must still leave it.
+            on<SessionTransferIntent.Internal.Seeded>(guard = {
+                intent.transfer == state.request.transfer && intent.conversation != state.conversation
+            }) {
+                finish { TransferResult.Failed(intent.transfer, TransferFailure.Unknown, state.conversation) }
+            }
             on<SessionTransferIntent.Internal.Failed>(guard = { intent.transfer == state.request.transfer }) {
-                finish { TransferResult.Failed(intent.transfer, intent.failure) }
+                finish { TransferResult.Failed(intent.transfer, intent.failure, state.conversation) }
             }
         }
         // The runtime only reports cancellations escaping from inside a still-current effect (e.g. a timeout);
@@ -81,6 +96,13 @@ private typealias TransferTransition<T, J> = TransitionBuilder<
 >
 
 private fun TransferRequest.isCrossEngine(): Boolean = target.engine != source.engine
+
+/** Why [prepared] cannot be seeded for this request, or null when it matches. */
+private fun TransferRequest.mismatch(prepared: LogicalConversation): TransferFailure? = when {
+    conversation != null && conversation != prepared.id -> TransferFailure.Unknown
+    prepared.current.ref != source -> TransferFailure.NotLatestSegment
+    else -> null
+}
 
 /** Returns to Idle retaining [result] and emits the single terminal notification. */
 private fun <T : SessionTransferState, J : SessionTransferIntent> TransferTransition<T, J>.finish(

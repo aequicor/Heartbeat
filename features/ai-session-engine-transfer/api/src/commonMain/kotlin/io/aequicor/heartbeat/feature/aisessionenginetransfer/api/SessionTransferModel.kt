@@ -76,6 +76,8 @@ public data class LogicalConversation(val id: ConversationId, val segments: List
 /**
  * Explicit transfer of [source] into a new session through [target]. A null [conversation] starts a new logical
  * conversation with [source] as its first segment; otherwise [source] must be its current segment.
+ * The journal is not searched by session: a source that already is a segment (e.g. the target of an earlier
+ * transfer) must be passed with its [conversation], or it starts a second logical conversation.
  * No fallback to another binding or model is ever made.
  */
 @Serializable
@@ -132,11 +134,17 @@ public sealed interface TransferResult {
     }
 
     /**
-     * No segment was appended. A target session created before a rejected handoff may remain in the catalog;
-     * if the journal could not be rolled back, its Pending segment remains and reads as an unknown delivery.
+     * The transfer did not complete. A target session created before a rejected handoff may remain in the catalog.
+     * [conversation] is set when seeding had started: that conversation (for a new one, the id it was journaled
+     * under) may keep a Pending segment of this transfer, left by a cancellation after journaling or a failed
+     * rollback, which reads as an unknown delivery. Callers retry against it rather than starting a new one.
      */
     @Serializable
-    public data class Failed(override val transfer: TransferId, val failure: TransferFailure) : TransferResult
+    public data class Failed(
+        override val transfer: TransferId,
+        val failure: TransferFailure,
+        val conversation: ConversationId? = null,
+    ) : TransferResult
 
     /** Cancelled before a target session was created. */
     @Serializable

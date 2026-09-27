@@ -55,7 +55,7 @@ public sealed interface SessionTransferIntent : MachineIntent {
             }
         }
 
-        /** The transfer stopped without appending a segment. */
+        /** The transfer stopped; a failure while seeding may leave a Pending segment (see [TransferResult.Failed]). */
         public data class Failed(val transfer: TransferId, val failure: TransferFailure) : Internal
     }
 }
