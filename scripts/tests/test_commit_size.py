@@ -140,6 +140,30 @@ class CommitSizeTests(unittest.TestCase):
         self.assertNotIn("+main", text)
         self.assertEqual((1, 1), (self.measure(merged).files, self.measure(merged).lines))
 
+    def test_base_sync_merge_is_measured_by_its_conflict_resolution(self):
+        self.write("shared.kt", "shared\n")
+        self.commit()
+        self.git("checkout", "-b", "feature")
+        self.write("shared.kt", "shared\nfeature\n")
+        self.commit()
+        self.git("checkout", "main")
+        self.write("shared.kt", "shared\nmain\n")
+        self.write("upstream.kt", "".join(f"val u{i} = {i}\n" for i in range(200)))
+        base = self.commit()
+        self.git("checkout", "feature")
+        # The merge stops on the shared.kt conflict; resolving it is the merge commit's own work.
+        subprocess.run(["git", "merge", "--no-edit", "main"], cwd=self.repo, capture_output=True, check=False)
+        self.write("shared.kt", "shared\nmain\nfeature\n")
+        self.git("add", "--all")
+        self.git("commit", "--quiet", "--no-edit")
+        merged = self.git("rev-parse", "HEAD")
+        text, stats = policy.read_diff(merged, cwd=self.repo, base=base)
+        self.assertNotIn("upstream.kt", text)
+        self.assertIn("shared.kt", text)
+        self.assertEqual(1, policy.read_stats(stats)[0])
+        first_parent, _ = policy.read_diff(merged, cwd=self.repo)
+        self.assertIn("upstream.kt", first_parent)
+
     def test_diff_configuration_does_not_change_measurement(self):
         self.write("code.kt", "".join(f"val x{i} = {i}\n" for i in range(30)))
         self.commit()

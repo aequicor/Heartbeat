@@ -42,12 +42,25 @@ def select_commits(base, head, cwd=None):
     return git("rev-list", "--reverse", "--topo-order", f"{base_sha}..{head_sha}", cwd=cwd).decode().splitlines()
 
 
-def read_diff(commit=None, cwd=None):
+def is_base_sync_merge(commit, base, cwd=None):
+    """A merge whose other parents are all in base only brings base in; its own work is the resolution."""
+    parents = git("rev-list", "--parents", "-n", "1", commit, cwd=cwd).decode().split()[1:]
+    if len(parents) < 2:
+        return False
+    return all(
+        subprocess.run(["git", "merge-base", "--is-ancestor", parent, base], cwd=cwd, check=False).returncode == 0
+        for parent in parents[1:]
+    )
+
+
+def read_diff(commit=None, cwd=None, base=None):
     if commit is None:
         command = ("diff", "--cached")
     else:
+        # Syncing with base is measured by its conflict resolution; other merges count what they bring in.
+        merges = "remerge" if base and is_base_sync_merge(commit, base, cwd) else "first-parent"
         command = ("show", "--format=", "--no-notes", "--no-show-signature",
-                   "--diff-merges=first-parent", commit)
+                   f"--diff-merges={merges}", commit)
     patch = git(*command, *DIFF_OPTIONS, "--patch", "--", cwd=cwd)
     numstat = git(*command, *DIFF_OPTIONS, "--no-patch", "--numstat", "-z", "--", cwd=cwd)
     return patch.decode("utf-8", errors="replace"), numstat
@@ -126,7 +139,9 @@ def main(argv=None):
     try:
         import tiktoken
 
+        base = None
         if args.base:
+            base = resolve_commit(args.base)
             commits = select_commits(args.base, args.head)
         elif args.commit:
             if git("rev-parse", "--is-shallow-repository").strip() == b"true":
@@ -137,7 +152,7 @@ def main(argv=None):
         encodings = [tiktoken.get_encoding(name) for name in ENCODINGS]
         results = []
         for commit in commits:
-            patch, numstat = read_diff(commit)
+            patch, numstat = read_diff(commit, base=base)
             results.append(measure(commit[:12] if commit else "staged", patch, numstat, encodings))
         return report(results)
     except ImportError as error:
