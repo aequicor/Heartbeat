@@ -1,6 +1,6 @@
 ---
 name: test-writer
-description: "Пишет и чинит тесты Heartbeat в commonTest — переходы state-machine (KStateMachine), FlowMVI-сторы, эффекты, репозитории (in-memory Room, DataStore, Ktor MockEngine), Koog-агенты с моком executor. Используй после реализации логики или когда нужно покрыть переход/стор тестами."
+description: "Пишет и чинит тесты Heartbeat в commonTest — переходы state-machine (assertTransition, без рантайма), FlowMVI-сторы, эффекты, репозитории (in-memory Room, DataStore, Ktor MockEngine), Koog-агенты с моком executor. Используй после реализации логики или когда нужно покрыть переход/стор тестами."
 tools: Read, Glob, Grep, Edit, Write, Bash
 model: sonnet
 ---

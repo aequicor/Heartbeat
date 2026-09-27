@@ -15,7 +15,7 @@ fi
 if [ -d features ]; then
   feats="$(find features -mindepth 1 -maxdepth 1 -type d -exec basename {} \; 2>/dev/null | sort | tr '\n' ' ')"
   echo "Фичи: ${feats:-<нет>}"
-  keys="$(grep -rhoE 'object [A-Za-z0-9]+MachineKey' features --include='*.kt' 2>/dev/null | sed 's/object //' | sort -u | tr '\n' ' ')"
+  keys="$(grep -rhoE 'object [A-Za-z0-9]+ *: *MachineKey<' features --include='*.kt' 2>/dev/null | sed -E 's/object ([A-Za-z0-9]+).*/\1/' | sort -u | tr '\n' ' ')"
   [ -n "$keys" ] && echo "Машины (MachineKey): $keys"
 else
   echo "Фичи: ещё нет (шаблон; целевая раскладка — docs/ai/architecture.md)"

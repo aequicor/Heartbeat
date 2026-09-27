@@ -40,11 +40,11 @@ internal class ChatRepositoryImpl(
     private val dispatchers: DispatcherProvider,
 ) : ChatRepository
 
-// 2. Мультибиндинг в map: машины фич (ключ == MachineKey.name)
-@ContributesIntoMap(AppScope::class)
-@StringKey("chat")
+// 2. Мультибиндинг в map: shared-объекты профиля (ключ == SharedKey.name)
+@ContributesIntoMap(ProfileScope::class)
+@StringKey("upload-session")
 @Inject
-internal class ChatMachineFactory(private val effects: ChatEffects) : MachineFactory
+internal class UploadSessionFactory(private val api: UploadApi) : SharedFactory<UploadSession>
 
 // 3. Мультибиндинг в set: тоглы, логирующие плагины, инициализаторы
 @ContributesIntoSet(AppScope::class)
@@ -59,13 +59,35 @@ interface NetworkProviders {
 }
 
 // 5. Потребление мультибиндинга
-@SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class)
+@SingleIn(ProfileScope::class)
+@ContributesBinding(ProfileScope::class)
 @Inject
-internal class DefaultMachineRegistry(
-    private val factories: Map<String, MachineFactory>,
-    @ForScope(AppScope::class) private val scope: CoroutineScope,
-) : MachineRegistry
+internal class SharedScopesImpl(
+    private val factories: Map<String, SharedFactory<*>>,
+    @ForScope(ProfileScope::class) private val parent: ScopeHandle,
+) : SharedScopes
+
+// 6. Одна реализация — два контракта (repeatable @ContributesBinding): так устроен рантайм машин
+@SingleIn(AppScope::class)
+@ContributesBinding(AppScope::class, binding = binding<MachineLauncher>())
+@ContributesBinding(AppScope::class, binding = binding<MachineRegistry>())
+@Inject
+internal class MachineRuntime : MachineLauncher, MachineRegistry
+```
+
+Машина фичи — в графе фичи, не мультибиндингом (скилл `state-machine`):
+
+```kotlin
+@ContributesTo(ChatScope::class)
+@BindingContainer
+public object ChatMachineBindings {
+    @Provides @SingleIn(ChatScope::class)
+    public fun machine(
+        launcher: MachineLauncher,
+        @ForScope(ChatScope::class) scope: ScopeHandle,
+        effects: EffectHandler<ChatEffect, ChatIntent>,
+    ): Machine<ChatState, ChatIntent, ChatOutput> = launcher.launch(ChatMachineSpec, scope, effects)
+}
 ```
 
 ## Граф приложения (`:platform-main:di-bundle`)

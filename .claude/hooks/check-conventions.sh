@@ -70,14 +70,17 @@ $hits"
             | grep -vE "feature\.${self}\.impl" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl → чужой impl запрещён. Используй api другой фичи (MachineKey / EntryPoint).
 $hits"
+    hits="$(grep_lines 'import ru\.nsk\.kstatemachine\.')"
+    [ -n "$hits" ] && add "KStateMachine — внутренность core:state-machine:impl. Фича описывает машину через machineSpec { } (core:state-machine:api), запускает через MachineLauncher. См. docs/adr/0004-state-machine.md
+$hits"
     hits="$(grep_lines 'import (io\.github\.composefluent|dev\.nucleusframework|androidx\.compose\.material3)\.')"
     [ -n "$hits" ] && add "Фичи используют только Hb*-компоненты design-system, не UI-киты напрямую.
 $hits"
   fi
 
   if [[ "$rel" =~ ^features/[^/]+/api/ ]]; then
-    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl)')"
-    [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core и без impl. См. .claude/rules/feature-api.md
+    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl|ru\.nsk\.kstatemachine\.|pro\.respawn\.flowmvi\.)')"
+    [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core, без impl, KStateMachine и FlowMVI (машина — machineSpec { }). См. .claude/rules/feature-api.md
 $hits"
   fi
 
@@ -93,7 +96,7 @@ $hits"
     [[ "$rel" =~ ^core/([^/]+)/impl/ ]] && own="core\\.${BASH_REMATCH[1]//-/}\\.impl\\."
     hits="$(grep -nE 'import io\.aequicor\.heartbeat\.core\.[a-z0-9]+\.impl\.' "$file_path" | grep -vE "$own" \
             | head -n 5 | sed 's/^/    /')"
-    [ -n "$hits" ] && add "core:*:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, DataStores…). См. docs/adr/0002-di-scopes.md
+    [ -n "$hits" ] && add "core:*:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, DataStores, MachineLauncher, MachineRegistry…). См. docs/adr/0002-di-scopes.md, docs/adr/0004-state-machine.md
 $hits"
   fi
 fi
