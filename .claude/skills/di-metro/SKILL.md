@@ -21,10 +21,12 @@ AppScope (Metro)     HeartbeatGraph   :platform-main:di-bundle
 
 - У каждого уровня — `@ForScope(<Scope>::class) ScopeHandle` (корутины, `savedState`, `onClose`) и, для App/Profile,
   `@ForScope(...) CoroutineScope`. Без квалификатора дочерний граф конфликтовал бы с родительским биндингом.
+- Так же квалифицированы хранилища `core:datastore`: `@ForScope(AppScope::class) DataStores` — данные приложения,
+  `@ForScope(ProfileScope::class) DataStores` — данные активного профиля, закрываются с ним (скилл `data-storage`).
 - Закрытие профиля (логаут/смена) каскадно закрывает фичи и shared-объекты.
 - Состояние, которое должно пережить смерть процесса, — в `scope.savedState` (`consume` + `register`), не в полях графа.
 - Модули: `core:di:api` (контракты) ← фичи; `core:di:ext` (`retainedGraph`/`retainedScope`/`retainedShared`) ← impl фич;
-  `core:di:impl`, `core:profile-facade:impl` ← только `di-bundle`.
+  `core:di:impl`, `core:profile-facade:impl`, `core:network:impl`, `core:datastore:impl` ← только `di-bundle`.
 
 ## Типовые приёмы
 
@@ -38,11 +40,11 @@ internal class ChatRepositoryImpl(
     private val dispatchers: DispatcherProvider,
 ) : ChatRepository
 
-// 2. Мультибиндинг в map: машины фич (ключ == MachineKey.name)
-@ContributesIntoMap(AppScope::class)
-@StringKey("chat")
+// 2. Мультибиндинг в map: shared-объекты профиля (ключ == SharedKey.name)
+@ContributesIntoMap(ProfileScope::class)
+@StringKey("upload-session")
 @Inject
-internal class ChatMachineFactory(private val effects: ChatEffects) : MachineFactory
+internal class UploadSessionFactory(private val api: UploadApi) : SharedFactory<UploadSession>
 
 // 3. Мультибиндинг в set: тоглы, логирующие плагины, инициализаторы
 @ContributesIntoSet(AppScope::class)
@@ -63,13 +65,35 @@ public object NetworkBindings {
 }
 
 // 5. Потребление мультибиндинга
-@SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class)
+@SingleIn(ProfileScope::class)
+@ContributesBinding(ProfileScope::class)
 @Inject
-internal class DefaultMachineRegistry(
-    private val factories: Map<String, MachineFactory>,
-    @ForScope(AppScope::class) private val scope: CoroutineScope,
-) : MachineRegistry
+internal class SharedScopesImpl(
+    private val factories: Map<String, SharedFactory<*>>,
+    @ForScope(ProfileScope::class) private val parent: ScopeHandle,
+) : SharedScopes
+
+// 6. Одна реализация — два контракта (repeatable @ContributesBinding): так устроен рантайм машин
+@SingleIn(AppScope::class)
+@ContributesBinding(AppScope::class, binding = binding<MachineLauncher>())
+@ContributesBinding(AppScope::class, binding = binding<MachineRegistry>())
+@Inject
+internal class MachineRuntime : MachineLauncher, MachineRegistry
+```
+
+Машина фичи — в графе фичи, не мультибиндингом (скилл `state-machine`):
+
+```kotlin
+@ContributesTo(ChatScope::class)
+@BindingContainer
+public object ChatMachineBindings {
+    @Provides @SingleIn(ChatScope::class)
+    public fun machine(
+        launcher: MachineLauncher,
+        @ForScope(ChatScope::class) scope: ScopeHandle,
+        effects: EffectHandler<ChatEffect, ChatIntent>,
+    ): Machine<ChatState, ChatIntent, ChatOutput> = launcher.launch(ChatMachineSpec, scope, effects)
+}
 ```
 
 ## Граф приложения (`:platform-main:di-bundle`)
@@ -88,6 +112,16 @@ interface HeartbeatGraph {
 internal interface JvmHeartbeatGraph : HeartbeatGraph
 
 fun createHeartbeatGraph(): HeartbeatGraph = createGraph<JvmHeartbeatGraph>()
+
+// androidMain — граф получает Context (пути хранилищ, Room): только applicationContext
+@DependencyGraph(AppScope::class)
+internal interface AndroidHeartbeatGraph : HeartbeatGraph {
+    @DependencyGraph.Factory
+    fun interface Factory { fun create(@Provides context: Context): AndroidHeartbeatGraph }
+}
+
+fun createHeartbeatGraph(context: Context): HeartbeatGraph =
+    createGraphFactory<AndroidHeartbeatGraph.Factory>().create(context.applicationContext)
 ```
 
 `di-bundle` — единственный модуль, который зависит от `…:impl`; фичи графов не создают. Проверка всего графа без сборки

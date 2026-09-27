@@ -18,7 +18,7 @@
           ▼         ▼                 ▼                    ▼
        ┌───────────────────────── core/* ─────────────────────────┐
        │ logging ← common ← di, state-machine, mvi, navigation,   │
-       │ network, database, datastore, feature-toggles, ai,       │
+       │ network, datastore (key-value + БД фич), feature-toggles, ai, │
        │ resources                                                │
        └──────────────────────────────────────────────────────────┘
 ```
@@ -31,10 +31,10 @@
 | `platform-main:root` | `di-bundle` (`HeartbeatRoot`), `core:navigation:compose` — Compose-корень `RootContent` | любой `impl` напрямую |
 | `platform-main:android/desktop/shared` | `di-bundle`, `root`, `design-system:*`, `core:*` (api) | любой `impl` напрямую |
 | `features:X:impl` | `features:X:api`, `features:*:api`, `core:*`, `design-system:*` | `features:*:impl` |
-| `features:X:api` | `core:state-machine`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:database/network/ai` |
+| `features:X:api` | `core:state-machine:api`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:datastore/network/ai`, KStateMachine, FlowMVI |
 | `design-system:*` | `core:resources`, `core:logging`, `core:common`, UI-киты | `features:*`, остальной `core` |
 | `core:X` | `core:logging`, `core:common`, другие `core` без циклов | `features:*`, `design-system:*`, любой `impl` |
-| `core:X:impl` (`di`, `profile-facade`, `network`) | свой `api`, другие `core` | — ; от него зависит только `di-bundle` |
+| `core:X:impl` (`di`, `profile-facade`, `state-machine`, `network`, `datastore`) | свой `api`, другие `core` (api) | — ; от него зависит только `di-bundle` |
 | `core:logging` | Napier | всё прочее в проекте |
 
 `api`-модули экспортируют (`api(...)`) только то, что входит в их публичный контракт; всё остальное — `implementation`.
@@ -54,21 +54,23 @@ Gradle-пути: `:core:network:api`, `:features:chat:api`, `:features:chat:impl
 
 | Модуль | Ответственность | Библиотека |
 |---|---|---|
-| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/KStateMachine/Koog (HTTP логирует `core:network:impl`) | Napier |
-| `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, Result/ошибки, Clock | coroutines |
+| `core:logging` | фасад `Log`, инициализация Napier, теги, редактирование секретов, адаптеры логгеров для FlowMVI/Koog (HTTP логирует `core:network:impl`, state-machine — свой рантайм) | Napier |
+| `core:common` | `DispatcherProvider` (+ Main-диспетчеры платформ), `PlatformInfo`, `Clock` (`kotlin.time`), Result/ошибки | coroutines |
 | `core:di:api` | скоупы (`ProfileScope`, `@ForScope`), `ScopeHandle`, `ScopeSavedState`, `ScopeFactory`, shared-скоупы | Metro, kotlinx-serialization (api) |
 | `core:di:ext` | `retainedGraph` / `retainedScope` / `retainedShared` — скоуп, привязанный к компоненту | Essenty |
 | `core:di:impl` | жизненный цикл скоупов (каскадное закрытие, saved state), корневой app-скоуп | Metro |
 | `core:profile-facade:api` | `ProfileSessions`, `ProfileId`, `ActiveProfileStorage`, `ProfileGraph` (граф `ProfileScope`) | Metro |
 | `core:profile-facade:impl` | сессии профиля: открыть / переключить / закрыть / восстановить | — |
-| `core:state-machine` | `MachineKey<E>`, `MachineRef<E>`, `MachineRegistry`, логирующий listener, тест-утилиты | KStateMachine |
+| `core:state-machine:api` | `MachineKey`, `MachineRef`/`Machine`, DSL `machineSpec { }` + чистая семантика (`resolve`, `assertTransition`, `toMermaid`), `MachineLauncher`, `MachineRegistry`, `EffectHandler` ([ADR-0004](../adr/0004-state-machine.md)) | — |
+| `core:state-machine:impl` | рантайм машин в скоупе фичи, реестр живых машин, логи `SM/<name>` | KStateMachine |
+| `core:state-machine:flowmvi-ext` | стор отражает машину: `reflect(machine) { }`, `sendTo(machine, intent)` | FlowMVI |
 | `core:mvi` | базовая конфигурация стора (`heartbeatStore { }`), логирующий плагин, обработка ошибок | FlowMVI |
 | `core:navigation:api` | `Route`, `RouteEntry`, `Navigator`, `NavOptions`, `ResultContract`, хосты (`StackHost`/`PanelsHost`/`RootHost`), `NavHostFactory`, `DeepLinkEntry` — без Compose | Decompose |
 | `core:navigation:impl` | хосты на `childStack`/`childPanels`, реестры маршрутов (App/Profile), результаты, deep links, логи `NAV` | Decompose |
 | `core:navigation:compose` | `ComposableComponent`, `NavStack`, `NavPanels`, анимации, shared-element «раскрытие из превью» | Decompose extensions-compose(-experimental) |
 | `core:resources` | общие строки/иконки/шрифты, локализация | Compose Resources |
-| `core:database` | `HeartbeatDatabase`, драйвер, миграции, фабрики per-platform | Room KMP + BundledSQLiteDriver |
-| `core:datastore` | фабрика `DataStore<Preferences>` per-platform, логирующая обёртка | DataStore KMP |
+| `core:datastore:api` | `DataStores` (владелец app/profile через `@ForScope`): `KeyValueStore`, Room-БД фичи по `DatabaseSpec`; удержание записей `Retention` (срок / событие), колонки `RecordRetention`, `StorageMaintenance` ([ADR-0006](../adr/0006-datastore.md)) | Room KMP (api), kotlinx-datetime |
+| `core:datastore:impl` | файлы per-owner, один DataStore на файл, открытие Room-БД (BundledSQLiteDriver, миграции), таймеры и журнал событий, логи `DS`/`DB`, постоянный `ActiveProfileStorage` | DataStore KMP, Room KMP, okio |
 | `core:network:api` | `HttpClient` (тип Ktor) для API-классов фич, `NetworkConfig`, `NetworkException`, `networkResult { }` ([ADR-0005](../adr/0005-network.md)) | Ktor 3 (core) |
 | `core:network:impl` | клиент приложения: engine per-platform (OkHttp / Darwin), JSON, таймауты, ретраи идемпотентных запросов, логи `NET` | Ktor 3 |
 | `core:ai` | провайдеры LLM, `PromptExecutor`, реестр инструментов, агенты, ключи из безопасного хранилища | Koog |
@@ -94,22 +96,24 @@ AppScope        HeartbeatGraph   platform-main:di-bundle (per-platform @Dependen
 
 См. [feature-contract.md](feature-contract.md). Коротко:
 
-- `api`: `sealed interface <Name>State`, `sealed interface <Name>Event`, `object <Name>MachineKey : MachineKey<<Name>Event>`, функция-спека машины, интерфейс эффектов, публичные `Route` и `ResultContract` (если фича открывается извне; см. [ADR-0003](../adr/0003-navigation.md)).
-- `impl`: реализация эффектов (репозитории, сеть, ИИ), FlowMVI-сторы, Decompose-компоненты, Compose-экраны, Metro-контрибуции (`@ContributesBinding`, `@ContributesIntoMap` машины в реестр, `@ContributesIntoSet` тоглов).
+- `api`: `<Name>State`, `<Name>Intent` (`Public`/`Internal`), `<Name>Effect`, `<Name>Output`, `object <Name>MachineKey`, `<Name>MachineSpec = machineSpec { }`, публичные `Route` и `ResultContract` (если фича открывается извне; см. [ADR-0003](../adr/0003-navigation.md)).
+- `impl`: `EffectHandler` (репозитории, сеть, ИИ), машина в графе фичи через `MachineLauncher`, FlowMVI-сторы (`reflect`), Decompose-компоненты, Compose-экраны, Metro-контрибуции (`@ContributesBinding`, `@ContributesIntoSet` маршрутов и тоглов).
 
 ## Потоки данных
 
 ```
-UI (Compose) ──intent──▶ FlowMVI Store ──event──▶ Feature StateMachine ──onEntry──▶ Effects (impl)
-     ▲                       │   ▲                        │                         │
-     └──────state────────────┘   └──── machine state ─────┘            repos/network/ai/db
-                                                          │
-                          другие машины ◀── MachineRegistry[Key].send(Event)
+UI (Compose) ──intent──▶ FlowMVI Store ──sendTo(intent)──▶ Feature Machine ──effect──▶ EffectHandler (impl)
+     ▲                       │   ▲                             │   ▲                     │
+     └──────state────────────┘   └─ reflect: state + outputs ──┘   └── Internal intent ──┘  repos/network/ai/db
+                                                               │
+                  другие фичи ── MachineRegistry.send(Key, Public intent) / observe(Key)
 ```
 
-- Store читает состояние машины (`StateFlow`) и маппит в UI-state.
-- Бизнес-переходы — только событиями машины. Store не принимает бизнес-решений, которые меняют флоу фичи.
-- Эффекты машины (загрузка, вызов агента) запускаются в `onEntry` через интерфейс эффектов, результат возвращается событием.
+- Store отражает машину (`reflect`): маппит `StateFlow<State>` в UI-state исчерпывающим `when`, outputs — в Action.
+- Бизнес-переходы — только интентами машины. Store не принимает бизнес-решений, которые меняют флоу фичи.
+- Эффекты (загрузка, вызов агента) объявлены переходами и исполняются `EffectHandler`; результат — Internal-интент.
+  Эффект отменяется при выходе из состояния, которое его запустило.
+- Машина живёт в скоупе фичи: пока фича закрыта, `MachineRegistry.send` возвращает `NotRunning`.
 
 ## Платформы и UI-киты
 

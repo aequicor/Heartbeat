@@ -46,10 +46,10 @@ class LoggingInfrastructureBypass(config: Config) :
                 "use the logging DataStore from core:datastore",
             "DataStoreFactory -> io.aequicor.heartbeat.core.datastore" to
                 "use the logging DataStore from core:datastore",
-            "databaseBuilder -> io.aequicor.heartbeat.core.database" to
-                "use HeartbeatDatabase from core:database",
-            "inMemoryDatabaseBuilder -> io.aequicor.heartbeat.core.database" to
-                "use the test factory from core:database",
+            "databaseBuilder -> io.aequicor.heartbeat.core.datastore" to
+                "open the feature database via DataStores.database(DatabaseSpec) from core:datastore",
+            "inMemoryDatabaseBuilder -> io.aequicor.heartbeat.core.datastore" to
+                "open the feature database via DataStores.database(DatabaseSpec) from core:datastore",
             "pro.respawn.flowmvi.dsl.store -> io.aequicor.heartbeat.core.mvi" to
                 "use heartbeatStore { } from core:mvi (logging plugin)",
             "pro.respawn.flowmvi.dsl.lazyStore -> io.aequicor.heartbeat.core.mvi" to

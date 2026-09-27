@@ -47,8 +47,9 @@ enum class ToggleSource { Default, DebugPanel, Migration }
 ```
 
 Реализация (`internal class DataStoreFeatureToggles`, `@SingleIn(AppScope::class)`, `@ContributesBinding(AppScope::class)`):
-- хранит значения в отдельном `DataStore<Preferences>` (`feature_toggles.preferences_pb`);
-- `observe` = `data.map { it[key] ?: default }.distinctUntilChanged()`;
+- хранит значения в app-хранилище `core:datastore`: `@ForScope(AppScope::class) DataStores` →
+  `keyValue(KeyValueSpec("feature_toggles", areValuesLogged = true))` (скилл `data-storage`);
+- `observe` = `store.observe(key).map { it ?: default }.distinctUntilChanged()`;
 - `set` логирует `FT: <key>: <old> -> <new> (source)` на уровне INFO — **обязательно** (изменение конфигурации);
 - при старте логирует список переопределённых (не default) тоглов.
 

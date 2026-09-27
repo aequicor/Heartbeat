@@ -21,14 +21,20 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Событие | Где подключено | Уровень |
 |---|---|---|
 | Intent / Action / смена State стора | плагин логирования в `core:mvi` (`heartbeatStore { }`) | D (intent/action), V (state diff) |
-| Переход state-machine (`from --event--> to`), отклонённое событие | listener в `core:state-machine`, ставится на каждую машину при регистрации | I (переход), W (отклонено) |
-| Отправка события в чужую машину через `MachineRegistry` | `core:state-machine` | I |
+| State-machine: приход интента и его источник (`← Open (effect Load)`) | рантайм `core:state-machine:impl`, на каждую машину | D |
+| State-machine: переход (`Idle --Open--> Loading`) / `stay` (`Ready ~Draft~> Ready`) / отклонённый интент | то же | I / D / W |
+| State-machine: эффект — старт, завершение, отмена при выходе из состояния / ошибка | то же | D / E (с throwable) |
+| State-machine: output, старт/restore/стоп машины, регистрация в реестре | то же | D, I (старт/стоп) |
+| Отправка интента в чужую машину через `MachineRegistry` / машина не запущена | `core:state-machine:impl` | I / W |
+| Стор ← машина: отражённое состояние и outputs, отклонённый `sendTo` | `core:state-machine:flowmvi-ext` (`MVI/<store>`) | D / W |
 | Навигация (операция, путь хоста, `serialName` маршрута, стек — без полей маршрутов), результаты, deep links (шаблон, не ссылка) | хосты `core:navigation:impl` | I |
 | HTTP-запрос/ответ, статус, длительность (каждая попытка, ретраи, таймауты) | плагин `NetworkLogging` в `core:network:impl`, тег `NET` | I (метод, url без значений query, статус, ms), W (не-2xx, сбой — с throwable), D (заголовки без секретов); тела — никогда |
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
-| Запись/чтение DataStore | логирующая обёртка в `core:datastore` | D (ключ), I (изменение конфигурации) |
+| Запись/чтение key-value | `LoggingKeyValueStore` в `core:datastore:impl`, тег `DS` | D (ключ + удержание), I (значения — только `KeyValueSpec.areValuesLogged`), W/E (ошибка чтения / повреждённый файл) |
+| Чистка по сроку, события удержания | `core:datastore:impl`, теги `DS` / `DB` | I (сколько записей удалено, без содержимого) |
 | Изменение тогла | `core:feature-toggles` | I (`toggle key: old -> new, source`) |
-| Транзакции/миграции БД | `core:database` (callback'и + логирующие репозитории) | I (миграции), D (DAO-операции) |
+| Открытие/миграции БД фич | `core:datastore:impl` (Room callback + обёртка миграций), тег `DB` | I (открытие: версия, таблицы удержания; миграции `n -> m`) |
+| DAO-операции | репозитории фич (вручную) | D |
 | Жизненный цикл компонентов | `core:navigation` (Essenty lifecycle callbacks) | V |
 
 ## Что логируется вручную
@@ -41,7 +47,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 ## Теги
 
 - Тег = имя класса-источника (`ChatStore`, `ChatMachine`, `HttpClient`).
-- Инфраструктурные теги с префиксом: `SM/<machine>`, `MVI/<store>`, `NAV`, `NET`, `AI`, `DB`, `DS`, `FT`, `DI` (создание/закрытие скоупов).
+- Инфраструктурные теги с префиксом: `SM/<machine>` (только имена классов интентов/состояний/эффектов — их данные не логируются), `MVI/<store>`, `NAV`, `NET`, `AI`, `DB`, `DS`, `FT`, `DI` (создание/закрытие скоупов).
 
 ## Запрещено логировать
 

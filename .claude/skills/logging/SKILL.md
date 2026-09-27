@@ -1,6 +1,6 @@
 ---
 name: logging
-description: "Логирование в Heartbeat через core:logging (Napier) — фасад Log, инициализация Antilog по платформам и сборкам, адаптеры для FlowMVI StoreLogger, KStateMachine Logger, Koog handleEvents (HTTP логирует core:network:impl), DataStore/Room, редактирование секретов; аудит, что всё действие/IO залогировано. Используй при создании core:logging, добавлении нового источника событий или при проверке покрытия логами."
+description: "Логирование в Heartbeat через core:logging (Napier) — фасад Log, инициализация Antilog по платформам и сборкам, адаптеры для FlowMVI StoreLogger и Koog handleEvents (HTTP логирует core:network:impl, state-machine — свой рантайм), DataStore/Room, редактирование секретов; аудит, что всё действие/IO залогировано. Используй при создании core:logging, добавлении нового источника событий или при проверке покрытия логами."
 ---
 
 # Логирование
@@ -62,13 +62,9 @@ object NapierStoreLogger : StoreLogger {
     }
 }
 
-// KStateMachine — ставится реестром машин
-fun machineLogger(name: String) = StateMachine.Logger { lazyMessage -> Log.tag("SM/$name").v { lazyMessage() } }
-fun machineTransitionsListener(name: String) = object : StateMachine.Listener {
-    private val log = Log.tag("SM/$name")
-    override suspend fun onTransitionTriggered(transitionParams: TransitionParams<*>) =
-        log.i { "${transitionParams.transition.sourceState.name} --${transitionParams.event::class.simpleName}--> ${transitionParams.direction.targetState?.name}" }
-}
+// State-machine — адаптер не нужен: рантайм core:state-machine:impl сам пишет в SM/<name> интенты, переходы,
+// stay, отклонения, эффекты (старт/завершение/отмена/ошибка), outputs, старт/стоп; движок KStateMachine — в V.
+// Стор ← машина — core:state-machine:flowmvi-ext (MVI/<store>). См. docs/adr/0004-state-machine.md.
 
 // Ktor — см. скилл network; Koog — см. скилл ai-koog; Decompose — core:navigation; DataStore/Room — скилл data-storage.
 ```
