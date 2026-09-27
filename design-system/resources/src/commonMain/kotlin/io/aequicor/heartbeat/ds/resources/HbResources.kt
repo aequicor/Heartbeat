@@ -1,0 +1,429 @@
+package io.aequicor.heartbeat.ds.resources
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import io.aequicor.heartbeat.ds.resources.generated.Res
+import io.aequicor.heartbeat.ds.resources.generated.en_action_feedback
+import io.aequicor.heartbeat.ds.resources.generated.en_actions
+import io.aequicor.heartbeat.ds.resources.generated.en_add_context
+import io.aequicor.heartbeat.ds.resources.generated.en_agent
+import io.aequicor.heartbeat.ds.resources.generated.en_alignment
+import io.aequicor.heartbeat.ds.resources.generated.en_app_name
+import io.aequicor.heartbeat.ds.resources.generated.en_app_subtitle
+import io.aequicor.heartbeat.ds.resources.generated.en_ask_mode
+import io.aequicor.heartbeat.ds.resources.generated.en_body_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_brand
+import io.aequicor.heartbeat.ds.resources.generated.en_brand_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_caption_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_center
+import io.aequicor.heartbeat.ds.resources.generated.en_chat
+import io.aequicor.heartbeat.ds.resources.generated.en_chat_description
+import io.aequicor.heartbeat.ds.resources.generated.en_chat_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_chat_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.en_code_label
+import io.aequicor.heartbeat.ds.resources.generated.en_code_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_collapse_tool
+import io.aequicor.heartbeat.ds.resources.generated.en_column_title
+import io.aequicor.heartbeat.ds.resources.generated.en_comfortable
+import io.aequicor.heartbeat.ds.resources.generated.en_compact
+import io.aequicor.heartbeat.ds.resources.generated.en_components
+import io.aequicor.heartbeat.ds.resources.generated.en_components_description
+import io.aequicor.heartbeat.ds.resources.generated.en_components_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_components_title
+import io.aequicor.heartbeat.ds.resources.generated.en_composer_placeholder
+import io.aequicor.heartbeat.ds.resources.generated.en_concise_model
+import io.aequicor.heartbeat.ds.resources.generated.en_conversation
+import io.aequicor.heartbeat.ds.resources.generated.en_copy_file_path
+import io.aequicor.heartbeat.ds.resources.generated.en_create
+import io.aequicor.heartbeat.ds.resources.generated.en_current_section
+import io.aequicor.heartbeat.ds.resources.generated.en_cyan
+import io.aequicor.heartbeat.ds.resources.generated.en_danger
+import io.aequicor.heartbeat.ds.resources.generated.en_dark
+import io.aequicor.heartbeat.ds.resources.generated.en_demo_model
+import io.aequicor.heartbeat.ds.resources.generated.en_disabled
+import io.aequicor.heartbeat.ds.resources.generated.en_display_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_end
+import io.aequicor.heartbeat.ds.resources.generated.en_english
+import io.aequicor.heartbeat.ds.resources.generated.en_expand_tool
+import io.aequicor.heartbeat.ds.resources.generated.en_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_file_path_copied
+import io.aequicor.heartbeat.ds.resources.generated.en_fluent
+import io.aequicor.heartbeat.ds.resources.generated.en_footer
+import io.aequicor.heartbeat.ds.resources.generated.en_foundation
+import io.aequicor.heartbeat.ds.resources.generated.en_foundation_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_full
+import io.aequicor.heartbeat.ds.resources.generated.en_history_section
+import io.aequicor.heartbeat.ds.resources.generated.en_input_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_input_placeholder
+import io.aequicor.heartbeat.ds.resources.generated.en_inputs
+import io.aequicor.heartbeat.ds.resources.generated.en_insert_note
+import io.aequicor.heartbeat.ds.resources.generated.en_insert_note_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_jump_to_latest
+import io.aequicor.heartbeat.ds.resources.generated.en_language
+import io.aequicor.heartbeat.ds.resources.generated.en_layout_item_one
+import io.aequicor.heartbeat.ds.resources.generated.en_layout_item_three
+import io.aequicor.heartbeat.ds.resources.generated.en_layout_item_two
+import io.aequicor.heartbeat.ds.resources.generated.en_layouts
+import io.aequicor.heartbeat.ds.resources.generated.en_layouts_description
+import io.aequicor.heartbeat.ds.resources.generated.en_layouts_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_layouts_title
+import io.aequicor.heartbeat.ds.resources.generated.en_lazy_title
+import io.aequicor.heartbeat.ds.resources.generated.en_light
+import io.aequicor.heartbeat.ds.resources.generated.en_load_earlier
+import io.aequicor.heartbeat.ds.resources.generated.en_local_demo
+import io.aequicor.heartbeat.ds.resources.generated.en_long_session
+import io.aequicor.heartbeat.ds.resources.generated.en_long_session_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_mac_os
+import io.aequicor.heartbeat.ds.resources.generated.en_markdown_demo
+import io.aequicor.heartbeat.ds.resources.generated.en_markdown_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_material
+import io.aequicor.heartbeat.ds.resources.generated.en_message_style
+import io.aequicor.heartbeat.ds.resources.generated.en_mission_description
+import io.aequicor.heartbeat.ds.resources.generated.en_mission_title
+import io.aequicor.heartbeat.ds.resources.generated.en_mode_menu
+import io.aequicor.heartbeat.ds.resources.generated.en_model_menu
+import io.aequicor.heartbeat.ds.resources.generated.en_native_ui
+import io.aequicor.heartbeat.ds.resources.generated.en_needs_attention
+import io.aequicor.heartbeat.ds.resources.generated.en_neutral
+import io.aequicor.heartbeat.ds.resources.generated.en_note_draft
+import io.aequicor.heartbeat.ds.resources.generated.en_notice_text
+import io.aequicor.heartbeat.ds.resources.generated.en_palette
+import io.aequicor.heartbeat.ds.resources.generated.en_palette_description
+import io.aequicor.heartbeat.ds.resources.generated.en_plan_mode
+import io.aequicor.heartbeat.ds.resources.generated.en_platform
+import io.aequicor.heartbeat.ds.resources.generated.en_primary
+import io.aequicor.heartbeat.ds.resources.generated.en_quiet_action
+import io.aequicor.heartbeat.ds.resources.generated.en_ready
+import io.aequicor.heartbeat.ds.resources.generated.en_reset
+import io.aequicor.heartbeat.ds.resources.generated.en_row_title
+import io.aequicor.heartbeat.ds.resources.generated.en_russian
+import io.aequicor.heartbeat.ds.resources.generated.en_sandbox
+import io.aequicor.heartbeat.ds.resources.generated.en_secondary
+import io.aequicor.heartbeat.ds.resources.generated.en_secondary_action
+import io.aequicor.heartbeat.ds.resources.generated.en_seed_prompt
+import io.aequicor.heartbeat.ds.resources.generated.en_seed_reply
+import io.aequicor.heartbeat.ds.resources.generated.en_send
+import io.aequicor.heartbeat.ds.resources.generated.en_soft_ui
+import io.aequicor.heartbeat.ds.resources.generated.en_spacing
+import io.aequicor.heartbeat.ds.resources.generated.en_spacing_description
+import io.aequicor.heartbeat.ds.resources.generated.en_start
+import io.aequicor.heartbeat.ds.resources.generated.en_statuses
+import io.aequicor.heartbeat.ds.resources.generated.en_stop
+import io.aequicor.heartbeat.ds.resources.generated.en_stream_response
+import io.aequicor.heartbeat.ds.resources.generated.en_streaming
+import io.aequicor.heartbeat.ds.resources.generated.en_style_description
+import io.aequicor.heartbeat.ds.resources.generated.en_success
+import io.aequicor.heartbeat.ds.resources.generated.en_system
+import io.aequicor.heartbeat.ds.resources.generated.en_system_author
+import io.aequicor.heartbeat.ds.resources.generated.en_theme
+import io.aequicor.heartbeat.ds.resources.generated.en_title_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_tone
+import io.aequicor.heartbeat.ds.resources.generated.en_tool
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_console
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_demo
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_details
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_diff
+import io.aequicor.heartbeat.ds.resources.generated.en_tool_result
+import io.aequicor.heartbeat.ds.resources.generated.en_toolkit_notice
+import io.aequicor.heartbeat.ds.resources.generated.en_typography
+import io.aequicor.heartbeat.ds.resources.generated.en_unknown_file
+import io.aequicor.heartbeat.ds.resources.generated.en_violet
+import io.aequicor.heartbeat.ds.resources.generated.en_warning
+import io.aequicor.heartbeat.ds.resources.generated.en_width
+import io.aequicor.heartbeat.ds.resources.generated.en_working
+import io.aequicor.heartbeat.ds.resources.generated.en_workspace
+import io.aequicor.heartbeat.ds.resources.generated.en_you
+import io.aequicor.heartbeat.ds.resources.generated.ru_action_feedback
+import io.aequicor.heartbeat.ds.resources.generated.ru_actions
+import io.aequicor.heartbeat.ds.resources.generated.ru_add_context
+import io.aequicor.heartbeat.ds.resources.generated.ru_agent
+import io.aequicor.heartbeat.ds.resources.generated.ru_alignment
+import io.aequicor.heartbeat.ds.resources.generated.ru_app_name
+import io.aequicor.heartbeat.ds.resources.generated.ru_app_subtitle
+import io.aequicor.heartbeat.ds.resources.generated.ru_ask_mode
+import io.aequicor.heartbeat.ds.resources.generated.ru_body_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_brand
+import io.aequicor.heartbeat.ds.resources.generated.ru_brand_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_caption_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_center
+import io.aequicor.heartbeat.ds.resources.generated.ru_chat
+import io.aequicor.heartbeat.ds.resources.generated.ru_chat_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_chat_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_chat_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_code_label
+import io.aequicor.heartbeat.ds.resources.generated.ru_code_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_collapse_tool
+import io.aequicor.heartbeat.ds.resources.generated.ru_column_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_comfortable
+import io.aequicor.heartbeat.ds.resources.generated.ru_compact
+import io.aequicor.heartbeat.ds.resources.generated.ru_components
+import io.aequicor.heartbeat.ds.resources.generated.ru_components_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_components_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_components_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_composer_placeholder
+import io.aequicor.heartbeat.ds.resources.generated.ru_concise_model
+import io.aequicor.heartbeat.ds.resources.generated.ru_conversation
+import io.aequicor.heartbeat.ds.resources.generated.ru_copy_file_path
+import io.aequicor.heartbeat.ds.resources.generated.ru_create
+import io.aequicor.heartbeat.ds.resources.generated.ru_current_section
+import io.aequicor.heartbeat.ds.resources.generated.ru_cyan
+import io.aequicor.heartbeat.ds.resources.generated.ru_danger
+import io.aequicor.heartbeat.ds.resources.generated.ru_dark
+import io.aequicor.heartbeat.ds.resources.generated.ru_demo_model
+import io.aequicor.heartbeat.ds.resources.generated.ru_disabled
+import io.aequicor.heartbeat.ds.resources.generated.ru_display_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_end
+import io.aequicor.heartbeat.ds.resources.generated.ru_english
+import io.aequicor.heartbeat.ds.resources.generated.ru_expand_tool
+import io.aequicor.heartbeat.ds.resources.generated.ru_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_file_path_copied
+import io.aequicor.heartbeat.ds.resources.generated.ru_fluent
+import io.aequicor.heartbeat.ds.resources.generated.ru_footer
+import io.aequicor.heartbeat.ds.resources.generated.ru_foundation
+import io.aequicor.heartbeat.ds.resources.generated.ru_foundation_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_full
+import io.aequicor.heartbeat.ds.resources.generated.ru_history_section
+import io.aequicor.heartbeat.ds.resources.generated.ru_input_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_input_placeholder
+import io.aequicor.heartbeat.ds.resources.generated.ru_inputs
+import io.aequicor.heartbeat.ds.resources.generated.ru_insert_note
+import io.aequicor.heartbeat.ds.resources.generated.ru_insert_note_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_jump_to_latest
+import io.aequicor.heartbeat.ds.resources.generated.ru_language
+import io.aequicor.heartbeat.ds.resources.generated.ru_layout_item_one
+import io.aequicor.heartbeat.ds.resources.generated.ru_layout_item_three
+import io.aequicor.heartbeat.ds.resources.generated.ru_layout_item_two
+import io.aequicor.heartbeat.ds.resources.generated.ru_layouts
+import io.aequicor.heartbeat.ds.resources.generated.ru_layouts_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_layouts_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_layouts_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_lazy_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_light
+import io.aequicor.heartbeat.ds.resources.generated.ru_load_earlier
+import io.aequicor.heartbeat.ds.resources.generated.ru_local_demo
+import io.aequicor.heartbeat.ds.resources.generated.ru_long_session
+import io.aequicor.heartbeat.ds.resources.generated.ru_long_session_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_mac_os
+import io.aequicor.heartbeat.ds.resources.generated.ru_markdown_demo
+import io.aequicor.heartbeat.ds.resources.generated.ru_markdown_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_material
+import io.aequicor.heartbeat.ds.resources.generated.ru_message_style
+import io.aequicor.heartbeat.ds.resources.generated.ru_mission_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_mission_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_mode_menu
+import io.aequicor.heartbeat.ds.resources.generated.ru_model_menu
+import io.aequicor.heartbeat.ds.resources.generated.ru_native_ui
+import io.aequicor.heartbeat.ds.resources.generated.ru_needs_attention
+import io.aequicor.heartbeat.ds.resources.generated.ru_neutral
+import io.aequicor.heartbeat.ds.resources.generated.ru_note_draft
+import io.aequicor.heartbeat.ds.resources.generated.ru_notice_text
+import io.aequicor.heartbeat.ds.resources.generated.ru_palette
+import io.aequicor.heartbeat.ds.resources.generated.ru_palette_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_plan_mode
+import io.aequicor.heartbeat.ds.resources.generated.ru_platform
+import io.aequicor.heartbeat.ds.resources.generated.ru_primary
+import io.aequicor.heartbeat.ds.resources.generated.ru_quiet_action
+import io.aequicor.heartbeat.ds.resources.generated.ru_ready
+import io.aequicor.heartbeat.ds.resources.generated.ru_reset
+import io.aequicor.heartbeat.ds.resources.generated.ru_row_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_russian
+import io.aequicor.heartbeat.ds.resources.generated.ru_sandbox
+import io.aequicor.heartbeat.ds.resources.generated.ru_secondary
+import io.aequicor.heartbeat.ds.resources.generated.ru_secondary_action
+import io.aequicor.heartbeat.ds.resources.generated.ru_seed_prompt
+import io.aequicor.heartbeat.ds.resources.generated.ru_seed_reply
+import io.aequicor.heartbeat.ds.resources.generated.ru_send
+import io.aequicor.heartbeat.ds.resources.generated.ru_soft_ui
+import io.aequicor.heartbeat.ds.resources.generated.ru_spacing
+import io.aequicor.heartbeat.ds.resources.generated.ru_spacing_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_start
+import io.aequicor.heartbeat.ds.resources.generated.ru_statuses
+import io.aequicor.heartbeat.ds.resources.generated.ru_stop
+import io.aequicor.heartbeat.ds.resources.generated.ru_stream_response
+import io.aequicor.heartbeat.ds.resources.generated.ru_streaming
+import io.aequicor.heartbeat.ds.resources.generated.ru_style_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_success
+import io.aequicor.heartbeat.ds.resources.generated.ru_system
+import io.aequicor.heartbeat.ds.resources.generated.ru_system_author
+import io.aequicor.heartbeat.ds.resources.generated.ru_theme
+import io.aequicor.heartbeat.ds.resources.generated.ru_title_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_tone
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_console
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_demo
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_details
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_diff
+import io.aequicor.heartbeat.ds.resources.generated.ru_tool_result
+import io.aequicor.heartbeat.ds.resources.generated.ru_toolkit_notice
+import io.aequicor.heartbeat.ds.resources.generated.ru_typography
+import io.aequicor.heartbeat.ds.resources.generated.ru_unknown_file
+import io.aequicor.heartbeat.ds.resources.generated.ru_violet
+import io.aequicor.heartbeat.ds.resources.generated.ru_warning
+import io.aequicor.heartbeat.ds.resources.generated.ru_width
+import io.aequicor.heartbeat.ds.resources.generated.ru_working
+import io.aequicor.heartbeat.ds.resources.generated.ru_workspace
+import io.aequicor.heartbeat.ds.resources.generated.ru_you
+import org.jetbrains.compose.resources.StringResource
+import org.jetbrains.compose.resources.stringResource
+
+/** Supported UI languages, scoped to a composition rather than the operating system. */
+public enum class HbLocale { English, Russian }
+
+private val LocalHbLocale = staticCompositionLocalOf { HbLocale.English }
+
+/** Provides an independent language for a window, preview, or embedded design-system surface. */
+@Composable
+public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
+    CompositionLocalProvider(LocalHbLocale provides locale, content = content)
+}
+
+/** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
+public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
+    AddContext(Res.string.en_add_context, Res.string.ru_add_context),
+    InsertNote(Res.string.en_insert_note, Res.string.ru_insert_note),
+    InsertNoteHint(Res.string.en_insert_note_hint, Res.string.ru_insert_note_hint),
+    MarkdownDemo(Res.string.en_markdown_demo, Res.string.ru_markdown_demo),
+    MarkdownDemoHint(Res.string.en_markdown_demo_hint, Res.string.ru_markdown_demo_hint),
+    ToolDemo(Res.string.en_tool_demo, Res.string.ru_tool_demo),
+    ToolDemoHint(Res.string.en_tool_demo_hint, Res.string.ru_tool_demo_hint),
+    LongSession(Res.string.en_long_session, Res.string.ru_long_session),
+    LongSessionHint(Res.string.en_long_session_hint, Res.string.ru_long_session_hint),
+    LoadEarlier(Res.string.en_load_earlier, Res.string.ru_load_earlier),
+    HistorySection(Res.string.en_history_section, Res.string.ru_history_section),
+    CurrentSection(Res.string.en_current_section, Res.string.ru_current_section),
+    ModelMenu(Res.string.en_model_menu, Res.string.ru_model_menu),
+    DemoModel(Res.string.en_demo_model, Res.string.ru_demo_model),
+    ConciseModel(Res.string.en_concise_model, Res.string.ru_concise_model),
+    ModeMenu(Res.string.en_mode_menu, Res.string.ru_mode_menu),
+    AskMode(Res.string.en_ask_mode, Res.string.ru_ask_mode),
+    PlanMode(Res.string.en_plan_mode, Res.string.ru_plan_mode),
+    ExpandTool(Res.string.en_expand_tool, Res.string.ru_expand_tool),
+    CollapseTool(Res.string.en_collapse_tool, Res.string.ru_collapse_tool),
+    ToolDetails(Res.string.en_tool_details, Res.string.ru_tool_details),
+    ToolConsole(Res.string.en_tool_console, Res.string.ru_tool_console),
+    ToolDiff(Res.string.en_tool_diff, Res.string.ru_tool_diff),
+    CopyFilePath(Res.string.en_copy_file_path, Res.string.ru_copy_file_path),
+    FilePathCopied(Res.string.en_file_path_copied, Res.string.ru_file_path_copied),
+    UnknownFile(Res.string.en_unknown_file, Res.string.ru_unknown_file),
+    NoteDraft(Res.string.en_note_draft, Res.string.ru_note_draft),
+    AppName(Res.string.en_app_name, Res.string.ru_app_name),
+    AppSubtitle(Res.string.en_app_subtitle, Res.string.ru_app_subtitle),
+    Sandbox(Res.string.en_sandbox, Res.string.ru_sandbox),
+    Foundation(Res.string.en_foundation, Res.string.ru_foundation),
+    Components(Res.string.en_components, Res.string.ru_components),
+    Layouts(Res.string.en_layouts, Res.string.ru_layouts),
+    Chat(Res.string.en_chat, Res.string.ru_chat),
+    Workspace(Res.string.en_workspace, Res.string.ru_workspace),
+    LocalDemo(Res.string.en_local_demo, Res.string.ru_local_demo),
+    Theme(Res.string.en_theme, Res.string.ru_theme),
+    Light(Res.string.en_light, Res.string.ru_light),
+    Dark(Res.string.en_dark, Res.string.ru_dark),
+    System(Res.string.en_system, Res.string.ru_system),
+    Language(Res.string.en_language, Res.string.ru_language),
+    English(Res.string.en_english, Res.string.ru_english),
+    Russian(Res.string.en_russian, Res.string.ru_russian),
+    Platform(Res.string.en_platform, Res.string.ru_platform),
+    Material(Res.string.en_material, Res.string.ru_material),
+    Fluent(Res.string.en_fluent, Res.string.ru_fluent),
+    MacOs(Res.string.en_mac_os, Res.string.ru_mac_os),
+    MissionTitle(Res.string.en_mission_title, Res.string.ru_mission_title),
+    MissionDescription(Res.string.en_mission_description, Res.string.ru_mission_description),
+    Palette(Res.string.en_palette, Res.string.ru_palette),
+    PaletteDescription(Res.string.en_palette_description, Res.string.ru_palette_description),
+    Brand(Res.string.en_brand, Res.string.ru_brand),
+    Primary(Res.string.en_primary, Res.string.ru_primary),
+    Secondary(Res.string.en_secondary, Res.string.ru_secondary),
+    Success(Res.string.en_success, Res.string.ru_success),
+    Warning(Res.string.en_warning, Res.string.ru_warning),
+    Danger(Res.string.en_danger, Res.string.ru_danger),
+    Violet(Res.string.en_violet, Res.string.ru_violet),
+    Cyan(Res.string.en_cyan, Res.string.ru_cyan),
+    Typography(Res.string.en_typography, Res.string.ru_typography),
+    DisplaySample(Res.string.en_display_sample, Res.string.ru_display_sample),
+    TitleSample(Res.string.en_title_sample, Res.string.ru_title_sample),
+    BodySample(Res.string.en_body_sample, Res.string.ru_body_sample),
+    CaptionSample(Res.string.en_caption_sample, Res.string.ru_caption_sample),
+    Spacing(Res.string.en_spacing, Res.string.ru_spacing),
+    SpacingDescription(Res.string.en_spacing_description, Res.string.ru_spacing_description),
+    ComponentsTitle(Res.string.en_components_title, Res.string.ru_components_title),
+    ComponentsDescription(Res.string.en_components_description, Res.string.ru_components_description),
+    Actions(Res.string.en_actions, Res.string.ru_actions),
+    Create(Res.string.en_create, Res.string.ru_create),
+    SecondaryAction(Res.string.en_secondary_action, Res.string.ru_secondary_action),
+    QuietAction(Res.string.en_quiet_action, Res.string.ru_quiet_action),
+    Disabled(Res.string.en_disabled, Res.string.ru_disabled),
+    ActionFeedback(Res.string.en_action_feedback, Res.string.ru_action_feedback),
+    Inputs(Res.string.en_inputs, Res.string.ru_inputs),
+    InputPlaceholder(Res.string.en_input_placeholder, Res.string.ru_input_placeholder),
+    InputHint(Res.string.en_input_hint, Res.string.ru_input_hint),
+    Statuses(Res.string.en_statuses, Res.string.ru_statuses),
+    Neutral(Res.string.en_neutral, Res.string.ru_neutral),
+    Ready(Res.string.en_ready, Res.string.ru_ready),
+    Working(Res.string.en_working, Res.string.ru_working),
+    NeedsAttention(Res.string.en_needs_attention, Res.string.ru_needs_attention),
+    Failed(Res.string.en_failed, Res.string.ru_failed),
+    LayoutsTitle(Res.string.en_layouts_title, Res.string.ru_layouts_title),
+    LayoutsDescription(Res.string.en_layouts_description, Res.string.ru_layouts_description),
+    RowTitle(Res.string.en_row_title, Res.string.ru_row_title),
+    ColumnTitle(Res.string.en_column_title, Res.string.ru_column_title),
+    LazyTitle(Res.string.en_lazy_title, Res.string.ru_lazy_title),
+    LayoutItemOne(Res.string.en_layout_item_one, Res.string.ru_layout_item_one),
+    LayoutItemTwo(Res.string.en_layout_item_two, Res.string.ru_layout_item_two),
+    LayoutItemThree(Res.string.en_layout_item_three, Res.string.ru_layout_item_three),
+    ChatTitle(Res.string.en_chat_title, Res.string.ru_chat_title),
+    ChatDescription(Res.string.en_chat_description, Res.string.ru_chat_description),
+    Conversation(Res.string.en_conversation, Res.string.ru_conversation),
+    Agent(Res.string.en_agent, Res.string.ru_agent),
+    You(Res.string.en_you, Res.string.ru_you),
+    Tool(Res.string.en_tool, Res.string.ru_tool),
+    SystemAuthor(Res.string.en_system_author, Res.string.ru_system_author),
+    SeedPrompt(Res.string.en_seed_prompt, Res.string.ru_seed_prompt),
+    SeedReply(Res.string.en_seed_reply, Res.string.ru_seed_reply),
+    ToolResult(Res.string.en_tool_result, Res.string.ru_tool_result),
+    NoticeText(Res.string.en_notice_text, Res.string.ru_notice_text),
+    CodeLabel(Res.string.en_code_label, Res.string.ru_code_label),
+    CodeSample(Res.string.en_code_sample, Res.string.ru_code_sample),
+    StreamResponse(Res.string.en_stream_response, Res.string.ru_stream_response),
+    Send(Res.string.en_send, Res.string.ru_send),
+    Stop(Res.string.en_stop, Res.string.ru_stop),
+    Reset(Res.string.en_reset, Res.string.ru_reset),
+    ComposerPlaceholder(Res.string.en_composer_placeholder, Res.string.ru_composer_placeholder),
+    Streaming(Res.string.en_streaming, Res.string.ru_streaming),
+    JumpToLatest(Res.string.en_jump_to_latest, Res.string.ru_jump_to_latest),
+    MessageStyle(Res.string.en_message_style, Res.string.ru_message_style),
+    StyleDescription(Res.string.en_style_description, Res.string.ru_style_description),
+    Tone(Res.string.en_tone, Res.string.ru_tone),
+    Alignment(Res.string.en_alignment, Res.string.ru_alignment),
+    Start(Res.string.en_start, Res.string.ru_start),
+    Center(Res.string.en_center, Res.string.ru_center),
+    End(Res.string.en_end, Res.string.ru_end),
+    Width(Res.string.en_width, Res.string.ru_width),
+    Compact(Res.string.en_compact, Res.string.ru_compact),
+    Comfortable(Res.string.en_comfortable, Res.string.ru_comfortable),
+    Full(Res.string.en_full, Res.string.ru_full),
+    ChatHint(Res.string.en_chat_hint, Res.string.ru_chat_hint),
+    Footer(Res.string.en_footer, Res.string.ru_footer),
+    ToolkitNotice(Res.string.en_toolkit_notice, Res.string.ru_toolkit_notice),
+    SoftUi(Res.string.en_soft_ui, Res.string.ru_soft_ui),
+    NativeUi(Res.string.en_native_ui, Res.string.ru_native_ui),
+    BrandSymbol(Res.string.en_brand_symbol, Res.string.ru_brand_symbol),
+    FoundationSymbol(Res.string.en_foundation_symbol, Res.string.ru_foundation_symbol),
+    ComponentsSymbol(Res.string.en_components_symbol, Res.string.ru_components_symbol),
+    LayoutsSymbol(Res.string.en_layouts_symbol, Res.string.ru_layouts_symbol),
+    ChatSymbol(Res.string.en_chat_symbol, Res.string.ru_chat_symbol),
+    ;
+
+    internal fun resource(locale: HbLocale): StringResource = when (locale) {
+        HbLocale.English -> english
+        HbLocale.Russian -> russian
+    }
+}
+
+/** Resolves a resource in the current [HbResources] language. */
+@Composable
+public fun hbString(key: HbString): String = stringResource(key.resource(LocalHbLocale.current))
