@@ -48,6 +48,11 @@ kotlin {
             implementation(libs.compose.uiTooling)
         }
         commonMain.dependencies {
+            api(projects.platformMain.root)
+            api(projects.core.logging)
+            implementation(projects.designSystem.theme)
+            implementation(projects.designSystem.components)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)

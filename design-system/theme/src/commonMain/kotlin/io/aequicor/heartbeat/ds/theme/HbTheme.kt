@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.ds.tokens.HbShadows
 import io.aequicor.heartbeat.ds.tokens.HbShapes
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
 import io.aequicor.heartbeat.ds.tokens.HbTypography
+import io.aequicor.heartbeat.ds.tokens.HbWelcome
 
 private val LocalHbColors = staticCompositionLocalOf { HbColors.Light }
 private val LocalHbGradients = staticCompositionLocalOf { HbGradients.Light }
@@ -41,6 +42,8 @@ enum class HbVisualStyle {
 
 /** Pastel token access shared by components and layouts, independent of native UI kits. */
 object HbTheme {
+    val welcome: HbWelcome = HbWelcome()
+
     val colors: HbColors
         @Composable
         @ReadOnlyComposable

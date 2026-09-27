@@ -34,6 +34,8 @@ data class HbElevation(val none: Dp = 0.dp, val low: Dp = 1.dp, val medium: Dp =
 data class HbDimensions(
     val touchTarget: Dp = 48.dp,
     val controlHeight: Dp = 32.dp,
+    val switchWidth: Dp = 36.dp,
+    val switchHeight: Dp = 20.dp,
     val contentMaxWidth: Dp = 1200.dp,
     val chatMessageMaxWidth: Dp = 720.dp,
     val sidebarWidth: Dp = 192.dp,

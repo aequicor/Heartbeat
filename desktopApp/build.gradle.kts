@@ -9,6 +9,7 @@ plugins {
 
 dependencies {
     implementation(project(":shared"))
+    implementation(projects.designSystem.tokens)
 
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)

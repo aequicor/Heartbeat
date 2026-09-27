@@ -1,58 +1,29 @@
 package io.aequicor
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.safeContentPadding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import heartbeat.shared.generated.resources.Res
-import heartbeat.shared.generated.resources.compose_multiplatform
-import org.jetbrains.compose.resources.painterResource
+import com.arkivanov.decompose.ComponentContext
+import io.aequicor.heartbeat.ds.components.HbCinematicBackdrop
+import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute
+import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
+import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
+import io.aequicor.heartbeat.platform.dibundle.root.RootStart
+import io.aequicor.heartbeat.platform.root.RootContent
 
-/** Root composable of the application, shared by all platform entry points. */
+/** Creates the root once outside composition, using the platform lifecycle. */
+fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRoot = HeartbeatRoot(
+    context,
+    graph,
+    RootStart(guest = listOf(WelcomeRoute), profile = listOf(WelcomeRoute)),
+)
+
+/** Shared rendering; the welcome feature owns its light cinematic theme. */
 @Composable
-fun App(modifier: Modifier = Modifier) {
-    MaterialTheme {
-        var isContentShown by remember { mutableStateOf(false) }
-        Column(
-            modifier = modifier
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .safeContentPadding()
-                .fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Button(onClick = { isContentShown = !isContentShown }) {
-                Text("Click me!")
-            }
-            AnimatedVisibility(isContentShown) {
-                val greeting = remember { Greeting().greet() }
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Image(painterResource(Res.drawable.compose_multiplatform), null)
-                    Text("Compose: $greeting")
-                }
-            }
-        }
+fun App(root: HeartbeatRoot, modifier: Modifier = Modifier) {
+    HbTheme {
+        RootContent(root, modifier, loading = {
+            HbTheme(darkTheme = false) { HbCinematicBackdrop({ 0f }) }
+        })
     }
-}
-
-@Preview
-@Composable
-private fun AppPreview() {
-    App()
 }

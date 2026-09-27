@@ -3,16 +3,18 @@ import SwiftUI
 import Shared
 
 struct ComposeView: UIViewControllerRepresentable {
+    let host: IosHeartbeatHost
     func makeUIViewController(context: Self.Context) -> UIViewController {
-        MainViewControllerKt.MainViewController()
+        host.viewController()
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Self.Context) {}
 }
 
 struct ContentView: View {
+    let host: IosHeartbeatHost
     var body: some View {
-        ComposeView()
+        ComposeView(host: host)
             .ignoresSafeArea()
     }
 }

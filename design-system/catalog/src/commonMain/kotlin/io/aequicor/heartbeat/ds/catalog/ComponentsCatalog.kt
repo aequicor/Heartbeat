@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifier) {
     HbLazyColumn(modifier = modifier) {
         item { CatalogHeading(HbString.ComponentsTitle, HbString.ComponentsDescription) }
+        item { CinematicExample() }
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
         item {
             HbCard(modifier = Modifier.fillMaxWidth()) {

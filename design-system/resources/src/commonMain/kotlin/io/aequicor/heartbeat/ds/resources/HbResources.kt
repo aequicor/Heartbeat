@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.en_cinematic_welcome
 import io.aequicor.heartbeat.ds.resources.generated.en_code_label
 import io.aequicor.heartbeat.ds.resources.generated.en_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_collapse_tool
@@ -125,6 +126,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_platform
 import io.aequicor.heartbeat.ds.resources.generated.en_primary
 import io.aequicor.heartbeat.ds.resources.generated.en_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.en_ready
+import io.aequicor.heartbeat.ds.resources.generated.en_replay_intro
 import io.aequicor.heartbeat.ds.resources.generated.en_reset
 import io.aequicor.heartbeat.ds.resources.generated.en_row_title
 import io.aequicor.heartbeat.ds.resources.generated.en_russian
@@ -185,6 +187,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_cinematic_welcome
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_label
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_collapse_tool
@@ -287,6 +290,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_platform
 import io.aequicor.heartbeat.ds.resources.generated.ru_primary
 import io.aequicor.heartbeat.ds.resources.generated.ru_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_ready
+import io.aequicor.heartbeat.ds.resources.generated.ru_replay_intro
 import io.aequicor.heartbeat.ds.resources.generated.ru_reset
 import io.aequicor.heartbeat.ds.resources.generated.ru_row_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_russian
@@ -344,6 +348,8 @@ public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
 
 /** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
 public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
+    CinematicWelcome(Res.string.en_cinematic_welcome, Res.string.ru_cinematic_welcome),
+    ReplayIntro(Res.string.en_replay_intro, Res.string.ru_replay_intro),
     Illustrations(Res.string.en_illustrations, Res.string.ru_illustrations),
     IllustrationsDescription(Res.string.en_illustrations_description, Res.string.ru_illustrations_description),
     SearchIcons(Res.string.en_search_icons, Res.string.ru_search_icons),

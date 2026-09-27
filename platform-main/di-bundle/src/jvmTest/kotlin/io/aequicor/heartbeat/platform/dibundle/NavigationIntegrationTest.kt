@@ -65,7 +65,7 @@ class NavigationIntegrationTest {
 // ---- guest feature (AppScope) ----
 
 @Serializable
-@SerialName("welcome")
+@SerialName("test.welcome")
 data object WelcomeRoute : Route
 
 class PlainComponent : NavComponent

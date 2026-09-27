@@ -162,4 +162,6 @@
     <string name="ru_illustration_upload">Добавьте файлы</string>
     <string name="ru_illustration_upload_hint">Место для импорта документов и вложений.</string>
     <string name="ru_matching_icons">Найдено иконок</string>
+    <string name="ru_cinematic_welcome">Кинематографичное приветствие</string>
+    <string name="ru_replay_intro">Повторить вступление</string>
 </resources>

@@ -10,12 +10,17 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.core.common)
+            api(projects.features.welcome.api)
+            implementation(projects.features.welcome.impl)
+            implementation(projects.features.aiStudio.impl)
+            implementation(projects.features.togglesPanel.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
             api(projects.core.datastore.api)
             api(projects.core.stateMachine.api)
             implementation(projects.core.logging)
+            implementation(projects.core.mvi)
             implementation(projects.core.network.api)
             implementation(projects.core.featureToggles.api)
             implementation(projects.core.di.impl)
@@ -27,6 +32,8 @@ kotlin {
             implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
+            implementation(projects.features.aiStudio.api)
+            implementation(projects.features.togglesPanel.api)
             implementation(projects.core.di.ext)
             implementation(libs.kotlinx.serialization.json)
         }
