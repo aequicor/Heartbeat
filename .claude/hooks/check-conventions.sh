@@ -90,7 +90,14 @@ $hits"
 $hits"
   fi
 
-  # 6. core:*:impl is wired only by platform-main:di-bundle; inside core/<x>/impl only its own impl package is allowed
+  # 6. FeatureToggleControl (changing toggles) — only the toggle panel, platform-main and core:feature-toggles (ADR-0007)
+  if [[ "$rel" != features/toggles-panel/* && "$rel" != platform-main/* && "$rel" != core/feature-toggles/* ]]; then
+    hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.featuretoggles\.FeatureToggleControl')"
+    [ -n "$hits" ] && add "FeatureToggleControl — только для панели тоглов (features/toggles-panel) и platform-main. Фичи читают тоглы через FeatureToggles. См. docs/adr/0007-feature-toggles.md
+$hits"
+  fi
+
+  # 7. core:*:impl is wired only by platform-main:di-bundle; inside core/<x>/impl only its own impl package is allowed
   if [[ "$rel" != platform-main/di-bundle/* ]]; then
     own='^$'
     [[ "$rel" =~ ^core/([^/]+)/impl/ ]] && own="core\\.${BASH_REMATCH[1]//-/}\\.impl\\."

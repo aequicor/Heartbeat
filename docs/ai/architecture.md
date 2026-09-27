@@ -31,10 +31,10 @@
 | `platform-main:root` | `di-bundle` (`HeartbeatRoot`), `core:navigation:compose` — Compose-корень `RootContent` | любой `impl` напрямую |
 | `platform-main:android/desktop/shared` | `di-bundle`, `root`, `design-system:*`, `core:*` (api) | любой `impl` напрямую |
 | `features:X:impl` | `features:X:api`, `features:*:api`, `core:*`, `design-system:*` | `features:*:impl` |
-| `features:X:api` | `core:state-machine:api`, `core:navigation:api`, `core:common`, `core:feature-toggles` (api) | Compose UI, `design-system`, любой `impl`, `core:datastore/network/ai`, KStateMachine, FlowMVI |
+| `features:X:api` | `core:state-machine:api`, `core:navigation:api`, `core:common`, `core:feature-toggles:api` | Compose UI, `design-system`, любой `impl`, `core:datastore/network/ai`, KStateMachine, FlowMVI |
 | `design-system:*` | `core:resources`, `core:logging`, `core:common`, UI-киты | `features:*`, остальной `core` |
 | `core:X` | `core:logging`, `core:common`, другие `core` без циклов | `features:*`, `design-system:*`, любой `impl` |
-| `core:X:impl` (`di`, `profile-facade`, `state-machine`, `network`, `datastore`) | свой `api`, другие `core` (api) | — ; от него зависит только `di-bundle` |
+| `core:X:impl` (`di`, `profile-facade`, `state-machine`, `network`, `datastore`, `feature-toggles`) | свой `api`, другие `core` (api) | — ; от него зависит только `di-bundle` |
 | `core:logging` | Napier | всё прочее в проекте |
 
 `api`-модули экспортируют (`api(...)`) только то, что входит в их публичный контракт; всё остальное — `implementation`.
@@ -74,7 +74,8 @@ Gradle-пути: `:core:network:api`, `:features:chat:api`, `:features:chat:impl
 | `core:network:api` | `HttpClient` (тип Ktor) для API-классов фич, `NetworkConfig`, `NetworkException`, `networkResult { }` ([ADR-0005](../adr/0005-network.md)) | Ktor 3 (core) |
 | `core:network:impl` | клиент приложения: engine per-platform (OkHttp / Darwin), JSON, таймауты, ретраи идемпотентных запросов, логи `NET` | Ktor 3 |
 | `core:ai` | провайдеры LLM, `PromptExecutor`, реестр инструментов, агенты, ключи из безопасного хранилища | Koog |
-| `core:feature-toggles` | `FeatureToggle<T>`, `FeatureToggles` (Flow), хранение в DataStore, реестр | DataStore |
+| `core:feature-toggles:api` | `FeatureToggle<T>` (`Flag` / `Choice`), `FeatureToggles` (чтение, Flow), `FeatureToggleControl` (единая точка управления: состояния, переопределения, сброс), `ToggleSource` ([ADR-0007](../adr/0007-feature-toggles.md)) | coroutines |
+| `core:feature-toggles:impl` | реестр из мультибиндинга `Set<FeatureToggle<*>>`, локальные переопределения в app-KV `core_feature_toggles`, логи `FT` | `core:datastore` |
 
 ## DI и скоупы
 

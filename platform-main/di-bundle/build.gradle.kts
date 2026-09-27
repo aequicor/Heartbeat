@@ -17,12 +17,14 @@ kotlin {
             api(projects.core.stateMachine.api)
             implementation(projects.core.logging)
             implementation(projects.core.network.api)
+            implementation(projects.core.featureToggles.api)
             implementation(projects.core.di.impl)
             implementation(projects.core.profileFacade.impl)
             implementation(projects.core.navigation.impl)
             implementation(projects.core.network.impl)
             implementation(projects.core.datastore.impl)
             implementation(projects.core.stateMachine.impl)
+            implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
             implementation(projects.core.di.ext)

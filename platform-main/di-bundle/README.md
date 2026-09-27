@@ -49,6 +49,7 @@ graph.profileSessions.restore()
 | shared-объект | живёт, пока его держит хоть один компонент; повторный `close` аренды безопасен; упавшая фабрика не оставляет скоуп |
 | выход и смена профиля из корутины профиля | запись в хранилище выполняется до конца, промежуточного `null` нет |
 | `NetworkIntegrationTest` | один `HttpClient` на процесс (engine платформы из `jvmMain`), закрывается вместе с app-скоупом |
+| `FeatureTogglesIntegrationTest` | тогл, внесённый `@IntoSet`, виден в `FeatureToggleControl.registered`; переопределение хранится в app-KV `core_feature_toggles` и читается через `FeatureToggles`; переживает смену профиля |
 | `DataStoreIntegrationTest` | `@ForScope(AppScope)` / `@ForScope(ProfileScope)` `DataStores` — разные владельцы; хранилища профиля закрываются при смене и возвращаются с теми же данными; app-событие чистит записи всех владельцев; `wipeProfile` только для неактивного профиля; закрытие app-скоупа закрывает хранилища |
 
 iOS-тесты (`iosSimulatorArm64Test`) требуют установленного Xcode. Компиляция под iOS работает и без него.
