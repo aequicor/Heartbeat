@@ -43,7 +43,7 @@ git status --porcelain
 Для изменённых `build.gradle.kts` фич убедись в отсутствии `impl → impl`:
 
 ```bash
-grep -rnE 'projects\.features\.[A-Za-z0-9]+\.impl' features/*/impl/build.gradle.kts
+find features -path '*/impl/build.gradle.kts' -exec grep -nE 'projects\.features\.[A-Za-z0-9.]+\.impl' {} +
 ```
 
 ## 5. Политика коммитов

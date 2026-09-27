@@ -1,6 +1,6 @@
 ---
 paths:
-  - "features/*/impl/**"
+  - "features/**/impl/**"
 ---
 
 # Модуль `features/<name>/impl`
