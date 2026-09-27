@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
@@ -16,7 +18,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.isActive
 import kotlin.test.assertIs
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -67,6 +71,13 @@ internal class TestClaudeToggles : FeatureToggles {
     // Same as get: the only observed toggle is the Boolean ClaudeEngine.Enabled flag.
     @Suppress("UNCHECKED_CAST")
     override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(enabled as T)
+}
+
+internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
+    override val name = "profile"
+    override val savedState: ScopeSavedState get() = error("Profile scope state is not persisted")
+    override val isClosed get() = !coroutineScope.isActive
+    override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
 }
 
 internal class ClaudeFixture(val scope: CoroutineScope) {
