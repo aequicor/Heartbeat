@@ -1,4 +1,4 @@
-package io.aequicor
+package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
