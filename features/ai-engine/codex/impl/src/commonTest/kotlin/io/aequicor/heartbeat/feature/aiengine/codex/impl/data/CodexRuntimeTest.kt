@@ -97,6 +97,102 @@ class CodexRuntimeTest {
         val failure = assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
         assertEquals("auth.SourceChanged", failure.failure.code)
         assertFalse(fixture.wire.written.any { it.text("method") == "turn/start" })
+        assertTrue(fixture.runtime.isClosed)
+    }
+
+    @Test
+    fun `plan change keeps the runtime bound to the same login`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        fixture.account = json(
+            "type" to "chatgpt".json(),
+            "email" to "local@example.invalid".json(),
+            "planType" to "pro".json(),
+        )
+        session.feature(SendsPrompts).send(Prompt)
+        assertFalse(fixture.runtime.isClosed)
+    }
+
+    @Test
+    fun `thread start uses app-server v2 approval and sandbox spellings`() = runTest {
+        val fixture = Fixture(this)
+        fixture.open()
+        val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+        assertEquals("untrusted", params.text("approvalPolicy"))
+        assertEquals("read-only", params.text("sandbox"))
+    }
+
+    @Test
+    fun `rejected turn start returns the session to ready for the next prompt`() = runTest {
+        val fixture = Fixture(this)
+        val accept = fixture.onTurn
+        fixture.onTurn = { fixture.wire.error(it) }
+        val session = fixture.open()
+        val failure = assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid), failure.failure)
+        runCurrent()
+        assertIs<TurnOutcome.Failed>(assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        fixture.onTurn = accept
+        session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("retry")))
+        assertIs<ActiveSessionState.Running>(session.state.value)
+    }
+
+    @Test
+    fun `unknown submission outcome is reconciled from the native thread`() = runTest {
+        val fixture = Fixture(this)
+        fixture.onTurn = { }
+        val session = fixture.open()
+        val failure = assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, Prompt.id), failure.failure)
+        runCurrent()
+        assertTrue(fixture.wire.written.any { it.text("method") == "thread/read" })
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `rejected interrupt keeps waiting for native completion`() = runTest {
+        val fixture = Fixture(this)
+        val base = fixture.wire.handler
+        fixture.wire.handler = { if (it.text("method") == "turn/interrupt") fixture.wire.error(it) else base(it) }
+        val session = fixture.open()
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        session.feature(CancelsTurns).cancel(turn)
+        runCurrent()
+        assertIs<ActiveSessionState.Interrupting>(session.state.value)
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `approval the machine cannot surface is declined`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        session.feature(CancelsTurns).cancel(turn)
+        runCurrent()
+        fixture.event(
+            "item/commandExecution/requestApproval",
+            "turnId" to "native-turn".json(),
+            id = JsonPrimitive(7),
+        )
+        runCurrent()
+        assertIs<ActiveSessionState.Interrupting>(session.state.value)
+        val reply = fixture.wire.written.single { it["id"] == JsonPrimitive(7) }
+        assertEquals("decline", reply.obj("result").text("decision"))
+    }
+
+    @Test
+    fun `server request for an unopened thread is rejected instead of buffered`() = runTest {
+        val fixture = Fixture(this)
+        fixture.open()
+        fixture.wire.event(
+            "item/commandExecution/requestApproval",
+            json("threadId" to "other".json()),
+            JsonPrimitive(9),
+        )
+        runCurrent()
+        assertTrue(fixture.wire.written.any { it["id"] == JsonPrimitive(9) && it["error"] != null })
     }
 
     @Test

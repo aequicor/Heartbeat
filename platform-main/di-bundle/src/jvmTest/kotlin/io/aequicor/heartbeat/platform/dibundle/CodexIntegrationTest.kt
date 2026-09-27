@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -54,6 +55,11 @@ class CodexIntegrationTest {
             )
         }
         assertEquals(EngineFailure.Access(AccessFailureReason.OperationNotAllowed), error.failure)
+        // The installation probe would start the CLI; the disabled toggle must answer first.
+        assertEquals(
+            EngineAvailability.Unavailable(EngineFailure.Access(AccessFailureReason.OperationNotAllowed)),
+            registration.factory.value.checkRequirements(),
+        )
     }
 }
 

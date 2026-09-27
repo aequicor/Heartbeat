@@ -40,6 +40,12 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
     private var runtime: CodexRuntime? = null
 
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.main) {
+        // The probe starts a CLI process, so a disabled integration must never reach it.
+        if (!toggles.get(CodexEngine.Enabled)) {
+            return@withContext EngineAvailability.Unavailable(
+                EngineFailure.Access(AccessFailureReason.OperationNotAllowed),
+            )
+        }
         lock.withLock {
             if (runtime?.isClosed == false) EngineAvailability.Available else transport.available()
         }

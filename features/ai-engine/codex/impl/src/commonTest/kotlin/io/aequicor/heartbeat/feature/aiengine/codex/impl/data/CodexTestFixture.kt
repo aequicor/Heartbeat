@@ -47,6 +47,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 internal class FakeWire : CodexWire {
     val incoming = Channel<JsonObject>(Channel.UNLIMITED)
@@ -65,6 +66,11 @@ internal class FakeWire : CodexWire {
             json("id" to checkNotNull(request["id"]), "result" to result),
         )
     }
+    suspend fun error(request: JsonObject) {
+        incoming.send(
+            json("id" to checkNotNull(request["id"]), "error" to json("code" to JsonPrimitive(INVALID_PARAMS))),
+        )
+    }
     suspend fun event(method: String, params: JsonObject, id: JsonElement? = null) {
         incoming.send(
             JsonObject(
@@ -76,6 +82,10 @@ internal class FakeWire : CodexWire {
     override fun close() {
         closed = true
         incoming.close()
+    }
+
+    private companion object {
+        const val INVALID_PARAMS = -32602
     }
 }
 
@@ -124,6 +134,11 @@ internal class Fixture(val test: TestScope) {
                 "account/read" -> wire.reply(message, json("account" to account))
 
                 "thread/start", "thread/resume" -> wire.reply(
+                    message,
+                    json("thread" to json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
+                )
+
+                "thread/read" -> wire.reply(
                     message,
                     json("thread" to json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
                 )

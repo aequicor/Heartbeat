@@ -64,6 +64,9 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
     }
 
     suspend fun reject(id: JsonElement) {
+        // A failed connection has no one left to answer.
+        if (failure != null) return
+        log.i { "Codex rejected server request" }
         wire.write(
             json(
                 "id" to id,

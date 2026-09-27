@@ -51,7 +51,7 @@ internal class CodexSession(
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
-    private val permissions = mutableMapOf<PermissionRequestId, JsonElement>()
+    private val permissions = mutableMapOf<PermissionRequestId, Pair<JsonElement, PermissionRequest>>()
     private val finished = mutableSetOf<TurnId>()
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(Uuid.random().toString()), ActiveSessionState.Ready()),
@@ -83,7 +83,10 @@ internal class CodexSession(
             submissions[turn.id] = accepted
             nativeTurn = null
             val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
-            if (result != SendResult.Accepted) fail(EngineFailure.Session(SessionFailureReason.Busy))
+            if (result != SendResult.Accepted) {
+                submissions.remove(turn.id)
+                fail(EngineFailure.Session(SessionFailureReason.Busy))
+            }
             return accepted.await()
         } finally {
             submitLock.unlock()
@@ -119,14 +122,42 @@ internal class CodexSession(
             throw e
         } catch (e: EngineException) {
             log.w(e) { "Codex operation failed" }
-            val failure = if (effect is ActiveSessionEffect.Submit && e.failure !is EngineFailure.Request) {
-                EngineFailure.Request(RequestFailureReason.OutcomeUnknown, effect.request.id)
-            } else {
-                e.failure
-            }
-            val id = effect.turnId()
-            if (id != null) submissions.remove(id)?.completeExceptionally(EngineException(failure))
-            machine.send(ActiveSessionIntent.Internal.Failed(id, failure))
+            recover(effect, e.failure)
+        }
+    }
+
+    private suspend fun recover(effect: ActiveSessionEffect, error: EngineFailure) {
+        // A rejected interrupt never proves the turn stopped; its native completion still arrives.
+        if (effect is ActiveSessionEffect.Cancel && error is EngineFailure.Request) return
+        // A JSON-RPC error on turn/start proves no native turn exists; anything else leaves acceptance unknown.
+        val isRejected = effect is ActiveSessionEffect.Submit && error is EngineFailure.Request
+        val failure = if (effect is ActiveSessionEffect.Submit && !isRejected) {
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, effect.request.id)
+        } else {
+            error
+        }
+        val id = effect.turnId()
+        if (id != null) submissions.remove(id)?.completeExceptionally(EngineException(failure))
+        machine.send(ActiveSessionIntent.Internal.Failed(id, failure))
+        val state = machine.state.value as? ActiveSessionState.Unavailable ?: return
+        if (isRejected && id != null && state.activeTurn?.id == id) {
+            finished += id
+            machine.send(
+                ActiveSessionIntent.Internal.Synchronized(
+                    active = null,
+                    completed = ActiveSessionIntent.Internal.Finished(id, TurnOutcome.Failed(failure)),
+                ),
+            )
+        } else if (effect !is ActiveSessionEffect.Recheck) {
+            recheck()
+        }
+    }
+
+    /** Starts native reconciliation of an Unavailable session; a failed probe keeps it Unavailable. */
+    suspend fun recheck() {
+        if (!runtime.isClosed && machine.state.value is ActiveSessionState.Unavailable) {
+            log.i { "Codex session recheck requested" }
+            machine.send(ActiveSessionIntent.Public.Recheck)
         }
     }
 
@@ -148,11 +179,11 @@ internal class CodexSession(
             )
 
             is ActiveSessionEffect.Decide -> {
-                val id = permissions[effect.decision.request] ?: protocolFailure()
+                val id = permissions[effect.decision.request]?.first ?: protocolFailure()
                 rpc.respond(id, json("decision" to effect.decision.option.value.json()))
             }
 
-            is ActiveSessionEffect.Recheck -> unsupported()
+            is ActiveSessionEffect.Recheck -> recheck(effect.turn)
 
             ActiveSessionEffect.Release -> machine.send(ActiveSessionIntent.Internal.Released)
         }
@@ -170,6 +201,41 @@ internal class CodexSession(
         nativeTurns[id] = effect.turn.id
         if (currentTurn()?.id == effect.turn.id) nativeTurn = id
         accept(effect.turn)
+    }
+
+    /** Reads the native thread; only an idle thread or our own in-progress turn leaves Unavailable. */
+    private suspend fun recheck(turn: TurnId?) {
+        val thread = rpc.request(
+            "thread/read",
+            json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
+        ).obj("thread")
+        val turns = (thread["turns"] as? JsonArray).orEmpty().map { it as? JsonObject ?: protocolFailure() }
+        val native = turn?.let { id -> nativeTurns.entries.firstOrNull { it.value == id }?.key }
+        val remembered = turns.firstOrNull { native != null && it.text("id") == native }
+        val active = (machine.state.value as? ActiveSessionState.Unavailable)?.activeTurn
+        log.i { "Codex session rechecked" }
+        when {
+            remembered?.text("status") == IN_PROGRESS && active != null -> machine.send(
+                ActiveSessionIntent.Internal.Synchronized(
+                    active,
+                    permissions.values.map { it.second }
+                        .filter { it.turn == active.id && it.id !in active.resolvedPermissions },
+                ),
+            )
+
+            turns.any { it.text("status") == IN_PROGRESS } -> fail(EngineFailure.Session(SessionFailureReason.Busy))
+
+            else -> {
+                val completed = remembered?.let {
+                    ActiveSessionIntent.Internal.Finished(checkNotNull(turn), outcome(it))
+                }
+                if (turn != null) finished += turn
+                nativeTurn = null
+                permissions.clear()
+                machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
+                completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
+            }
+        }
     }
 
     private suspend fun accept(turn: Turn) {
@@ -223,12 +289,7 @@ internal class CodexSession(
 
     private suspend fun complete(id: TurnId, native: JsonObject) {
         if (!finished.add(id)) return
-        val outcome = when (native.text("status")) {
-            "completed" -> TurnOutcome.Completed
-            "interrupted" -> TurnOutcome.Cancelled
-            "failed" -> TurnOutcome.Failed(EngineFailure.Unknown())
-            else -> TurnOutcome.Unknown
-        }
+        val outcome = outcome(native)
         currentTurn()?.takeIf { it.id == id }?.let { accept(it) }
         machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))
         history.publish { SessionEvent.TurnFinished(it, id, outcome) }
@@ -263,9 +324,15 @@ internal class CodexSession(
             params.text("command") ?: params.text("reason") ?: "Codex file change",
             options,
         )
-        permissions[requestId] = id
+        permissions[requestId] = id to request
         accept(turn)
-        machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request))
+        if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
+            // Interrupting or Unavailable cannot surface the request; an unanswered one blocks the native turn.
+            permissions.remove(requestId)
+            log.i { "Codex approval declined outside an awaiting state" }
+            rpc.respond(id, json("decision" to "decline".json()))
+            return
+        }
         history.publish { SessionEvent.PermissionRequested(it, request) }
     }
 
@@ -321,5 +388,16 @@ internal class CodexSession(
         is ActiveSessionState.Interrupting -> state.turn
         is ActiveSessionState.Unavailable -> state.activeTurn
         is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+    }
+
+    private fun outcome(native: JsonObject): TurnOutcome = when (native.text("status")) {
+        "completed" -> TurnOutcome.Completed
+        "interrupted" -> TurnOutcome.Cancelled
+        "failed" -> TurnOutcome.Failed(EngineFailure.Unknown())
+        else -> TurnOutcome.Unknown
+    }
+
+    private companion object {
+        const val IN_PROGRESS = "inProgress"
     }
 }

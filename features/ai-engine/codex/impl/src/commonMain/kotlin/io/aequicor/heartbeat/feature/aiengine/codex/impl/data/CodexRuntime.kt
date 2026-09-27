@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,8 +56,9 @@ internal class CodexRuntime(
     })
     private val sessions = mutableMapOf<String, CodexSession>()
     private val early = mutableListOf<JsonObject>()
+    private var isOpening = false
     private val commands = Mutex()
-    private var account: JsonObject? = null
+    private var account: List<String?>? = null
     var isClosed = false
         private set
     private var cleanup: DisposableHandle? = null
@@ -93,11 +95,17 @@ internal class CodexRuntime(
                 EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch, identity.source)),
             )
         }
+        // Only identifying fields: plan and other volatile attributes must not retire the runtime.
+        val login = listOf(current.text("type"), current.text("email"))
         val previous = account
-        if (previous != null && previous != current) {
-            fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged, identity.source)))
+        if (previous != null && previous != login) {
+            val failure = EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged, identity.source))
+            log.i { "Codex login changed; retiring runtime" }
+            // A retired runtime lets the factory start a fresh one bound to the new login.
+            shutdown(failure)
+            fail(failure)
         }
-        account = current
+        account = login
     }
 
     suspend fun gate() {
@@ -155,9 +163,15 @@ internal class CodexRuntime(
                     if (existing.route != route || existing.target != target) {
                         fail(EngineFailure.Session(SessionFailureReason.Changed))
                     }
-                    existing.lease()
+                    existing.lease().also { existing.recheck() }
                 } else {
-                    openNative(nativeId, target, route)
+                    isOpening = true
+                    try {
+                        openNative(nativeId, target, route)
+                    } finally {
+                        isOpening = false
+                        withContext(NonCancellable) { dropEarly() }
+                    }
                 }
             }
         }
@@ -178,8 +192,13 @@ internal class CodexRuntime(
             this,
             rpc,
         )
+        try {
+            session.load(turns)
+        } catch (e: EngineException) {
+            session.shutdown(e.failure)
+            throw e
+        }
         sessions[id] = session
-        session.load(turns)
         val queued = early.filter { it.obj("params").text("threadId") == id }
         early.removeAll(queued.toSet())
         queued.forEach { session.event(it) }
@@ -201,15 +220,19 @@ internal class CodexRuntime(
         return buildJsonObject {
             put("model", target.model.value)
             put("modelProvider", "openai")
-            put("approvalPolicy", "unlessTrusted")
-            put("sandbox", "readOnly")
+            put("approvalPolicy", APPROVAL_POLICY)
+            put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
             if (nativeId != null) put("threadId", nativeId)
         }
     }
 
     private suspend fun event(message: JsonObject) {
-        val params = message["params"] as? JsonObject ?: return
+        val params = message["params"] as? JsonObject
+        if (params == null) {
+            message["id"]?.let { rpc.reject(it) }
+            return
+        }
         if (message.text("method") == "account/updated") {
             // The next operation revalidates account/read; an active turn remains observable.
             log.i { "Codex account observation changed" }
@@ -218,12 +241,20 @@ internal class CodexRuntime(
         val session = sessions[id]
         if (session != null) {
             session.event(message)
-        } else if (id != null) {
+        } else if (id != null && isOpening) {
             if (early.size >= EARLY_LIMIT) protocolFailure()
             early += message
         } else if (message["id"] != null) {
             rpc.reject(checkNotNull(message["id"]))
         }
+    }
+
+    /** Events of threads nobody is opening are never replayed; unanswered server requests would block Codex. */
+    private suspend fun dropEarly() {
+        val dropped = early.toList()
+        early.clear()
+        if (dropped.isNotEmpty()) log.w { "Codex dropped ${dropped.size} events of unopened threads" }
+        dropped.mapNotNull { it["id"] }.forEach { rpc.reject(it) }
     }
 
     private fun shutdown(failure: EngineFailure) {
@@ -249,5 +280,9 @@ internal class CodexRuntime(
 
     private companion object {
         const val EARLY_LIMIT = 512
+
+        // app-server v2 wire spellings (AskForApproval, SandboxMode), not the Rust variant names.
+        const val APPROVAL_POLICY = "untrusted"
+        const val SANDBOX_MODE = "read-only"
     }
 }
