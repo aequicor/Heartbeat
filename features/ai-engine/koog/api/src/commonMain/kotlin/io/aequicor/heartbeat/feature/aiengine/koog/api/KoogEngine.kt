@@ -52,10 +52,15 @@ public interface KoogConnections {
      *
      * @throws IllegalArgumentException when [koogProvider] rejects the source or its metadata changed under the
      *   same revision.
+     * @throws IllegalStateException when the stored routes are unreadable; they are left untouched.
      */
     public suspend fun put(connection: KoogConnection)
 
-    /** Removes a binding without deleting credentials. New turns on its existing handles are rejected. */
+    /**
+     * Removes a binding without deleting credentials. New turns on its existing handles are rejected.
+     *
+     * @throws IllegalStateException when the stored routes are unreadable; they are left untouched.
+     */
     public suspend fun remove(binding: EngineBindingId)
 }
 

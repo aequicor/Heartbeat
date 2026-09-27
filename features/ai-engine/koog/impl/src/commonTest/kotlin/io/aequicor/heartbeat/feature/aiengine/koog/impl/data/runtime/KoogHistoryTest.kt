@@ -14,12 +14,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogHistoryTest {
     @Test
     fun checkpointReplaysChangesIndependentlyForEachCollector() = runTest {
@@ -77,6 +81,18 @@ class KoogHistoryTest {
         assertEquals(0, loads)
         cache.history(records[1].summary.ref) { records[1].also { loads++ } }
         assertEquals(1, loads)
+    }
+
+    @Test
+    fun `observed transcript is not evicted`() = runTest {
+        val cache = KoogSessionCache(FakeProfile(backgroundScope))
+        val records = (0..9).map { record(it.toString()) }
+        val watched = cache.get(records[0]).history
+        val collector = backgroundScope.launch { watched.watch(watched.page().checkpoint).collect {} }
+        runCurrent()
+        records.drop(1).forEach { cache.get(it) }
+        assertSame(watched, cache.history(records[0].summary.ref) { error("Observed transcript was evicted") })
+        collector.cancel()
     }
 
     private fun record(id: String) = KoogRecord(

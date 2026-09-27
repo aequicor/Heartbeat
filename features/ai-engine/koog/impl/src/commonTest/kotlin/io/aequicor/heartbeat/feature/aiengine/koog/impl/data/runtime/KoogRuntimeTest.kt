@@ -252,6 +252,41 @@ class KoogRuntimeTest {
     }
 
     @Test
+    fun `closing the last lease while a prompt is being accepted keeps the native session`() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        val saving = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        f.records.beforeSave = {
+            saving.complete(Unit)
+            release.await()
+        }
+        val caller = async { session.features.require(SendsPrompts).send(f.request()) }
+        saving.await()
+        session.close()
+        f.records.beforeSave = {}
+        release.complete(Unit)
+        caller.await()
+        val resumed = f.runtime().attach(session.ref, ResumeSessionRequest(f.target))
+        assertIs<ActiveSessionState.Running>(resumed.state.value)
+        f.executor.complete()
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(resumed.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `acceptance that became durable after the runtime closed reports an unknown outcome`() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        val runtime = f.runtime()
+        f.records.beforeSave = { runtime.dispose() }
+        val request = f.request()
+        val error = assertFailsWith<EngineException> { session.features.require(SendsPrompts).send(request) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id), error.failure)
+        assertEquals(request.id, f.records.get(session.ref)?.lastTurn?.request)
+    }
+
+    @Test
     fun completedTextBlocksAreCombinedWithoutDuplicatingDeltas() = runTest {
         val f = KoogTestFixture(this)
         val session = f.session()

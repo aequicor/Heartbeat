@@ -83,6 +83,17 @@ class KoogStorageTest {
     }
 
     @Test
+    fun `fields unknown to this version survive writes of other elements`() = runTest {
+        records.save(record("one"))
+        val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
+        store.values.value = mapOf("sessions" to store.raw("sessions").replaceFirst("{", """{"future":1,"""))
+
+        assertEquals(listOf("one"), records.list().map { it.summary.ref.nativeId })
+        records.save(record("two"))
+        assertContains(store.raw("sessions"), """"future":1""")
+    }
+
+    @Test
     fun `corrupt value is never overwritten`() = runTest {
         val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
         store.values.value = mapOf("sessions" to "not json")

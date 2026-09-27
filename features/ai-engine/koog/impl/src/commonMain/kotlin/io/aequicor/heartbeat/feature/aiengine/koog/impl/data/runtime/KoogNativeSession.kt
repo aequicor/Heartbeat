@@ -102,7 +102,8 @@ internal class KoogNativeSession(
                             accepted.complete(koogResult { submit(request, state) })
                         }.invokeOnCompletion { cause ->
                             // The profile's cancellation may follow a durable acceptance: the caller learns an
-                            // ambiguous outcome instead of a cancellation that is not its own.
+                            // ambiguous outcome instead of a cancellation that is not its own. This is conservative
+                            // when the cancellation came before the checkpoint started.
                             if (cause != null && accepted.complete(Result.failure(unknownOutcome(request)))) {
                                 log.w { "Profile closed while accepting a prompt" }
                             }
@@ -139,7 +140,14 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun submit(request: PromptRequest, lease: Lease): TurnId = mutex.withLock {
+    private suspend fun submit(request: PromptRequest, lease: Lease): TurnId = try {
+        mutex.withLock { accept(request, lease) }
+    } finally {
+        // A lease closed while this call held the lock left the session in place; release it now if idle.
+        releaseIfIdle()
+    }
+
+    private suspend fun accept(request: PromptRequest, lease: Lease): TurnId {
         // Re-checked under the lock: the lease may have been released while this call waited for it.
         checkLease(lease)
         if (current !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
@@ -158,14 +166,12 @@ internal class KoogNativeSession(
             request.parts.toList(),
         )
         // The local runtime is the native authority: acceptance occurs only after its durable checkpoint.
+        var isSaved = false
         try {
             records.save(record.copy(items = history.items + user, lastTurn = turn))
-        } catch (e: CancellationException) {
-            client.close()
-            throw e
-        } catch (e: Exception) {
-            client.close()
-            throw e
+            isSaved = true
+        } finally {
+            if (!isSaved) client.close()
         }
         if (isClosed) {
             // Durable acceptance already exists and is recovered as Unknown, so a plain refusal would be false.
@@ -180,7 +186,7 @@ internal class KoogNativeSession(
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider.textModel(model.value))
         }
-        turn.id
+        return turn.id
     }
 
     private suspend fun runTurn(turn: Turn, client: KoogClient, model: LLModel) {
@@ -293,7 +299,8 @@ internal class KoogNativeSession(
     }
 
     private fun releaseIfIdle() {
-        if (handles.isEmpty() && current is ActiveSessionState.Ready) onIdle(this)
+        // A locked mutex means a submission may still become durable, so the session is not idle yet.
+        if (handles.isEmpty() && current is ActiveSessionState.Ready && !mutex.isLocked) onIdle(this)
     }
 
     private suspend fun interrupt(turn: TurnId) {

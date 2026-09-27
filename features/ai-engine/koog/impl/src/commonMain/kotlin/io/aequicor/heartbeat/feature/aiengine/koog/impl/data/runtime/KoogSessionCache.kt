@@ -54,9 +54,15 @@ internal class KoogSessionCache(
         return KoogSessionSnapshot(summary, history)
     }
 
-    /** Cached transcript of [ref], reloaded through [load] after eviction. */
-    suspend fun history(ref: SessionRef, load: suspend () -> KoogRecord): KoogHistory =
-        histories[ref] ?: get(load()).history
+    /**
+     * Cached transcript of [ref], marked as recently used; reloaded through [load] after eviction, which starts a
+     * new generation: earlier page cursors expire and earlier checkpoints invalidate.
+     */
+    suspend fun history(ref: SessionRef, load: suspend () -> KoogRecord): KoogHistory {
+        val cached = histories.remove(ref) ?: return get(load()).history
+        histories[ref] = cached
+        return cached
+    }
 
     fun pin(ref: SessionRef) {
         pins[ref] = (pins[ref] ?: 0) + 1

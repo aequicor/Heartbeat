@@ -13,7 +13,8 @@ private val StoredJson = Json { ignoreUnknownKeys = true }
 
 /**
  * JSON array kept as raw text, so one element this version cannot read never erases its neighbours.
- * Unreadable elements are logged, skipped by [items] and written back unchanged by [update].
+ * Unreadable elements are logged, skipped by [items] and written back unchanged after the readable ones by [update];
+ * readable elements that [update] leaves unchanged keep their stored JSON, including fields this version ignores.
  * A value that is not a JSON array at all is reported as absent by [items] and never overwritten by [update].
  * Callers serialize [update] themselves.
  */
@@ -26,17 +27,19 @@ internal class StoredJsonList<T : Any>(
     private val key = stringKey(name)
 
     /** Readable elements in stored order. */
-    suspend fun items(): List<T> = read()?.items.orEmpty()
+    suspend fun items(): List<T> = read()?.items?.keys?.toList().orEmpty()
 
     /** Replaces the readable elements; throws [IllegalStateException] instead of overwriting an unreadable value. */
     suspend fun update(transform: (List<T>) -> List<T>) {
         val current = checkNotNull(read()) { "Stored ${store.spec} value is unreadable; refusing to overwrite it" }
-        val next = transform(current.items).map { StoredJson.encodeToJsonElement(serializer, it) }
-        store.set(key, StoredJson.encodeToString(JsonArray.serializer(), JsonArray(current.unreadable + next)))
+        val next = transform(current.items.keys.toList()).map {
+            current.items[it] ?: StoredJson.encodeToJsonElement(serializer, it)
+        }
+        store.set(key, StoredJson.encodeToString(JsonArray.serializer(), JsonArray(next + current.unreadable)))
     }
 
     private suspend fun read(): Contents<T>? {
-        val raw = store.get(key) ?: return Contents(emptyList(), emptyList())
+        val raw = store.get(key) ?: return Contents(emptyMap(), emptyList())
         val elements = try {
             StoredJson.parseToJsonElement(raw) as? JsonArray
         } catch (e: SerializationException) {
@@ -46,11 +49,12 @@ internal class StoredJsonList<T : Any>(
             log.w { "Stored ${store.spec} value is not a JSON array" }
             return null
         }
-        val items = mutableListOf<T>()
+        // Keyed by value to write unchanged elements back as stored; equal duplicates collapse into one.
+        val items = linkedMapOf<T, JsonElement>()
         val unreadable = mutableListOf<JsonElement>()
         elements.forEach { element ->
             try {
-                items += StoredJson.decodeFromJsonElement(serializer, element)
+                items[StoredJson.decodeFromJsonElement(serializer, element)] = element
             } catch (e: SerializationException) {
                 log.w(e.withoutStoredValue()) { "Skipping unreadable ${store.spec} element" }
                 unreadable += element
@@ -62,7 +66,7 @@ internal class StoredJsonList<T : Any>(
         return Contents(items, unreadable)
     }
 
-    private data class Contents<T>(val items: List<T>, val unreadable: List<JsonElement>)
+    private data class Contents<T>(val items: Map<T, JsonElement>, val unreadable: List<JsonElement>)
 }
 
 /** Decoder messages can quote the stored value, which may hold transcripts. */
