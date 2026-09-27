@@ -16,20 +16,7 @@ dependencies {
     implementation(libs.compose.uiToolingPreview)
 }
 
-val piOs = providers.systemProperty("os.name").map {
-    when {
-        it.startsWith("Windows") -> "windows"
-        it.startsWith("Mac") -> "darwin"
-        else -> "linux"
-    }
-}
-val piArch = providers.systemProperty("os.arch").map {
-    when (it.lowercase()) {
-        "aarch64", "arm64" -> "arm64"
-        "amd64", "x86_64" -> "x64"
-        else -> error("Unsupported Pi architecture: $it")
-    }
-}
+// SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
 val piChecksums = mapOf(
     "windows-x64" to "aab2ba67baf8ff97a52d05b62d88e9e65a840c6ea8fa1029a28d62d210d4e5fc",
     "windows-arm64" to "2e0d544999a765018ee5c2ff1a8b1a7e0f5d5b6b1e00b32d8c025d6c1dbcc833",
@@ -38,13 +25,34 @@ val piChecksums = mapOf(
     "linux-x64" to "80d78dd62d50049a006b981d994c61255bcc10e730b0c278d4ea0a755909764c",
     "linux-arm64" to "364b4a9f8491450b27a4857d4e3c780dbaf696790821c176a873e860cbbc3b89",
 )
-val piTarget = piOs.zip(piArch) { os, arch -> "$os-$arch" }
-val preparePiRuntime by tasks.registering(PreparePiRuntime::class) {
-    version.set(libs.versions.pi)
-    val target = piTarget.get()
-    asset.set("pi-$target." + if (target.startsWith("windows")) "zip" else "tar.gz")
-    sha256.set(piChecksums.getValue(target))
-    outputDirectory.set(layout.buildDirectory.dir("generated/piResources"))
+val piOsName = providers.systemProperty("os.name").get()
+val piArchName = providers.systemProperty("os.arch").get()
+val piOs = when {
+    piOsName.startsWith("Windows") -> "windows"
+    piOsName.startsWith("Mac") -> "darwin"
+    piOsName.startsWith("Linux") -> "linux"
+    else -> null
+}
+val piArch = when (piArchName.lowercase()) {
+    "aarch64", "arm64" -> "arm64"
+    "amd64", "x86_64" -> "x64"
+    else -> null
+}
+val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
+if (piTarget == null) {
+    logger.warn("Pi runtime is not available for $piOsName/$piArchName; the desktop app is built without it")
+}
+val preparePiRuntime = piTarget?.let { target ->
+    tasks.register<PreparePiRuntime>("preparePiRuntime") {
+        version.set(libs.versions.pi)
+        asset.set("pi-$target." + if (piOs == "windows") "zip" else "tar.gz")
+        sha256.set(piChecksums.getValue(target))
+        baseUrl.set("https://github.com/earendil-works/pi/releases/download")
+        offline.set(gradle.startParameter.isOffline)
+        fallbackLicense.set(layout.projectDirectory.file("pi/LICENSE"))
+        cacheDirectory.set(gradle.gradleUserHomeDir.resolve("caches/heartbeat/pi"))
+        outputDirectory.set(layout.buildDirectory.dir("generated/piResources"))
+    }
 }
 
 compose.desktop {
@@ -54,11 +62,7 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "io.aequicor"
             packageVersion = "1.0.0"
-            appResourcesRootDir.set(preparePiRuntime.flatMap { it.outputDirectory })
+            preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
         }
     }
-}
-
-tasks.matching { it.name == "prepareAppResources" }.configureEach {
-    dependsOn(preparePiRuntime)
 }

@@ -1,5 +1,5 @@
 [versions]
-pi = "0.87.1"
+pi = "0.87.1" # SHA-256 of release assets: platform-main/desktop/build.gradle.kts (piChecksums)
 jna = "5.19.1"
 agp = "9.1.1"
 android-compileSdk = "37"
