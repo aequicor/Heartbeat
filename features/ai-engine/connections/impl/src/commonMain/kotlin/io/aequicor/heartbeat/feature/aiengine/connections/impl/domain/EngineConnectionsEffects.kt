@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionsSnapshot
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEffect
@@ -24,6 +25,7 @@ import kotlinx.coroutines.withContext
 class EngineConnectionsEffects(private val services: EngineServices, private val selections: ModelSelections) :
     EffectHandler<EngineConnectionsEffect, EngineConnectionsIntent> {
     private val log = Log.tag("EngineConnectionsEffects")
+    private val disconnectedSources = mutableMapOf<EngineBindingId, AuthSourceId>()
 
     override suspend fun handle(effect: EngineConnectionsEffect, machine: EffectScope<EngineConnectionsIntent>) {
         when (effect) {
@@ -97,22 +99,26 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
     }
 
     /**
-     * Removes the binding, then the source once no other binding uses it, then the model choice. The source goes
-     * before the choice, so a failed choice update never strands a key; a retry skips a binding already removed.
+     * Removes the binding, then the source once no other binding uses it, then the model choice. The source of a
+     * removed binding is remembered until it is forgotten, so a retry after a partial failure still removes it
+     * and never strands a key. Changes run one at a time, so the map needs no synchronization.
      */
     private suspend fun disconnect(binding: EngineBindingId) {
         val bindings = services.facade.bindings
         val source = bindings.state.value.firstOrNull { it.id == binding }?.authSource
-        if (source == null) {
-            log.w { "disconnect: binding already removed, clearing its model choice only" }
-        } else {
+            ?.also { disconnectedSources[binding] = it }
+        if (source != null) {
             log.i { "disconnect binding" }
             bindings.disconnect(binding)
-            if (bindings.state.value.none { it.id != binding && it.authSource == source }) {
-                log.i { "forget unused source" }
-                services.sources.forget(source)
-            }
+        } else {
+            log.w { "disconnect: binding already removed, finishing its cleanup" }
         }
+        val removed = disconnectedSources[binding]
+        if (removed != null && bindings.state.value.none { it.id != binding && it.authSource == removed }) {
+            log.i { "forget unused source" }
+            services.sources.forget(removed)
+        }
+        disconnectedSources -= binding
         selections.update { it.without(binding) }
     }
 }

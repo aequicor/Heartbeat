@@ -52,7 +52,7 @@ public sealed interface ConnectWizardState : MachineState {
 
     /**
      * Step 1. [engines] is null until the catalog is observed; [preselected] skips the step if it is connectable
-     * in the first observed catalog and is dropped afterwards, so a later catalog never pulls the user away.
+     * in the first non-empty catalog and is dropped afterwards, so a later catalog never pulls the user away.
      */
     public data class ChoosingEngine(
         val engines: List<EngineInfo>? = null,

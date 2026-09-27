@@ -138,7 +138,7 @@ public object EngineConnectionsMachineKey :
  * | Active | Snapshot | | stay (load failure cleared) | |
  * | Active | Apply | observed, nothing pending | stay (pending) | Execute |
  * | Active | Applied / ApplyFailed | | stay | |
- * | Active | RetryFailed | nothing pending, has failure | stay (pending) | Execute |
+ * | Active | RetryFailed | observed, nothing pending, has failure | stay (pending) | Execute |
  * | Active | DismissError | | stay | |
  * | Active | ObserveFailed | | stay (snapshot dropped, load failure) | |
  * | Active | RetryLoad | has load failure | stay | Observe |
@@ -167,7 +167,9 @@ public val EngineConnectionsMachineSpec:
             on<EngineConnectionsIntent.Internal.ApplyFailed> {
                 stay { state.copy(pending = null, failed = state.pending?.let { FailedOperation(it, intent.failure) }) }
             }
-            on<EngineConnectionsIntent.Public.RetryFailed>(guard = { state.pending == null && state.failed != null }) {
+            on<EngineConnectionsIntent.Public.RetryFailed>(
+                guard = { state.pending == null && state.failed != null && state.snapshot != null },
+            ) {
                 stay { state.copy(pending = state.failed?.operation, failed = null) }
                 effect { state.failed?.operation?.let(EngineConnectionsEffect::Execute) }
             }

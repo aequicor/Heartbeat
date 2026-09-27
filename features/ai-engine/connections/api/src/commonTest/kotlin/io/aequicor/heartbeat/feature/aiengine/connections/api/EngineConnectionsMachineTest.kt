@@ -72,5 +72,9 @@ class EngineConnectionsMachineTest {
             Active(failed = FailedOperation(disconnect, failure), loadFailure = failure),
         )
         spec.assertTransition(broken, Internal.Applied, Active(loadFailure = failure))
+        spec.assertIgnored(
+            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure),
+            Public.RetryFailed,
+        )
     }
 }

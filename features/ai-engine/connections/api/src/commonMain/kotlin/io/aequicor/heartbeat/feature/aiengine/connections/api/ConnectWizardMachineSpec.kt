@@ -28,7 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
  * |---|---|---|---|---|
  * | Idle | Start | | ChoosingEngine | ObserveEngines |
  * | ChoosingEngine | EnginesChanged | preselected engine connectable | ChoosingMethod | |
- * | ChoosingEngine | EnginesChanged | otherwise | stay (preselection dropped) | |
+ * | ChoosingEngine | EnginesChanged | otherwise | stay (preselection dropped unless the catalog is empty) | |
  * | ChoosingEngine | EnginesFailed | | stay (failure) | |
  * | ChoosingEngine | Retry | has failure | ChoosingEngine (re-entry) | ObserveEngines |
  * | ChoosingEngine | ChooseEngine | engine connectable | ChoosingMethod | |
@@ -68,7 +68,11 @@ public val ConnectWizardMachineSpec:
                 goto<ChoosingMethod> { ChoosingMethod(requireNotNull(state.preselectedIn(intent.engines))) }
             }
             on<Internal.EnginesChanged>(guard = { state.preselectedIn(intent.engines) == null }) {
-                stay { state.copy(engines = intent.engines, preselected = null, failure = null) }
+                stay {
+                    // An empty catalog is still loading; the preselection waits for the first real one.
+                    val preselected = state.preselected.takeIf { intent.engines.isEmpty() }
+                    state.copy(engines = intent.engines, preselected = preselected, failure = null)
+                }
             }
             on<Internal.EnginesFailed> { stay { state.copy(failure = intent.failure) } }
             on<Public.Retry>(guard = { state.failure != null }) {

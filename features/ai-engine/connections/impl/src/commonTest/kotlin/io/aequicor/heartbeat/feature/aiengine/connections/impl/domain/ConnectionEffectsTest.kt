@@ -196,6 +196,21 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `a disconnect retried after a failed forget still forgets the source`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val binding = facade.bindingsState.value.single().id
+        sources.forgetFailure = IllegalStateException("vault locked")
+        val disconnect = EngineConnectionsEffect.Execute(ConnectionOperation.Disconnect(binding))
+        assertFailsWith<IllegalStateException> { settings.handle(disconnect, settingsScope) }
+        assertTrue(facade.bindingsState.value.isEmpty())
+        sources.forgetFailure = null
+        settings.handle(disconnect, settingsScope)
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        assertTrue(sources.state.value.isEmpty())
+    }
+
+    @Test
     fun `model operations update the selection`() = runTest {
         val target = modelInfo(EngineBindingId("binding-1"), "gpt-a").target
         settings.handle(EngineConnectionsEffect.Execute(ConnectionOperation.SetDefaultModel(target)), settingsScope)

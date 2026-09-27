@@ -157,7 +157,10 @@ internal class FakeAuthSources : AuthSources {
         return source
     }
 
+    var forgetFailure: Exception? = null
+
     override suspend fun forget(source: AuthSourceId) {
+        forgetFailure?.let { throw it }
         forgotten += source
         state.update { all -> all.filterNot { it.info.id == source } }
     }

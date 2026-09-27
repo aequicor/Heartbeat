@@ -60,6 +60,17 @@ class ConnectWizardMachineTest {
     }
 
     @Test
+    fun `an empty catalog keeps the preselection until the real one arrives`() {
+        val waiting = ChoosingEngine(emptyList(), preselected = koog.descriptor.id)
+        spec.assertTransition(
+            ChoosingEngine(preselected = koog.descriptor.id),
+            Internal.EnginesChanged(emptyList()),
+            waiting,
+        )
+        spec.assertTransition(waiting, Internal.EnginesChanged(engines), ChoosingMethod(koog))
+    }
+
+    @Test
     fun `a preselection that was not connectable is dropped`() {
         spec.assertTransition(
             ChoosingEngine(engines),
