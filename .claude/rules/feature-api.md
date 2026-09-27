@@ -1,6 +1,6 @@
 ---
 paths:
-  - "features/*/api/**"
+  - "features/**/api/**"
 ---
 
 # Модуль `features/<name>/api` — контракт фичи
