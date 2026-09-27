@@ -16,7 +16,7 @@ public fun interface LogSink {
 
 /**
  * Project-wide logging facade over Napier — the only allowed logging entry point
- * (see docs/ai/logging-policy.md). Messages are lambdas: they are not built when the level is disabled,
+ * Messages are lambdas: they are not built when the level is disabled,
  * and every message passes through the secret redactor. The throwable is passed as is — never put secrets
  * into exception messages.
  *

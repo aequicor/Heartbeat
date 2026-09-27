@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 
 /**
  * Requests to the network and reads/writes of storage go through repositories and data sources;
- * each of their public operations logs its entry with key parameters (`log.d`) — see logging-policy.md.
+ * each of their public operations logs its entry with key parameters (`log.d`).
  *
  * Applies to non-private functions with a body in classes whose name matches `classNamePattern`
  * (default: `*Repository`, `*DataSource`, `*Storage`, `*Api`, `*Client`, optionally with `Impl`).

@@ -1,4 +1,4 @@
-// childPanels is experimental in Decompose 3.5 — accepted in ADR-0003
+// childPanels is experimental in Decompose 3.5 — accepted deliberately
 @file:OptIn(ExperimentalDecomposeApi::class)
 
 package io.aequicor.heartbeat.core.navigation

@@ -1,7 +1,6 @@
 # core:datastore:impl
 
 Реализация [core:datastore:api](../api/README.md). **Подключается только в `:platform-main:di-bundle`.**
-Решение — [ADR-0006](../../../docs/adr/0006-datastore.md).
 
 | Класс | Роль |
 |---|---|

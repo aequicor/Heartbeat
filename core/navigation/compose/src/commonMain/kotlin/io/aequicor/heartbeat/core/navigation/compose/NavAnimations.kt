@@ -1,4 +1,4 @@
-// experimental Compose stack animations of Decompose 3.5 (shared elements, predictive back) — ADR-0003
+// experimental Compose stack animations of Decompose 3.5 (shared elements, predictive back) — accepted deliberately
 @file:OptIn(ExperimentalDecomposeApi::class)
 
 package io.aequicor.heartbeat.core.navigation.compose

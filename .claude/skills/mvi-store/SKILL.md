@@ -7,7 +7,7 @@ description: "Создание FlowMVI-стора экрана в impl-моду�
 
 Роли: **машина** (`api`) — бизнес-флоу; **стор** (`impl/store`) — состояние экрана: **отражает** состояние машины
 (+ локальный ввод) в UI-state, превращает intent'ы экрана в интенты машины, отдаёт одноразовые Action'ы (тосты,
-навигация), в том числе из outputs машины. Связка — `core:state-machine:flowmvi-ext` ([ADR-0004](../../../docs/adr/0004-state-machine.md)).
+навигация), в том числе из outputs машины. Связка — `core:state-machine:flowmvi-ext`.
 
 ## Контракт (`store/<Screen>Contract.kt`)
 
@@ -126,7 +126,7 @@ internal fun ChatScreen(component: ChatScreenComponent, modifier: Modifier = Mod
 private fun ChatScreenContent(state: ChatScreenState, onIntent: (ChatScreenIntent) -> Unit, modifier: Modifier = Modifier) { /* Hb*-компоненты */ }
 ```
 
-Артефакты: `pro.respawn.flowmvi:core`, `:compose`, `:essenty`, `:essenty-compose`, тесты — `:test` (версия в [tech-stack.md](../../../docs/ai/tech-stack.md)).
+Артефакты: `pro.respawn.flowmvi:core`, `:compose`, `:essenty`, `:essenty-compose`, тесты — `:test` (версия в `gradle/libs.versions.toml`).
 
 ## Тест
 

@@ -9,7 +9,6 @@ description: "Внедрение зависимостей в Heartbeat на Metr
 
 ## Скоупы
 
-Решение и мотивация — [ADR-0002](../../../docs/adr/0002-di-scopes.md).
 
 ```
 AppScope (Metro)     HeartbeatGraph   :platform-main:di-bundle

@@ -28,7 +28,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
 
-/** Start routes of the two navigation trees; each must be registered in its tree (ADR-0003). */
+/** Start routes of the two navigation trees; each must be registered in its tree. */
 data class RootStart(
     /** Before sign-in: app routes only. */
     val guest: List<Route>,

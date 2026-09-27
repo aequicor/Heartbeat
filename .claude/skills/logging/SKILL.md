@@ -5,7 +5,7 @@ description: "Логирование в Heartbeat через core:logging (Napie
 
 # Логирование
 
-Политика (что/где/каким уровнем) — [docs/ai/logging-policy.md](../../../docs/ai/logging-policy.md). Здесь — реализация.
+Политика (что логировать) — правило 6 в `CLAUDE.md`. Здесь — реализация.
 
 ## Фасад `core:logging`
 
@@ -64,7 +64,7 @@ object NapierStoreLogger : StoreLogger {
 
 // State-machine — адаптер не нужен: рантайм core:state-machine:impl сам пишет в SM/<name> интенты, переходы,
 // stay, отклонения, эффекты (старт/завершение/отмена/ошибка), outputs, старт/стоп; движок KStateMachine — в V.
-// Стор ← машина — core:state-machine:flowmvi-ext (MVI/<store>). См. docs/adr/0004-state-machine.md.
+// Стор ← машина — core:state-machine:flowmvi-ext (MVI/<store>).
 
 // Ktor — см. скилл network; Koog — см. скилл ai-koog; Decompose — core:navigation; DataStore/Room — скилл data-storage.
 ```

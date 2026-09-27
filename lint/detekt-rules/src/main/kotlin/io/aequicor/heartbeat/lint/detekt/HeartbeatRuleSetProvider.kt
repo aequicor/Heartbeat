@@ -5,7 +5,7 @@ import dev.detekt.api.RuleSetId
 import dev.detekt.api.RuleSetProvider
 
 /**
- * Heartbeat rule set `heartbeat`: logging policy (docs/ai/logging-policy.md) and error handling —
+ * Heartbeat rule set `heartbeat`: logging policy and error handling —
  * every action, state change, network/storage access and configuration change is logged,
  * no error is ignored (except `CancellationException`, which is rethrown).
  */

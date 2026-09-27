@@ -35,7 +35,7 @@ git status --porcelain
 - Автоисправимое (ktlint-wrapper): `./gradlew detekt --auto-correct`, затем повтори проверку.
 - Правила с type resolution (в т.ч. `SuspendFunSwallowedCancellation`): `./gradlew :<module>:detektMainJvm` (KMP) / `:<module>:detektMain` (JVM).
 - Правки в `lint/detekt-rules`: `./gradlew :lint:detekt-rules:test`, затем `./gradlew --stop` перед `detekt` (кэш classloader-а правил в демоне).
-- Находки набора `heartbeat` (логирование/ошибки) чини по [logging-policy.md](../../../docs/ai/logging-policy.md#автоматическая-проверка-detekt), не подавляй.
+- Находки набора `heartbeat` (логирование/ошибки) чини по сообщению правила, не подавляй.
 - Остальное чини вручную. Baseline не пополняй без явного согласия пользователя.
 
 ## 4. Граф зависимостей
@@ -59,7 +59,6 @@ python scripts/check_commit_size.py --base <base-ref> --head HEAD
 
 Предел — **25 000 токенов полного diff на коммит**. Свыше 20 000 токенов или 20 файлов —
 предупреждение; 700–1000 изменённых строк — ориентир, а не блокер. Общего лимита размера PR нет.
-Методика и ограничения — [commit-policy.md](../../../docs/ai/commit-policy.md).
 Не подменяй подсчёт токенов оценкой по строкам и не считай отсутствие зависимости успешной проверкой.
 
 Для изменений только Python-инструмента, workflow и документации Gradle-проверки не нужны;

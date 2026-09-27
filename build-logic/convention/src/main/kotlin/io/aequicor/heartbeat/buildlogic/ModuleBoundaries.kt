@@ -20,8 +20,8 @@ private const val KGP_SWIFTPM_CONFIGURATION_PREFIX = "swiftPMDependencies"
  * Module boundaries, checked on the Gradle configuration (fails it). Applied from `heartbeat.detekt`, which every
  * module uses (app modules included):
  * - `…:impl` modules — of features and of `core` — are wired into the app only through [BUNDLE_PROJECT]; nobody
- *   else may depend on them (docs/adr/0002-di-scopes.md);
- * - `…:api` modules stay free of FlowMVI: no dependency on [MACHINE_STORE_EXT] (docs/adr/0004-state-machine.md).
+ *   else may depend on them;
+ * - `…:api` modules stay free of FlowMVI: no dependency on [MACHINE_STORE_EXT].
  */
 internal fun Project.checkImplDependencies() {
     if (path == BUNDLE_PROJECT) return

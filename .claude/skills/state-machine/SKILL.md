@@ -5,8 +5,7 @@ description: "Создание и изменение state-machine фичи Hear
 
 # State-machine фичи
 
-Контракт, модель state / intent / effect / output и полный пример — [docs/ai/feature-contract.md](../../../docs/ai/feature-contract.md),
-решение — [ADR-0004](../../../docs/adr/0004-state-machine.md). Прочитай перед началом.
+Контракт и модель state / intent / effect / output — KDoc `core:state-machine:api`. Прочитай перед началом.
 
 Модули: `core:state-machine:api` (контракт + DSL + чистая семантика), `core:state-machine:impl` (рантайм на
 KStateMachine — фичи его **не видят**), `core:state-machine:flowmvi-ext` (стор ↔ машина). Пакет
@@ -29,7 +28,7 @@ KStateMachine — фичи его **не видят**), `core:state-machine:flow
    смерть процесса: состояния, ждущие эффекта, перезапускают его или откатываются (эффекты смерть не переживают).
 7. **Тесты** в `api/src/commonTest` (ниже).
 8. **impl**: `EffectHandler<Effect, Intent>` с `@ContributesBinding(<Feature>Scope::class)` + `@Provides @SingleIn(<Feature>Scope::class)`
-   машины через `MachineLauncher.launch(spec, scope, effects)` (пример — feature-contract.md, «Что в impl»).
+   машины через `MachineLauncher.launch(spec, scope, effects)`.
    Машина создаётся лениво — инжектируй её в корневой компонент фичи, чтобы она стартовала с открытием фичи.
 9. **Диаграмма**: `<Name>MachineSpec.toMermaid()` → в KDoc/PR.
 

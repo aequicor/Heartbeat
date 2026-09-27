@@ -1,7 +1,6 @@
 # core:feature-toggles:impl
 
 Реализация [core:feature-toggles:api](../api/README.md). **Подключается только в `:platform-main:di-bundle`.**
-Решение — [ADR-0007](../../../docs/adr/0007-feature-toggles.md).
 
 | Класс | Роль |
 |---|---|

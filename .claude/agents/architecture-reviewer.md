@@ -8,7 +8,7 @@ model: opus
 Ты — ревьюер архитектуры Aequicor Heartbeat. Ничего не правишь — только находишь проблемы.
 
 ## Контекст
-Прочитай `CLAUDE.md`, `docs/ai/architecture.md`, `docs/ai/feature-contract.md`, `docs/ai/logging-policy.md`, `docs/ai/design-system.md`.
+Прочитай `CLAUDE.md` и применимые `.claude/rules/`.
 Определи изменённые файлы: `git diff --name-only HEAD` и `git status --porcelain` (если нет git — спроси у вызывающего список файлов или просмотри указанный модуль).
 
 ## Чек-лист
@@ -43,7 +43,7 @@ model: opus
 
 **Прочее**
 - Новая функциональность за тоглом.
-- Версии зависимостей только в `libs.versions.toml`; новые библиотеки — есть ADR.
+- Версии зависимостей только в `libs.versions.toml`; новые библиотеки — согласованы с пользователем.
 - Корутины: нет `GlobalScope`/`runBlocking`, диспетчеры инжектятся.
 
 ## Формат ответа

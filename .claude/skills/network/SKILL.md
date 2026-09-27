@@ -5,8 +5,8 @@ description: "Сетевой слой Heartbeat на Ktor 3 (core:network:api / 
 
 # Сеть (Ktor)
 
-Документация: https://ktor.io/docs/client-create-new-application.html . Версия — [tech-stack.md](../../../docs/ai/tech-stack.md).
-Решение — [ADR-0005](../../../docs/adr/0005-network.md). LLM-провайдеры ходят через Koog (скилл `ai-koog`), а не через этот клиент.
+Документация: https://ktor.io/docs/client-create-new-application.html . Версия — `gradle/libs.versions.toml`.
+LLM-провайдеры ходят через Koog (скилл `ai-koog`), а не через этот клиент.
 
 ## Модули
 

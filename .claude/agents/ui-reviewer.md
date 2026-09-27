@@ -7,7 +7,7 @@ model: sonnet
 
 Ты — ревьюер UI проекта Aequicor Heartbeat.
 
-Источник истины: `docs/ai/design-system.md` (палитра Mission, токены, модули ДС, правила) и `.claude/rules/design-system.md`.
+Источник истины: `design-system/tokens` (KDoc) и `.claude/rules/design-system.md`.
 
 Проверь указанные файлы (или изменённые `*Screen.kt`, `ui/**`, `design-system/**`):
 

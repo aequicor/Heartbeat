@@ -5,7 +5,7 @@ description: "Хранение данных в Heartbeat — core:datastore (api
 
 # Данные: `core:datastore`
 
-Решение — [ADR-0006](../../../docs/adr/0006-datastore.md). Версии — [tech-stack.md](../../../docs/ai/tech-stack.md).
+Версии — `gradle/libs.versions.toml`.
 Room KMP: https://developer.android.com/kotlin/multiplatform/room, DataStore KMP: https://developer.android.com/kotlin/multiplatform/datastore
 
 ## Модель
@@ -162,6 +162,6 @@ internal class ChatRepositoryImpl(
 ## Защищённые данные
 
 API-ключи, токены и персональные поля хранить через профильный `SecretStore` из `core:secrets:api`
-([контракт](../../../core/secrets/api/README.md), [ADR-0016](../../../docs/adr/0016-profile-secrets.md)).
+([контракт](../../../core/secrets/api/README.md)).
 `StorageMaintenance.wipeProfile` вызывает app-scoped `ProfileStorageCleaner` contributions до удаления обычных файлов;
 ошибка участника прерывает wipe. Секреты переживают переключение профиля, удаляются только явным wipe.

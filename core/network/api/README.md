@@ -1,6 +1,6 @@
 # core:network:api
 
-Контракт сети для API-классов фич. Реализация — [core:network:impl](../impl/README.md), решение — [ADR-0005](../../../docs/adr/0005-network.md).
+Контракт сети для API-классов фич. Реализация — [core:network:impl](../impl/README.md).
 От модуля зависят `features:*:impl` и другие `core`; `features:*:api` — нет.
 
 | Тип | Назначение |
