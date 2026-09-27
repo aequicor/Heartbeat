@@ -79,6 +79,23 @@ class AiStudioUiTest {
         }
 
     @Test
+    fun `engine connections are offered in the rail only when enabled`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        var opened = 0
+        var isEnabled by mutableStateOf(false)
+        setContent {
+            val open: () -> Unit = { opened++ }
+            val exits = StudioExits(onBack = {}, onOpenToggles = {}, open.takeIf { isEnabled })
+            HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, exits) }
+        }
+        onNodeWithTag("rail-connections").assertDoesNotExist()
+        isEnabled = true
+        onNodeWithTag("rail-connections").performClick()
+        runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test
     fun `new session page offers the project tray and the composer controls`() =
         runSkikoComposeUiTest(size = Size(1280f, 900f)) {
             val state = workspace.copy(panes = persistentListOf(PaneUi(0, projectId = "p-heartbeat")))

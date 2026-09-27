@@ -15,7 +15,11 @@ import kotlin.time.Duration
 
 /** Navigation leaving the studio, provided by its component. */
 @Immutable
-internal class StudioExits(val onBack: () -> Unit, val onOpenToggles: () -> Unit)
+internal class StudioExits(
+    val onBack: () -> Unit,
+    val onOpenToggles: () -> Unit,
+    val onOpenConnections: (() -> Unit)? = null,
+)
 
 /** What a pane may offer in the current window layout. */
 @Immutable

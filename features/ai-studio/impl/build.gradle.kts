@@ -9,6 +9,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
+            implementation(projects.features.aiEngine.connections.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)
             implementation(projects.core.stateMachine.flowmviExt)

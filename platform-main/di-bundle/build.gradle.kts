@@ -14,6 +14,7 @@ kotlin {
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.aiEngine.connections.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
@@ -36,6 +37,7 @@ kotlin {
         jvmTest.dependencies {
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
+            implementation(projects.features.aiEngine.connections.api)
             implementation(projects.core.di.ext)
             implementation(libs.kotlinx.serialization.json)
         }

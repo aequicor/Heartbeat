@@ -2,6 +2,7 @@
     <string name="studio_title">AI studio</string>
     <string name="studio_empty">The studio is getting ready</string>
     <string name="studio_description">Your space for working with AI will be here.</string>
+    <string name="studio_connections">Engine connections</string>
     <string name="studio_back">Back to welcome</string>
     <string name="studio_loading">Preparing the workspace</string>
     <string name="studio_error">The workspace could not be prepared</string>
