@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.core.featuretoggles.ToggleSource
 import io.aequicor.heartbeat.core.featuretoggles.ToggleState
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.LogSink
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
@@ -13,13 +15,17 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class FeatureTogglesTest {
 
     private val streaming = FeatureToggle.Flag("chat.streaming", "Stream responses")
@@ -175,6 +181,74 @@ class FeatureTogglesTest {
         assertEquals(true, toggles.observe(beta).first())
         assertEquals(2, logged("WARNING FT ai.beta: overrides are unavailable").size)
         assertFailsWith<IllegalStateException> { control.setOverride(beta, false) }
+    }
+
+    @Test
+    fun `observation recovers after repeated initial read failures`() = runTest {
+        val (toggles, control) = build(streaming)
+        store.readFailure = IllegalStateException("temporarily unavailable")
+        val seen = collect(toggles.observe(streaming))
+
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(listOf(false), seen)
+        assertEquals(3, logged("WARNING FT chat.streaming: overrides are unavailable").size)
+
+        store.readFailure = null
+        control.setOverride(streaming, true)
+        assertEquals(true, toggles.get(streaming))
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf(false, true), seen)
+
+        control.reset(streaming)
+        assertEquals(listOf(false, true, false), seen)
+    }
+
+    @Test
+    fun `observation recovers after a later read failure`() = runTest {
+        val (toggles, control) = build(streaming)
+        control.setOverride(streaming, true)
+        val seen = collect(toggles.observe(streaming))
+
+        store.readFailure = IllegalStateException("temporarily unavailable")
+        store.values.value = emptyMap()
+        assertEquals(listOf(true, false), seen)
+
+        store.readFailure = null
+        control.setOverride(streaming, true)
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf(true, false, true), seen)
+
+        control.reset(streaming)
+        assertEquals(listOf(true, false, true, false), seen)
+    }
+
+    @Test
+    fun `cancelling observation stops pending read retries`() = runTest {
+        val (toggles, _) = build(streaming)
+        store.readFailure = IllegalStateException("temporarily unavailable")
+        val observation = toggles.observe(streaming)
+            .launchIn(backgroundScope + UnconfinedTestDispatcher(testScheduler))
+        assertTrue(observation.isActive)
+
+        observation.cancel()
+        advanceTimeBy(5_000)
+        runCurrent()
+
+        assertTrue(observation.isCancelled)
+        assertEquals(1, logged("WARNING FT chat.streaming: overrides are unavailable").size)
+    }
+
+    @Test
+    fun `storage cancellation propagates without a fallback or retry`() = runTest {
+        val (toggles, _) = build(streaming)
+        store.readFailure = CancellationException("storage cancelled")
+
+        assertFailsWith<CancellationException> { toggles.observe(streaming).first() }
+        assertFailsWith<CancellationException> { toggles.get(streaming) }
+        assertEquals(emptyList(), logged("WARNING FT"))
     }
 
     @Test

@@ -8,15 +8,17 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.retryWhen
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * [FeatureToggles]: a local override, otherwise the default. Resolved values are logged at `D`.
- * A storage failure never reaches feature code: the toggle reads as its default (`W`).
+ * A storage failure never reaches feature code: the toggle reads as its default (`W`) and observation retries.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -30,10 +32,12 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
         registry.verify(toggle)
         return overrides.observe(toggle)
             .map { toggle.stateOf(it) }
-            .catch { e ->
+            .retryWhen { e, _ ->
                 if (e is CancellationException) throw e
                 log.w(e) { "${toggle.key}: overrides are unavailable, using the default" }
                 emit(toggle.stateOf(null))
+                delay(OBSERVE_RETRY_DELAY)
+                true
             }
             .onEach { log.d { "${toggle.key} = ${it.value} (${it.source})" } }
             .map { it.value }
@@ -52,5 +56,9 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
         }
         log.d { "get ${toggle.key} -> ${state.value} (${state.source})" }
         return state.value
+    }
+
+    private companion object {
+        val OBSERVE_RETRY_DELAY = 1.seconds
     }
 }
