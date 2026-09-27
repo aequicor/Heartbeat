@@ -1,4 +1,4 @@
-package io.aequicor
+package io.aequicor.heartbeat.platform.shared
 
 import androidx.compose.ui.window.ComposeUIViewController
 import com.arkivanov.decompose.DefaultComponentContext

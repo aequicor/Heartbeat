@@ -8,7 +8,7 @@ plugins {
 }
 
 dependencies {
-    implementation(project(":shared"))
+    implementation(projects.platformMain.shared)
     implementation(projects.designSystem.tokens)
 
     implementation(compose.desktop.currentOs)

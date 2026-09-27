@@ -1,4 +1,4 @@
-package io.aequicor
+package io.aequicor.heartbeat.platform.shared
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier

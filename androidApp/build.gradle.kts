@@ -12,7 +12,7 @@ kotlin {
     }
 }
 dependencies {
-    implementation(project(":shared"))
+    implementation(projects.platformMain.shared)
 
     implementation(libs.androidx.activity.compose)
 

@@ -10,6 +10,8 @@ import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
+import io.aequicor.heartbeat.platform.shared.App
+import io.aequicor.heartbeat.platform.shared.createAppRoot
 import java.util.concurrent.FutureTask
 import javax.swing.SwingUtilities
 

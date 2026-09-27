@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
+import io.aequicor.heartbeat.platform.shared.App
+import io.aequicor.heartbeat.platform.shared.createAppRoot
 
 /** Keeps the app graph across Activity recreation without retaining an Activity. */
 class HeartbeatApplication : Application() {

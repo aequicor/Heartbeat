@@ -35,7 +35,6 @@ plugins {
 
 include(":androidApp")
 include(":desktopApp")
-include(":shared")
 
 include(":core:logging")
 include(":core:mvi")
@@ -62,6 +61,7 @@ include(":core:feature-toggles:api")
 include(":core:feature-toggles:impl")
 include(":platform-main:di-bundle")
 include(":platform-main:root")
+include(":platform-main:shared")
 
 include(":design-system:tokens")
 include(":design-system:adaptive")
