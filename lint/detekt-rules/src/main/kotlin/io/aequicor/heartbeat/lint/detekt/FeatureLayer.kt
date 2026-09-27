@@ -44,6 +44,9 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
     }
 
     private fun featureViolation(target: FeatureLayer, reference: String): String? = when {
+        feature == "aiengine.authenticator" && target.feature == "aiengine.facade" ->
+            "Authenticator contracts must not depend on the facade"
+
         target.module == "impl" && (isContract || target.feature != feature) ->
             "Feature implementations are private; depend on the public api"
 
@@ -67,7 +70,7 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
         const val FEATURE_PREFIX = "io.aequicor.heartbeat.feature"
         val layers: Set<String> = setOf("domain", "data", "presentation", "ui", "di")
         private val FEATURE_PACKAGE = Regex(
-            "^io\\.aequicor\\.heartbeat\\.feature\\.([a-z0-9_]+)\\.(api|impl)(?=\\.|$)(?:\\.([^.]+))?",
+            "^io\\.aequicor\\.heartbeat\\.feature\\.((?:aiengine\\.)?[a-z0-9_]+)\\.(api|impl)(?=\\.|$)(?:\\.([^.]+))?",
         )
         private val CORE_IMPL = Regex("^io\\.aequicor\\.heartbeat\\.core\\.[^.]+\\.impl(?:\\.|$)")
         private val ALLOWED_LAYERS = mapOf(

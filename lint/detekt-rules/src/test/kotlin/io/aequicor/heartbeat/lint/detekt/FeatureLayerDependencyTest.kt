@@ -10,6 +10,32 @@ class FeatureLayerDependencyTest {
     private val rule = FeatureLayerDependency(Config.empty)
 
     @Test
+    fun `nested engine modules retain IO and implementation boundaries`() {
+        val prefix = "io.aequicor.heartbeat.feature.aiengine"
+        assertEquals(1, rule.lint("package $prefix.facade.api\nimport io.ktor.client.HttpClient").size)
+        assertEquals(1, rule.lint("package $prefix.codex.impl.data\nimport $prefix.facade.impl.domain.Registry").size)
+        assertEquals(0, rule.lint("package $prefix.facade.api\nimport $prefix.authenticator.api.AuthSource").size)
+        assertEquals(0, rule.lint("package $prefix.codex.impl.data\nimport $prefix.facade.api.spi.EngineFactory").size)
+        assertEquals(
+            1,
+            rule.lint(
+                "package io.aequicor.heartbeat.feature.chat.impl.domain\nimport $prefix.facade.api.spi.EngineFactory",
+            ).size,
+        )
+    }
+
+    @Test
+    fun `engine SPI is private even outside feature packages`() {
+        val spi = "io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory"
+        listOf("core.network", "ds.components", "platform.desktop", "platform.dibundleother").forEach { pkg ->
+            assertEquals(1, rule.lint("package io.aequicor.heartbeat.$pkg\nimport $spi").size)
+        }
+        assertEquals(0, rule.lint("package io.aequicor.heartbeat.platform.dibundle\nimport $spi").size)
+        val prefix = "io.aequicor.heartbeat.feature.aiengine"
+        assertEquals(1, rule.lint("package $prefix.authenticator.api\nimport $prefix.facade.api.EngineId").size)
+    }
+
+    @Test
     fun `fully qualified references survive whitespace and escaped package names`() {
         assertEquals(
             2,

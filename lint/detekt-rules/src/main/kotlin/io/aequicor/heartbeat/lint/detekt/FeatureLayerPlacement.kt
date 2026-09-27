@@ -31,7 +31,7 @@ class FeatureLayerPlacement(config: Config) :
     private fun checkSourcePath(file: KtFile) {
         val path = file.virtualFilePath.replace('\\', '/')
         FEATURE_SOURCE.find(path)?.destructured?.let { (feature, module, relative) ->
-            val expectedRoot = "${FeatureLayer.FEATURE_PREFIX}.${feature.replace("-", "")}.$module"
+            val expectedRoot = "${FeatureLayer.FEATURE_PREFIX}.${feature.replace("-", "").replace('/', '.')}.$module"
             if (!file.packageName().isInPackage(expectedRoot) ||
                 relative.substringBeforeLast('/', "") != file.packageName().replace('.', '/')
             ) {
@@ -60,6 +60,6 @@ class FeatureLayerPlacement(config: Config) :
     }
 
     private companion object {
-        val FEATURE_SOURCE = Regex("(?:^|/)features/([^/]+)/(api|impl)/src/[^/]+/kotlin/(.+)")
+        val FEATURE_SOURCE = Regex("(?:^|/)features/((?:ai-engine/)?[^/]+)/(api|impl)/src/[^/]+/kotlin/(.+)")
     }
 }

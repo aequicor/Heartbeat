@@ -18,8 +18,10 @@ import org.jetbrains.kotlin.psi.psiUtil.getStrictParentOfType
 /** Checks imports and fully qualified references without type resolution, including aliases and stars. */
 class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencies must point towards domain.") {
     private var source: FeatureLayer? = null
+    private var sourcePackage: String = ""
 
     override fun visitKtFile(file: KtFile) {
+        sourcePackage = file.packageName()
         source = FeatureLayer.fromPackage(
             file.packageName(),
         )?.takeIf { it.isContract || it.layer in FeatureLayer.layers }
@@ -51,7 +53,15 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
     }
 
     private fun checkReference(element: KtElement, reference: String) {
-        source?.violation(reference)?.let { reason -> report(Finding(Entity.from(element), "$reason: $reference.")) }
+        val reason = if (reference.isInPackage("io.aequicor.heartbeat.feature.aiengine.facade.api.spi") &&
+            !sourcePackage.isInPackage("io.aequicor.heartbeat.feature.aiengine") &&
+            !sourcePackage.isInPackage("io.aequicor.heartbeat.platform.dibundle")
+        ) {
+            "Engine SPI is private to ai-engine adapters and the application bundle"
+        } else {
+            source?.violation(reference)
+        }
+        reason?.let { report(Finding(Entity.from(element), "$it: $reference.")) }
     }
 
     private fun KtUserType.qualifiedName(): String =
