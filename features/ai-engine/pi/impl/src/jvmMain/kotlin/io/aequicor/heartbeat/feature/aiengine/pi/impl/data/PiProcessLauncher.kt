@@ -70,9 +70,11 @@ internal class PiProcessLauncher(
         } else {
             "read,bash,edit,write"
         }
+        val approval = installApprovalExtension(agentDir)
         val command = listOf(
             executable.toString(), "--mode", "rpc", "--provider", provider.id,
-            "--session-dir", sessionDir.toString(), "--no-extensions", "--no-skills",
+            // Only the bundled approval gate loads; discovered and configured extensions stay disabled.
+            "--session-dir", sessionDir.toString(), "--no-extensions", "-e", approval.toString(), "--no-skills",
             // --no-approve refuses project-local trust-gated resources; it is not tool-call approval.
             "--no-prompt-templates", "--no-context-files", "--no-themes", "--no-approve", "--tools", tools,
         )
@@ -102,6 +104,14 @@ internal class PiProcessLauncher(
         }
     }
 
+    private fun installApprovalExtension(agentDir: Path): Path {
+        val target = agentDir.resolve(APPROVAL_EXTENSION)
+        val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$APPROVAL_EXTENSION")
+            ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        source.use { Files.copy(it, target) }
+        return target
+    }
+
     private fun deleteTree(directory: Path) {
         try {
             if (Files.exists(directory)) {
@@ -113,6 +123,7 @@ internal class PiProcessLauncher(
     }
 
     private companion object {
+        const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
         val SAFE_ENVIRONMENT = setOf(
             "PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "ComSpec",
             "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PATHEXT",

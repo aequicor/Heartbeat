@@ -28,10 +28,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.CompletableDeferred
@@ -49,6 +55,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -205,6 +212,64 @@ class PiSessionTest {
         assertEquals(ModelId("anthropic/other"), running.turn.target.model)
         fixture.session.shutdown()
     }
+
+    @Test
+    fun `tool approval waits for the user and an allow answer reaches pi`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(approval("ui-1"))
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: ls -la", awaiting.requests.single().title)
+        val permissions = assertIs<FeatureAccess.Available<RequestsPermissions>>(
+            fixture.session.features.resolve(RequestsPermissions),
+        ).feature
+        permissions.respond(PermissionDecision(turn, PermissionRequestId("ui-1"), PermissionOptionId("allow")))
+        runCurrent()
+        assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `denied tool approval is answered negatively`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(approval("ui-2"))
+        fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
+        runCurrent()
+        assertEquals(listOf(answer("ui-2", "confirmed", false)), fixture.connection.sent)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `dialogs nobody can answer are dismissed so pi blocks the tool`() = runTest {
+        val fixture = fixture()
+        fixture.connection.event(approval("idle"))
+        fixture.runningTurn()
+        fixture.connection.event(
+            record("""{"type":"extension_ui_request","id":"other","method":"input","title":"Name?"}"""),
+        )
+        fixture.connection.event(record("""{"type":"extension_ui_request","id":"n","method":"notify"}"""))
+        assertEquals(
+            listOf(answer("idle", "cancelled", true), answer("other", "cancelled", true)),
+            fixture.connection.sent,
+        )
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `cancelling a turn dismisses its pending approvals before aborting`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(approval("ui-3"))
+        fixture.connection.abortAck.complete(JsonObject(emptyMap()))
+        fixture.session.cancel(turn)
+        assertEquals(listOf(answer("ui-3", "cancelled", true)), fixture.connection.sent)
+        assertEquals("abort", fixture.connection.commands.last())
+        fixture.session.shutdown()
+    }
+
     private suspend fun TestScope.fixture(validate: suspend () -> Unit = {}): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
@@ -237,6 +302,26 @@ class PiSessionTest {
         }
         return Fixture(session, connections, released)
     }
+
+    private suspend fun Fixture.runningTurn(): TurnId {
+        connection.promptAck.complete(JsonObject(emptyMap()))
+        val turn = session.send(prompt("tool"))
+        connection.event(record("""{"type":"agent_start"}"""))
+        return turn
+    }
+
+    private fun approval(id: String) = record(
+        """{"type":"extension_ui_request","id":"$id","method":"confirm","title":"heartbeat.tool-approval",
+           "message":"{\"toolCallId\":\"c1\",\"toolName\":\"bash\",\"target\":\"ls -la\"}"}""",
+    )
+
+    private fun answer(id: String, field: String, value: Boolean) = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("extension_ui_response"),
+            "id" to JsonPrimitive(id),
+            field to JsonPrimitive(value),
+        ),
+    )
 
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject

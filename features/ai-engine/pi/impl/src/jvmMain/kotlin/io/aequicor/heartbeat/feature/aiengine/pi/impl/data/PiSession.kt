@@ -19,9 +19,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -42,6 +48,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
@@ -67,7 +75,8 @@ internal class PiSession(
     SendsPrompts,
     CancelsTurns,
     SwitchesModels,
-    ReconcilesSession {
+    ReconcilesSession,
+    RequestsPermissions {
     private val log = Log.tag("PiSession")
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
@@ -90,12 +99,16 @@ internal class PiSession(
     private var terminal: TurnOutcome = TurnOutcome.Completed
     private var acceptance: CompletableDeferred<TurnId>? = null
     private var cancellationAck: CompletableDeferred<Unit>? = null
+
+    // Pending tool approvals keyed by the Pi extension UI request id; confined to dispatchers.main.
+    private val permissions = mutableMapOf<PermissionRequestId, PermissionRequest>()
+    private val decisions = mutableSetOf<PermissionRequestId>()
     private val machine = environment.machines.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(UUID.randomUUID().toString()), ActiveSessionState.Ready()),
         handle,
         EffectHandler<ActiveSessionEffect, ActiveSessionIntent> { effect, _ ->
             // Accepted work belongs to the profile, never to this state-scoped effect or the caller.
-            handoff(effect)
+            if (effect is ActiveSessionEffect.Decide) decide(effect.decision) else handoff(effect)
         },
     )
     private val profileClose = profile.onClose {
@@ -115,6 +128,7 @@ internal class PiSession(
             CancelsTurns to this,
             SwitchesModels to this,
             ReconcilesSession to this,
+            RequestsPermissions to this,
             SessionHistory to journal,
         ),
     )
@@ -209,6 +223,18 @@ internal class PiSession(
         }
     }
 
+    /** Answers a pending tool approval; the Pi extension blocks the tool unless the allow option is chosen. */
+    override suspend fun respond(decision: PermissionDecision): Unit = withContext(NonCancellable + dispatchers.main) {
+        mutex.withLock {
+            validate()
+            ensureOpen()
+            if (machine.send(ActiveSessionIntent.Public.Decide(decision)) != SendResult.Accepted) {
+                piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
+            }
+            decide(decision)
+        }
+    }
+
     override suspend fun synchronize(): Unit = withContext(dispatchers.main) {
         mutex.withLock {
             validate()
@@ -272,6 +298,9 @@ internal class PiSession(
         connection?.takeIf { it.isOpen }?.let { return it }
         connection?.close()
         connection = null
+        // Approvals belonged to the lost process; its extension can no longer receive an answer.
+        permissions.clear()
+        decisions.clear()
         val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         log.i { "Restarting Pi process for session recovery" }
@@ -303,6 +332,8 @@ internal class PiSession(
                 is ActiveSessionEffect.Submit -> submit(effect)
 
                 is ActiveSessionEffect.Cancel -> {
+                    permissions.keys.toList().forEach { dismiss(it.value) }
+                    permissions.clear()
                     if (turn?.id == effect.turn) rpc().command("abort")
                     cancellationAck?.complete(Unit)
                 }
@@ -313,8 +344,7 @@ internal class PiSession(
                 is ActiveSessionEffect.Release -> Unit
 
                 // close() owns the release barrier.
-                is ActiveSessionEffect.Decide ->
-                    piFailure(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability))
+                is ActiveSessionEffect.Decide -> decide(effect.decision)
             }
         } catch (e: CancellationException) {
             throw e
@@ -388,6 +418,98 @@ internal class PiSession(
             }
 
             "agent_settled" -> finish(terminal)
+
+            "extension_ui_request" -> uiRequest(record)
+        }
+    }
+
+    private suspend fun uiRequest(record: JsonObject) {
+        val id = record.string("id") ?: return
+        // Fire-and-forget UI (notify, status, widgets) needs no answer.
+        if (record.string("method") !in DIALOG_METHODS) return
+        val active = turn
+        val request = if (record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE) {
+            active?.let { approvalRequest(id, it.id, record.string("message")) }
+        } else {
+            null
+        }
+        if (request == null || isHandleClosed) {
+            dismiss(id)
+            return
+        }
+        permissions[request.id] = request
+        if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted) {
+            log.i { "Pi tool call awaits user approval" }
+        } else {
+            permissions.remove(request.id)
+            dismiss(id)
+        }
+    }
+
+    private fun approvalRequest(id: String, turn: TurnId, message: String?): PermissionRequest? {
+        val fields = try {
+            message?.let { Json.parseToJsonElement(it) as? JsonObject }
+        } catch (e: SerializationException) {
+            // Built by the bundled extension, so a parse failure is a protocol bug; the request stays blocked.
+            log.w(e) { "Malformed Pi approval request" }
+            null
+        } ?: return null
+        val tool = fields.string("toolName")?.takeIf { it.isNotBlank() } ?: return null
+        val target = fields.string("target").orEmpty().take(APPROVAL_TARGET_LIMIT)
+        return PermissionRequest(
+            PermissionRequestId(id),
+            turn,
+            if (target.isBlank()) tool else "$tool: $target",
+            listOf(PermissionOption(AllowOption, "Разрешить"), PermissionOption(DenyOption, "Запретить")),
+        )
+    }
+
+    private fun decide(decision: PermissionDecision) {
+        if (decisions.add(decision.request)) {
+            profile.coroutineScope.launch(dispatchers.main) { answer(decision) }
+        }
+    }
+
+    private suspend fun answer(decision: PermissionDecision) {
+        if (permissions[decision.request] == null) return
+        try {
+            val isAllowed = decision.option == AllowOption
+            rpc().send(
+                JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("extension_ui_response"),
+                        "id" to JsonPrimitive(decision.request.value),
+                        "confirmed" to JsonPrimitive(isAllowed),
+                    ),
+                ),
+            )
+            permissions.remove(decision.request)
+            // Pi does not acknowledge dialog answers; handing the answer to the process resolves the request.
+            machine.send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
+            log.i { if (isAllowed) "Pi tool call allowed by user" else "Pi tool call denied by user" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EngineException) {
+            log.w(e) { "Pi approval answer was not delivered" }
+            decisions.remove(decision.request)
+            if (turn?.id == decision.turn) failed(e.failure)
+        }
+    }
+
+    /** Declines a dialog nobody can answer; for an approval this blocks the tool call. */
+    private suspend fun dismiss(id: String) {
+        try {
+            connection?.takeIf { it.isOpen }?.send(
+                JsonObject(
+                    mapOf(
+                        "type" to JsonPrimitive("extension_ui_response"),
+                        "id" to JsonPrimitive(id),
+                        "cancelled" to JsonPrimitive(true),
+                    ),
+                ),
+            )
+        } catch (e: EngineException) {
+            log.w(e) { "Pi dialog dismissal was not delivered" }
         }
     }
 
@@ -408,6 +530,8 @@ internal class PiSession(
         }
         journal.finished(completed.id, outcome)
         turn = null
+        permissions.clear()
+        decisions.clear()
         if (isHandleClosed) release()
     }
 
@@ -435,12 +559,26 @@ internal class PiSession(
         } else {
             null
         }
-        val intent = ActiveSessionIntent.Internal.Synchronized(if (isBusy) remembered else null, completed = completed)
+        val pending = if (isBusy) permissions.values.filter { it.turn == remembered?.id } else emptyList()
+        val intent = ActiveSessionIntent.Internal.Synchronized(
+            if (isBusy) remembered else null,
+            pending,
+            completed,
+        )
         if (machine.send(intent) != SendResult.Accepted) return
         if (completed != null) {
             journal.finished(completed.turn, completed.outcome)
             turn = null
         }
+    }
+
+    private companion object {
+        // Must match APPROVAL_TITLE in resources/pi/heartbeat-approval.ts.
+        const val APPROVAL_TITLE = "heartbeat.tool-approval"
+        const val APPROVAL_TARGET_LIMIT = 500
+        val DIALOG_METHODS = setOf("select", "confirm", "input", "editor")
+        val AllowOption = PermissionOptionId("allow")
+        val DenyOption = PermissionOptionId("deny")
     }
 
     /** The prompt never reached Pi, so the failure is definite rather than an unknown delivery. */
