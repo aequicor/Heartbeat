@@ -13,12 +13,16 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -59,24 +63,24 @@ public fun HbChatTranscript(
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
     val displayedItemCount = sections.sumOf { it.itemCount + 1 }
     PreserveDisclosureAnchor(state, sections, expandedKeys)
-    var followState by remember(state) {
+    // Saved with the list position: a restored reader keeps their decision instead of guessing it from (0, 0).
+    val followStateHolder = rememberSaveable(state, stateSaver = ChatFollowStateSaver) {
         mutableStateOf(
-            ChatFollowState(
-                (state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0) ||
-                    state.firstVisibleItemIndex >= displayedItemCount - 1,
-            ),
+            ChatFollowState(timeline.itemCount == 0 || state.firstVisibleItemIndex >= displayedItemCount - 1),
         )
     }
-    var isFollowingScroll by remember(state) { mutableStateOf(false) }
-    val isAtLatest by remember(state) { derivedStateOf { !state.canScrollForward } }
+    var followState by followStateHolder
+    val followingScrollHolder = remember(state) { mutableStateOf(false) }
+    var isFollowingScroll by followingScrollHolder
+    val atLatestHolder = remember(state) { derivedStateOf { !state.canScrollForward } }
+    val isAtLatest by atLatestHolder
     val scope = rememberCoroutineScope()
     val isReducedMotion = HbTheme.motion.isReducedMotion
-    val latestItemCount by rememberUpdatedState(displayedItemCount)
+    val latestItemCountHolder = rememberUpdatedState(displayedItemCount)
+    val latestItemCount by latestItemCountHolder
 
     LaunchedEffect(state) {
-        snapshotFlow { state.isScrollInProgress to isAtLatest }.collect { (isScrolling, isLatestVisible) ->
-            followState = updateTimelineFollowState(followState, isScrolling, isFollowingScroll, isLatestVisible)
-        }
+        state.trackTimelineFollow(followStateHolder, followingScrollHolder, atLatestHolder, latestItemCountHolder)
     }
     LaunchedEffect(state, timeline.latestMessage, timeline.itemCount) {
         timelineLog.d { "timeline updated messages=${timeline.messageCount} rows=${timeline.itemCount}" }
@@ -195,17 +199,62 @@ private fun TimelineMessageChunk(
     )
 }
 
-private fun updateTimelineFollowState(
-    previous: ChatFollowState,
-    isScrolling: Boolean,
-    isFollowingScroll: Boolean,
-    isAtLatest: Boolean,
-): ChatFollowState {
-    if (!isScrolling || isFollowingScroll) return previous
+/**
+ * Any movement the transcript did not cause is the reader's choice: scrollbar seeks and semantics actions
+ * scroll synchronously and never expose isScrollInProgress. While following, a shrinking viewport
+ * (keyboard, growing composer, resize) or content growth is re-anchored to the end.
+ */
+private suspend fun LazyListState.trackTimelineFollow(
+    followState: MutableState<ChatFollowState>,
+    isFollowingScroll: MutableState<Boolean>,
+    isAtLatest: State<Boolean>,
+    latestItemCount: State<Int>,
+) {
+    var previousPosition = firstVisibleItemIndex to firstVisibleItemScrollOffset
+    snapshotFlow {
+        TranscriptScrollActivity(
+            isScrolling = isScrollInProgress,
+            position = firstVisibleItemIndex to firstVisibleItemScrollOffset,
+            isAtLatest = isAtLatest.value,
+        )
+    }.collect { activity ->
+        val hasMoved = activity.position != previousPosition
+        previousPosition = activity.position
+        val isReaderMove = activity.isScrolling || hasMoved
+        val isDetached = followState.value.isFollowingLatest && !activity.isAtLatest && latestItemCount.value > 0
+        when {
+            isFollowingScroll.value -> Unit
+
+            isReaderMove -> followState.value = updateTimelineFollowState(followState.value, activity.isAtLatest)
+
+            isDetached -> {
+                isFollowingScroll.value = true
+                try {
+                    moveToTimelineEnd(latestItemCount.value - 1, isAnimated = false)
+                } finally {
+                    isFollowingScroll.value = false
+                }
+            }
+        }
+    }
+}
+
+private fun updateTimelineFollowState(previous: ChatFollowState, isAtLatest: Boolean): ChatFollowState {
     val next = previous.onUserScroll(isAtLatest)
     if (next != previous) timelineLog.d { "follow latest=${next.isFollowingLatest}" }
     return next
 }
+
+private data class TranscriptScrollActivity(
+    val isScrolling: Boolean,
+    val position: Pair<Int, Int>,
+    val isAtLatest: Boolean,
+)
+
+private val ChatFollowStateSaver = Saver<ChatFollowState, Boolean>(
+    save = { it.isFollowingLatest },
+    restore = { ChatFollowState(it) },
+)
 
 @Composable
 internal fun HbTranscriptSectionHeader(section: HbChatSection, modifier: Modifier = Modifier) {

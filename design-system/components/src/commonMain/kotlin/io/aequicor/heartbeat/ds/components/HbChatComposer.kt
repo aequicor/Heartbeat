@@ -14,16 +14,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
@@ -37,8 +42,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 private val log = Log.tag("DS/ChatComposer")
 
 /**
- * Controlled multiline editor and send/stop action. Ctrl/Cmd+Enter sends a non-blank draft.
- * Enter alone inserts a newline. Sending, cancellation and clearing remain caller responsibilities.
+ * Controlled multiline editor and send/stop action. Ctrl/Cmd+Enter (including numpad Enter) sends a
+ * non-blank draft and never inserts a newline. Enter alone inserts a newline; Tab moves focus.
+ * Sending, cancellation and clearing remain caller responsibilities.
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
  * independently of the send action. Menus in either slot open above the complete editor.
@@ -67,6 +73,7 @@ public fun HbChatComposer(
     val anchor = remember { mutableStateOf<IntRect?>(null) }
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val focusManager = LocalFocusManager.current
     CompositionLocalProvider(LocalComposerAnchor provides anchor) {
         HbGlassPanel(
             modifier = modifier
@@ -89,7 +96,10 @@ public fun HbChatComposer(
                             min = minOf(HbTheme.dimensions.composerEditorMinHeight, inputMaxHeight),
                             max = inputMaxHeight,
                         )
-                        .onPreviewKeyEvent { event -> handleSendShortcut(event, isSendEnabled, onSend) },
+                        .onPreviewKeyEvent { event ->
+                            handleSendShortcut(event, isSendEnabled, onSend) ||
+                                handleFocusTraversal(event, focusManager)
+                        },
                     placeholder = placeholder,
                     enabled = enabled,
                     accessibleLabel = accessibleLabel,
@@ -156,12 +166,27 @@ private fun ComposerEditor(
     )
 }
 
+/** Ctrl/Cmd+Enter is always consumed so a disabled send never falls through to the editor's newline. */
 private fun handleSendShortcut(event: KeyEvent, isSendEnabled: Boolean, onSend: () -> Unit): Boolean {
-    val isSendShortcut = event.type == KeyEventType.KeyDown && event.key == Key.Enter &&
-        (event.isCtrlPressed || event.isMetaPressed)
-    if (!isSendShortcut || !isSendEnabled) return false
-    log.i { "send shortcut activated" }
-    onSend()
+    val isEnter = event.key == Key.Enter || event.key == Key.NumPadEnter
+    if (!isEnter || !(event.isCtrlPressed || event.isMetaPressed)) return false
+    if (event.type != KeyEventType.KeyDown) return true
+    if (isSendEnabled) {
+        log.i { "send shortcut activated" }
+        onSend()
+    } else {
+        log.d { "send shortcut ignored while sending is unavailable" }
+    }
+    return true
+}
+
+/** Tab leaves the multiline editor instead of inserting a tab character, keeping toolbar actions reachable. */
+private fun handleFocusTraversal(event: KeyEvent, focusManager: FocusManager): Boolean {
+    val hasCommandModifier = event.isCtrlPressed || event.isMetaPressed || event.isAltPressed
+    if (event.key != Key.Tab || hasCommandModifier) return false
+    if (event.type == KeyEventType.KeyDown) {
+        focusManager.moveFocus(if (event.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
+    }
     return true
 }
 

@@ -7,7 +7,11 @@ import androidx.compose.runtime.remember
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 
-/** Explicitly preserves the reader when disclosure moves an item beyond the lazy key cache window. */
+/**
+ * Explicitly preserves the reader when disclosure or a history prepend moves an item. LazyList only
+ * re-finds the first visible key within its nearby key window (about 100 rows), so larger shifts would
+ * otherwise keep the old numeric index and silently show different content.
+ */
 @Composable
 internal fun PreserveDisclosureAnchor(
     state: LazyListState,
@@ -17,12 +21,15 @@ internal fun PreserveDisclosureAnchor(
     val previous = remember(state) { DisclosureProjection(sections, expandedKeys) }
     SideEffect {
         val previousSections = previous.sections
-        val hasDisclosureChanged = previous.expandedKeys != expandedKeys
+        val hasProjectionChanged = previousSections !== sections || previous.expandedKeys != expandedKeys
         previous.update(sections, expandedKeys)
-        if (hasDisclosureChanged) {
+        if (hasProjectionChanged) {
             val anchor = previousSections.disclosureAnchor(state.firstVisibleItemIndex)
             val position = anchor?.let { sections.restoreDisclosureAnchor(it, state.firstVisibleItemScrollOffset) }
-            if (position != null) state.requestScrollToItem(position.index, position.offset)
+            val isMoved = position != null &&
+                (position.index != state.firstVisibleItemIndex || position.offset != state.firstVisibleItemScrollOffset)
+            // Tail streaming keeps earlier rows in place, so only real shifts request a new position.
+            if (position != null && isMoved) state.requestScrollToItem(position.index, position.offset)
         }
     }
 }

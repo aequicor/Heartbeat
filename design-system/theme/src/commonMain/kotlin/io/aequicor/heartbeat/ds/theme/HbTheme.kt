@@ -129,6 +129,14 @@ fun HbTheme(
         LocalHbVisualStyle provides visualStyle,
         LocalPlatformUi provides platformUi,
     ) {
-        AdaptiveTheme(colors = colors, typography = typography, platformUi = platformUi, content = content)
+        AdaptiveTheme(
+            colors = colors,
+            typography = typography,
+            platformUi = platformUi,
+            // Foundation styles never render kit controls; loading a kit theme here would pull the
+            // Java 21 macOS kit into every JDK 17 consumer on macOS.
+            applyKitTheme = visualStyle == HbVisualStyle.Platform,
+            content = content,
+        )
     }
 }

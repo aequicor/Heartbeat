@@ -41,7 +41,7 @@ Android:
 iOS (только macOS + Xcode): откройте `ios/UIKitSandbox.xcodeproj`, выберите
 `SandboxApp` и симулятор. Для устройства задайте свою команду подписи в
 `ios/Configuration/Config.xcconfig`. Build phase собирает Kotlin framework
-`UIKitSandbox` из `:platform-main:uikit-sandbox:shared`.
+`SandboxKit` из `:platform-main:uikit-sandbox:shared` (имя отличается от модуля приложения `UIKitSandbox`, иначе Swift игнорирует импорт).
 
 ## Что можно проверить
 

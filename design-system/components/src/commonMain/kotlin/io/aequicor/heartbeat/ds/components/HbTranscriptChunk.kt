@@ -12,9 +12,6 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 
-private const val MAX_TEXT_CHUNK_CHARACTERS = 2048
-private const val MAX_TEXT_CHUNK_LINES = 32
-
 @Immutable
 internal sealed interface HbTranscriptBody {
     data class Text(
@@ -89,27 +86,14 @@ private fun appendToolChunks(
     }
 }
 
+/** Shares the bounded, CRLF- and surrogate-safe splitter used by Markdown, code, console and diff rows. */
 private fun appendTextChunks(message: HbChatMessage, chunks: MutableList<HbTranscriptChunk>) {
     var start = 0
-    while (start < message.text.length) {
-        var end = minOf(start + MAX_TEXT_CHUNK_CHARACTERS, message.text.length)
-        var lines = 0
-        for (index in start until end) {
-            if (message.text[index] == '\n') lines++
-            if (lines >= MAX_TEXT_CHUNK_LINES) {
-                end = index + 1
-                break
-            }
+    chunkHbText(HbMarkdownText(message.text)).forEach { chunk ->
+        if (chunk.text.isNotEmpty()) {
+            chunks.add(HbTranscriptChunk(message.id, "text:$start", HbTranscriptBody.Text(chunk.text, message.kind)))
         }
-        if (end < message.text.length && message.text[end - 1].isHighSurrogate()) end--
-        chunks.add(
-            HbTranscriptChunk(
-                message.id,
-                "text:$start",
-                HbTranscriptBody.Text(message.text.substring(start, end), message.kind),
-            ),
-        )
-        start = end
+        start += chunk.text.length
     }
 }
 
@@ -161,7 +145,7 @@ internal fun HbTranscriptChunkContent(
                 isSelectionContainerRequired = false,
             )
 
-            is HbTranscriptBody.Text -> TranscriptText(body, foreground)
+            is HbTranscriptBody.Text -> TranscriptText(body, foreground, isLastSegment = chunk.isLast)
         }
     }
 }
@@ -169,6 +153,8 @@ internal fun HbTranscriptChunkContent(
 @Composable
 @ReadOnlyComposable
 private fun toolPanelChunkPadding(chunk: HbTranscriptChunk): PaddingValues? {
+    val markdown = (chunk.body as? HbTranscriptBody.Markdown)?.block
+    if (markdown != null) return codeSegmentPadding(chunk, markdown)
     val row = (chunk.body as? HbTranscriptBody.ToolPayload)?.row ?: return null
     val isLast = row.console?.isLast ?: row.diff?.isLast ?: return null
     return PaddingValues(
@@ -183,8 +169,21 @@ private fun toolPanelChunkPadding(chunk: HbTranscriptChunk): PaddingValues? {
     )
 }
 
+/** Continued fence segments join without the bubble's row gap so a long block stays one panel. */
 @Composable
-private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color) {
+@ReadOnlyComposable
+private fun codeSegmentPadding(chunk: HbTranscriptChunk, block: HbMarkdownBlock): PaddingValues? {
+    if (block.kind != HbMarkdownBlockKind.Code || block.isLastSegment) return null
+    return PaddingValues(
+        start = HbTheme.spacing.l,
+        end = HbTheme.spacing.l,
+        top = if (chunk.isFirst) HbTheme.spacing.l else HbTheme.elevation.none,
+        bottom = HbTheme.elevation.none,
+    )
+}
+
+@Composable
+private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color, isLastSegment: Boolean) {
     val isCode = body.kind == HbMessageKind.Code || body.kind == HbMessageKind.Tool
     if (isCode) {
         HbScrollableCode(
@@ -194,7 +193,8 @@ private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color) {
         )
     } else {
         HbText(
-            text = body.text,
+            // The next row starts on the following line; a kept boundary newline would draw an empty line.
+            text = if (isLastSegment) body.text else body.text.withoutTrailingLineBreak(),
             style = if (body.kind == HbMessageKind.Notice) HbTheme.typography.caption else HbTheme.typography.body,
             color = foreground,
         )

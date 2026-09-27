@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -93,12 +94,26 @@ private fun MarkdownCode(
     val spans = remember(block.content.text, block.language, block.codeSpans) {
         block.codeSpans ?: highlightHbCode(block.content.text, block.language)
     }
+    // Long fences arrive as bounded segments; seams stay square and unpadded so they read as one panel.
+    val corners = HbTheme.shapes.small
+    val square = CornerSize(HbTheme.elevation.none)
+    val shape = corners.copy(
+        topStart = if (block.isFirstSegment) corners.topStart else square,
+        topEnd = if (block.isFirstSegment) corners.topEnd else square,
+        bottomStart = if (block.isLastSegment) corners.bottomStart else square,
+        bottomEnd = if (block.isLastSegment) corners.bottomEnd else square,
+    )
     HbColumn(
-        modifier = modifier.fillMaxWidth().background(HbTheme.colors.surfaceElevated, HbTheme.shapes.small)
-            .padding(HbTheme.spacing.m),
+        modifier = modifier.fillMaxWidth().background(HbTheme.colors.surfaceElevated, shape)
+            .padding(
+                start = HbTheme.spacing.m,
+                end = HbTheme.spacing.m,
+                top = if (block.isFirstSegment) HbTheme.spacing.m else HbTheme.elevation.none,
+                bottom = if (block.isLastSegment) HbTheme.spacing.m else HbTheme.elevation.none,
+            ),
         gap = HbTheme.spacing.xs,
     ) {
-        if (!block.language.isNullOrBlank()) {
+        if (block.isFirstSegment && !block.language.isNullOrBlank()) {
             HbText(text = block.language, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
         }
         HbScrollableCode(

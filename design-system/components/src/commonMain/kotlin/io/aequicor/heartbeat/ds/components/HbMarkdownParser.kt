@@ -14,11 +14,17 @@ import org.intellij.markdown.MarkdownTokenTypes as Tokens
 /**
  * Parses CommonMark/GFM into immutable, bounded display rows. Call during model preparation, not per row.
  * Unfinished fences remain code while streaming. HTML and images never execute or fetch resources.
+ * CRLF and CR line endings are normalized first: the parser only recognizes `\n` line ends.
+ * Container nesting deeper than a fixed bound renders as literal text instead of recursing.
  */
 public fun parseHbMarkdown(source: String): ImmutableList<HbMarkdownBlock> {
-    val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source)
-    return MarkdownBlockParser(source).parse(tree)
+    val normalized = source.replace("\r\n", "\n").replace('\r', '\n')
+    val tree = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(normalized)
+    return MarkdownBlockParser(normalized).parse(tree)
 }
+
+/** Block and inline walkers recurse per nesting level; hostile input must not overflow the UI thread stack. */
+internal const val MAX_MARKDOWN_NESTING = 32
 
 private class MarkdownBlockParser(private val source: String) {
     private val rows = mutableListOf<HbMarkdownBlock>()
@@ -29,27 +35,42 @@ private class MarkdownBlockParser(private val source: String) {
         return rows.toImmutableList()
     }
 
-    private fun visit(node: ASTNode, depth: Int = 0, marker: String? = null, listDepth: Int = 0) {
+    private fun visit(node: ASTNode, depth: Int = 0, marker: String? = null, listDepth: Int = 0, nesting: Int = 0) {
+        if (nesting > MAX_MARKDOWN_NESTING) {
+            append(node, HbMarkdownBlockKind.Paragraph, HbMarkdownText(node.raw(source)))
+            return
+        }
         when (node.type) {
-            Elements.UNORDERED_LIST, Elements.ORDERED_LIST -> visitList(node, depth, listDepth)
-            Elements.BLOCK_QUOTE -> node.children.forEach { visit(it, depth + 1, listDepth = listDepth) }
+            Elements.UNORDERED_LIST, Elements.ORDERED_LIST -> visitList(node, depth, listDepth, nesting)
+
+            Elements.BLOCK_QUOTE -> node.children.forEach {
+                visit(it, depth + 1, listDepth = listDepth, nesting = nesting + 1)
+            }
+
             Elements.CODE_FENCE, Elements.CODE_BLOCK -> code(node)
+
             GFMElementTypes.TABLE -> table(node)
+
             Tokens.HORIZONTAL_RULE -> rows.add(HbMarkdownBlock("${node.startOffset}:0", HbMarkdownBlockKind.Rule))
+
             Elements.PARAGRAPH -> paragraph(node, depth, marker, listDepth)
+
             Elements.HTML_BLOCK -> append(node, HbMarkdownBlockKind.Paragraph, HbMarkdownText(node.raw(source)))
+
             in HeadingTypes -> heading(node)
+
             else -> Unit
         }
     }
 
-    private fun visitList(node: ASTNode, depth: Int, listDepth: Int) {
+    private fun visitList(node: ASTNode, depth: Int, listDepth: Int, nesting: Int) {
         node.children.filter { it.type == Elements.LIST_ITEM }.forEach { item ->
             val marker = listMarker(item)
             var isFirst = true
             item.children.forEach { child ->
-                val nesting = if (child.type == Elements.UNORDERED_LIST || child.type == Elements.ORDERED_LIST) 1 else 0
-                visit(child, depth, if (isFirst) marker else null, listDepth + nesting)
+                val isNestedList = child.type == Elements.UNORDERED_LIST || child.type == Elements.ORDERED_LIST
+                val childListDepth = listDepth + if (isNestedList) 1 else 0
+                visit(child, depth, if (isFirst) marker else null, childListDepth, nesting = nesting + 1)
                 if (child.type == Elements.PARAGRAPH) isFirst = false
             }
         }
@@ -74,29 +95,46 @@ private class MarkdownBlockParser(private val source: String) {
     private fun code(node: ASTNode) {
         val language = node.children.firstOrNull { it.type == Tokens.FENCE_LANG }?.raw(source)?.trim()
         val code = if (node.type == Elements.CODE_FENCE) fencedCode(node) else indentedCode(node)
-        chunkHbCode(code, language).forEachIndexed { index, chunk ->
+        val chunks = chunkHbCode(code, language)
+        chunks.forEachIndexed { index, chunk ->
             rows += HbMarkdownBlock(
                 id = "${node.startOffset}:$index",
                 kind = HbMarkdownBlockKind.Code,
                 content = HbMarkdownText(chunk.text),
                 language = language,
                 codeSpans = chunk.spans,
+                isFirstSegment = index == 0,
+                isLastSegment = index == chunks.lastIndex,
             )
         }
     }
 
+    /**
+     * Keeps only content lines: container prefixes (`> `, list indentation) are separate tokens, and the
+     * fence's own indentation is removed from each line as CommonMark requires.
+     */
     private fun fencedCode(node: ASTNode): String {
-        val raw = node.raw(source)
-        val firstLineEnd = raw.indexOf('\n')
-        if (firstLineEnd < 0) return ""
-        val closing = node.children.firstOrNull { it.type == Tokens.CODE_FENCE_END }?.startOffset ?: node.endOffset
-        return source.substring(node.startOffset + firstLineEnd + 1, closing).trimEnd('\n', '\r')
+        val fenceIndent = node.children.firstOrNull { it.type == Tokens.CODE_FENCE_START }
+            ?.raw(source)?.takeWhile { it == ' ' }?.length ?: 0
+        val code = StringBuilder()
+        var isContent = false
+        for (child in node.children) {
+            when {
+                child.type == Tokens.CODE_FENCE_END -> break
+
+                child.type == Tokens.EOL -> if (isContent) code.append('\n') else isContent = true
+
+                isContent && child.type == Tokens.CODE_FENCE_CONTENT ->
+                    code.append(child.raw(source).dropIndent(fenceIndent))
+            }
+        }
+        return code.toString().trimEnd('\n')
     }
 
     private fun indentedCode(node: ASTNode): String = node.children
         .filter { it.type == Tokens.CODE_LINE || it.type == Tokens.EOL }
-        .joinToString("") { it.raw(source) }
-        .trimEnd('\n', '\r')
+        .joinToString("") { if (it.type == Tokens.CODE_LINE) it.raw(source).dropIndent(CODE_BLOCK_INDENT) else "\n" }
+        .trimEnd('\n')
 
     private fun table(node: ASTNode) {
         node.children.filter { it.type == GFMElementTypes.HEADER || it.type == GFMElementTypes.ROW }.forEach { row ->
@@ -145,3 +183,12 @@ private fun headingLevel(type: IElementType): Int = when (type) {
 }
 
 internal fun ASTNode.raw(source: String): String = source.substring(startOffset, endOffset)
+
+private const val CODE_BLOCK_INDENT = 4
+
+/** Removes up to [columns] leading spaces, keeping deeper relative indentation. */
+private fun String.dropIndent(columns: Int): String {
+    var start = 0
+    while (start < length && start < columns && this[start] == ' ') start++
+    return substring(start)
+}

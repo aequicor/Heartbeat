@@ -7,7 +7,7 @@ plugins {
 kotlin {
     targets.withType<KotlinNativeTarget>().configureEach {
         binaries.framework {
-            baseName = "UIKitSandbox"
+            baseName = "SandboxKit"
             isStatic = true
         }
     }

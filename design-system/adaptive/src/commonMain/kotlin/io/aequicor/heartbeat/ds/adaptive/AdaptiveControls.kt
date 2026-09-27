@@ -3,6 +3,10 @@ package io.aequicor.heartbeat.ds.adaptive
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.NonRestartableComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.ds.tokens.HbColors
@@ -10,17 +14,24 @@ import io.aequicor.heartbeat.ds.tokens.HbTypography
 
 internal val LocalAdaptiveColors = staticCompositionLocalOf { HbColors.Light }
 
-/** Maps semantic tokens into the selected native kit without exposing kit types to consumers. */
+/**
+ * Maps semantic tokens into the selected native kit without exposing kit types to consumers.
+ * [applyKitTheme] loads the kit only when native controls are rendered: the macOS kit ships Java 21
+ * classes, so Foundation-only styles must never touch it on JDK 17 runtimes. Content is movable, so
+ * switching kits or styles keeps remembered state below the theme.
+ */
 @Composable
-@NonRestartableComposable
 fun AdaptiveTheme(
     colors: HbColors,
     typography: HbTypography,
     platformUi: PlatformUi,
+    applyKitTheme: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val currentContent by rememberUpdatedState(content)
+    val movableContent = remember { movableContentOf { currentContent() } }
     CompositionLocalProvider(LocalAdaptiveColors provides colors, LocalPlatformUi provides platformUi) {
-        platformKit(platformUi).Theme(colors, typography, content)
+        if (applyKitTheme) platformKit(platformUi).Theme(colors, typography, movableContent) else movableContent()
     }
 }
 

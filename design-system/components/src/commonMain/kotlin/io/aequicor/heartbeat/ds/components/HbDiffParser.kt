@@ -25,12 +25,27 @@ internal class HbDiffParser(private val source: String) {
 
     private fun readLine(line: DiffLine): Int {
         when {
-            line.text.startsWith("diff --git ") -> beginFile(line.start)
+            FileStartPrefixes.any { line.text.startsWith(it) } -> beginFile(line.start)
+
             line.text.startsWith("@@") -> hunk = parseHunk(line.text)
-            hunk != null -> consumeHunkLine(line.text)
-            line.text.startsWith("--- ") -> return readFileHeaders(line)
+
+            // Inexact counts (hand-written or model-written patches) must not swallow the next file.
+            hunk != null && !startsFileHeaders(line) -> consumeHunkLine(line.text)
+
+            line.text.startsWith("--- ") -> {
+                hunk = null
+                return readFileHeaders(line)
+            }
         }
         return line.end
+    }
+
+    /** A `---`/`+++` pair followed by `@@` is a new file: hunk body lines never start with `@@`. */
+    private fun startsFileHeaders(old: DiffLine): Boolean {
+        if (!old.text.startsWith("--- ") || old.end >= source.length) return false
+        val new = lineAt(old.end)
+        if (!new.text.startsWith("+++ ") || new.end >= source.length) return false
+        return lineAt(new.end).text.startsWith("@@")
     }
 
     private fun readFileHeaders(old: DiffLine): Int {
@@ -54,7 +69,8 @@ internal class HbDiffParser(private val source: String) {
     }
 
     private fun consumeHunkLine(line: String) {
-        hunk?.consume(line.firstOrNull())
+        // Editors often strip the leading space of blank context lines; GNU patch counts them as context.
+        hunk?.consume(line.firstOrNull() ?: ' ')
         if (hunk?.isComplete == true) hunk = null
     }
 
@@ -82,5 +98,7 @@ private fun parseHunk(line: String): DiffHunk? {
     val newCount = match.groupValues[2].ifEmpty { "1" }.toIntOrNull()
     return if (oldCount == 0 && newCount == 0) null else DiffHunk(oldCount, newCount)
 }
+
+private val FileStartPrefixes = listOf("diff --git ", "diff --cc ", "diff --combined ")
 
 private val HunkHeader = Regex("^@@ -[0-9]+(?:,([0-9]+))? \\+[0-9]+(?:,([0-9]+))? @@")

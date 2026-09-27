@@ -3,6 +3,13 @@ plugins {
 }
 
 kotlin {
+    android {
+        // The AGP KMP library target disables Android resources by default; without them the
+        // composeResources (.cvr) files never reach the APK and stringResource() throws at runtime.
+        androidResources {
+            enable = true
+        }
+    }
     sourceSets {
         commonMain.dependencies {
             api(libs.compose.components.resources)

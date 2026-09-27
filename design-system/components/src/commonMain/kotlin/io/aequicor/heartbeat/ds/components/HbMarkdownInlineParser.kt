@@ -21,7 +21,22 @@ private class InlineWriter(private val source: String) {
 
     fun result(): HbMarkdownText = HbMarkdownText(text.toString(), spans.toImmutableList())
 
+    private var depth = 0
+
     fun append(node: ASTNode) {
+        if (depth >= MAX_MARKDOWN_NESTING) {
+            text.append(unescapeMarkdown(node.raw(source)))
+            return
+        }
+        depth++
+        try {
+            appendNode(node)
+        } finally {
+            depth--
+        }
+    }
+
+    private fun appendNode(node: ASTNode) {
         when (node.type) {
             Elements.STRONG -> styled(node, HbMarkdownStyle.Bold)
             Elements.EMPH -> styled(node, HbMarkdownStyle.Italic)
@@ -37,21 +52,26 @@ private class InlineWriter(private val source: String) {
         }
     }
 
-    private fun children(node: ASTNode, skipBrackets: Boolean = false, skipMarkers: Boolean = false) {
-        node.children.forEach { child ->
+    private fun children(node: ASTNode, skipBrackets: Boolean = false, delimiters: Int = 0) {
+        val lastContent = node.children.size - delimiters
+        node.children.forEachIndexed { index, child ->
             val isBracket = child.type == Tokens.LBRACKET || child.type == Tokens.RBRACKET
-            val isMarker = child.type == Tokens.EMPH || child.type == GFMTokenTypes.TILDE
-            val isSkippedBracket = skipBrackets && isBracket
-            val isSkippedMarker = skipMarkers && isMarker
-            if (!isSkippedBracket && !isSkippedMarker) append(child)
+            val isDelimiter = index < delimiters || index >= lastContent
+            if (!(skipBrackets && isBracket) && !isDelimiter) append(child)
         }
     }
 
+    /** Skips only the opening and closing delimiters; unmatched `*`, `_` or `~` inside remain literal text. */
     private fun styled(node: ASTNode, style: HbMarkdownStyle) {
         val start = text.length
-        children(node, skipMarkers = true)
+        val maxDelimiters = if (node.type == Elements.EMPH) 1 else 2
+        val opening = node.children.takeWhile { it.isDelimiter() }.size.coerceAtMost(maxDelimiters)
+        val closing = node.children.takeLastWhile { it.isDelimiter() }.size.coerceAtMost(maxDelimiters)
+        children(node, delimiters = minOf(opening, closing))
         addSpan(start, style)
     }
+
+    private fun ASTNode.isDelimiter(): Boolean = type == Tokens.EMPH || type == GFMTokenTypes.TILDE
 
     private fun code(node: ASTNode) {
         val start = text.length

@@ -1,5 +1,5 @@
 import SwiftUI
-import UIKitSandbox
+import SandboxKit
 
 @main
 struct SandboxApp: App {

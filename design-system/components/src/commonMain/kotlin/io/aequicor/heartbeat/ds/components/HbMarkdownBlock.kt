@@ -27,6 +27,7 @@ public enum class HbMarkdownBlockKind { Paragraph, Heading, Code, Quote, TableRo
  * Prepared Markdown row. [id] is based on source position and chunk number, stable while appending text.
  * Tables have one row per block; [level] is the heading level, or nesting depth for lists and quotes.
  * [codeSpans] preserves lexical context across code chunks; null highlights a manually supplied block.
+ * [isFirstSegment]/[isLastSegment] mark bounded pieces of one fenced block so they render as one panel.
  */
 @Immutable
 public data class HbMarkdownBlock(
@@ -39,4 +40,6 @@ public data class HbMarkdownBlock(
     val cells: ImmutableList<HbMarkdownText> = persistentListOf(),
     val isTableHeader: Boolean = false,
     val codeSpans: ImmutableList<HbCodeSpan>? = null,
+    val isFirstSegment: Boolean = true,
+    val isLastSegment: Boolean = true,
 )

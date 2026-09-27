@@ -51,8 +51,15 @@ public fun HbChatTranscript(
     val latest = messages.lastOrNull()
 
     LaunchedEffect(state) {
-        snapshotFlow { state.isScrollInProgress to isAtLatest }.collect { (isScrolling, isLatestVisible) ->
-            followState = updateFollowState(followState, isScrolling, isJumpingToLatest, isLatestVisible)
+        var previousPosition = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset
+        snapshotFlow {
+            val position = state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset
+            Triple(state.isScrollInProgress, position, isAtLatest)
+        }.collect { (isScrolling, position, isLatestVisible) ->
+            // Scrollbar seeks scroll synchronously and never expose isScrollInProgress, so movement counts too.
+            val hasMoved = position != previousPosition
+            previousPosition = position
+            followState = updateFollowState(followState, isScrolling || hasMoved, isJumpingToLatest, isLatestVisible)
         }
     }
     LaunchedEffect(state, messages.size, latest) {
