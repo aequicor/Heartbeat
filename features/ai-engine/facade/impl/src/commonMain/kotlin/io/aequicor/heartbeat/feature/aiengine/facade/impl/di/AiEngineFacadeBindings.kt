@@ -22,10 +22,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.BindingStorage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineSettingsSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.FeatureToggleEngineGate
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ModelCacheSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ModelCacheStorage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineCatalogService
@@ -33,7 +36,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineGate
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ModelCatalogService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.NoEngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RouteResolver
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -123,6 +128,20 @@ object AiEngineFacadeBindings {
     /** Public catalog API. */
     @Provides
     fun catalog(service: EngineCatalogService): EngineCatalog = service
+
+    /** Explicit route checks shared by models and sessions. */
+    @Provides
+    fun routes(registry: EngineRegistry, gate: EngineGate, bindings: EngineBindingsService): RouteResolver =
+        RouteResolver(registry, gate, bindings)
+
+    /** Cached model discovery. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun models(
+        @ForScope(ProfileScope::class) stores: DataStores,
+        routes: RouteResolver,
+        context: FacadeContext,
+    ): ModelCatalog = ModelCatalogService(ModelCacheStorage(stores.keyValue(ModelCacheSpec)), routes, context)
 
     private const val TOKEN_LENGTH = 20
 }
