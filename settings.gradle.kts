@@ -83,3 +83,4 @@ include(":features:ai-engine:facade:api")
 
 include(":features:ai-engine:claude:api")
 include(":features:ai-engine:claude:impl")
+include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
