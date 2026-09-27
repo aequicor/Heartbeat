@@ -28,6 +28,8 @@ public data class EngineDescriptor(
     val toggle: FeatureToggle.Flag,
     val requirements: List<EngineRequirement> = emptyList(),
     val declaredFeatures: Set<EngineFeatureId> = emptySet(),
+    /** Preferred initial engine on supported platforms; never overrides an explicit saved route. */
+    val isDefault: Boolean = false,
 )
 
 /** Availability of the installation, independent of whether a credential is configured. */
@@ -99,9 +101,9 @@ public data class ExecutionRoute(
 @Serializable
 public data class BindingCheck(val binding: EngineBindingId, val auth: AuthCheck)
 
-/** Experimental AI-engine integration, disabled until a runtime is installed by the application bundle. */
+/** AI-engine integration; the application bundle includes the default desktop runtime. */
 public val AiEngines: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.engines",
     "Каталог и сессии ИИ-движков",
-    default = false,
+    default = true,
 )
