@@ -1,10 +1,6 @@
 ---
 paths:
   - "platform-main/**"
-  - "androidApp/**"
-  - "desktopApp/**"
-  - "iosApp/**"
-  - "shared/**"
 ---
 
 # Точки входа (`platform-main`)
@@ -16,6 +12,6 @@ paths:
 - Порядок старта: `Log.init` → `createHeartbeatGraph()` → root `ComponentContext` (с `LifecycleRegistry`) → `HbTheme { RootContent(root) }`.
 - Android: `defaultComponentContext()` в `Activity`; не держи ссылки на `Activity` в графе.
 - Desktop: `LifecycleController` + `runOnUiThread` для создания root-компонента; определение ОС → `PlatformUi.Fluent` (Windows) / `PlatformUi.MacOs` (macOS) / `Material` (прочие).
-- iOS: `MainViewController()` в `platform-main:shared` (iosMain), lifecycle из `ApplicationLifecycle`; Swift-код в `iosApp/` — минимальный.
+- iOS: `IosHeartbeatHost` в `platform-main:shared` (iosMain) держит root на `ApplicationLifecycle` и отдаёт `viewController()`; его хранит `AppDelegate`. Swift-код в `platform-main/ios/` — минимальный.
 - Никакой бизнес-логики и UI фич — только сборка.
-- Шаблонные модули `androidApp`/`desktopApp`/`shared` — переносятся в `platform-main`.
+- Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

@@ -25,7 +25,8 @@ build-logic/     convention-плагины Gradle (heartbeat.kmp.library, heartb
 lint/            detekt-rules — собственный набор правил `heartbeat` (политика логирования и обработки ошибок)
 ```
 
-> Текущее состояние: шаблонные модули (`androidApp`, `desktopApp`, `iosApp`, `shared`) ещё не перенесены.
+> Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
+> Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
 > Контракты AI-движков: `features:ai-engine:facade:api` и `authenticator:api`; runtime, хранилища и UI подключения пока не реализованы.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы app → profile → feature → screen),
@@ -58,20 +59,20 @@ lint/            detekt-rules — собственный набор правил
 Windows: `.\gradlew.bat`, macOS: `./gradlew`.
 
 ```
-./gradlew :desktopApp:run                      # desktop
-./gradlew :androidApp:assembleDebug            # android
+./gradlew :platform-main:desktop:run           # desktop
+./gradlew :platform-main:android:assembleDebug # android
 ./gradlew allTests                             # все KMP-тесты
-./gradlew :shared:jvmTest                      # быстрые тесты (JVM)
+./gradlew jvmTest                              # быстрые тесты всех KMP-модулей (JVM)
 ./gradlew :platform-main:di-bundle:jvmTest     # сборка всего Metro-графа + интеграционные тесты скоупов
 ./gradlew detekt                               # lint всех модулей (без type resolution, быстро)
 ./gradlew detekt --auto-correct                # автоформат ktlint-правил
-./gradlew :shared:detektMainJvm                # detekt с type resolution (KMP jvm; :<app>:detektMain для JVM-модулей)
+./gradlew :<module>:detektMainJvm              # detekt с type resolution (KMP jvm; :platform-main:desktop:detektMain для JVM-модулей)
 ./gradlew :lint:detekt-rules:test              # тесты собственных правил detekt
 ./gradlew --stop                               # после правки lint/detekt-rules: detekt кэширует classloader правил в демоне
 ./gradlew :<module>:dependencies --configuration commonMainApi   # проверить граф
 ```
 
-iOS собирается только на macOS (Xcode, `iosApp/`). На Windows iOS-таргеты не компилируются — проверяй `commonMain` через `jvmTest`.
+iOS собирается только на macOS (Xcode, `platform-main/ios/`). На Windows iOS-таргеты не компилируются — проверяй `commonMain` через `jvmTest`.
 
 ## Как работать
 

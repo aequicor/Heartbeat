@@ -7,35 +7,27 @@ This is a Kotlin Multiplatform project targeting Android, iOS, Desktop (JVM).
 .\gradlew.bat :platform-main:uikit-sandbox:desktop:run
 ```
 
-* [/iosApp](./iosApp/iosApp) contains an iOS application. Even if you’re sharing your UI with Compose Multiplatform,
-  you need this entry point for your iOS app. This is also where you should add SwiftUI code for your project.
+Точки входа приложения Heartbeat — в [platform-main](./platform-main); раскладка остальных модулей и правила — [CLAUDE.md](CLAUDE.md).
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-    folder is the appropriate location.
+* [platform-main/shared](./platform-main/shared/src) — общий вход: создание root-компонента и его Compose-рендер;
+  для iOS собирается статический framework `Shared`.
+* [platform-main/android](./platform-main/android) — Android-приложение.
+* [platform-main/desktop](./platform-main/desktop) — Desktop-приложение (Windows, macOS).
+* [platform-main/ios](./platform-main/ios) — Xcode-проект iOS; Swift-код только хостит Compose из framework `Shared`.
 
-### Running the apps
+### Запуск
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
+- Android: `./gradlew :platform-main:android:assembleDebug`
+- Desktop:
+  - Hot reload: `./gradlew :platform-main:desktop:hotRun --auto`
+  - Обычный запуск: `./gradlew :platform-main:desktop:run`
+- iOS (только macOS): откройте [platform-main/ios](./platform-main/ios) в Xcode и запустите оттуда.
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- Desktop app:
-  - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-  - Standard run: `./gradlew :desktopApp:run`
-- iOS app: open the [/iosApp](./iosApp) directory in Xcode and run it from there.
+### Тесты
 
-### Running tests
-
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
-
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- Desktop tests: `./gradlew :shared:jvmTest`
-- iOS tests: `./gradlew :shared:iosSimulatorArm64Test`
+- Все KMP-тесты: `./gradlew allTests`
+- Быстрые JVM-тесты: `./gradlew jvmTest`
+- Metro-граф и интеграция скоупов: `./gradlew :platform-main:di-bundle:jvmTest`
 
 ---
 
