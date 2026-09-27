@@ -18,6 +18,8 @@ kotlin {
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
             api(projects.core.datastore.api)
+            api(projects.core.secrets.api)
+            implementation(projects.core.secrets.impl)
             api(projects.core.stateMachine.api)
             implementation(projects.core.logging)
             implementation(projects.core.mvi)

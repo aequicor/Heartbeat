@@ -172,17 +172,18 @@ Codex и Claude Code приводят свои события к этой мод
 ```
 EngineConfig.auth ──▶ AuthResolver (core:ai:impl) ──▶ ResolvedAuth ──▶ AgentEngine.open(...)
                          │ descriptor.accepts(auth)  (вторая проверка)
-                         │ SharedKey → SecretStore.read(profile/<id>/cred/<credId>) → Secret
+                         │ SharedKey → SecretStore(profile).read(SecretKey(credId)) → Secret
                          │ Subscription → без секрета, только kind
                          ▼
                       логи AI: "auth engine=codex mode=subscription(ChatGpt)" — без значений
 ```
 
-- **`Secret`** оборачивает `CharArray`, `toString() = "Secret(***)"`. Значение открывает только `reveal { }` в `spi`.
+- **`Secret`** оборачивает `CharArray`, `toString() = "Secret(***)"`. Значение открывается явным `Secret.reveal { }`
+  из `core:secrets:api` ([ADR-0016](0016-profile-secrets.md)); движки вызывают его только в транспортном адаптере, UI не раскрывает секрет.
   Движок держит секрет, пока запускает процесс или делает login-вызов, и не сохраняет его.
 - **Замена ключа** действует на новые сессии. Окружение процесса фиксируется при запуске, поэтому открытые сессии
   этого движка получают `EngineStatus.RestartSuggested`.
-- **`wipeProfile`** удаляет и пространство `profile/<id>/` в `SecretStore`: `core:secrets:impl` участвует в очистке
+- **`wipeProfile`** удаляет и защищённый снимок профиля в `SecretStore`: `core:secrets:impl` участвует в очистке
   профиля (ADR-0006).
 
 ### EnvPolicy — изоляция подпроцессов (`core:ai:process`)

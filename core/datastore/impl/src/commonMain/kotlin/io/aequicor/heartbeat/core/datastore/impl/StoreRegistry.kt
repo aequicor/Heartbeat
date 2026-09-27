@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataEvent
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.ProfileStorageCleaner
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
@@ -54,6 +55,7 @@ internal class StoreRegistry(
     private val dispatchers: DispatcherProvider,
     private val roomBuilders: RoomBuilderFactory,
     @ForScope(AppScope::class) private val appScope: ScopeHandle,
+    private val profileCleaners: Set<ProfileStorageCleaner> = emptySet(),
 ) {
     private val log = Log.tag(DS_LOG_TAG)
     private val fileSystem = FileSystem.SYSTEM
@@ -128,6 +130,7 @@ internal class StoreRegistry(
 
     /** Deletes every file of the profile [id]; its storages must be closed and stay closed during the wipe. */
     suspend fun wipeProfile(id: ProfileId) {
+        require(id.value.isNotEmpty()) { "profile id must not be empty" }
         val owner = StorageOwner.Profile(id)
         while (true) {
             val current = wiping.load()
@@ -140,6 +143,7 @@ internal class StoreRegistry(
                 check(current.none { it.owner == owner }) { "storages of ${owner.label} are open" }
                 current.toList()
             }
+            profileCleaners.forEach { it.wipeProfile(id) }
             // the directory itself plus a separator: "alice" must not match the directory of "alice2"
             val dir = layout.profileDir(id).toString() + Path.DIRECTORY_SEPARATOR
             val inside = { path: String -> path.startsWith(dir) }

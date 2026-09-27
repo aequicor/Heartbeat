@@ -158,3 +158,10 @@ internal class ChatRepositoryImpl(
   - KV — fake `KeyValueStore` на `MutableStateFlow`.
 - **Ядро** (`core:datastore:impl`) тестируется во временной директории на виртуальном времени (`StorageTestEnv`).
   Тестовая Room-БД живёт в `jvmTest`: KSP `kspJvmTest`, без `@ConstructedBy`.
+
+## Защищённые данные
+
+API-ключи, токены и персональные поля хранить через профильный `SecretStore` из `core:secrets:api`
+([контракт](../../../core/secrets/api/README.md), [ADR-0016](../../../docs/adr/0016-profile-secrets.md)).
+`StorageMaintenance.wipeProfile` вызывает app-scoped `ProfileStorageCleaner` contributions до удаления обычных файлов;
+ошибка участника прерывает wipe. Секреты переживают переключение профиля, удаляются только явным wipe.

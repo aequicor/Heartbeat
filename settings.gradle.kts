@@ -76,3 +76,5 @@ include(":platform-main:uikit-sandbox:shared")
 
 // Кастомный набор правил detekt (политика логирования и обработки ошибок)
 include(":lint:detekt-rules")
+
+include(":core:secrets:api", ":core:secrets:impl")

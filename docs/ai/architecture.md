@@ -137,3 +137,9 @@ UI (Compose) ──intent──▶ FlowMVI Store ──sendTo(intent)──▶ F
 4. Остальные `core:*`.
 5. Перенос `androidApp` → `platform-main:android`, `desktopApp` → `platform-main:desktop`, `shared` → `platform-main:shared`, `iosApp` остаётся Xcode-проектом, подключающим framework из `platform-main:shared`.
 6. Первая фича по скиллу `new-feature`.
+
+### Защищённые данные профиля
+
+`core:secrets:{api,impl}` хранит секреты и ссылки потребителей отдельно от обычного DataStore.
+Профильный `SecretStore` переживает переключение данными, но закрывает старый доступ.
+Ротация сохраняет ID; удалить используемый ключ нельзя. См. [ADR-0016](../adr/0016-profile-secrets.md).

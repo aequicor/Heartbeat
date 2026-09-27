@@ -87,3 +87,7 @@
 | macOS | `dev.nucleusframework.macoscompose.theme`, `dev.nucleusframework.macoscompose.components` |
 | Haze | `dev.chrisbanes.haze`, `dev.chrisbanes.haze.blur` |
 | JetBrains Markdown | `org.intellij.markdown`, `org.intellij.markdown.parser`, `org.intellij.markdown.flavours.gfm` |
+
+Защищённое хранение: `net.java.dev.jna:jna-platform:5.19.1` в JVM `core:secrets:impl`
+для Windows DPAPI и macOS Security.framework; Android Keystore и iOS Keychain — системные API.
+[ADR-0016](../adr/0016-profile-secrets.md).
