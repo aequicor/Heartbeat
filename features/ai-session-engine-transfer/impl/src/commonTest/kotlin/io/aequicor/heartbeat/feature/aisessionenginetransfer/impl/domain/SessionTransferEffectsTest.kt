@@ -2,13 +2,18 @@ package io.aequicor.heartbeat.feature.aisessionenginetransfer.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LimitScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -163,19 +168,28 @@ class SessionTransferEffectsTest {
 
     @Test
     fun `only failures proving non-delivery are rejections`() {
-        listOf(
-            EngineFailure.Session(SessionFailureReason.Busy),
-            EngineFailure.Request(RequestFailureReason.Invalid),
-            EngineFailure.Engine(EngineFailureReason.UnsupportedCapability),
-            EngineFailure.Transport(TransportFailureReason.NetworkUnavailable),
+        val scope = LimitScope.Unknown
+        val rejections = listOf(
+            EngineFailure.Authentication(AuthFailure(AuthFailureReason.entries.first())),
+            EngineFailure.RateLimited(scope),
+            EngineFailure.QuotaExceeded(scope),
             EngineFailure.ContextLimitExceeded(),
-        ).forEach { assertTrue(it.isRejection(), it.code) }
-        listOf(
+            EngineFailure.Transport(TransportFailureReason.NetworkUnavailable),
+        ) + AccessFailureReason.entries.map { EngineFailure.Access(it) } +
+            SessionFailureReason.entries.map { EngineFailure.Session(it) } +
+            HistoryFailureReason.entries.map { EngineFailure.History(it) } +
+            listOf(RequestFailureReason.Invalid, RequestFailureReason.UnsupportedContent)
+                .map { EngineFailure.Request(it) } +
+            (EngineFailureReason.entries - EngineFailureReason.Crashed).map { EngineFailure.Engine(it) }
+        rejections.forEach { assertTrue(it.isRejection(), it.code) }
+        val ambiguous = listOf(
             EngineFailure.Request(RequestFailureReason.OutcomeUnknown),
-            EngineFailure.Transport(TransportFailureReason.Timeout),
-            EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed),
+            EngineFailure.Engine(EngineFailureReason.Crashed),
             EngineFailure.Unknown(),
-        ).forEach { assertFalse(it.isRejection(), it.code) }
+        ) + (TransportFailureReason.entries - TransportFailureReason.NetworkUnavailable)
+            .map { EngineFailure.Transport(it) } +
+            LifecycleFailureReason.entries.map { EngineFailure.Lifecycle(it) }
+        ambiguous.forEach { assertFalse(it.isRejection(), it.code) }
     }
 
     @Test

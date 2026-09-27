@@ -156,7 +156,8 @@ internal class SessionTransferEffects(
 
 /**
  * Failures proving the engine did not take the handoff, so a rollback cannot hide a delivered transcript.
- * Timeouts, protocol violations, crashes, closed handles and unclassified failures may follow a delivery.
+ * Timeouts, service unavailability, protocol violations, crashes, closed handles and unclassified failures
+ * may follow a delivery.
  */
 internal fun EngineFailure.isRejection(): Boolean = when (this) {
     is EngineFailure.Authentication, is EngineFailure.RateLimited, is EngineFailure.QuotaExceeded,
@@ -168,8 +169,8 @@ internal fun EngineFailure.isRejection(): Boolean = when (this) {
 
     is EngineFailure.Engine -> reason != EngineFailureReason.Crashed
 
-    is EngineFailure.Transport ->
-        reason == TransportFailureReason.NetworkUnavailable || reason == TransportFailureReason.ServiceUnavailable
+    // A gateway or a dropped stream can report the service as unavailable after the upstream took the prompt.
+    is EngineFailure.Transport -> reason == TransportFailureReason.NetworkUnavailable
 
     is EngineFailure.Lifecycle, is EngineFailure.Unknown -> false
 }

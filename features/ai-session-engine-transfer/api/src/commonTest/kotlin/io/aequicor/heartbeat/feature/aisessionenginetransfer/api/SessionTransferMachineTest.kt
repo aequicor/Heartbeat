@@ -105,7 +105,7 @@ class SessionTransferMachineTest {
             SessionTransferState.Idle(completed),
             outputs = listOf(SessionTransferOutput.Finished(completed)),
         )
-        val mismatch = TransferResult.Failed(TestRequest.transfer, TransferFailure.Unknown, TestConversation.id)
+        val mismatch = TransferResult.Failed(TestRequest.transfer, TransferFailure.Unknown, ConversationId("other"))
         spec.assertTransition(
             seeding,
             SessionTransferIntent.Internal.Seeded(TestRequest.transfer, ConversationId("other"), TestSegment),

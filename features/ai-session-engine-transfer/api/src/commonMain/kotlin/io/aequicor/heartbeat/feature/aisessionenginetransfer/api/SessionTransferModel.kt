@@ -89,7 +89,7 @@ public data class TransferRequest(
     val workspace: WorkspaceRef? = null,
 )
 
-/** Why a transfer did not produce a new segment. */
+/** Why a transfer did not complete (see [TransferResult.Failed] for segments a failed seeding may leave). */
 @Serializable
 public sealed interface TransferFailure {
     /** The AI engines or session transfer toggle is off. */
@@ -135,9 +135,11 @@ public sealed interface TransferResult {
 
     /**
      * The transfer did not complete. A target session created before a rejected handoff may remain in the catalog.
-     * [conversation] is set when seeding had started: that conversation (for a new one, the id it was journaled
-     * under) may keep a Pending segment of this transfer, left by a cancellation after journaling or a failed
-     * rollback, which reads as an unknown delivery. Callers retry against it rather than starting a new one.
+     * [conversation] is set when seeding had started and names where a segment of this transfer may be journaled:
+     * a cancellation after journaling or a failed rollback leaves its target as the current segment with a handoff
+     * reading as an unknown delivery. Nothing may have been journaled either; a new conversation may not exist.
+     * Callers look it up before retrying: if it exists, continue from its current segment; the same request
+     * would fail with NotLatestSegment or ConversationNotFound.
      */
     @Serializable
     public data class Failed(
