@@ -46,8 +46,10 @@ def read_diff(commit=None, cwd=None):
     if commit is None:
         command = ("diff", "--cached")
     else:
+        # A merge costs only what differs from Git's automatic merge (conflict resolutions and manual edits):
+        # the merged commits are either measured on their own or already belong to the base branch.
         command = ("show", "--format=", "--no-notes", "--no-show-signature",
-                   "--diff-merges=first-parent", commit)
+                   "--diff-merges=remerge", commit)
     patch = git(*command, *DIFF_OPTIONS, "--patch", "--", cwd=cwd)
     numstat = git(*command, *DIFF_OPTIONS, "--no-patch", "--numstat", "-z", "--", cwd=cwd)
     return patch.decode("utf-8", errors="replace"), numstat

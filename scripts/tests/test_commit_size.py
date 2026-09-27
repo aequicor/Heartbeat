@@ -124,7 +124,7 @@ class CommitSizeTests(unittest.TestCase):
         self.assertEqual([feature], policy.select_commits(upstream, feature, cwd=self.repo))
         self.assertEqual([], policy.select_commits(base, base, cwd=self.repo))
 
-    def test_merge_changes_are_measured_against_first_parent(self):
+    def test_clean_merge_of_the_base_costs_nothing(self):
         self.write("base.kt", "base\n")
         self.commit()
         self.git("checkout", "-b", "feature")
@@ -133,12 +133,33 @@ class CommitSizeTests(unittest.TestCase):
         self.git("checkout", "main")
         self.write("main.kt", "main\n")
         self.commit()
-        self.git("merge", "--no-ff", "--no-edit", "feature")
+        self.git("checkout", "feature")
+        self.git("merge", "--no-ff", "--no-edit", "main")
+        merged = self.git("rev-parse", "HEAD")
+        self.assertEqual((0, 0), (self.measure(merged).files, self.measure(merged).lines))
+
+    def test_merge_counts_conflict_resolution_and_manual_edits(self):
+        self.write("shared.kt", "base\n")
+        self.commit()
+        self.git("checkout", "-b", "feature")
+        self.write("shared.kt", "feature\n")
+        self.commit()
+        self.git("checkout", "main")
+        self.write("shared.kt", "main\n")
+        self.write("main.kt", "main\n")
+        self.commit()
+        self.git("checkout", "feature")
+        with self.assertRaises(RuntimeError):
+            self.git("merge", "--no-edit", "main")
+        self.write("shared.kt", "feature\nmain\n")
+        self.write("extra.kt", "manual\n")
+        self.git("add", "--all")
+        self.git("commit", "--quiet", "--no-edit")
         merged = self.git("rev-parse", "HEAD")
         text, _ = policy.read_diff(merged, cwd=self.repo)
-        self.assertIn("+feature", text)
-        self.assertNotIn("+main", text)
-        self.assertEqual((1, 1), (self.measure(merged).files, self.measure(merged).lines))
+        self.assertIn("+manual", text)
+        self.assertIn("shared.kt", text)
+        self.assertNotIn("main.kt", text)
 
     def test_diff_configuration_does_not_change_measurement(self):
         self.write("code.kt", "".join(f"val x{i} = {i}\n" for i in range(30)))
