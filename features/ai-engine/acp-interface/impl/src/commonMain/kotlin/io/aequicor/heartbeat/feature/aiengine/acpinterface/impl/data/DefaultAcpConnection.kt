@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPromptResult
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSession
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -55,7 +57,7 @@ internal class DefaultAcpConnection(
         peer.start()
     }
 
-    override suspend fun initialize(client: AcpImplementation): AcpInitialization = scope.async {
+    override suspend fun initialize(client: AcpImplementation): AcpInitialization = owned {
         lock.withLock {
             check(!hasInitialized) { "ACP initialization already attempted" }
             hasInitialized = true
@@ -71,7 +73,7 @@ internal class DefaultAcpConnection(
                     "clientCapabilities" to JsonObject(emptyMap()),
                 ),
             )
-            val result = acpJson.decodeFromJsonElement(AcpInitialization.serializer(), response)
+            val result = parse { acpJson.decodeFromJsonElement(AcpInitialization.serializer(), response) }
             if (result.protocolVersion != PROTOCOL_VERSION) throw AcpException.Protocol()
             lock.withLock { initialization = result }
             isReady = true
@@ -79,29 +81,28 @@ internal class DefaultAcpConnection(
         } finally {
             if (!isReady) withContext(NonCancellable) { peer.close() }
         }
-    }.await()
+    }
 
     override suspend fun authenticate(methodId: String) {
-        scope.async {
+        owned {
             val info = ready()
             require(info.authMethods.any { it.id == methodId }) { "Authentication method was not advertised" }
             log.i { "ACP authenticate" }
             peer.request("authenticate", fields("methodId" to JsonPrimitive(methodId)))
-        }.await()
+        }
     }
 
-    override suspend fun newSession(cwd: String): AcpSession = scope.async {
+    override suspend fun newSession(cwd: String): AcpSession = owned {
         ready()
         requireAbsolute(cwd)
         log.i { "ACP new session" }
         val result = peer.request("session/new", sessionParams(cwd))
-        val id = result.string("sessionId")
-        require(id.isNotBlank()) { "Empty native session id" }
+        val id = parse { result.string("sessionId").also { if (it.isBlank()) throw AcpException.Protocol() } }
         lock.withLock { sessions.add(id) }
         AcpSession(id, result)
-    }.await()
+    }
 
-    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = scope.async {
+    override suspend fun loadSession(sessionId: String, cwd: String): AcpSession = owned {
         val info = ready()
         check((info.agentCapabilities["loadSession"] as? JsonPrimitive)?.booleanOrNull == true) {
             "Agent does not support loading sessions"
@@ -117,9 +118,9 @@ internal class DefaultAcpConnection(
         } finally {
             withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
         }
-    }.await()
+    }
 
-    override suspend fun prompt(sessionId: String, text: String): AcpPromptResult = scope.async {
+    override suspend fun prompt(sessionId: String, text: String): AcpPromptResult = owned {
         var isTurnOwned = false
         try {
             val response = admissions.withLock {
@@ -132,21 +133,22 @@ internal class DefaultAcpConnection(
                 log.i { "ACP prompt" }
                 peer.submit("session/prompt", promptParams(sessionId, text))
             }
-            acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), response.await())
+            val body = response.await()
+            parse { acpJson.decodeFromJsonElement(AcpPromptResult.serializer(), body) }
         } finally {
             if (isTurnOwned) withContext(NonCancellable) { lock.withLock { busySessions.remove(sessionId) } }
         }
-    }.await()
+    }
 
     override suspend fun cancel(sessionId: String) {
-        scope.async {
+        owned {
             admissions.withLock {
                 requireSession(sessionId)
                 log.i { "ACP cancel" }
                 permissions.cancel(sessionId)
                 peer.notify("session/cancel", fields(sessionId(sessionId)))
             }
-        }.await()
+        }
     }
 
     private fun promptParams(sessionId: String, text: String): JsonObject = fields(
@@ -160,6 +162,44 @@ internal class DefaultAcpConnection(
     }
 
     private fun peer(): AcpRpcPeer = peer
+
+    /**
+     * Runs [block] in the connection scope, so cancelling the caller only abandons its wait.
+     * Connection shutdown cancels that scope; the still active caller gets [AcpException.Disconnected].
+     */
+    private suspend fun <T> owned(block: suspend CoroutineScope.() -> T): T {
+        val result = CompletableDeferred<T>()
+        val work = scope.async { result.complete(block()) }
+        work.invokeOnCompletion { cause ->
+            when (cause) {
+                null -> Unit
+
+                is CancellationException -> {
+                    log.w(AcpDiagnostic(cause)) { "ACP operation stopped by connection shutdown" }
+                    result.completeExceptionally(AcpException.Disconnected())
+                }
+
+                else -> result.completeExceptionally(cause)
+            }
+        }
+        return result.await()
+    }
+
+    /** An invalid agent response is a protocol violation: the connection closes and the caller gets Protocol. */
+    private suspend fun <T> parse(block: () -> T): T = try {
+        block()
+    } catch (e: IllegalArgumentException) {
+        log.w(AcpDiagnostic(e)) { "ACP invalid response" }
+        protocolViolation()
+    } catch (e: AcpException.Protocol) {
+        log.w(AcpDiagnostic(e)) { "ACP invalid response" }
+        protocolViolation()
+    }
+
+    private suspend fun protocolViolation(): Nothing {
+        withContext(NonCancellable) { peer.close() }
+        throw AcpException.Protocol()
+    }
 
     private suspend fun ready(): AcpInitialization =
         lock.withLock { checkNotNull(initialization) { "Initialize ACP before using the connection" } }

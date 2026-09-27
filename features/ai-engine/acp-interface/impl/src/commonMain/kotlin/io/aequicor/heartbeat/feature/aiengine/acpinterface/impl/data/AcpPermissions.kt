@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionRequest
 import kotlinx.coroutines.CancellationException
@@ -24,10 +25,16 @@ internal class AcpPermissions(private val handler: AcpClientHandler, private val
     private val cancelledSessions = mutableSetOf<String>()
 
     suspend fun receive(id: JsonElement, params: JsonObject, peer: AcpRpcPeer) {
-        val request = acpJson.decodeFromJsonElement(AcpPermissionRequest.serializer(), params)
+        val request = try {
+            acpJson.decodeFromJsonElement(AcpPermissionRequest.serializer(), params)
+        } catch (e: IllegalArgumentException) {
+            log.w(AcpDiagnostic(e)) { "ACP invalid permission request" }
+            peer.reject(id, INVALID_PARAMS)
+            return
+        }
         val decision = Decision(request.sessionId)
         lock.withLock {
-            check(id !in pending) { "Duplicate permission request" }
+            if (id in pending) throw AcpException.Protocol()
             pending[id] = decision
             if (request.sessionId in cancelledSessions) decision.cancel()
         }
@@ -92,6 +99,10 @@ internal class AcpPermissions(private val handler: AcpClientHandler, private val
             "outcome" to JsonPrimitive("selected"),
             "optionId" to JsonPrimitive(outcome.optionId),
         )
+    }
+
+    private companion object {
+        const val INVALID_PARAMS = -32602
     }
 
     private class Decision(val sessionId: String) {

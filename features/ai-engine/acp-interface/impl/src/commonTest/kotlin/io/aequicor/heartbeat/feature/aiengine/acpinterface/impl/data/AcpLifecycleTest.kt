@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientHandler
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpSessionUpdate
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.di.DefaultAcpClientFactory
 import kotlinx.coroutines.CoroutineScope
@@ -18,7 +19,9 @@ class AcpLifecycleTest {
     fun `EOF fails pending calls and closes transport`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()
-        val pending = backgroundScope.async { assertFailsWith<Exception> { h.client.newSession("/workspace") } }
+        val pending = backgroundScope.async {
+            assertFailsWith<AcpException.Disconnected> { h.client.newSession("/workspace") }
+        }
         h.outgoing("session/new")
         h.transport.input.close()
         pending.await()
@@ -29,7 +32,9 @@ class AcpLifecycleTest {
     fun `malformed message fails all pending requests`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()
-        val pending = backgroundScope.async { assertFailsWith<Exception> { h.client.newSession("/workspace") } }
+        val pending = backgroundScope.async {
+            assertFailsWith<AcpException.Disconnected> { h.client.newSession("/workspace") }
+        }
         h.outgoing("session/new")
         h.transport.input.send("not JSON")
         pending.await()
@@ -40,7 +45,9 @@ class AcpLifecycleTest {
     fun `response with both error and result closes connection`() = runTest {
         val h = AcpTestHarness(this)
         h.initialize()
-        val pending = backgroundScope.async { assertFailsWith<Exception> { h.client.newSession("/workspace") } }
+        val pending = backgroundScope.async {
+            assertFailsWith<AcpException.Protocol> { h.client.newSession("/workspace") }
+        }
         val request = h.outgoing("session/new")
         h.transport.input.send(
             """{"jsonrpc":"2.0","id":${request.id()},"result":{},"error":{"code":1,"message":"invalid"}}""",
@@ -54,7 +61,9 @@ class AcpLifecycleTest {
         val h = AcpTestHarness(this)
         h.initialize()
         h.session()
-        val pending = backgroundScope.async { assertFailsWith<Exception> { h.client.prompt("session", "hello") } }
+        val pending = backgroundScope.async {
+            assertFailsWith<AcpException.Disconnected> { h.client.prompt("session", "hello") }
+        }
         h.outgoing("session/prompt")
         h.client.close()
         h.client.close()

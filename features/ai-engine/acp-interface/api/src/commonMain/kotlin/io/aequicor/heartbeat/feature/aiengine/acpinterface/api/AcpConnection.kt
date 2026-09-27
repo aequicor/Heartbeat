@@ -79,7 +79,14 @@ public interface AcpStdioTransportFactory {
     /** Whether this platform can run desktop stdio agents. */
     public val isSupported: Boolean
 
-    /** Runs exactly the executable and arguments supplied, without a shell or implicit credential changes. */
+    /**
+     * Runs exactly the executable and arguments supplied, without a shell or implicit credential changes.
+     * On Windows the JDK runs `.cmd`/`.bat` files through `cmd.exe`; adapters should resolve a real executable.
+     * The caller owns the returned transport and must close it if it is never passed to [AcpClientFactory.connect].
+     * Closing stops the process together with its descendants.
+     *
+     * @throws AcpException.LaunchFailed when the process cannot be started.
+     */
     public suspend fun open(command: AcpCommand): AcpTransport
 }
 

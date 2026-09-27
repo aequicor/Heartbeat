@@ -36,7 +36,7 @@ class AcpConnectionTest {
     fun `unsupported version closes connection`() = runTest {
         val h = AcpTestHarness(this)
         val result = backgroundScope.async {
-            assertFailsWith<Exception> {
+            assertFailsWith<AcpException.Protocol> {
                 h.client.initialize(
                     AcpImplementation("test", "1"),
                 )

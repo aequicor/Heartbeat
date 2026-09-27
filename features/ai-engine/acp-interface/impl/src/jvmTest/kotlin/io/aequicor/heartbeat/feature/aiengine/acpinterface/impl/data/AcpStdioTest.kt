@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,6 +20,13 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class AcpStdioTest {
+    private val dispatchers = object : DispatcherProvider {
+        override val main = Dispatchers.Default
+        override val default = Dispatchers.Default
+        override val io = Dispatchers.IO
+    }
+    private val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
+
     @Test
     fun `stdio preserves unicode and separates stderr`() = runTest(timeout = 30.seconds) {
         withAgent { transport ->
@@ -32,14 +40,39 @@ class AcpStdioTest {
     @Test
     fun `close kills agent blocked on stdin and unblocks receive`() = runTest(timeout = 30.seconds) {
         withAgent { transport ->
-            val waiting = backgroundScope.async { assertFailsWith<Exception> { transport.receive() } }
+            val waiting = backgroundScope.async {
+                assertFailsWith<AcpException.Disconnected> { transport.receive() }
+            }
             testScheduler.runCurrent()
             transport.close()
             waiting.await()
         }
     }
 
-    private suspend fun withAgent(block: suspend (AcpTransport) -> Unit) {
+    @Test
+    fun `close kills descendants that inherit the agent pipes`() = runTest(timeout = 30.seconds) {
+        withAgent(isSpawningChild = true) { transport ->
+            val child = ProcessHandle.of(requireNotNull(transport.receive()).toLong()).orElseThrow()
+            try {
+                transport.close()
+                withContext(Dispatchers.IO) { child.onExit().get(5, TimeUnit.SECONDS) }
+                assertFalse(child.isAlive)
+            } finally {
+                child.destroyForcibly()
+            }
+        }
+    }
+
+    @Test
+    fun `launch failure is sanitized`() = runTest(timeout = 30.seconds) {
+        val missing = Path.of(System.getProperty("java.io.tmpdir"), "missing-secret-agent").toString()
+        val error = assertFailsWith<AcpException.LaunchFailed> {
+            JvmAcpStdioTransportFactory(dispatchers).open(AcpCommand(missing))
+        }
+        assertFalse("missing-secret-agent" in error.toString())
+    }
+
+    private suspend fun withAgent(isSpawningChild: Boolean = false, block: suspend (AcpTransport) -> Unit) {
         val directory = Files.createTempDirectory("acp fixture ")
         val source = directory.resolve("Agent.java")
         Files.writeString(
@@ -49,25 +82,31 @@ class AcpStdioTest {
             import java.nio.charset.StandardCharsets;
             class Agent {
                 public static void main(String[] args) throws Exception {
-                    System.err.println("private diagnostic");
+                    if (args.length > 0 && args[0].equals("child")) {
+                        Thread.sleep(600_000);
+                        return;
+                    }
+                    // The agent's stderr must never reach the ACP frame stream.
+                    OutputStream diagnostics = System.err;
+                    diagnostics.write("private diagnostic\n".getBytes(StandardCharsets.UTF_8));
                     var reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
                     var writer = new PrintWriter(new OutputStreamWriter(System.out, StandardCharsets.UTF_8), true);
                     writer.println(ProcessHandle.current().pid());
+                    if (args.length > 0 && args[0].equals("spawn")) {
+                        var child = new ProcessBuilder(args[1], args[2], "child").inheritIO().start();
+                        writer.println(child.pid());
+                    }
                     writer.println(reader.readLine());
                 }
             }
             """.trimIndent(),
         )
-        val dispatchers = object : DispatcherProvider {
-            override val main = Dispatchers.Default
-            override val default = Dispatchers.Default
-            override val io = Dispatchers.IO
-        }
         val factory = JvmAcpStdioTransportFactory(dispatchers)
         assertTrue(factory.isSupported)
+        val arguments = listOf(source.toString()) +
+            if (isSpawningChild) listOf("spawn", java, source.toString()) else emptyList()
         try {
-            val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
-            val transport = factory.open(AcpCommand(java, listOf(source.toString())))
+            val transport = factory.open(AcpCommand(java, arguments))
             try {
                 val pid = requireNotNull(transport.receive()).toLong()
                 val process = ProcessHandle.of(pid).orElseThrow()

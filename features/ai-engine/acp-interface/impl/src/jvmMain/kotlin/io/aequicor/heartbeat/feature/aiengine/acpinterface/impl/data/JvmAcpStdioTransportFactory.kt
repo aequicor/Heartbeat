@@ -6,10 +6,12 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpCommand
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpTransport
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 @ContributesBinding(AppScope::class)
 @Inject
@@ -28,10 +30,21 @@ internal class JvmAcpStdioTransportFactory(private val dispatchers: DispatcherPr
                 command.workingDirectory?.let { builder.directory(File(it)) }
                 if (!command.isEnvironmentInherited) builder.environment().clear()
                 builder.environment().putAll(command.environment)
-                JvmAcpTransport(builder.start(), dispatchers).also { opened = it }
+                JvmAcpTransport(start(builder), dispatchers).also { opened = it }
             }.also { isTransferred = true }
         } finally {
             if (!isTransferred) opened?.close()
         }
+    }
+
+    /** Platform errors name the executable, which is not safe for logs; only a sanitized diagnostic leaves here. */
+    private fun start(builder: ProcessBuilder): Process = try {
+        builder.start()
+    } catch (e: IOException) {
+        log.w(AcpDiagnostic(e)) { "ACP stdio process failed to start" }
+        throw AcpException.LaunchFailed()
+    } catch (e: SecurityException) {
+        log.w(AcpDiagnostic(e)) { "ACP stdio process start denied" }
+        throw AcpException.LaunchFailed()
     }
 }

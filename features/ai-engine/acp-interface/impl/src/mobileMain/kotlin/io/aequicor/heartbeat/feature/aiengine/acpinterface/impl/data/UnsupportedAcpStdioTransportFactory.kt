@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.di
+package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding

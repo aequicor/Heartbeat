@@ -14,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.atomic.AtomicBoolean
@@ -65,10 +66,22 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) return
         log.i { "ACP stopping stdio process" }
-        // Destroy first: blocked pipe IO must unblock before the IO coroutine can finish.
+        // Snapshot descendants before the parent dies: launchers (npx, uvx, cmd) leave the real agent as a child
+        // that inherits our pipes. Destroy first: blocked pipe IO must unblock before the IO coroutine can finish.
+        val descendants = process.descendants().toList()
+        descendants.forEach { it.destroyForcibly() }
         process.destroyForcibly()
-        frames.cancel()
+        closeStdin()
+        frames.close(AcpException.Disconnected())
         scope.cancel()
+    }
+
+    private fun closeStdin() {
+        try {
+            process.outputStream.close()
+        } catch (e: IOException) {
+            log.w(AcpDiagnostic(e)) { "ACP stdio stdin close failed" }
+        }
     }
 
     private fun BufferedReader.readFrame(): String? {

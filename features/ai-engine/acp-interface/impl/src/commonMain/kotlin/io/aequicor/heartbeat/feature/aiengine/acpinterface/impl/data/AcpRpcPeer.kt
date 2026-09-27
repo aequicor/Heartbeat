@@ -57,6 +57,7 @@ internal class AcpRpcPeer(
             ensureOpen()
             JsonPrimitive(++nextId).also { pending[it] = result }
         }
+        log.i { "ACP request $method id=$id" }
         write(fields("id" to id, "method" to JsonPrimitive(method), "params" to params))
         return result
     }
@@ -70,6 +71,7 @@ internal class AcpRpcPeer(
     }
 
     suspend fun reject(id: JsonElement, code: Int) {
+        log.i { "ACP reject agent request code=$code" }
         write(
             fields(
                 "id" to id,
@@ -127,16 +129,36 @@ internal class AcpRpcPeer(
     }
 
     private suspend fun complete(id: JsonElement, message: JsonObject) {
-        if (("result" in message) == ("error" in message)) throw AcpException.Protocol()
+        // Parse before removing the pending call so a malformed response still fails its caller.
+        val outcome = outcome(message)
         val result = state.withLock { pending.remove(id) } ?: throw AcpException.Protocol()
-        if ("error" in message) {
+        outcome
+            .onSuccess {
+                log.i { "ACP response id=$id" }
+                result.complete(it)
+            }.onFailure { error ->
+                result.completeExceptionally(error)
+                if (error !is AcpException.Remote) throw error
+                log.w(error) { "ACP remote error id=$id" }
+            }
+    }
+
+    /** Void ACP methods may answer with `result: null`; it is treated as an empty object. */
+    private fun outcome(message: JsonObject): Result<JsonObject> = try {
+        if (("result" in message) == ("error" in message)) {
+            Result.failure(AcpException.Protocol())
+        } else if ("error" in message) {
             val error = message.obj("error")
-            result.completeExceptionally(
-                AcpException.Remote(error.number("code"), error.string("message"), error["data"]),
-            )
+            Result.failure(AcpException.Remote(error.number("code"), error.string("message"), error["data"]))
         } else {
-            result.complete(message.obj("result"))
+            when (val value = message["result"]) {
+                JsonNull -> Result.success(JsonObject(emptyMap()))
+                is JsonObject -> Result.success(value)
+                else -> Result.failure(AcpException.Protocol())
+            }
         }
+    } catch (e: AcpException.Protocol) {
+        Result.failure(e)
     }
 
     private fun ensureOpen() {

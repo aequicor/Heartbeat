@@ -53,6 +53,9 @@ public sealed class AcpException(message: String) : Exception(message) {
     /** Transport closed or its framing/IO failed; delivery of outstanding requests may be ambiguous. */
     public class Disconnected : AcpException("ACP connection closed; pending operation outcome may be unknown")
 
+    /** The agent process could not be started; the platform error is logged sanitized, not exposed. */
+    public class LaunchFailed : AcpException("ACP agent process could not be started")
+
     /** Invalid JSON-RPC or ACP response, including unsupported negotiated protocol versions. */
     public class Protocol : AcpException("Invalid or unsupported ACP protocol message")
 

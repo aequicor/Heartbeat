@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpPermissionOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -81,11 +82,11 @@ class AcpConcurrencyTest {
         val h = AcpTestHarness(this)
         h.initialize()
         val first = backgroundScope.async {
-            assertFailsWith<Exception> { h.client.newSession("/workspace") }
+            assertFailsWith<AcpException.Disconnected> { h.client.newSession("/workspace") }
         }
         h.outgoing("session/new")
         h.transport.beforeSend = { error("pipe failed") }
-        assertFailsWith<Exception> { h.client.newSession("/another") }
+        assertFailsWith<AcpException.Disconnected> { h.client.newSession("/another") }
         first.await()
         assertTrue(h.transport.isClosed)
     }
