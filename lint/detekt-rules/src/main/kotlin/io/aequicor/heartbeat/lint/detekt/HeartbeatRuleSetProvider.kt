@@ -25,6 +25,8 @@ class HeartbeatRuleSetProvider : RuleSetProvider {
             ::DataAccessNotLogged,
             ::LoggingInfrastructureBypass,
             ::SensitiveDataLogged,
+            ::FeatureLayerPlacement,
+            ::FeatureLayerDependency,
         ),
     )
 }

@@ -23,5 +23,11 @@ heartbeat:
     active: true
   LoggingInfrastructureBypass:
     active: true
+  FeatureLayerPlacement:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
+  FeatureLayerDependency:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   SensitiveDataLogged:
     active: true

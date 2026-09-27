@@ -201,6 +201,13 @@ heartbeat:
   LoggingInfrastructureBypass:
     active: true
     excludes: *testSources
+  # Feature package placement and dependency direction (ADR-0014)
+  FeatureLayerPlacement:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
+  FeatureLayerDependency:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   # API keys, tokens, passwords, Authorization, cookies in log calls
   SensitiveDataLogged:
     active: true
