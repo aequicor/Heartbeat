@@ -254,7 +254,12 @@ internal class CodexRuntime(
         val dropped = early.toList()
         early.clear()
         if (dropped.isNotEmpty()) log.w { "Codex dropped ${dropped.size} events of unopened threads" }
-        dropped.mapNotNull { it["id"] }.forEach { rpc.reject(it) }
+        try {
+            dropped.mapNotNull { it["id"] }.forEach { rpc.reject(it) }
+        } catch (e: EngineException) {
+            // Runs in finally: a broken wire must not replace the open result; the reader retires the runtime.
+            log.w(e) { "Codex could not reject dropped requests" }
+        }
     }
 
     private fun shutdown(failure: EngineFailure) {

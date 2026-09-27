@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -150,6 +151,64 @@ class CodexRuntimeTest {
     }
 
     @Test
+    fun `ambiguous start never adopts an unmapped running turn`() = runTest {
+        val fixture = Fixture(this)
+        fixture.onTurn = { }
+        fixture.threadTurns = listOf(nativeTurn("foreign", "inProgress"))
+        val session = fixture.open()
+        assertFailsWith<EngineException> { session.feature(SendsPrompts).send(Prompt) }
+        runCurrent()
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        fixture.event(
+            "item/commandExecution/requestApproval",
+            "turnId" to "foreign".json(),
+            "command" to "rm".json(),
+            id = JsonPrimitive(11),
+        )
+        runCurrent()
+        val reply = fixture.wire.written.single { it["id"] == JsonPrimitive(11) }
+        assertEquals("decline", reply.obj("result").text("decision"))
+        fixture.threadTurns = listOf(nativeTurn("foreign", "completed"))
+        fixture.event("turn/completed", "turn" to nativeTurn("foreign", "completed"))
+        runCurrent()
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `interrupt timeout restores a turn that is still running`() = runTest {
+        val fixture = Fixture(this)
+        val base = fixture.wire.handler
+        fixture.wire.handler = { if (it.text("method") != "turn/interrupt") base(it) }
+        fixture.threadTurns = listOf(nativeTurn("native-turn", "inProgress"))
+        val session = fixture.open()
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        session.feature(CancelsTurns).cancel(turn)
+        advanceTimeBy(INTERRUPT_TIMEOUT)
+        runCurrent()
+        assertEquals(turn, assertIs<ActiveSessionState.Running>(session.state.value).turn.id)
+    }
+
+    @Test
+    fun `foreign running turn keeps session unavailable until its completion`() = runTest {
+        val fixture = Fixture(this)
+        val base = fixture.wire.handler
+        fixture.wire.handler = { if (it.text("method") != "turn/interrupt") base(it) }
+        fixture.threadTurns = listOf(nativeTurn("other", "inProgress"))
+        val session = fixture.open()
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        session.feature(CancelsTurns).cancel(turn)
+        advanceTimeBy(INTERRUPT_TIMEOUT)
+        runCurrent()
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        fixture.threadTurns = listOf(nativeTurn("other", "completed"))
+        fixture.event("turn/completed", "turn" to nativeTurn("other", "completed"))
+        runCurrent()
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    private fun nativeTurn(id: String, status: String) = json("id" to id.json(), "status" to status.json())
+
+    @Test
     fun `rejected interrupt keeps waiting for native completion`() = runTest {
         val fixture = Fixture(this)
         val base = fixture.wire.handler
@@ -162,6 +221,8 @@ class CodexRuntimeTest {
         fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
         runCurrent()
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        // A completion in a healthy session never probes the native thread.
+        assertFalse(fixture.wire.written.any { it.text("method") == "thread/read" })
     }
 
     @Test
@@ -303,5 +364,9 @@ class CodexRuntimeTest {
         assertTrue(watching.isCompleted)
         assertTrue(fixture.runtime.isClosed)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
+    }
+
+    private companion object {
+        const val INTERRUPT_TIMEOUT = 31_000L
     }
 }

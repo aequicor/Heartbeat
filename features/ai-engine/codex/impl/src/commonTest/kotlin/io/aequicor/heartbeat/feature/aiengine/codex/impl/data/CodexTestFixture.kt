@@ -101,6 +101,7 @@ internal class Fixture(val test: TestScope) {
     val rpc = CodexRpc(wire, test.backgroundScope)
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
+    var threadTurns: List<JsonObject> = emptyList()
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
             message,
@@ -140,7 +141,7 @@ internal class Fixture(val test: TestScope) {
 
                 "thread/read" -> wire.reply(
                     message,
-                    json("thread" to json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
+                    json("thread" to json("id" to "thread".json(), "turns" to JsonArray(threadTurns))),
                 )
 
                 "turn/start" -> onTurn(message)
