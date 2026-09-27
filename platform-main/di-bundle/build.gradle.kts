@@ -40,6 +40,7 @@ kotlin {
             implementation(projects.features.togglesPanel.api)
             implementation(projects.core.di.ext)
             implementation(projects.features.aiEngine.authenticator.api)
+            implementation(projects.features.aiEngine.facade.api)
             implementation(libs.kotlinx.serialization.json)
         }
     }
