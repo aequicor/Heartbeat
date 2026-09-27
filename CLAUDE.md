@@ -40,7 +40,7 @@ lint/            detekt-rules — собственный набор правил
 > `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:state-machine:{api,impl,flowmvi-ext}` ([ADR-0004](docs/adr/0004-state-machine.md)),
 > `core:network:{api,impl}` ([ADR-0005](docs/adr/0005-network.md)),
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)),
-> `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
+> `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки — [ADR-0016](docs/adr/0016-profile-secrets.md)), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md), [ADR-0008](docs/adr/0008-design-system-sandbox.md).
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root ([ADR-0013](docs/adr/0013-welcome-and-local-flags.md)).

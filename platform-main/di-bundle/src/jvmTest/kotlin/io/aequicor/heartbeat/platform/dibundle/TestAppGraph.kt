@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.core.di.SharedFactory
 import io.aequicor.heartbeat.core.di.SharedKey
 import io.aequicor.heartbeat.core.profilefacade.ActiveProfileStorage
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.ktor.client.HttpClient
@@ -55,15 +56,20 @@ interface TestAppGraph : HeartbeatGraph {
     val httpEngine: HttpClientEngine
 
     @DependencyGraph.Factory
-    fun interface Factory {
+    interface Factory {
         fun create(
             @Provides persisted: PersistedProfile,
+            @Provides secretsConfig: SecretsConfig = persisted.secretsConfig,
         ): TestAppGraph
     }
 }
 
 class PersistedProfile(val suspendOperations: Boolean = true) {
     var id: ProfileId? = null
+    var beforeProfileWipe: suspend () -> Unit = {}
+    val secretsConfig: SecretsConfig by lazy {
+        SecretsConfig("heartbeat.test." + java.util.UUID.randomUUID(), storageRoot + "/secrets")
+    }
 
     /** Storage directory of the "device"; created lazily, deleted by the tests that use storages. */
     val storageRoot: String by lazy { Files.createTempDirectory("hb-storage").toString() }

@@ -1,4 +1,5 @@
 [versions]
+jna = "5.19.1"
 agp = "9.1.1"
 android-compileSdk = "37"
 android-minSdk = "24"
@@ -39,6 +40,7 @@ desktop-jdk = "21"
 haze = "2.0.0"
 
 [libraries]
+jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
 fluent = { module = "io.github.compose-fluent:fluent", version.ref = "fluent" }
