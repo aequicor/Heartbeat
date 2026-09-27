@@ -47,7 +47,12 @@ public interface KoogConnections {
     /** Snapshot of configured routes. */
     public suspend fun list(): List<KoogConnection>
 
-    /** Saves a route and atomically updates shared source metadata; changed metadata requires a new revision. */
+    /**
+     * Saves a route and atomically updates shared source metadata; changed metadata requires a new revision.
+     *
+     * @throws IllegalArgumentException when [koogProvider] rejects the source or its metadata changed under the
+     *   same revision.
+     */
     public suspend fun put(connection: KoogConnection)
 
     /** Removes a binding without deleting credentials. New turns on its existing handles are rejected. */

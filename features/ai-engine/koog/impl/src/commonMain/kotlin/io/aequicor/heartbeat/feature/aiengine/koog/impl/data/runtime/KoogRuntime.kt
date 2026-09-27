@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -23,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +37,7 @@ import kotlin.uuid.Uuid
 
 internal val KoogSessionSource = SessionSource(
     SessionSourceId("koog.profile"),
-    io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId,
+    KoogEngineId,
     "Koog",
 )
 
@@ -118,7 +120,7 @@ internal class KoogRuntime(
         val isUnfinished = record.lastTurn != null && record.lastTurn.outcome == null
         return record.copy(
             coverage = if (isUnfinished) {
-                io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage.Partial
+                HistoryCoverage.Partial
             } else {
                 record.coverage
             },
@@ -132,20 +134,35 @@ internal class KoogRuntime(
         val snapshot = cache.restore(record)
         snapshot.history.coverage = record.coverage
         snapshot.update(record.summary)
+        cache.pin(record.summary.ref)
         return KoogNativeSession(record, identity, access, records, scope, snapshot).also {
+            it.onIdle = ::release
             sessions[record.summary.ref] = it
         }
     }
 
+    /** Main dispatcher only, like every mutation of this runtime. */
     fun dispose() {
         log.i { "Closing runtime" }
         isClosed = true
-        sessions.values.forEach { it.dispose() }
+        sessions.values.toList().forEach { it.dispose() }
     }
 
     override suspend fun close() = onMain {
-        mutex.withLock { dispose() }
-        sessions.values.forEach { it.shutdown() }
+        val closing = mutex.withLock {
+            dispose()
+            sessions.values.toList()
+        }
+        closing.forEach { it.shutdown() }
+        closing.forEach(::release)
+    }
+
+    /** Forgets a session without leases or a running turn; the next attach rebuilds it from storage. */
+    private fun release(session: KoogNativeSession) {
+        if (sessions[session.ref] !== session) return
+        log.d { "Releasing idle native session" }
+        sessions.remove(session.ref)
+        cache.unpin(session.ref)
     }
 
     private fun validateTarget(target: EngineTarget) {

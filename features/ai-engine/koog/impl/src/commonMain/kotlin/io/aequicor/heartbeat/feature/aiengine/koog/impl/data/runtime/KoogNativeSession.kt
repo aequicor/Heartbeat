@@ -8,10 +8,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
@@ -36,14 +38,15 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -52,7 +55,11 @@ import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
-/** Profile-owned native session. Only its leases have screen lifetime; one mutex serializes submissions. */
+/**
+ * Profile-owned native session. Only its leases have screen lifetime; one mutex serializes submissions.
+ * History observation belongs to the profile: a watch outlives the lease that started it.
+ * Without leases and a running turn it reports [onIdle] so the runtime can forget it; main dispatcher only.
+ */
 internal class KoogNativeSession(
     initial: KoogRecord,
     private val identity: RuntimeIdentity,
@@ -61,6 +68,8 @@ internal class KoogNativeSession(
     private val scope: CoroutineScope,
     private val snapshot: KoogSessionSnapshot,
 ) {
+    /** Set by the owning runtime before the first lease is issued. */
+    var onIdle: (KoogNativeSession) -> Unit = {}
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -88,12 +97,17 @@ internal class KoogNativeSession(
                         scope.coroutineContext.minusKey(Job),
                     ) {
                         checkLease(state)
-                        scope.async {
-                            koogResult {
-                                checkLease(state)
-                                submit(request)
+                        val accepted = CompletableDeferred<Result<TurnId>>()
+                        scope.launch {
+                            accepted.complete(koogResult { submit(request, state) })
+                        }.invokeOnCompletion { cause ->
+                            // The profile's cancellation may follow a durable acceptance: the caller learns an
+                            // ambiguous outcome instead of a cancellation that is not its own.
+                            if (cause != null && accepted.complete(Result.failure(unknownOutcome(request)))) {
+                                log.w { "Profile closed while accepting a prompt" }
                             }
-                        }.await().getOrThrow()
+                        }
+                        accepted.await().getOrThrow()
                     }
                 },
                 CancelsTurns to object : CancelsTurns {
@@ -109,7 +123,7 @@ internal class KoogNativeSession(
                             history.page(request)
                         }
 
-                    override fun watch(after: HistoryCheckpoint) = kotlinx.coroutines.flow.flow {
+                    override fun watch(after: HistoryCheckpoint) = flow {
                         checkLease(state)
                         emitAll(history.watch(after))
                     }.flowOn(scope.coroutineContext.minusKey(Job))
@@ -120,12 +134,14 @@ internal class KoogNativeSession(
                 log.i { "Releasing session lease" }
                 handles.remove(state)
                 state.value = ActiveSessionState.Closed
+                releaseIfIdle()
             }
         }
     }
 
-    private suspend fun submit(request: PromptRequest): TurnId = mutex.withLock {
-        checkOpen()
+    private suspend fun submit(request: PromptRequest, lease: Lease): TurnId = mutex.withLock {
+        // Re-checked under the lock: the lease may have been released while this call waited for it.
+        checkLease(lease)
         if (current !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
         if (request.parts.any { it !is ContentPart.Text }) {
             fail(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
@@ -144,13 +160,17 @@ internal class KoogNativeSession(
         // The local runtime is the native authority: acceptance occurs only after its durable checkpoint.
         try {
             records.save(record.copy(items = history.items + user, lastTurn = turn))
-            checkOpen()
         } catch (e: CancellationException) {
             client.close()
             throw e
         } catch (e: Exception) {
             client.close()
             throw e
+        }
+        if (isClosed) {
+            // Durable acceptance already exists and is recovered as Unknown, so a plain refusal would be false.
+            client.close()
+            throw unknownOutcome(request)
         }
         record = record.copy(items = history.items + user, lastTurn = turn)
         history.append { SessionEvent.TurnStarted(it, turn) }
@@ -172,8 +192,9 @@ internal class KoogNativeSession(
             // Closing a HTTP stream confirms local termination, not remote cancellation.
             throw e
         } catch (e: Exception) {
-            log.w(e.sanitized()) { "Generation failed" }
-            outcome = TurnOutcome.Failed(e.sanitized().failure)
+            val safe = e.sanitized()
+            log.w(safe) { "Generation failed: ${e::class.simpleName.orEmpty()}" }
+            outcome = TurnOutcome.Failed(safe.failure)
         } finally {
             try {
                 closeClient(client)
@@ -249,7 +270,7 @@ internal class KoogNativeSession(
         log.i { "Finishing accepted turn" }
         val finished = turn.copy(outcome = outcome)
         if (outcome != TurnOutcome.Completed) {
-            history.coverage = io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage.Partial
+            history.coverage = HistoryCoverage.Partial
         }
         record = record.copy(
             items = history.items,
@@ -267,7 +288,12 @@ internal class KoogNativeSession(
         } finally {
             history.append { SessionEvent.TurnFinished(it, turn.id, outcome) }
             if (!isClosed) publish(ActiveSessionState.Ready(finished))
+            releaseIfIdle()
         }
+    }
+
+    private fun releaseIfIdle() {
+        if (handles.isEmpty() && current is ActiveSessionState.Ready) onIdle(this)
     }
 
     private suspend fun interrupt(turn: TurnId) {
@@ -301,7 +327,7 @@ internal class KoogNativeSession(
         if (isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
     }
 
-    private fun checkLease(state: MutableStateFlow<ActiveSessionState>) {
+    private fun checkLease(state: Lease) {
         if (state.value == ActiveSessionState.Closed) {
             fail(
                 EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed),
@@ -316,3 +342,8 @@ internal class KoogNativeSession(
         handles.forEach { it.value = next }
     }
 }
+
+private typealias Lease = MutableStateFlow<ActiveSessionState>
+
+private fun unknownOutcome(request: PromptRequest) =
+    EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))

@@ -22,7 +22,10 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.uuid.Uuid
 
-/** All mutations run on the injected main dispatcher, shared with the owning native session. */
+/**
+ * All mutations run on the injected main dispatcher, shared with the owning native session.
+ * The journal keeps only the latest upsert of each item, so streaming a long answer holds one copy of it.
+ */
 internal class KoogHistory(initial: List<SessionItem>, private val context: CoroutineContext = EmptyCoroutineContext) :
     SessionHistory {
     var coverage: HistoryCoverage = HistoryCoverage.Complete
@@ -30,19 +33,30 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
     private val log = Log.tag("KoogHistory")
     private var generation = Uuid.random().toString()
     private var sequence = 0L
+    private var evictedThrough = 0L
     private val journal = MutableStateFlow<List<SessionEvent>>(emptyList())
     private val snapshots = linkedMapOf<String, Pair<List<SessionItem>, HistoryCheckpoint>>()
     var items: List<SessionItem> = initial
         private set
 
+    /** Whether any [watch] collector is active. */
+    val isObserved: Boolean get() = journal.subscriptionCount.value > 0
+
     fun append(event: (HistoryCheckpoint) -> SessionEvent) {
         log.d { "Publishing history revision" }
         sequence++
         val next = event(checkpoint())
-        if (next is SessionEvent.ItemUpserted) {
-            items = (items.filterNot { it.info.id == next.item.info.id } + next.item).sortedBy { it.info.position }
+        // A later upsert carries the whole item, so earlier upserts of it are superseded rather than lost.
+        val retained = if (next is SessionEvent.ItemUpserted) {
+            items = items.upsert(next.item)
+            journal.value.filterNot { it is SessionEvent.ItemUpserted && it.item.info.id == next.item.info.id }
+        } else {
+            journal.value
         }
-        journal.value = (journal.value + next).takeLast(JOURNAL_LIMIT)
+        val events = retained + next
+        val overflow = events.size - JOURNAL_LIMIT
+        if (overflow > 0) evictedThrough = events[overflow - 1].sequence()
+        journal.value = events.drop(overflow.coerceAtLeast(0))
     }
 
     override suspend fun page(request: HistoryPageRequest): HistoryPage = withContext(context) {
@@ -86,8 +100,7 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
         var seen = after.value.substringAfterLast(':').toLongOrNull() ?: -1
         emitAll(
             journal.transformWhile { events ->
-                val oldest = events.firstOrNull()?.checkpoint?.value?.substringAfterLast(':')?.toLongOrNull()
-                val isRetained = oldest == null || seen >= oldest - 1
+                val isRetained = seen >= evictedThrough
                 val isSameGeneration = after.value.substringBeforeLast(':') == generation
                 val isReplayAvailable = isSameGeneration && seen in 0..sequence && isRetained
                 if (isClosed || !isReplayAvailable) {
@@ -95,9 +108,9 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
                     emit(SessionEvent.HistoryInvalidated(checkpoint(), reason))
                     false
                 } else {
-                    events.filter { it.checkpoint.value.substringAfterLast(':').toLong() > seen }.forEach {
+                    events.filter { it.sequence() > seen }.forEach {
                         emit(it)
-                        seen = it.checkpoint.value.substringAfterLast(':').toLong()
+                        seen = it.sequence()
                     }
                     true
                 }
@@ -112,6 +125,7 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
         coverage = restoredCoverage
         generation = Uuid.random().toString()
         sequence = 0
+        evictedThrough = 0
         snapshots.clear()
         journal.value = listOf(SessionEvent.HistoryInvalidated(checkpoint(), HistoryFailureReason.CursorExpired))
     }
@@ -128,6 +142,17 @@ internal class KoogHistory(initial: List<SessionItem>, private val context: Coro
         const val CURSOR_PARTS = 3
         const val JOURNAL_LIMIT = 1024
         const val SNAPSHOT_LIMIT = 32
+    }
+}
+
+private fun SessionEvent.sequence(): Long = checkpoint.value.substringAfterLast(':').toLong()
+
+private fun List<SessionItem>.upsert(item: SessionItem): List<SessionItem> {
+    val index = indexOfFirst { it.info.id == item.info.id }
+    return if (index >= 0 && this[index].info.position == item.info.position) {
+        toMutableList().also { it[index] = item }
+    } else {
+        (filterNot { it.info.id == item.info.id } + item).sortedBy { it.info.position }
     }
 }
 

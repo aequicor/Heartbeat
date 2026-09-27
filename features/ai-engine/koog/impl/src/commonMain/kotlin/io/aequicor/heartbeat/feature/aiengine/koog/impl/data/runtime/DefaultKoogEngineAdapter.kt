@@ -20,7 +20,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -30,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCursor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrder
@@ -39,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -49,6 +54,10 @@ import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,7 +82,8 @@ internal class DefaultKoogEngineAdapter(
 
     init {
         profile.onClose {
-            runtimes.values.forEach { it.dispose() }
+            // Main dispatcher only, like every mutation of this adapter; the copy tolerates re-entrant changes.
+            runtimes.values.toList().forEach { it.dispose() }
         }
     }
 
@@ -128,7 +138,14 @@ internal class DefaultKoogEngineAdapter(
         object : EngineSession {
             override val summary = snapshot.summary
             override val features = KoogFeatures(
-                SessionHistory to snapshot.history,
+                SessionHistory to object : SessionHistory {
+                    override suspend fun page(request: HistoryPageRequest): HistoryPage =
+                        onMain { history(ref).page(request) }
+
+                    override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> =
+                        flow { emitAll(history(ref).watch(after)) }
+                            .flowOn(profile.coroutineScope.coroutineContext.minusKey(Job))
+                },
                 ResumesSessions to object : ResumesSessions {
                     override suspend fun resume(request: ResumeSessionRequest): ActiveSession {
                         val connection = access.route(request.target.binding)
@@ -138,14 +155,19 @@ internal class DefaultKoogEngineAdapter(
                             connection.source.info.revision,
                         )
                         val runtime = createRuntime(identity)
-                        val attach = runtime.features.resolve(
-                            io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions,
-                        )
-                        return (attach as FeatureAccess.Available).feature.attach(ref, request)
+                        val attach = runtime.features.resolve(AttachesSessions) as? FeatureAccess.Available
+                            ?: fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+                        return attach.feature.attach(ref, request)
                     }
                 },
             )
         }
+    }
+
+    /** Transcript of a stored session; reloaded from storage when the cache evicted it. */
+    private suspend fun history(ref: SessionRef): KoogHistory = cache.history(ref) {
+        access.checkEnabled()
+        koogCall { records.get(ref) } ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
     }
 
     override suspend fun page(query: SessionQuery, request: PageRequest): SessionPage = onMain {

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -19,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
@@ -183,6 +185,70 @@ class KoogRuntimeTest {
         runCurrent()
         assertEquals(3, f.records.get(session.ref)?.items?.size)
         assertEquals(2, f.executor.prompts.last().messages.size)
+    }
+
+    @Test
+    fun `lease released while waiting for the session lock cannot submit`() = runTest {
+        val f = KoogTestFixture(this)
+        val first = f.session()
+        val second = f.runtime().attach(first.ref, ResumeSessionRequest(f.target))
+        val saving = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        f.records.beforeSave = {
+            saving.complete(Unit)
+            release.await()
+            error("Storage unavailable")
+        }
+        val holder = async {
+            assertFailsWith<EngineException> { first.features.require(SendsPrompts).send(f.request()) }
+        }
+        saving.await()
+        val waiter = async {
+            assertFailsWith<EngineException> { second.features.require(SendsPrompts).send(f.request("second")) }
+        }
+        runCurrent()
+        second.close()
+        f.records.beforeSave = {}
+        release.complete(Unit)
+        holder.await()
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), waiter.await().failure)
+        assertIs<ActiveSessionState.Ready>(first.state.value)
+    }
+
+    @Test
+    fun `profile closing during acceptance reports an ambiguous outcome instead of a foreign cancellation`() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        val saving = CompletableDeferred<Unit>()
+        f.records.beforeSave = {
+            saving.complete(Unit)
+            awaitCancellation()
+        }
+        val request = f.request()
+        val caller = async {
+            assertFailsWith<EngineException> { session.features.require(SendsPrompts).send(request) }
+        }
+        saving.await()
+        f.profile.close()
+        assertEquals(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id), caller.await().failure)
+    }
+
+    @Test
+    fun `session without leases and running turn is rebuilt from storage on the next attach`() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        session.close()
+        val kept = f.records.saves
+        f.runtime().attach(session.ref, ResumeSessionRequest(f.target)).close()
+        assertEquals(kept, f.records.saves, "A running turn keeps its native session")
+        f.executor.complete()
+        runCurrent()
+        val finished = f.records.saves
+        val resumed = f.runtime().attach(session.ref, ResumeSessionRequest(f.target))
+        assertEquals(finished + 1, f.records.saves, "An idle native session is recovered from storage")
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(resumed.state.value).lastTurn?.outcome)
+        assertEquals(2, resumed.features.require(SessionHistory).page().items.size)
     }
 
     @Test

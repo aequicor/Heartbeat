@@ -44,9 +44,12 @@ import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.job
 import kotlinx.coroutines.test.TestScope
 
 internal class KoogTestFixture(test: TestScope) {
@@ -59,7 +62,9 @@ internal class KoogTestFixture(test: TestScope) {
     val connections = FakeConnections(mutableListOf(KoogConnection(binding, source)))
     val records = FakeRecords()
     val executor = FakeExecutor()
-    val profile = FakeProfile(test.backgroundScope)
+    val profile = FakeProfile(
+        CoroutineScope(test.backgroundScope.coroutineContext + Job(test.backgroundScope.coroutineContext.job)),
+    )
     var isEnabled = true
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
@@ -106,9 +111,11 @@ internal class FakeConnections(val values: MutableList<KoogConnection>) : KoogCo
 internal class FakeRecords : KoogSessionRecords {
     val values = mutableMapOf<SessionRef, KoogRecord>()
     var beforeSave: suspend () -> Unit = {}
+    var saves = 0
     override suspend fun list(): List<KoogRecord> = values.values.toList()
     override suspend fun get(ref: SessionRef): KoogRecord? = values[ref]
     override suspend fun save(record: KoogRecord) {
+        saves++
         beforeSave()
         values[record.summary.ref] = record
     }
@@ -153,6 +160,7 @@ internal class FakeProfile(override val coroutineScope: CoroutineScope) : ScopeH
     fun close() {
         isClosed = true
         callbacks.toList().asReversed().forEach { it() }
+        coroutineScope.cancel()
     }
 }
 

@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
 @Inject
@@ -99,8 +100,9 @@ internal class KoogAccess(
             else -> fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
     }
+
     private suspend fun revalidate(connection: KoogConnection) {
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        currentCoroutineContext().ensureActive()
         if (route(connection.binding.id) != connection) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged)))
         }
