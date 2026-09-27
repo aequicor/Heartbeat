@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.logging.Log
@@ -22,16 +21,12 @@ import kotlin.concurrent.atomics.incrementAndFetch
 import kotlin.time.Clock
 
 /**
- * Process-lifetime studio storage seeded with the demo workspace. Owned by the application so sessions and
- * running transcripts survive leaving and reopening the studio. Logs entry types and sizes, never content
- * or conversation identifiers.
- *
- * This store holds only the demo workspace. Once the studio talks to a real agent from `core:ai`, real sessions
- * move to profile-scoped storage: `@ForScope(ProfileScope::class) DataStores` with the feature's own Room database.
+ * In-memory demo workspace used by isolated screen and agent tests.
+ * Production conversations are stored by [EngineStudioRepository] in the profile.
+ * Logs entry types and sizes, never conversation content or identifiers.
  */
 @OptIn(ExperimentalAtomicApi::class)
 @SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class)
 @Inject
 internal class InMemoryStudioRepository(private val clock: Clock) : StudioRepository {
     private val log = Log.tag("StudioRepository")

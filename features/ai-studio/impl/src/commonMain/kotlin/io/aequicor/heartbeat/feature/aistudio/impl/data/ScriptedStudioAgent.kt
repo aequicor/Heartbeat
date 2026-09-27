@@ -1,7 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
@@ -16,11 +14,10 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 
 /**
- * Offline stand-in for an LLM agent until `core:ai` provides real providers. Streams a deterministic plan
+ * Offline fixture for isolated studio tests. Streams a deterministic plan
  * with tool calls shaped by the request: faster models answer sooner, higher effort explores more, and
  * [ApprovalMode.AutoApprove] lets the agent edit files and push a branch. Content is demo Russian copy.
  */
-@ContributesBinding(AppScope::class)
 @Inject
 internal class ScriptedStudioAgent : StudioAgent {
     private val log = Log.tag("ScriptedStudioAgent")

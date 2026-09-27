@@ -8,6 +8,15 @@ import kotlin.test.assertTrue
 
 class WelcomeMachineTest {
     @Test
+    fun `profile opening failure restores actions for retry`() {
+        WelcomeMachineSpec.assertTransition(
+            WelcomeState.Opening(WelcomeDestination.Studio),
+            WelcomeIntent.Internal.Failed,
+            WelcomeState.Ready,
+        )
+    }
+
+    @Test
     fun `start reads settings and enabled config starts intro`() {
         WelcomeMachineSpec.assertTransition(
             WelcomeState.Idle,

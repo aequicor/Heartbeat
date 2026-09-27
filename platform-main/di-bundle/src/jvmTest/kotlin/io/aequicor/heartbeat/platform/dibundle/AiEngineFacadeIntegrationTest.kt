@@ -77,6 +77,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -102,6 +104,8 @@ import kotlin.test.assertIs
 interface AiEngineTestAccessors {
     val engineFacade: EngineFacade
     val engineAuthSources: AuthSources
+    val studioRepository: StudioRepository
+    val studioRuntime: StudioRuntime
     val modelSelections: ModelSelections
 }
 
@@ -195,6 +199,8 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
     val native = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val events = MutableStateFlow<List<SessionEvent>>(emptyList())
     private var items = emptyList<SessionItem>()
+    val closeStarted = kotlinx.coroutines.CompletableDeferred<Unit>()
+    var closeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var cancellations = 0
     var cancelGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var failCancellation = false
@@ -300,6 +306,8 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
     }
 
     override suspend fun close() {
+        closeStarted.complete(Unit)
+        closeGate?.await()
         native.value = ActiveSessionState.Closed
     }
 

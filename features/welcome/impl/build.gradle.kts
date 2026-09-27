@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.welcome.api)
+            implementation(projects.core.profileFacade.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)
             implementation(projects.core.stateMachine.flowmviExt)

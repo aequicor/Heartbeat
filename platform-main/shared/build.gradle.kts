@@ -16,6 +16,7 @@ kotlin {
     }
     sourceSets {
         commonMain.dependencies {
+            implementation(projects.features.aiStudio.api)
             api(projects.platformMain.root)
             api(projects.core.logging)
             implementation(projects.designSystem.theme)

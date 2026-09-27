@@ -71,7 +71,7 @@ public sealed interface WelcomeIntent : MachineIntent {
         /** The welcome entry became active again. */
         public data object Returned : Internal
 
-        /** Settings could not be read; continue with the static welcome. */
+        /** Settings or navigation could not be completed; return to the static welcome. */
         public data object Failed : Internal
     }
 }
@@ -131,6 +131,7 @@ public val WelcomeMachineSpec: MachineSpec<WelcomeState, WelcomeIntent, WelcomeE
             on<WelcomeIntent.Public.Open> { goto<WelcomeState.Opening> { WelcomeState.Opening(intent.destination) } }
         }
         state<WelcomeState.Opening> {
+            on<WelcomeIntent.Internal.Failed> { goto<WelcomeState.Ready> { WelcomeState.Ready } }
             on<WelcomeIntent.Internal.NavigationHandled> { goto<WelcomeState.Away> { WelcomeState.Away } }
         }
         state<WelcomeState.Away> {

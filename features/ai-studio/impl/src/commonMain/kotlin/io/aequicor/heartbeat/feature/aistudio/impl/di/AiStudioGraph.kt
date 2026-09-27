@@ -12,13 +12,14 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
-import io.aequicor.heartbeat.core.navigation.AppRouteBinding
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
+import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
@@ -29,13 +30,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAgent
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
-import kotlin.time.Clock
 
 /** Feature graph retained by its Decompose entry. */
 @GraphExtension(AiStudioScope::class)
@@ -43,7 +43,7 @@ interface AiStudioGraph {
     val factory: AiStudioComponent.Factory
 
     /** Metro factory for a lifecycle-owned feature instance. */
-    @ContributesTo(AppScope::class)
+    @ContributesTo(ProfileScope::class)
     @GraphExtension.Factory
     fun interface Factory {
         /** Creates an instance owned by the supplied component or scope. */
@@ -62,10 +62,9 @@ object AiStudioBindings {
     @SingleIn(AiStudioScope::class)
     fun effects(
         repository: StudioRepository,
-        agent: StudioAgent,
+        runtime: StudioRuntime,
         availability: StudioAvailability,
-        clock: Clock,
-    ): AiStudioEffects = AiStudioEffects(repository, agent, availability, clock)
+    ): EngineStudioEffects = EngineStudioEffects(repository, runtime, availability)
 
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides
@@ -73,7 +72,7 @@ object AiStudioBindings {
     fun machine(
         launcher: MachineLauncher,
         @ForScope(AiStudioScope::class) scope: ScopeHandle,
-        effects: AiStudioEffects,
+        effects: EngineStudioEffects,
     ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(AiStudioMachineSpec, scope, effects)
 }
 
@@ -87,14 +86,14 @@ object AiStudioToggleBindings {
     fun workspace(): FeatureToggle<*> = StudioWorkspaceToggle
 }
 
-@ContributesIntoSet(AppScope::class, binding = binding<AppRouteBinding>())
+@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
 @Inject
 internal class AiStudioRouteEntry(
     private val scopes: ScopeFactory,
-    @ForScope(AppScope::class) private val app: ScopeHandle,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val graphs: AiStudioGraph.Factory,
 ) : RouteEntry<AiStudioRoute>(AiStudioRoute::class, AiStudioRoute.serializer()) {
     override fun create(route: AiStudioRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        context.retainedGraph(scopes, app, name = "aistudio") { graphs.createAiStudio(it) }
+        context.retainedGraph(scopes, profile, name = "aistudio") { graphs.createAiStudio(it) }
             .factory.create(context, navigator).let { AiStudioUiComponent(it) }
 }
