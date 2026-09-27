@@ -1,4 +1,4 @@
-package io.aequicor
+package io.aequicor.heartbeat.platform.android
 
 import android.app.Application
 import android.content.Intent
