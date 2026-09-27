@@ -103,3 +103,4 @@ node_modules/
 # --- Claude Code (personal) ----------------------------------
 .claude/settings.local.json
 CLAUDE.local.md
+/.claude/worktrees/*
