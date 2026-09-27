@@ -1,7 +1,7 @@
 // Native symbols must retain the names exported by Apple's frameworks.
 @file:Suppress("FunctionNaming")
 
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 import com.sun.jna.Library
 import com.sun.jna.Memory

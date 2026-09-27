@@ -1,17 +1,11 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
-import androidx.room.RoomDatabase
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import io.aequicor.heartbeat.core.datastore.DataEvent
-import io.aequicor.heartbeat.core.datastore.DataStores
-import io.aequicor.heartbeat.core.datastore.DatabaseSpec
-import io.aequicor.heartbeat.core.datastore.KeyValueSpec
-import io.aequicor.heartbeat.core.datastore.KeyValueStore
-import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.impl.domain.ProfileSecretStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -28,10 +22,7 @@ internal class VaultTestEnv(test: TestScope) {
     var registry = VaultRegistry(backend, dispatchers)
     val scope = TestVaultScope(test)
     fun store(id: String = "alice", owner: TestVaultScope = scope) = ProfileSecretStore(
-        registry,
-        ProfileId(id),
-        owner,
-        UnusedDataStores(ProfileId(id)),
+        ProfileSecretRepository(registry, ProfileId(id)) { check(!owner.isClosed) { "Profile is closed" } },
     )
     fun restart() {
         registry = VaultRegistry(backend, dispatchers)
@@ -70,10 +61,3 @@ internal class TestVaultScope(override val coroutineScope: CoroutineScope) : Sco
 }
 
 internal fun Secret.text(): String = use { reveal { it.concatToString() } }
-
-internal class UnusedDataStores(id: ProfileId) : DataStores {
-    override val owner = StorageOwner.Profile(id)
-    override fun keyValue(spec: KeyValueSpec): KeyValueStore = error("unused")
-    override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("unused")
-    override suspend fun fire(event: DataEvent) = error("unused")
-}

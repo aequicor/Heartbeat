@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
@@ -17,7 +17,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class ProfileSecretStoreTest {
+class ProfileSecretRepositoryTest {
     private val key = SecretKey("credential")
     private val first = SecretUsage("engine", "one", "api-key")
     private val second = SecretUsage("engine", "two", "api-key")

@@ -1,10 +1,7 @@
 @file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
 
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.cstr
@@ -43,8 +40,6 @@ import platform.Security.kSecClassGenericPassword
 import platform.Security.kSecReturnData
 import platform.Security.kSecValueData
 
-@ContributesBinding(AppScope::class)
-@Inject
 internal class IosProtectedVault : ProtectedVault {
     override fun <T> transaction(profile: String, erase: Boolean, action: (ByteArray?) -> VaultUpdate<T>): T =
         withVaultLock(

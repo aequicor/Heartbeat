@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.LogSink

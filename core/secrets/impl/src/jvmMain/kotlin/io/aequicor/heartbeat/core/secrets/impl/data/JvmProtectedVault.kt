@@ -1,19 +1,15 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 import com.sun.jna.platform.win32.Crypt32Util
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
+import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 
-@ContributesBinding(AppScope::class)
-@Inject
 internal class JvmProtectedVault(
     private val platform: PlatformInfo,
     private val config: SecretsConfig = SecretsConfig(),

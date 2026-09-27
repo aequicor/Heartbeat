@@ -90,4 +90,4 @@
 
 Защищённое хранение: `net.java.dev.jna:jna-platform:5.19.1` в JVM `core:secrets:impl`
 для Windows DPAPI и macOS Security.framework; Android Keystore и iOS Keychain — системные API.
-[ADR-0016](../adr/0016-profile-secrets.md).
+[ADR-0017](../adr/0017-profile-secrets.md).

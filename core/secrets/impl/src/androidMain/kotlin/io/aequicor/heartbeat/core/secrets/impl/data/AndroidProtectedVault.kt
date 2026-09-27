@@ -1,12 +1,9 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.AtomicFile
-import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
 import java.io.File
 import java.io.RandomAccessFile
 import java.security.KeyStore
@@ -15,8 +12,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-@ContributesBinding(AppScope::class)
-@Inject
 internal class AndroidProtectedVault(context: Context) : ProtectedVault {
     private val root = File(context.applicationContext.noBackupFilesDir, "secrets")
 

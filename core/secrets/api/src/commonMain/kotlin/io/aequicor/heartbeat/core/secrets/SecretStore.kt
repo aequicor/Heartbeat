@@ -1,8 +1,5 @@
 package io.aequicor.heartbeat.core.secrets
 
-import dev.zacsweers.metro.ContributesTo
-import io.aequicor.heartbeat.core.di.ProfileScope
-
 /** Opaque stable identifier, scoped to the injected profile. Never put sensitive data in identifiers. */
 public data class SecretKey(public val value: String) {
     init {
@@ -58,11 +55,4 @@ public interface SecretStore {
 
     /** Atomically checks references and removes only an unused value. */
     public suspend fun remove(key: SecretKey): SecretRemoval
-}
-
-/** Profile graph entry point; normal consumers inject [SecretStore] directly. */
-@ContributesTo(ProfileScope::class)
-public interface SecretsAccessors {
-    /** Protected storage of this profile. */
-    public val secrets: SecretStore
 }

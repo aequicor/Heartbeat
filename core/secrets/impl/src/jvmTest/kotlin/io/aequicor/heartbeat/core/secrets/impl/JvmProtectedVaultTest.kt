@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.core.secrets.impl
 
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
+import io.aequicor.heartbeat.core.secrets.impl.data.JvmProtectedVault
+import io.aequicor.heartbeat.core.secrets.impl.data.VaultUpdate
 import org.junit.Assume.assumeTrue
 import java.nio.file.Files
 import java.util.UUID

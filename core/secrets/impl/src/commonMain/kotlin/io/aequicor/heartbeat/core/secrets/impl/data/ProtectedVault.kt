@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.core.secrets.impl
+package io.aequicor.heartbeat.core.secrets.impl.data
 
 /** Atomic platform transaction: prevents lost updates; concurrent callers may receive a lock failure. */
 internal interface ProtectedVault {

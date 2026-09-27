@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretRemoval
 import io.aequicor.heartbeat.core.secrets.SecretUsage
-import io.aequicor.heartbeat.core.secrets.SecretsAccessors
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
