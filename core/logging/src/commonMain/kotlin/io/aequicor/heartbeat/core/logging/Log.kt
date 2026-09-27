@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.core.logging
 
 import io.github.aakira.napier.Antilog
-import io.github.aakira.napier.DebugAntilog
 import io.github.aakira.napier.Napier
 import kotlin.concurrent.Volatile
 import io.github.aakira.napier.LogLevel as NapierLevel
@@ -67,7 +66,7 @@ public class Log private constructor(private val tag: String) {
         public fun init(isDebug: Boolean, sinks: List<LogSink> = emptyList()) {
             Napier.takeLogarithm()
             minLevel = if (isDebug) LogLevel.VERBOSE else LogLevel.INFO
-            if (isDebug) Napier.base(DebugAntilog())
+            if (isDebug) Napier.base(platformDebugAntilog())
             sinks.forEach { Napier.base(SinkAntilog(it)) }
         }
 

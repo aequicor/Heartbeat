@@ -162,4 +162,6 @@
     <string name="en_illustration_upload">Add your files</string>
     <string name="en_illustration_upload_hint">A place to import documents and attachments.</string>
     <string name="en_matching_icons">Matching icons</string>
+    <string name="en_cinematic_welcome">Cinematic welcome</string>
+    <string name="en_replay_intro">Replay introduction</string>
 </resources>

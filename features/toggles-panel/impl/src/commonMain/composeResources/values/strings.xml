@@ -1,0 +1,20 @@
+<resources>
+    <string name="flags_title">Feature flag settings</string>
+    <string name="flags_description">Local settings for this device. Changes are saved automatically.</string>
+    <string name="flags_back">Back</string>
+    <string name="flags_search">Search by key or description</string>
+    <string name="flags_reset">Reset</string>
+    <string name="flags_reset_all">Reset all</string>
+    <string name="flags_default">Default</string>
+    <string name="flags_override">Local override</string>
+    <string name="flags_loading">Loading flags…</string>
+    <string name="flags_saving">Saving…</string>
+    <string name="flags_empty">No flags found</string>
+    <string name="flags_error">Could not load flags. Please try again.</string>
+    <string name="flags_write_error">Could not save the change. The previous value was kept.</string>
+    <string name="flags_retry">Retry</string>
+    <string name="flags_dismiss">Dismiss</string>
+    <string name="flags_on">On</string>
+    <string name="flags_off">Off</string>
+    <string name="flags_intro_description">A six-second introduction on a fresh launch. Changes apply to the next introduction.</string>
+</resources>

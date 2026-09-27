@@ -1,0 +1,9 @@
+<resources>
+    <string name="welcome_brand">AEQUICOR</string>
+    <string name="welcome_title">Heartbeat</string>
+    <string name="welcome_subtitle">A space for your ideas with AI</string>
+    <string name="welcome_studio">Go to AI-studio</string>
+    <string name="welcome_toggles">Feature flag settings</string>
+    <string name="welcome_skip">Skip</string>
+    <string name="welcome_footer">From the first spark to a new idea</string>
+</resources>

@@ -40,6 +40,7 @@ lint/            detekt-rules — собственный набор правил
 > `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md), [ADR-0008](docs/adr/0008-design-system-sandbox.md).
+> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root ([ADR-0013](docs/adr/0013-welcome-and-local-flags.md)).
 > Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)

@@ -75,12 +75,17 @@ class FeatureTogglesIntegrationTest {
 }
 
 object TestToggles {
+    val Mode = FeatureToggle.Choice("test.mode", "Processing mode", listOf("Fast", "Deep"))
     val Experiment = FeatureToggle.Flag("test.experiment", "Experimental behaviour of the test feature")
 }
 
 /** A feature registers its toggles for the control panel. */
 @ContributesTo(AppScope::class)
 interface TestTogglesContribution {
+    @Provides
+    @IntoSet
+    fun mode(): FeatureToggle<*> = TestToggles.Mode
+
     @Provides
     @IntoSet
     fun experiment(): FeatureToggle<*> = TestToggles.Experiment
