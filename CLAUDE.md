@@ -77,7 +77,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 ## Как работать
 
 - Перед изменением фичи прочитай её `api` (машину) — это спецификация поведения.
-- Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью.
+- Планируй логические коммиты до реализации; перед каждым коммитом проверяй staged diff через `python scripts/check_commit_size.py --staged`, перед ревью — весь диапазон PR через `--base <base-ref> --head HEAD`. Промежуточные fixup-коммиты объединяй с соответствующим логическим шагом перед ревью; правки по итогам ревью — отдельный коммит с трейлером `Addresses-Review:` (скилл `pr-fix`).
 - После правок кода → скилл `verify` (сборка, тесты, detekt). Для крупных изменений — субагент `architecture-reviewer`.
 - Мерж в `master` — только после ревью: комментарий `/reviewed [sha]` владельца превращается в approve бота. Правила для агента — раздел «Ревью PR» в `AGENTS.md`.
 
@@ -97,6 +97,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |
 | Ревью PR и подпись `/reviewed` | `pr-review` |
+| Исправление PR по ревью/комментариям/CI | `pr-fix` |
 
 Субагенты (`.claude/agents/`): `feature-architect` (дизайн фичи до кода), `architecture-reviewer`, `ui-reviewer`, `test-writer`, `build-doctor`.
 Хук `.claude/hooks/check-conventions.sh` проверяет каждый изменённый `.kt`/`.kts` (логи, корутины, цвета, границы модулей) и возвращает нарушения — исправляй сразу.
