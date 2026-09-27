@@ -1,6 +1,6 @@
 ---
 name: module-setup
-description: "Настройка Gradle-инфраструктуры Heartbeat — build-logic с convention-плагинами (heartbeat.kmp.library, kmp.compose, feature.api/impl, metro, detekt), добавление библиотек в version catalog, создание core/design-system модулей, миграция шаблона androidApp/desktopApp/shared в platform-main. Используй при создании нового Gradle-модуля, подключении detekt или первичной миграции проекта."
+description: "Настройка Gradle-инфраструктуры Heartbeat — build-logic с convention-плагинами (heartbeat.kmp.library, kmp.compose, feature.api/impl, metro, detekt), добавление библиотек в version catalog, создание core/design-system модулей, точки входа platform-main (shared/android/desktop/ios). Используй при создании нового Gradle-модуля, подключении detekt или первичной миграции проекта."
 ---
 
 # Gradle: build-logic и модули
@@ -113,6 +113,9 @@ kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", versio
 2. `core:logging`, `core:common`, `core:di`.
 3. `design-system:tokens`, `design-system:theme` (скилл `design-system`).
 4. Остальные `core:*`.
-5. `androidApp` → `platform-main/android`, `desktopApp` → `platform-main/desktop`, `shared` → `platform-main/shared` (framework `Shared` для iOS, `iosApp` в Xcode перенастроить на новый путь Gradle-задачи `embedAndSignAppleFrameworkForXcode`).
-6. Пакет `io.aequicor` → `io.aequicor.heartbeat` (applicationId не менять без согласования — это id в сторах).
+5. `androidApp` → `platform-main/android`, `desktopApp` → `platform-main/desktop`, `shared` → `platform-main/shared` (framework `Shared` для iOS), `iosApp` → `platform-main/ios` (build phase Xcode: `cd "$SRCROOT/../.."` и `./gradlew :platform-main:shared:embedAndSignAppleFrameworkForXcode`).
+6. Пакет `io.aequicor` → `io.aequicor.heartbeat.platform.<модуль>` (applicationId не менять без согласования — это id в сторах).
 7. Обнови `CLAUDE.md` (раздел «Текущее состояние» и команды).
+
+Все шаги выполнены: `platform-main/shared` собирается `heartbeat.kmp.compose`, `android` — `com.android.application`,
+`desktop` — Kotlin JVM + Compose Desktop. Новые платформенные входы добавляй по той же схеме.

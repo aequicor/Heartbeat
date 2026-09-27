@@ -33,10 +33,6 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-include(":androidApp")
-include(":desktopApp")
-include(":shared")
-
 include(":core:logging")
 include(":core:mvi")
 include(":features:welcome:api", ":features:welcome:impl")
@@ -62,6 +58,9 @@ include(":core:feature-toggles:api")
 include(":core:feature-toggles:impl")
 include(":platform-main:di-bundle")
 include(":platform-main:root")
+include(":platform-main:shared")
+include(":platform-main:android")
+include(":platform-main:desktop")
 
 include(":design-system:tokens")
 include(":design-system:adaptive")
