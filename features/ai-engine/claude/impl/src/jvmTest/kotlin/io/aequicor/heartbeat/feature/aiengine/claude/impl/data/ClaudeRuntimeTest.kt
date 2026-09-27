@@ -10,10 +10,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
@@ -194,6 +196,74 @@ class ClaudeRuntimeTest {
         runCurrent()
         retried.await()
         assertTrue(fixture.transport.calls.last().any { it == "--session-id=${session.ref.nativeId}" })
+        runtime.close()
+    }
+
+    @Test
+    fun `next prompt waits for the finished turn process and then resumes`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val exit = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(resultFrame(id))
+            exit.await()
+            0
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val first = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        first.await()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        val second = async { session.features.available(SendsPrompts).send(prompt("second")) }
+        runCurrent()
+        assertTrue(second.isActive)
+        exit.complete(Unit)
+        runCurrent()
+        second.await()
+        assertTrue(fixture.transport.calls.last().any { it == "--resume=${session.ref.nativeId}" })
+        runtime.close()
+    }
+
+    @Test
+    fun `a finished turn whose process never exits reports busy after the settle bound`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(resultFrame(id))
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val first = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        first.await()
+        val busy = assertFailsWith<EngineException> {
+            session.features.available(SendsPrompts).send(prompt("second"))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), busy.failure)
+        runtime.close()
+    }
+
+    @Test
+    fun `a foreign session frame makes delivery ambiguous`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.generation = { _, line ->
+            line(initFrame("forked"))
+            0
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val send = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        assertEquals(RequestFailureReason.OutcomeUnknown, assertIs<EngineFailure.Request>(send.await().failure).reason)
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        session.features.available(ReconcilesSession).synchronize()
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
         runtime.close()
     }
 

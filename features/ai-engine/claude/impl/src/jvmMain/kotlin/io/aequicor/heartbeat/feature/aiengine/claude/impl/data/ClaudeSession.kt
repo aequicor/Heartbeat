@@ -37,6 +37,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 /** Session commands are serialized across leases; generation belongs to the runtime's supervisor. */
@@ -56,6 +57,8 @@ internal class ClaudeSession(
     private val history = ClaudeHistory()
     private val leases = mutableSetOf<Lease>()
     private var current: ActiveSessionState = ActiveSessionState.Ready()
+
+    @Volatile
     private var operation: Job? = null
 
     @Volatile
@@ -113,7 +116,8 @@ internal class ClaudeSession(
         try {
             lease.ensureAttached()
             ensureOpen()
-            if (synchronized(lock) { current !is ActiveSessionState.Ready } || operation?.isActive == true) busy()
+            if (synchronized(lock) { current !is ActiveSessionState.Ready }) busy()
+            awaitSettled()
             val text = promptText(request)
             requireClaudeEnabled(toggles)
             account.validate(route.revision)
@@ -196,25 +200,46 @@ internal class ClaudeSession(
     }
 
     private fun lost(request: PromptRequest, turn: Turn, accepted: CompletableDeferred<TurnId>) {
+        log.w { "Claude prompt outcome is unknown after the CLI started a session" }
         val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id)
         update(ActiveSessionState.Unavailable(failure, activeTurn = turn))
         accepted.completeExceptionally(EngineException(failure))
     }
 
     private suspend fun reconcile(lease: Lease) = commands.withLock {
+        lease.ensureAttached()
+        awaitSettled()
         synchronized(lock) {
             lease.ensureAttached()
             ensureOpen()
-            if (operation?.isActive == true) busy()
-            val unavailable = current as? ActiveSessionState.Unavailable ?: return@withLock
+            val unavailable = current as? ActiveSessionState.Unavailable
             // Termination proves only that the local process stopped, not its native outcome.
-            val turn = unavailable.activeTurn ?: return@withLock
+            val turn = unavailable?.activeTurn
+            if (turn == null) {
+                log.d { "Claude session has no unresolved turn" }
+                return@withLock
+            }
             if (!hasNativeSession) {
                 throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
             }
+            log.i { "Claude turn recorded with unknown outcome" }
             history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
             update(ActiveSessionState.Ready(turn.copy(outcome = TurnOutcome.Unknown)))
         }
+    }
+
+    /**
+     * A result frame makes the session Ready while its CLI process may still be persisting the native session;
+     * the next command waits for that process instead of reporting Busy. A turn still in progress stays Busy.
+     */
+    private suspend fun awaitSettled() {
+        val pending = operation?.takeIf { it.isActive } ?: return
+        val isSettled = synchronized(lock) {
+            current is ActiveSessionState.Ready || current is ActiveSessionState.Unavailable
+        }
+        if (!isSettled) busy()
+        log.d { "Waiting for the previous Claude process to exit" }
+        withTimeoutOrNull(SETTLE_TIMEOUT_MS) { pending.join() } ?: busy()
     }
 
     private fun update(state: ActiveSessionState) = synchronized(lock) {
@@ -245,8 +270,25 @@ internal class ClaudeSession(
             SessionHistory to history,
             ReconcilesSession to this,
         )
-        override suspend fun send(request: PromptRequest): TurnId = this@ClaudeSession.send(request, this)
-        override suspend fun synchronize() = reconcile(this)
+        override suspend fun send(request: PromptRequest): TurnId {
+            log.i { "Sending Claude prompt" }
+            return try {
+                this@ClaudeSession.send(request, this)
+            } catch (e: EngineException) {
+                log.w(e.redacted()) { "Claude prompt failed: ${e.failure::class.simpleName.orEmpty()}" }
+                throw e
+            }
+        }
+
+        override suspend fun synchronize() {
+            log.i { "Synchronizing Claude session" }
+            try {
+                reconcile(this)
+            } catch (e: EngineException) {
+                log.w(e.redacted()) { "Claude synchronization failed: ${e.failure::class.simpleName.orEmpty()}" }
+                throw e
+            }
+        }
 
         override suspend fun close() = synchronized(lock) {
             log.i { "Detaching Claude session handle" }
@@ -278,6 +320,7 @@ private fun promptText(request: PromptRequest): String {
 }
 
 private const val MAX_PROMPT_CHARS = 1024 * 1024
+private const val SETTLE_TIMEOUT_MS = 10_000L
 
 private data class Submission(val request: PromptRequest, val text: String, val turn: Turn, val previous: Turn?) {
     override fun toString(): String = "Submission(***)"

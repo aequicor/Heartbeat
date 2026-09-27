@@ -14,11 +14,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 
+/**
+ * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
+ * With `closeInput = false` stdin stays open until the operation ends.
+ */
 internal interface ClaudeTransport {
     suspend fun run(
         arguments: List<String>,
@@ -55,6 +60,8 @@ internal class ProcessClaudeTransport(
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
+            // Killing the child on cancellation or timeout breaks its pipes; that is not an IO failure.
+            ensureActive()
             log.w(e.redacted()) { "Claude process IO failed" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
         }
@@ -69,12 +76,7 @@ internal class ProcessClaudeTransport(
     ): Int = coroutineScope {
         val process = start(processBuilder(arguments, workspace))
         try {
-            val writer = async {
-                val stream = process.outputStream.bufferedWriter(Charsets.UTF_8)
-                stream.write(input)
-                stream.flush()
-                if (closeInput) stream.close()
-            }
+            val writer = async { writeInput(process, input, closeInput) }
             val reader = async {
                 process.inputStream.bufferedReader(Charsets.UTF_8).use { stream ->
                     var value = stream.readFrame()
@@ -86,11 +88,35 @@ internal class ProcessClaudeTransport(
                 process.waitFor()
             }
             val exit = reader.await()
+            // After an early stop the child may still block the input write; killing it releases the writer.
+            process.destroyForcibly()
             writer.await()
             log.d { "Claude CLI operation ended exit=$exit" }
             exit
         } finally {
             process.destroyForcibly()
+            closeInput(process)
+        }
+    }
+
+    /** A child that stops reading stdin still reports its own exit code and frames. */
+    private fun writeInput(process: Process, input: String, closeInput: Boolean) {
+        val stream = process.outputStream.bufferedWriter(Charsets.UTF_8)
+        try {
+            stream.write(input)
+            stream.flush()
+            if (closeInput) stream.close()
+        } catch (e: IOException) {
+            log.w(e.redacted()) { "Claude process stopped reading input" }
+        }
+    }
+
+    /** Windows does not close the parent's pipe handles when the child is destroyed. */
+    private fun closeInput(process: Process) {
+        try {
+            process.outputStream.close()
+        } catch (e: IOException) {
+            log.w(e.redacted()) { "Claude process input could not be closed" }
         }
     }
 

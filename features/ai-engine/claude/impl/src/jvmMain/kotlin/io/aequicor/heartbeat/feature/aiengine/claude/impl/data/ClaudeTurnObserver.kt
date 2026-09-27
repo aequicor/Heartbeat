@@ -37,8 +37,9 @@ internal class ClaudeTurnObserver(
 
     fun receive(message: JsonObject) {
         val session = message.text("session_id")
-        if (session != null && session != ref.nativeId) protocolFailure()
+        // Any session frame proves the CLI started a native turn, so a mismatch is an ambiguous delivery.
         if (session != null) hasSession = true
+        if (session != null && session != ref.nativeId) protocolFailure()
         if (isFinished) return
         when (message.text("type")) {
             "system" -> if (message.text("subtype") == "init") {

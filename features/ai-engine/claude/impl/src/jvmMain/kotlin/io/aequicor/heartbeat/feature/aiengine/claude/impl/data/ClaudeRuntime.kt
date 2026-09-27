@@ -72,10 +72,14 @@ internal class ClaudeRuntime(
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
         validate(request.target)
-        val session = sessions[ref] ?: throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        val session = sessions[ref] ?: run {
+            log.w { "Claude session is unknown to this runtime" }
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        }
         if (session.route.binding != request.target.binding || session.route.workspace != request.workspace ||
             session.target.model != request.target.model
         ) {
+            log.w { "Claude session route does not match the resume request" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
         log.i { "Attaching existing Claude session" }
@@ -83,6 +87,7 @@ internal class ClaudeRuntime(
     }
 
     suspend fun stored(ref: SessionRef): EngineSession = mutex.withLock {
+        log.d { "Looking up stored Claude session" }
         if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         val session = sessions[ref] ?: throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         session.stored { request -> attach(ref, request) }

@@ -41,6 +41,7 @@ internal class ClaudeAccount(private val transport: ClaudeTransport, private val
         if (exit !in 0..1 || (exit == 0) != isLoggedIn) protocolFailure()
         if (isLoggedIn && status.text("authMethod") != "claude.ai") authFailure(AuthFailureReason.AuthMismatch)
         val revision = revision(status, isLoggedIn)
+        log.i { "Claude CLI login checked loggedIn=$isLoggedIn" }
         val source = AuthSource.CliLogin(
             AuthSourceInfo(ClaudeEngine.AuthSource, "Claude Code", revision),
             AuthScope(ProviderId("anthropic"), EndpointOrigin("https://api.anthropic.com")),

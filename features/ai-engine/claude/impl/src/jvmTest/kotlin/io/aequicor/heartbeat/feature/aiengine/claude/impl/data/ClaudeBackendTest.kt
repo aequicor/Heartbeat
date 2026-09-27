@@ -1,19 +1,31 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertNotSame
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ClaudeBackendTest {
@@ -21,6 +33,9 @@ class ClaudeBackendTest {
 
     private fun ClaudeFixture.backend(scope: CoroutineScope) =
         JvmClaudeBackend(transport, account, toggles, TestProfileHandle(scope))
+
+    private suspend fun ClaudeFixture.identity() =
+        RuntimeIdentity(ClaudeEngine.Id, ClaudeEngine.AuthSource, account.inspect().check.revision)
 
     @Test
     fun `disabled toggle stops login inspection before the CLI runs`() = runTest {
@@ -58,6 +73,55 @@ class ClaudeBackendTest {
             backend.checkRequirements(),
         )
         assertEquals(calls, fixture.transport.calls.size)
+    }
+
+    @Test
+    fun `runtime is pooled per identity and retired when the account revision changes`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val backend = fixture.backend(backgroundScope)
+        val identity = fixture.identity()
+        val first = assertIs<ClaudeRuntime>(backend.createRuntime(identity))
+        assertSame(first, backend.createRuntime(identity))
+        val session = first.create(CreateSessionRequest(testTarget))
+        assertEquals(session.ref, backend.session(session.ref).summary.value.ref)
+
+        fixture.transport.account = "someone-else@example.test"
+        val second = assertIs<ClaudeRuntime>(backend.createRuntime(fixture.identity()))
+        assertNotSame(first, second)
+        assertTrue(first.isClosed)
+        val missing = assertFailsWith<EngineException> { backend.session(session.ref) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
+        second.close()
+    }
+
+    @Test
+    fun `runtime creation rejects a foreign identity, a stale revision and a closed profile`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val backend = fixture.backend(backgroundScope)
+        val identity = fixture.identity()
+        val mismatch = EngineFailure.Authentication(
+            AuthFailure(AuthFailureReason.AuthMismatch, ClaudeEngine.AuthSource),
+        )
+        val foreign = assertFailsWith<EngineException> {
+            backend.createRuntime(identity.copy(engine = EngineId("other")))
+        }
+        assertEquals(mismatch, foreign.failure)
+
+        fixture.transport.account = "someone-else@example.test"
+        val stale = assertFailsWith<EngineException> { backend.createRuntime(identity) }
+        assertEquals(
+            AuthFailureReason.SourceChanged,
+            assertIs<EngineFailure.Authentication>(stale.failure).reason.reason,
+        )
+        val unknown = SessionRef(ClaudeEngine.Id, ClaudeEngine.SessionSource, "none")
+        val missing = assertFailsWith<EngineException> { backend.session(unknown) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
+
+        val profile = Job()
+        val closed = fixture.backend(CoroutineScope(coroutineContext + profile))
+        profile.cancel()
+        val error = assertFailsWith<EngineException> { closed.createRuntime(fixture.identity()) }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), error.failure)
     }
 
     @Test

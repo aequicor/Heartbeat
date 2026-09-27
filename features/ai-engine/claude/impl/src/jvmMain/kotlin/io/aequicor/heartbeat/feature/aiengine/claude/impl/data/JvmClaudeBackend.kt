@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
@@ -69,9 +70,14 @@ internal class JvmClaudeBackend(
                 EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
             }
         }
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: EngineException) {
         log.w(e.redacted()) { "Claude installation probe failed" }
         EngineAvailability.Unavailable(e.failure)
+    } catch (e: Exception) {
+        log.w(e.redacted()) { "Claude installation probe failed unexpectedly" }
+        EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.Unavailable))
     }
 
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -48,6 +49,39 @@ class ClaudeProcessTest {
             val pid = started.await()
             task.cancelAndJoin()
             assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `early stop does not wait for a child that never reads its input`() = runTest {
+        val program = Files.createTempFile("claude-sleeper", ".java")
+        Files.writeString(program, SLEEPER_PROGRAM)
+        try {
+            val exit = transport().run(listOf(program.toString()), LARGE_INPUT) { true }
+            assertEquals(0, exit)
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `cancellation during a blocked input write stays a cancellation`() = runTest {
+        val program = Files.createTempFile("claude-sleeper", ".java")
+        Files.writeString(program, SLEEPER_PROGRAM)
+        val transport = transport()
+        val started = CompletableDeferred<Unit>()
+        try {
+            val task = async {
+                transport.run(listOf(program.toString()), LARGE_INPUT) {
+                    started.complete(Unit)
+                    false
+                }
+            }
+            started.await()
+            task.cancelAndJoin()
+            assertFailsWith<CancellationException> { task.await() }
         } finally {
             Files.deleteIfExists(program)
         }
@@ -117,9 +151,22 @@ private val java = Path.of(System.getProperty("java.home"), "bin", "java").toStr
 private const val CHILD_PROGRAM = """
 class Child {
     public static void main(String[] args) throws Exception {
-        System.out.println(ProcessHandle.current().pid());
-        System.out.flush();
+        var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
+        stdout.println(ProcessHandle.current().pid());
         System.in.read();
     }
 }
 """
+
+/** Never reads stdin, so an input larger than the pipe buffer blocks the parent's write. */
+private const val SLEEPER_PROGRAM = """
+class Sleeper {
+    public static void main(String[] args) throws Exception {
+        var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
+        stdout.println("started");
+        Thread.sleep(60_000);
+    }
+}
+"""
+
+private val LARGE_INPUT = "x".repeat(4 * 1024 * 1024)
