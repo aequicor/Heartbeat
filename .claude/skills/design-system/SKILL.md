@@ -6,14 +6,12 @@ description: "Работа с дизайн-системой Mission в Heartbeat
 # Дизайн-система Mission
 
 > Текущее визуальное направление изменено прямым запросом пользователя: **Aequicor Glass UI,
-> пастельный glassmorphism**, см. [ADR-0011](../../../docs/adr/0011-glass-surfaces.md).
-> Пастельная палитра из [ADR-0009](../../../docs/adr/0009-pastel-neumorphism.md) сохраняется;
+> пастельный glassmorphism**.
+> Пастельная палитра сохраняется;
 > поверхности используют прозрачную заливку, мягкие тени и blur перекрывающих панелей.
 > Hex-палитра в исторических примерах ниже больше не актуальна: используй текущие `HbColors`
-> из `design-system/tokens` и таблицу `docs/ai/design-system.md`. Основной режим —
+> из `design-system/tokens` (назначение — в их KDoc). Основной режим —
 > `HbVisualStyle.Glass`; `Neumorphic` остаётся вариантом API, `Platform` сохраняет реальные нативные адаптеры.
-
-Полная спецификация — [docs/ai/design-system.md](../../../docs/ai/design-system.md). Здесь — как писать код.
 
 ## Токены (`design-system:tokens`) — единственное место с hex
 
@@ -68,7 +66,7 @@ data class HbGradients(val primaryAccent: Brush, val cosmicDeep: Brush) {
 }
 ```
 
-Новый цвет → сначала токен здесь (обе темы) + строка в таблице `docs/ai/design-system.md`. Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
+Новый цвет → сначала токен здесь (обе темы) с KDoc о назначении. Производные (`onPrimary`, `textSecondary`, `outline`) вычисляются из базовых и проверяются на контраст ≥ 4.5:1.
 
 `HbSpacing` (компактная шкала: `xxs=2, xs=4, s=6, m=8, l=12, xl=16, xxl=20 dp`), `HbTypography`, `HbShapes` — рядом, по тому же принципу.
 
@@ -143,6 +141,6 @@ Fluent/macOS-реализации лежат в `jvmMain` (киты — desktop-
 4. `@Preview` light/dark; запись в `design-system:catalog`.
 5. Доступность: семантика, `contentDescription`, фокус/клавиатура на desktop.
 6. Проверка субагентом `ui-reviewer`.
-7. На каждой горизонтальной/вертикальной scrollable-поверхности — общий auto-hide scrollbar из `layouts`, включая поля ввода. Для lazy — нормализованный thumb без оценки средней высоты видимых строк; для sticky host — одна внешняя полоса вне fade-слоя. Проверяй hover, wheel, drag/release, RTL/reverse и края диапазона (ADR-0012).
+7. На каждой горизонтальной/вертикальной scrollable-поверхности — общий auto-hide scrollbar из `layouts`, включая поля ввода. Для lazy — нормализованный thumb без оценки средней высоты видимых строк; для sticky host — одна внешняя полоса вне fade-слоя. Проверяй hover, wheel, drag/release, RTL/reverse и края диапазона.
 
-Версии/API китов (compose-fluent-ui, compose-macos-26-ui) — [docs/ai/tech-stack.md](../../../docs/ai/tech-stack.md).
+Версии/API китов (compose-fluent-ui, compose-macos-26-ui) — `gradle/libs.versions.toml` и документация китов.

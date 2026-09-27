@@ -40,7 +40,7 @@ if [[ "$rel" == *.kt ]]; then
   #    (lint/ — реализация правил detekt: упоминает запрещённые API как данные)
   if [[ "$rel" != core/logging/* && "$rel" != lint/* ]]; then
     hits="$(grep_lines '(^|[^A-Za-z_.])(println|print)\(|System\.(out|err)\.|android\.util\.Log|NSLog\(|import io\.github\.aakira\.napier')"
-    [ -n "$hits" ] && add "Логирование только через core:logging (Log.tag(...)). См. docs/ai/logging-policy.md
+    [ -n "$hits" ] && add "Логирование только через core:logging (Log.tag(...)).
 $hits"
   fi
 
@@ -59,7 +59,7 @@ $hits"
   # 4. Colors only from design-system tokens
   if [[ "$rel" != design-system/tokens/* ]] && ! $is_test; then
     hits="$(grep_lines 'Color\(0[xX][0-9A-Fa-f]+|Color\.(Red|Blue|Green|Black|White|Gray|Yellow|Cyan|Magenta)\b')"
-    [ -n "$hits" ] && add "Цвета только из токенов HbTheme.colors (docs/ai/design-system.md). Hex допустим лишь в design-system/tokens.
+    [ -n "$hits" ] && add "Цвета только из токенов HbTheme.colors. Hex допустим лишь в design-system/tokens.
 $hits"
   fi
 
@@ -71,7 +71,7 @@ $hits"
     [ -n "$hits" ] && add "impl → чужой impl запрещён. Используй api другой фичи (MachineKey / EntryPoint).
 $hits"
     hits="$(grep_lines 'import ru\.nsk\.kstatemachine\.')"
-    [ -n "$hits" ] && add "KStateMachine — внутренность core:state-machine:impl. Фича описывает машину через machineSpec { } (core:state-machine:api), запускает через MachineLauncher. См. docs/adr/0004-state-machine.md
+    [ -n "$hits" ] && add "KStateMachine — внутренность core:state-machine:impl. Фича описывает машину через machineSpec { } (core:state-machine:api), запускает через MachineLauncher.
 $hits"
     hits="$(grep_lines 'import (io\.github\.composefluent|dev\.nucleusframework|androidx\.compose\.material3)\.')"
     [ -n "$hits" ] && add "Фичи используют только Hb*-компоненты design-system, не UI-киты напрямую.
@@ -90,10 +90,10 @@ $hits"
 $hits"
   fi
 
-  # 6. FeatureToggleControl (changing toggles) — only the toggle panel, platform-main and core:feature-toggles (ADR-0007)
+  # 6. FeatureToggleControl (changing toggles) — only the toggle panel, platform-main and core:feature-toggles
   if [[ "$rel" != features/toggles-panel/* && "$rel" != platform-main/* && "$rel" != core/feature-toggles/* ]]; then
     hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.featuretoggles\.FeatureToggleControl')"
-    [ -n "$hits" ] && add "FeatureToggleControl — только для панели тоглов (features/toggles-panel) и platform-main. Фичи читают тоглы через FeatureToggles. См. docs/adr/0007-feature-toggles.md
+    [ -n "$hits" ] && add "FeatureToggleControl — только для панели тоглов (features/toggles-panel) и platform-main. Фичи читают тоглы через FeatureToggles.
 $hits"
   fi
 
@@ -103,7 +103,7 @@ $hits"
     [[ "$rel" =~ ^core/([^/]+)/impl/ ]] && own="core\\.${BASH_REMATCH[1]//-/}\\.impl\\."
     hits="$(grep -nE 'import io\.aequicor\.heartbeat\.core\.[a-z0-9]+\.impl\.' "$file_path" | grep -vE "$own" \
             | head -n 5 | sed 's/^/    /')"
-    [ -n "$hits" ] && add "core:*:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, DataStores, MachineLauncher, MachineRegistry…). См. docs/adr/0002-di-scopes.md, docs/adr/0004-state-machine.md
+    [ -n "$hits" ] && add "core:*:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, DataStores, MachineLauncher, MachineRegistry…).
 $hits"
   fi
 fi

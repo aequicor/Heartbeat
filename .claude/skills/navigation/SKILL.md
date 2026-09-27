@@ -5,7 +5,7 @@ description: "Навигация Heartbeat на Decompose (core:navigation) — 
 
 # Навигация (core:navigation)
 
-Решение и мотивация — [ADR-0003](../../../docs/adr/0003-navigation.md). Decompose — https://arkivanov.github.io/Decompose/ .
+Decompose — https://arkivanov.github.io/Decompose/ .
 
 | Модуль | Что брать | Кто подключает |
 |---|---|---|

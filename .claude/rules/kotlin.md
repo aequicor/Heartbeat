@@ -8,7 +8,7 @@ paths:
 - Стиль — `kotlin.code.style=official` + detekt (ktlint-wrapper, compose-rules). Не спорь с форматтером: `./gradlew detekt --auto-correct`.
 - Пакет = `io.aequicor.heartbeat.<group>.<module>…`; путь файла совпадает с пакетом.
 - Публичное API модуля минимально: по умолчанию `internal`. `public` — только то, что реально нужно другим модулям (для `api`-модулей фич — контракт).
-- Логирование: `private val log = Log.tag("<ClassName>")` из `core:logging`. Запрещены `println`, `print`, `System.out`, `android.util.Log`, `NSLog`, прямой `Napier` вне `core:logging`. См. `docs/ai/logging-policy.md`.
+- Логирование: `private val log = Log.tag("<ClassName>")` из `core:logging`. Запрещены `println`, `print`, `System.out`, `android.util.Log`, `NSLog`, прямой `Napier` вне `core:logging`.
 - Каждый `catch` (и `Flow.catch`, `onFailure`, `getOrElse`, `CoroutineExceptionHandler`) логирует ошибку `log.w(e)`/`log.e(e)` или пробрасывает её — проверяет detekt `heartbeat:SwallowedError`. `catch (e: CancellationException)` → rethrow. Предпочитай `runCatching` только с явной обработкой `CancellationException` (используй `suspendRunCatching` из `core:common`).
 - Корутины: без `GlobalScope`, без `runBlocking` в main-коде, диспетчеры через `DispatcherProvider` (инжект). `suspend`-функции main-safe.
 - `!!` запрещён (кроме тестов). `lateinit` — только для DI-полей платформенных классов.

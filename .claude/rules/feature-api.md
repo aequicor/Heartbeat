@@ -5,9 +5,9 @@ paths:
 
 # Модуль `features/<name>/api` — контракт фичи
 
-Это **спецификация поведения** фичи. Подробно: `docs/ai/feature-contract.md`, процедура — скилл `state-machine`.
+Это **спецификация поведения** фичи. Процедура — скилл `state-machine`.
 
-Содержит только (всё на `core:state-machine:api`, [ADR-0004](../../docs/adr/0004-state-machine.md)):
+Содержит только (всё на `core:state-machine:api`):
 - `<Name>State : MachineState` — sealed-иерархия **всех** состояний (`data object` / `data class` с данными; `@Serializable`, если машина `persist`).
 - `<Name>Intent : MachineIntent` — `Public` (шлют другие фичи и стор) и `Internal` (результаты эффектов, внутренний ввод).
 - `<Name>Effect : MachineEffect` — команды на IO (исполняет `EffectHandler` в `impl`); `<Name>Output : MachineOutput` — одноразовые события наружу.

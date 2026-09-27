@@ -5,7 +5,7 @@ description: "ИИ-функциональность Heartbeat на Koog (core:ai
 
 # ИИ (Koog)
 
-Документация: https://docs.koog.ai/ . Артефакт `ai.koog:koog-agents` (варианты android/jvm/ios; JVM требует JDK 17+). Версия — [tech-stack.md](../../../docs/ai/tech-stack.md).
+Документация: https://docs.koog.ai/ . Артефакт `ai.koog:koog-agents` (варианты android/jvm/ios; JVM требует JDK 17+). Версия — `gradle/libs.versions.toml`.
 
 ## Слои
 

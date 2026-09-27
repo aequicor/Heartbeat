@@ -4,18 +4,9 @@
 Платформы: **Android, iOS, Desktop macOS, Desktop Windows** (desktop = один JVM-таргет, выбор UI-кита — в рантайме по ОС).
 Корневой пакет: `io.aequicor.heartbeat`. Язык общения в коде/доках: русский в документации, английский в идентификаторах и KDoc.
 
-## Карта знаний (читать по необходимости, не целиком)
+## Где правила
 
-| Тема | Где |
-|---|---|
-| Архитектура, группы модулей, правила зависимостей | [docs/ai/architecture.md](docs/ai/architecture.md) |
-| Контракт фичи: state-machine в `api`, связь машин через object-key | [docs/ai/feature-contract.md](docs/ai/feature-contract.md) |
-| Политика логирования (обязательна) | [docs/ai/logging-policy.md](docs/ai/logging-policy.md) |
-| PR целиком на фичу, логические коммиты, бюджет ревью | [docs/ai/commit-policy.md](docs/ai/commit-policy.md) |
-| Дизайн-система Glass UI, пастельные токены, blur и платформенные киты | [docs/ai/design-system.md](docs/ai/design-system.md), [ADR-0011](docs/adr/0011-glass-surfaces.md) |
-| Стек и версии библиотек, ссылки на доки | [docs/ai/tech-stack.md](docs/ai/tech-stack.md) |
-| Архитектурные решения (ADR) | [docs/adr/](docs/adr/) |
-
+Источник правды по коду — KDoc в исходниках. Правила для агентов — этот файл и `AGENTS.md`.
 В Claude Code правила по путям подгружаются автоматически из `.claude/rules/`; Codex читает применимые правила явно согласно `AGENTS.md`.
 Общие процедуры (создать фичу, машину, стор, тогл…) — скиллы в `.claude/skills/`.
 Codex обнаруживает одноимённые навыки в `.agents/skills/`; они направляют к этим общим процедурам.
@@ -36,31 +27,30 @@ lint/            detekt-rules — собственный набор правил
 
 > Текущее состояние: шаблонные модули (`androidApp`, `desktopApp`, `iosApp`, `shared`) ещё не перенесены.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
-> `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)),
-> `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:state-machine:{api,impl,flowmvi-ext}` ([ADR-0004](docs/adr/0004-state-machine.md)),
-> `core:network:{api,impl}` ([ADR-0005](docs/adr/0005-network.md)),
-> `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)),
-> `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки — [ADR-0016](docs/adr/0016-profile-secrets.md)), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
+> `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы app → profile → feature → screen),
+> `core:navigation:{api,impl,compose}`, `core:state-machine:{api,impl,flowmvi-ext}`,
+> `core:network:{api,impl}`,
+> `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
+> `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
-> отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md), [ADR-0008](docs/adr/0008-design-system-sandbox.md).
-> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root ([ADR-0013](docs/adr/0013-welcome-and-local-flags.md)).
-> Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
+> отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
+> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
 
 1. **Зависимости**: `feature:impl` → только `api` других фич. От любого `…:impl` (фич и `core`) зависит только `:platform-main:di-bundle` (проверяет `build-logic` через `heartbeat.detekt`, подключённый ко всем модулям). `core` не знает о `features` и `design-system`. `feature:api` без Compose/UI.
-2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)` ([ADR-0004](docs/adr/0004-state-machine.md)). Никаких прямых ссылок на классы `impl`.
+2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)`. Никаких прямых ссылок на классы `impl`.
 3. **UI-состояние** — FlowMVI-стор в `impl`. Машина = бизнес-флоу фичи, стор = состояние экрана. Стор не дублирует состояние машины, а отражает его (`reflect` из `core:state-machine:flowmvi-ext`).
-4. **Навигация** — только Decompose через `core:navigation` ([ADR-0003](docs/adr/0003-navigation.md)): фичи открывают друг друга `Navigator.navigate(Route)`, маршруты — `@Serializable @SerialName` в `api`, `RouteEntry` в реестре своего скоупа (`binding<ProfileRouteBinding>()` / `AppRouteBinding`), результаты — `ResultContract`. Никаких navigation-compose и ссылок на чужие компоненты.
+4. **Навигация** — только Decompose через `core:navigation`: фичи открывают друг друга `Navigator.navigate(Route)`, маршруты — `@Serializable @SerialName` в `api`, `RouteEntry` в реестре своего скоупа (`binding<ProfileRouteBinding>()` / `AppRouteBinding`), результаты — `ResultContract`. Никаких navigation-compose и ссылок на чужие компоненты.
 5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@GraphExtension`). Граф — только в `platform-main:di-bundle`; скоупы app → profile → feature → screen, граф фичи — через `retainedGraph` (`core:di:ext`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.
-6. **Логирование через `core:logging` (Napier)**: каждое действие пользователя, смена состояния (машины/стора), запрос в сеть, чтение/запись БД/DataStore, изменение конфигурации/тоглов. `println`, `android.util.Log`, `NSLog` запрещены. Секреты и API-ключи не логируются никогда. Проверяется detekt (набор `heartbeat`, см. [logging-policy.md](docs/ai/logging-policy.md#автоматическая-проверка-detekt)).
+6. **Логирование через `core:logging` (Napier)**: каждое действие пользователя, смена состояния (машины/стора), запрос в сеть, чтение/запись БД/DataStore, изменение конфигурации/тоглов. `println`, `android.util.Log`, `NSLog` запрещены. Секреты и API-ключи не логируются никогда. Проверяется detekt (набор `heartbeat`, `lint/detekt-rules`).
 7. **Цвета/типографика/отступы — только токены `design-system`**. `Color(0x…)`, `.sp`/`.dp`-литералы для стилей вне `design-system` запрещены.
 8. **Тоглы** — через `core:feature-toggles` (`FeatureToggles` для чтения, регистрация `@IntoSet`); новая функциональность за тоглом по умолчанию.
 9. **Корутины**: без `GlobalScope`, `runBlocking` в продовом коде; диспетчеры инжектятся (`DispatcherProvider`); `CancellationException` не глотаем.
    **Ошибки**: никакая ошибка не игнорируется — минимум `log.w(e)`/`log.e(e)` с throwable или проброс (rethrow / `Result.failure(e)`); исключение — `CancellationException`, она пробрасывается. `@Suppress` этих правил запрещён (`ForbiddenSuppress`).
 10. **Detekt + compose-rules + ktlint** обязаны быть зелёными. `@Suppress` — только с комментарием-причиной.
-11. Версии библиотек приложения — только в `gradle/libs.versions.toml`. Python-инструмент проверки коммитов закреплён отдельно ([ADR-0016](docs/adr/0016-commit-review-budget.md)).
-12. **PR содержит законченную фичу; коммиты — отдельные логические шаги.** Каждый коммит должен оставлять проект собираемым, тесты изменённого поведения идут вместе с реализацией. Бюджет каждого коммита — **не более 25 000 токенов полного diff**; свыше 20 000 токенов или 20 файлов — предупреждение. Ориентир — 700–1000 добавленных и удалённых строк суммарно, без жёсткого лимита строк и размера PR. Метод подсчёта и команды — [политика коммитов](docs/ai/commit-policy.md).
+11. Версии библиотек приложения — только в `gradle/libs.versions.toml`. Python-инструмент проверки коммитов закреплён отдельно (`scripts/requirements-commit-policy.txt`).
+12. **PR содержит законченную фичу; коммиты — отдельные логические шаги.** Каждый коммит должен оставлять проект собираемым, тесты изменённого поведения идут вместе с реализацией. Бюджет каждого коммита — **не более 25 000 токенов полного diff**; свыше 20 000 токенов или 20 файлов — предупреждение. Ориентир — 700–1000 добавленных и удалённых строк суммарно, без жёсткого лимита строк и размера PR. Команды — скилл `verify`.
 
 ## Команды
 
@@ -106,5 +96,5 @@ iOS собирается только на macOS (Xcode, `iosApp/`). На Window
 
 Субагенты (`.claude/agents/`): `feature-architect` (дизайн фичи до кода), `architecture-reviewer`, `ui-reviewer`, `test-writer`, `build-doctor`.
 Хук `.claude/hooks/check-conventions.sh` проверяет каждый изменённый `.kt`/`.kts` (логи, корутины, цвета, границы модулей) и возвращает нарушения — исправляй сразу.
-- Не добавляй библиотеки вне [tech-stack.md](docs/ai/tech-stack.md) без ADR.
-- Значимое архитектурное решение → новый ADR в `docs/adr/` (шаблон `0000-template.md`).
+- Не добавляй библиотеки вне `gradle/libs.versions.toml` без согласования с пользователем.
+- Документацию пиши в KDoc; правила для агентов — в `CLAUDE.md` / `AGENTS.md` (и подключаемых из них `.claude/rules/`, скиллах). Папку `docs/` не создавай.

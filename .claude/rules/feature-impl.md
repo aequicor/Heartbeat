@@ -26,5 +26,5 @@ ui/          Compose-экраны (<Screen>Screen), приватные composabl
 - Новая функциональность — за тоглом `FeatureToggle` (default `false`, пока фича не готова).
 - Эффекты машины: `EffectHandler.handle` — `suspend`, main-safe, результат — `machine.send(<Name>Intent.Internal.*)`; исключение логирует рантайм и мапит `onEffectFailure` → `Internal.Failed`. Жизненный цикл эффекта уже в логе `SM/<name>` — логируй только детали IO.
 - Данные — только через `@ForScope(AppScope|ProfileScope) DataStores` из `core:datastore` (KV и своя БД). Время жизни записей
-  задаётся `Retention` / `RecordRetention` — таймеры и чистки не писать (ADR-0006, скилл `data-storage`).
+  задаётся `Retention` / `RecordRetention` — таймеры и чистки не писать (скилл `data-storage`).
 - Тесты: сторы (FlowMVI test DSL, фейк `Machine`), `EffectHandler` (фейк `EffectScope` + фейки репозиториев), репозитории (in-memory Room / fake `KeyValueStore` / `DataStores`).

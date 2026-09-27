@@ -18,7 +18,7 @@ if [ -d features ]; then
   keys="$(grep -rhoE 'object [A-Za-z0-9]+ *: *MachineKey<' features --include='*.kt' 2>/dev/null | sed -E 's/object ([A-Za-z0-9]+).*/\1/' | sort -u | tr '\n' ' ')"
   [ -n "$keys" ] && echo "Машины (MachineKey): $keys"
 else
-  echo "Фичи: ещё нет (шаблон; целевая раскладка — docs/ai/architecture.md)"
+  echo "Фичи: ещё нет (шаблон; целевая раскладка — CLAUDE.md)"
 fi
 
 if [ -d build-logic ]; then

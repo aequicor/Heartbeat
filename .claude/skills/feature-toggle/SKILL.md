@@ -5,9 +5,9 @@ description: "Фича-тоглы Heartbeat — объявление тогла,
 
 # Фича-тоглы
 
-`core:feature-toggles:{api,impl}` — [ADR-0007](../../../docs/adr/0007-feature-toggles.md). Локальные переопределения
+`core:feature-toggles:{api,impl}`. Локальные переопределения
 в app-хранилище `core:datastore` + единая точка управления `FeatureToggleControl` (бэкенд панели). Удалённый источник —
-будущий ADR.
+отдельное будущее решение.
 
 ## API (`io.aequicor.heartbeat.core.featuretoggles`)
 
@@ -87,7 +87,7 @@ interface ChatTogglesContribution {
 
 Фича `features/toggles-panel` поверх `FeatureToggleControl`: список `observeStates()`, группировка по `owner`,
 переключатели / выбор, сброс одного и всех, поиск, отметка переопределённых. Появится после `design-system`
-(экраны — только на токенах и `Hb*`). Доступ в release — по отдельному ADR.
+(экраны — только на токенах и `Hb*`). Доступ в release — отдельным решением.
 
 ## Тесты
 
