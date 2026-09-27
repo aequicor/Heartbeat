@@ -90,11 +90,13 @@ $hits"
 $hits"
   fi
 
-  # 6. core:*:impl (di, profile-facade, state-machine) is wired only by platform-main:di-bundle
-  if [[ "$rel" != platform-main/di-bundle/* && "$rel" != core/di/impl/* && "$rel" != core/profile-facade/impl/* \
-        && "$rel" != core/state-machine/impl/* ]]; then
-    hits="$(grep_lines 'import io\.aequicor\.heartbeat\.core\.(di|profilefacade|statemachine)\.impl\.')"
-    [ -n "$hits" ] && add "core:di:impl / core:profile-facade:impl / core:state-machine:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, MachineLauncher, MachineRegistry…). См. docs/adr/0002-di-scopes.md, docs/adr/0004-state-machine.md
+  # 6. core:*:impl is wired only by platform-main:di-bundle; inside core/<x>/impl only its own impl package is allowed
+  if [[ "$rel" != platform-main/di-bundle/* ]]; then
+    own='^$'
+    [[ "$rel" =~ ^core/([^/]+)/impl/ ]] && own="core\\.${BASH_REMATCH[1]//-/}\\.impl\\."
+    hits="$(grep -nE 'import io\.aequicor\.heartbeat\.core\.[a-z0-9]+\.impl\.' "$file_path" | grep -vE "$own" \
+            | head -n 5 | sed 's/^/    /')"
+    [ -n "$hits" ] && add "core:*:impl видит только :platform-main:di-bundle. Используй контракты из api (ScopeFactory, ProfileSessions, DataStores, MachineLauncher, MachineRegistry…). См. docs/adr/0002-di-scopes.md, docs/adr/0004-state-machine.md
 $hits"
   fi
 fi

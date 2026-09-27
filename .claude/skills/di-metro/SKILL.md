@@ -21,10 +21,12 @@ AppScope (Metro)     HeartbeatGraph   :platform-main:di-bundle
 
 - У каждого уровня — `@ForScope(<Scope>::class) ScopeHandle` (корутины, `savedState`, `onClose`) и, для App/Profile,
   `@ForScope(...) CoroutineScope`. Без квалификатора дочерний граф конфликтовал бы с родительским биндингом.
+- Так же квалифицированы хранилища `core:datastore`: `@ForScope(AppScope::class) DataStores` — данные приложения,
+  `@ForScope(ProfileScope::class) DataStores` — данные активного профиля, закрываются с ним (скилл `data-storage`).
 - Закрытие профиля (логаут/смена) каскадно закрывает фичи и shared-объекты.
 - Состояние, которое должно пережить смерть процесса, — в `scope.savedState` (`consume` + `register`), не в полях графа.
 - Модули: `core:di:api` (контракты) ← фичи; `core:di:ext` (`retainedGraph`/`retainedScope`/`retainedShared`) ← impl фич;
-  `core:di:impl`, `core:profile-facade:impl` ← только `di-bundle`.
+  `core:di:impl`, `core:profile-facade:impl`, `core:network:impl`, `core:datastore:impl` ← только `di-bundle`.
 
 ## Типовые приёмы
 
@@ -104,6 +106,16 @@ interface HeartbeatGraph {
 internal interface JvmHeartbeatGraph : HeartbeatGraph
 
 fun createHeartbeatGraph(): HeartbeatGraph = createGraph<JvmHeartbeatGraph>()
+
+// androidMain — граф получает Context (пути хранилищ, Room): только applicationContext
+@DependencyGraph(AppScope::class)
+internal interface AndroidHeartbeatGraph : HeartbeatGraph {
+    @DependencyGraph.Factory
+    fun interface Factory { fun create(@Provides context: Context): AndroidHeartbeatGraph }
+}
+
+fun createHeartbeatGraph(context: Context): HeartbeatGraph =
+    createGraphFactory<AndroidHeartbeatGraph.Factory>().create(context.applicationContext)
 ```
 
 `di-bundle` — единственный модуль, который зависит от `…:impl`; фичи графов не создают. Проверка всего графа без сборки

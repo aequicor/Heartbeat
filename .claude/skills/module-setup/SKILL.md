@@ -35,7 +35,7 @@ build-logic/
 | `heartbeat.feature.impl` | `kmp.compose` + `metro` + `serialization`; deps: `core:*` (logging, mvi, navigation, `state-machine:api` + `state-machine:flowmvi-ext`, feature-toggles, resources), `design-system:components`, `design-system:theme`; проверка: падение конфигурации, если в зависимостях есть `:features:*:impl` |
 | `heartbeat.metro` | плагин `dev.zacsweers.metro` |
 | `heartbeat.detekt` | плагин `dev.detekt`; `buildUponDefaultConfig = true`; `config.setFrom(rootProject.file("config/detekt/detekt.yml"))`; `parallel = true`; `source` = все `src/*/kotlin`; `detektPlugins(libs.detekt.ktlint.wrapper)`, `detektPlugins(libs.compose.rules.detekt)`; baseline `detekt-baseline.xml` |
-| `heartbeat.room` | `androidx.room`, `com.google.devtools.ksp`, `room { schemaDirectory(...) }`, `ksp<Target>` для всех таргетов |
+| `heartbeat.room` (`RoomConventionPlugin`, готов) | `heartbeat.kmp.library` + `androidx.room` (`schemaDirectory("$projectDir/schemas")`) + `com.google.devtools.ksp`; `room-compiler` в `kspAndroid`/`kspJvm`/`kspIosArm64`/`kspIosSimulatorArm64`; `implementation(:core:datastore:api)` (БД открывает `DataStores.database`, ADR-0006). Модулю без своей БД не нужен; тестовая БД в `jvmTest` — плагин `ksp` + `kspJvmTest` (как в `core:datastore:impl`) |
 
 Проверка запрета `impl → impl` в `heartbeat.feature.impl`:
 

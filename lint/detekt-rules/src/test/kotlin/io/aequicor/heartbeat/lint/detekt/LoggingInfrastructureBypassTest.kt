@@ -38,8 +38,15 @@ class LoggingInfrastructureBypassTest {
 
             import pro.respawn.flowmvi.dsl.store
         """.trimIndent()
+        val storage = """
+            package io.aequicor.heartbeat.core.datastore.impl
+
+            val prefs = PreferenceDataStoreFactory.createWithPath { path }
+            val db = Room.databaseBuilder(name = path, factory = factory)
+        """.trimIndent()
 
         assertEquals(0, rule.lint(network).size)
         assertEquals(0, rule.lint(mvi).size)
+        assertEquals(0, rule.lint(storage).size)
     }
 }

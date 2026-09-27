@@ -18,7 +18,7 @@ paths:
 
 Запрещено:
 - Compose / UI / `design-system`, ресурсы экранов.
-- Зависимости на `core:network`, `core:database`, `core:ai`, `core:datastore` и любые `impl`.
+- Зависимости на `core:network`, `core:ai`, `core:datastore` и любые `impl`.
 - KStateMachine и FlowMVI (движок — внутренность `core:state-machine:impl`, стор — в `impl` фичи).
 - Логика с IO, репозитории, реализации.
 

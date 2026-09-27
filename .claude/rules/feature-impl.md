@@ -10,7 +10,7 @@ paths:
 ```
 di/          Metro-контрибуции: граф фичи, <Name>MachineBindings (@Provides машины через MachineLauncher в <Feature>Scope), @ContributesIntoSet (RouteEntry / DeepLinkEntry с binding<Profile|AppRouteBinding>()), @ContributesIntoSet (тоглы)
 machine/     <Name>EffectHandler : EffectHandler<Effect, Intent> (@ContributesBinding(<Feature>Scope::class))
-data/        репозитории, DAO-адаптеры, мапперы DTO ↔ domain
+data/        репозитории, своя Room-БД (@Database, Entity, DAO, DatabaseSpec — плагин heartbeat.room), DAO-адаптеры, мапперы DTO ↔ domain
 component/   Decompose-компоненты (ComposableComponent), внутренние Route фичи, вложенные хосты (NavHostFactory)
 store/       FlowMVI-сторы (<Screen>State / <Screen>Intent / <Screen>Action + <Screen>Store)
 ui/          Compose-экраны (<Screen>Screen), приватные composable, @Preview
@@ -25,4 +25,6 @@ ui/          Compose-экраны (<Screen>Screen), приватные composabl
 - UI — только `Hb*` компоненты и токены `HbTheme`. Строки — Compose Resources.
 - Новая функциональность — за тоглом `FeatureToggle` (default `false`, пока фича не готова).
 - Эффекты машины: `EffectHandler.handle` — `suspend`, main-safe, результат — `machine.send(<Name>Intent.Internal.*)`; исключение логирует рантайм и мапит `onEffectFailure` → `Internal.Failed`. Жизненный цикл эффекта уже в логе `SM/<name>` — логируй только детали IO.
-- Тесты: сторы (FlowMVI test DSL, фейк `Machine`), `EffectHandler` (фейк `EffectScope` + фейки репозиториев), репозитории (in-memory Room / fake DataStore).
+- Данные — только через `@ForScope(AppScope|ProfileScope) DataStores` из `core:datastore` (KV и своя БД). Время жизни записей
+  задаётся `Retention` / `RecordRetention` — таймеры и чистки не писать (ADR-0006, скилл `data-storage`).
+- Тесты: сторы (FlowMVI test DSL, фейк `Machine`), `EffectHandler` (фейк `EffectScope` + фейки репозиториев), репозитории (in-memory Room / fake `KeyValueStore` / `DataStores`).

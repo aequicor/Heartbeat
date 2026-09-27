@@ -23,7 +23,7 @@
 platform-main/   точки входа: android, desktop, ios (+ shared umbrella/framework);
                  di-bundle — единственный модуль, видящий все impl: Metro-граф (per-platform)
 core/            инфраструктура: navigation, mvi, state-machine, di (api/ext/impl), profile-facade (api/impl),
-                 resources, database, datastore, network, ai, feature-toggles, logging, common
+                 resources, datastore, network, ai, feature-toggles, logging, common
 design-system/   tokens (Mission), theme, components, adaptive (material | fluent | macos)
 features/<name>/ api  — контракт: state-machine (состояния, интенты, переходы, эффекты), MachineKey, маршруты
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции
@@ -32,9 +32,10 @@ lint/            detekt-rules — собственный набор правил
 ```
 
 > Текущее состояние: шаблонные модули (`androidApp`, `desktopApp`, `iosApp`, `shared`) ещё не перенесены.
-> Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`), `core:logging`, `core:common`,
+> Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)),
-> `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:state-machine:{api,impl,flowmvi-ext}` ([ADR-0004](docs/adr/0004-state-machine.md)).
+> `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:state-machine:{api,impl,flowmvi-ext}` ([ADR-0004](docs/adr/0004-state-machine.md)),
+> `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)).
 > Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)

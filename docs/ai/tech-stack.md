@@ -15,6 +15,8 @@
 | SQLite-драйвер | sqlite-bundled | `androidx.sqlite:sqlite-bundled` | 2.7.1 | ↑ |
 | KSP | KSP2 | плагин `com.google.devtools.ksp` | 2.3.12 | https://github.com/google/ksp |
 | Настройки | DataStore KMP | `androidx.datastore:datastore-preferences-core` | 1.2.1 (1.3.0-alpha) | https://developer.android.com/kotlin/multiplatform/datastore |
+| Дата/время | kotlinx-datetime | `org.jetbrains.kotlinx:kotlinx-datetime` (`LocalTime`, часовые пояса; `Instant`/`Clock` — из `kotlin.time`) | 0.8.0 | https://github.com/Kotlin/kotlinx-datetime |
+| Файлы | okio | `com.squareup.okio:okio` (в `core:datastore:impl`; DataStore тянет его и так) | 3.18.2 | https://square.github.io/okio/ |
 | Сеть | Ktor client | `io.ktor:ktor-client-core`, `-content-negotiation`, `-serialization-kotlinx-json`, `-logging`, engines `-okhttp` (android/jvm), `-darwin` (ios) | 3.6.0 | https://ktor.io/docs/client-create-new-application.html |
 | Сериализация | kotlinx.serialization | `org.jetbrains.kotlinx:kotlinx-serialization-json` + плагин `org.jetbrains.kotlin.plugin.serialization` | 1.11.0 | — |
 | ИИ-агенты | Koog | `ai.koog:koog-agents` (есть android, jvm, ios варианты) | 1.3.0 | https://docs.koog.ai/ |
@@ -35,7 +37,13 @@
   подключаются плагином `heartbeat.detekt` как `detektPlugins`. Плагин detekt кэширует classloader правил в Gradle-демоне по пути jar —
   после изменения правил нужен `./gradlew --stop`, иначе `NoClassDefFoundError`.
 - **Metro**: compiler plugin, привязан к версии Kotlin — при апгрейде Kotlin сначала проверь релиз Metro.
-- **Room**: KSP нужно подключать для каждого таргета (`kspAndroid`, `kspJvm`, `kspIosArm64`, `kspIosSimulatorArm64`).
+- **Room**: KSP нужно подключать для каждого таргета (`kspAndroid`, `kspJvm`, `kspIosArm64`, `kspIosSimulatorArm64`) —
+  это делает плагин `heartbeat.room`. `Room.databaseBuilder` reified и per-platform: БД открывает только `core:datastore:impl`
+  ([ADR-0006](../adr/0006-datastore.md)). JVM-only тестовой БД (`jvmTest`) `@ConstructedBy` не нужен — фабрика `{ Db_Impl() }`.
+- **kotlinx-datetime 0.7+**: `Instant` и `Clock` — из `kotlin.time` (стабильны в Kotlin 2.4), в `kotlinx.datetime` — только
+  календарь (`LocalTime`, `TimeZone`).
+- **DataStore**: один активный экземпляр на файл на процесс (иначе `IllegalStateException`); файл освобождается, когда
+  завершилась `Job` его скоупа.
 - **FlowMVI 3.3.0** пока alpha — остаёмся на 3.2.x.
 - **Koog** требует JDK 17+ на JVM. Ключи провайдеров не храним в коде.
 - **Fluent** публикуется с версией `v0.1.0` (буква `v` — часть версии).

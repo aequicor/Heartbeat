@@ -46,8 +46,9 @@ val home = (session.graph as HomeAccessors).home
 
 ## Хранилище активного профиля
 
-По умолчанию хранилище в памяти, то есть **после смерти процесса профиль не восстанавливается** (при старте пишется `log.w`).
-Постоянная реализация перекрывает дефолтную приоритетом:
+Дефолт в `core:profile-facade:impl` хранит id в памяти (после смерти процесса профиль не восстановился бы, при старте пишется
+`log.w`). В приложении его перекрывает постоянная реализация из [core:datastore:impl](../../datastore/impl/README.md)
+(app-хранилище `core_profile`, ключ `active_profile_id`):
 
 ```kotlin
 @ContributesBinding(AppScope::class, priority = 0)   // любое значение выше Int.MIN_VALUE

@@ -1,87 +1,160 @@
 ---
 name: data-storage
-description: "Хранение данных в Heartbeat — Room KMP (core:database: сущности, DAO, миграции, BundledSQLiteDriver, фабрики per-platform, KSP для всех таргетов) и DataStore KMP (core:datastore: Preferences, пути per-platform, логирующая обёртка), репозитории фич и их логирование. Используй при добавлении таблиц, DAO, миграций, настроек или репозиториев."
+description: "Хранение данных в Heartbeat — core:datastore (api/impl): DataStores с владельцем app/profile, key-value (KeyValueStore, StoreKey), своя Room-БД фичи (heartbeat.room, @Database + DatabaseSpec, DAO, миграции), время жизни записей (Retention: срок After/At/Daily, событие DataEvent, RecordRetention в строках), wipeProfile, репозитории фич и их логирование, тесты. Используй при добавлении таблиц, DAO, миграций, настроек, кэшей или репозиториев."
 ---
 
-# Данные: Room + DataStore
+# Данные: `core:datastore`
 
-Версии — [tech-stack.md](../../../docs/ai/tech-stack.md). Документация: https://developer.android.com/kotlin/multiplatform/room , https://developer.android.com/kotlin/multiplatform/datastore
+Решение — [ADR-0006](../../../docs/adr/0006-datastore.md). Версии — [tech-stack.md](../../../docs/ai/tech-stack.md).
+Room KMP: https://developer.android.com/kotlin/multiplatform/room, DataStore KMP: https://developer.android.com/kotlin/multiplatform/datastore
 
-## Room (`core:database`)
+## Модель
 
-Одна БД `HeartbeatDatabase` в `core:database`. Сущности и DAO фич объявляются в `core:database` в пакете `…core.database.<feature>` (Room требует, чтобы `@Database` видел все сущности), а репозитории — в `impl` фич.
+- **Владелец** — выбирается квалификатором инжекта:
+  - `@ForScope(AppScope::class) DataStores` — данные приложения, живут всегда;
+  - `@ForScope(ProfileScope::class) DataStores` — данные профиля: закрываются с профилем, при возврате в профиль
+    те же; удаляются `StorageMaintenance.wipeProfile(id)`.
+- **Удержание записи** — `Retention(expiry, event)`; удаляет **ядро**, фича только объявляет:
+  - `Retention.Permanent` — живёт, пока живёт хранилище;
+  - `Retention.expiring(Expiry.After(1.hours))`, `Expiry.At(instant)`, `Expiry.Daily(LocalTime(3, 0))` — по времени;
+  - `Retention.untilEvent(SignedOut)` — по событию `DataEvent("auth.signed_out")`, которое фича вызывает через `stores.fire(SignedOut)`:
+    - на app-владельце событие чистит записи всех владельцев;
+    - на profile-владельце — только своего профиля;
+  - `Retention(expiry, event)` — удаляется по тому условию, которое наступит первым.
+- **Имена хранилищ** — `[a-z][a-z0-9_]*`, уникальны среди всех фич владельца: префикс фичи (`chat_settings`), `core_*` —
+  ядро. Один spec на хранилище (top-level `val`): другой spec с тем же именем — `IllegalStateException`.
+- **Имена ключей и событий** хранятся на диске — не переименовывать. После смены типа ключа старое значение читается как
+  отсутствующее (`W`).
+
+Фичи **не** создают `DataStore`/`Room.databaseBuilder` сами: это запрещает detekt (`LoggingInfrastructureBypass`).
+Также фичи не пишут таймеры и чистки.
+
+## Key-value
 
 ```kotlin
-@Database(entities = [ChatEntity::class, MessageEntity::class], version = 1, exportSchema = true)
-@ConstructedBy(HeartbeatDatabaseConstructor::class)
-abstract class HeartbeatDatabase : RoomDatabase() {
-    abstract fun chatDao(): ChatDao
-}
+internal val SettingsSpec = KeyValueSpec("chat_settings", areValuesLogged = true)  // настройки без персональных данных
+internal val DraftKey = jsonKey("draft", Draft.serializer())
+internal val ModelKey = stringKey("model")
 
-@Suppress("KotlinNoActualForExpect") // Room generates actual implementations
-expect object HeartbeatDatabaseConstructor : RoomDatabaseConstructor<HeartbeatDatabase> {
-    override fun initialize(): HeartbeatDatabase
-}
+@SingleIn(AppScope::class)
+@ContributesBinding(AppScope::class)
+@Inject
+internal class ChatSettingsRepositoryImpl(
+    @ForScope(ProfileScope::class) stores: DataStores,   // ← в ProfileScope-графе; для app-данных — AppScope
+) : ChatSettingsRepository {
+    private val store = stores.keyValue(SettingsSpec)     // один экземпляр на имя, повторный вызов вернёт тот же
 
-fun RoomDatabase.Builder<HeartbeatDatabase>.configure(dispatchers: DispatcherProvider): HeartbeatDatabase =
-    setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(dispatchers.io)
-        .addMigrations(*HeartbeatMigrations.all)
-        .addCallback(LoggingRoomCallback)          // логирует onCreate/onOpen/миграции (тег DB)
-        .build()
+    override fun model(): Flow<String?> = store.observe(ModelKey)
+    override suspend fun setModel(id: String) = store.set(ModelKey, id)
+    override suspend fun saveDraft(draft: Draft) = store.set(DraftKey, draft, Retention.expiring(Expiry.After(1.days)))
+}
 ```
 
-Фабрики builder'а per-platform (`expect/actual` или через DI с `PlatformContext`):
-- Android: `Room.databaseBuilder<HeartbeatDatabase>(context, context.getDatabasePath("heartbeat.db").absolutePath)`
-- JVM: `Room.databaseBuilder<HeartbeatDatabase>(File(appDataDir, "heartbeat.db").absolutePath)` — `appDataDir`: `%APPDATA%\Aequicor\Heartbeat` (Windows), `~/Library/Application Support/Heartbeat` (macOS)
-- iOS: `Room.databaseBuilder<HeartbeatDatabase>(documentDirectory() + "/heartbeat.db")`
+- **Типы ключей**: `stringKey`, `intKey`, `longKey`, `booleanKey`, `doubleKey`, `floatKey`, `stringSetKey`, `jsonKey(name, serializer)`.
+- **Чтение** не возвращает истёкшую запись. JSON, который не удалось декодировать, читается как отсутствующее значение (`W`);
+  диагностическая ошибка не содержит исходный JSON или сообщение пользовательского сериализатора.
+- **Закрытие владельца** отменяет текущие операции и наблюдения KV. Сохранённая ссылка после закрытия больше не работает
+  (`IllegalStateException`, в том числе при новой подписке на ранее созданный `Flow`). При возврате в профиль получи хранилище заново.
+- **Логи** (`DS`) пишет ядро: ключ и удержание — `D`; значения — только с `areValuesLogged = true` (`I`, `old -> new`).
+  Для персональных данных оставляй `false`.
+- Секреты — не в `KeyValueStore` (см. `SecretStore` в скилле `ai-koog`).
 
-Gradle (в convention-плагине): плагины `androidx.room` + `com.google.devtools.ksp`, `room { schemaDirectory("$projectDir/schemas") }`,
-KSP для каждого таргета: `kspAndroid`, `kspJvm`, `kspIosArm64`, `kspIosSimulatorArm64` → `libs.androidx.room.compiler`.
+## Своя БД фичи (Room)
+
+`features/<name>/impl/build.gradle.kts`:
+
+```kotlin
+plugins {
+    alias(libs.plugins.heartbeat.kmp.compose)
+    alias(libs.plugins.heartbeat.metro)
+    alias(libs.plugins.heartbeat.room)   // androidx.room + KSP для всех таргетов, schemas/, :core:datastore:api
+}
+```
+
+```kotlin
+@Database(entities = [MessageEntity::class], version = 1)          // exportSchema = true → <module>/schemas (коммитить)
+@ConstructedBy(ChatDatabaseConstructor::class)
+internal abstract class ChatDatabase : RoomDatabase() {
+    abstract fun messages(): MessageDao
+}
+
+@Suppress("KotlinNoActualForExpect") // Room generates the actual implementations
+internal expect object ChatDatabaseConstructor : RoomDatabaseConstructor<ChatDatabase> {
+    override fun initialize(): ChatDatabase
+}
+
+internal val ChatDatabaseSpec = DatabaseSpec("chat", ChatDatabaseConstructor::initialize, ChatMigrations.all)
+
+// строки с временем жизни: колонки удержания встраиваются БЕЗ префикса, индекс — по сроку
+@Entity(tableName = "messages", indices = [Index(RecordRetention.EXPIRES_AT_COLUMN)])
+internal data class MessageEntity(
+    @PrimaryKey val id: String,
+    val chatId: String,
+    val text: String,
+    @Embedded val retention: RecordRetention,
+)
+
+```
+
+- **Настраивает ядро**: `BundledSQLiteDriver`, IO-диспетчер, логи открытия и миграций (`DB`), закрытие вместе с владельцем.
+- **Удержание строк**: таблицы со всеми колонками `hb_*` ядро находит само. Истёкшие строки и строки событий оно удаляет:
+  - при открытии БД, до первого запроса;
+  - по таймеру, пока БД открыта;
+  - при `fire`.
+
+  `Flow` из DAO видят удаление.
+- **Запись строки**: `RecordRetentions` (инжект) — `retentions.stamp(Retention.untilEvent(SignedOut))`.
+  Для постоянных строк — `stamp(Retention.Permanent)`.
+- **Таблицы без `RecordRetention`** ядро не трогает.
+- Добавление `RecordRetention` в существующую сущность — изменение схемы: нужна миграция.
+- Чтение БД строки по сроку **не** фильтрует: таймер может отставать, если устройство спало. Где истёкшая строка на
+  экране недопустима, добавь в запрос `AND (hb_expires_at IS NULL OR hb_expires_at > :now)`.
 
 ### Миграции
-- Любое изменение сущности → `version + 1` + миграция (`Migration(n, n+1)` или `@AutoMigration`), схема в `schemas/` коммитится.
+- Любое изменение сущности → `version + 1` + миграция (`Migration(n, n+1)` в `DatabaseSpec.migrations` или `@AutoMigration`),
+  схема в `schemas/` коммитится.
 - Тест миграции на JVM (`MigrationTestHelper` с `BundledSQLiteDriver`).
-- Никаких `fallbackToDestructiveMigration` в release.
+- Никаких `fallbackToDestructiveMigration`.
 
 ### DAO
 `suspend` для записи, `Flow` для наблюдения. Транзакции — `@Transaction` или `useWriterConnection { it.immediateTransaction { … } }`.
 
-## DataStore (`core:datastore`)
-
-```kotlin
-fun createPreferencesDataStore(path: () -> String): DataStore<Preferences> =
-    PreferenceDataStoreFactory.createWithPath(produceFile = { path().toPath() })   // okio Path
-
-// имена файлов: settings.preferences_pb, feature_toggles.preferences_pb
-```
-
-Пути: Android — `context.filesDir.resolve(name)`, JVM — `appDataDir/name`, iOS — `NSDocumentDirectory/name`.
-**Один экземпляр на файл** (`@SingleIn(AppScope::class)`), иначе DataStore упадёт.
-
-`LoggingDataStore` — обёртка из `core:datastore`: логирует `edit` (ключи и старое→новое для настроек — `I`, для прочего — `D`), ошибки чтения (`IOException` → `emptyPreferences()` + `W`). Фичи используют её, а не голый `DataStore`.
-
 ## Репозиторий фичи (`impl/data`)
 
 ```kotlin
-@SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class)
+@SingleIn(ProfileScope::class)
+@ContributesBinding(ProfileScope::class)
 @Inject
-internal class ChatRepositoryImpl(private val dao: ChatDao) : ChatRepository {
+internal class ChatRepositoryImpl(
+    @ForScope(ProfileScope::class) stores: DataStores,
+    private val retentions: RecordRetentions,
+) : ChatRepository {
     private val log = Log.tag("ChatRepository")
+    private val dao = stores.database(ChatDatabaseSpec).messages()   // один экземпляр БД на владельца и имя
 
     override fun observe(chatId: String): Flow<List<Message>> =
         dao.observeMessages(chatId).map { rows -> rows.map(MessageEntity::toDomain) }
 
     override suspend fun append(message: Message) {
         log.d { "append chatId=${message.chatId} id=${message.id}" }
-        dao.insert(message.toEntity())
+        dao.insert(message.toEntity(retentions.stamp(Retention.expiring(Expiry.After(30.days)))))
     }
 }
 ```
 
 - Маппинг Entity ↔ domain в `impl/data`; Entity не утекают в стор/UI.
-- Секреты — не в Room/DataStore (см. `SecretStore` в скилле `ai-koog`).
+- DAO-операции логирует репозиторий (`d`). Открытие, миграции и чистки логирует ядро.
+
+## Удаление данных профиля
+
+`StorageMaintenance.wipeProfile(id)` (app-скоуп) — например, при удалении аккаунта с устройства. Для активного профиля —
+`IllegalStateException`: сначала `profileSessions.close()`. Пустой ID отклоняется до доступа к каталогу хранения
+(`IllegalArgumentException`); пути существующих профилей не меняются.
 
 ## Тесты
-In-memory: `Room.inMemoryDatabaseBuilder<HeartbeatDatabase>().setDriver(BundledSQLiteDriver()).build()` в `jvmTest`; DataStore — во временной директории (`Files.createTempDirectory`), закрывай scope после теста.
+- **Репозиторий фичи**:
+  - in-memory Room — `Room.inMemoryDatabaseBuilder<ChatDatabase>().setDriver(BundledSQLiteDriver()).build()` в `jvmTest`,
+    `RecordRetention(createdAt, expiresAt, event)` — вручную;
+  - KV — fake `KeyValueStore` на `MutableStateFlow`.
+- **Ядро** (`core:datastore:impl`) тестируется во временной директории на виртуальном времени (`StorageTestEnv`).
+  Тестовая Room-БД живёт в `jvmTest`: KSP `kspJvmTest`, без `@ConstructedBy`.
