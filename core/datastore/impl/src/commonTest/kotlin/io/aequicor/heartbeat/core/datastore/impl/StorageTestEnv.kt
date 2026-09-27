@@ -56,6 +56,11 @@ internal class StorageTestEnv(private val test: TestScope) {
 
     fun newScope(name: String, parent: TestScopeHandle? = null) = TestScopeHandle(name, dispatcher, parent?.job) {
         errors += it
+    }.also { scope ->
+        if (parent != null) {
+            val link = parent.onClose(scope::close)
+            scope.onClose(link::dispose)
+        }
     }
 
     fun registry(roomBuilders: RoomBuilderFactory = RoomBuilderFactory { _, _ -> error("no Room in this test") }) =

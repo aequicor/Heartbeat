@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.core.datastore.impl
 
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import io.aequicor.heartbeat.core.datastore.DataEvent
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 import io.aequicor.heartbeat.core.datastore.Expiry
@@ -7,8 +8,10 @@ import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -18,6 +21,7 @@ import okio.FileSystem
 import okio.SYSTEM
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.hours
@@ -111,6 +115,71 @@ class DatabaseRetentionTest {
 
         val reopened = registry.attach(alice, env.newScope("profile", env.app)).database(spec)
         assertEquals(listOf("later"), reopened.notes().ids())
+    }
+
+    @Test
+    fun `rooms and room members are purged by expiry and events`() = dbTest { env ->
+        val stores = env.registry(JvmRoomBuilderFactory()).attach(StorageOwner.App, env.app)
+        val dao = stores.database(spec).rooms()
+        val retentions = RecordRetentionsImpl(env.retentionClock)
+        val policies = mapOf(
+            "expiring" to Retention.expiring(Expiry.After(1.hours)),
+            "event" to Retention.untilEvent(signedOut),
+            "permanent" to Retention.Permanent,
+        )
+        policies.forEach { (id, policy) ->
+            dao.insert(RoomEntity(id, retentions.stamp(policy)))
+            dao.insert(RoomMemberEntity(id, retentions.stamp(policy)))
+        }
+        runCurrent()
+
+        advanceTimeBy(1.hours + 1.minutes)
+        eventually { dao.roomIds() == listOf("event", "permanent") }
+        eventually { dao.memberIds() == listOf("event", "permanent") }
+        stores.fire(signedOut)
+
+        assertEquals(listOf("permanent"), dao.roomIds())
+        assertEquals(listOf("permanent"), dao.memberIds())
+    }
+
+    @Test
+    fun `a database without retention tables finishes its timer`() = dbTest { env ->
+        val retention = DatabaseRetention("permanent", env.retentionClock) { emptyMap() }
+        val db = JvmRoomBuilderFactory()
+            .builder(env.layout.databaseFile(StorageOwner.App, "permanent").toString()) { PermanentTestDatabase_Impl() }
+            .setDriver(DirectoryCreatingDriver(BundledSQLiteDriver(), FileSystem.SYSTEM))
+            .setQueryCoroutineContext(env.dispatcher)
+            .addCallback(retention)
+            .build() as PermanentTestDatabase
+        try {
+            db.tags().insert(TagEntity("tag"))
+            var subscriptions = 0
+            val deadlines = retention.nextDeadline(db).onStart {
+                subscriptions++
+                if (subscriptions > 1) throw CancellationException("completed deadline flow was collected again")
+            }
+
+            runRetentionTimer("permanent", env.retentionClock, deadlines) { retention.purgeExpired(db) }
+
+            assertEquals(1, subscriptions)
+            assertEquals(1, db.tags().count())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `closing the parent releases profile databases before wiping their files`() = dbTest { env ->
+        val registry = env.registry(JvmRoomBuilderFactory())
+        val session = env.newScope("profile", env.app)
+        val db = registry.attach(alice, session).database(spec)
+        db.notes().insert(TagEntity("tag"))
+
+        env.app.close()
+        assertTrue(session.isClosed)
+        registry.wipeProfile(alice.id)
+
+        assertFalse(FileSystem.SYSTEM.exists(env.layout.profileDir(alice.id)))
     }
 
     private companion object {

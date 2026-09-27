@@ -60,6 +60,7 @@ public interface StorageMaintenance {
     /**
      * Deletes every storage of the profile [id] (e.g. when the account is removed from the device).
      * Fails with [IllegalStateException] if the profile is active — close the session first.
+     * An empty profile ID is rejected with [IllegalArgumentException] before accessing its storage directory.
      */
     public suspend fun wipeProfile(id: ProfileId)
 }

@@ -7,7 +7,7 @@
 |---|---|
 | `AppDataStores` / `ProfileDataStores` | `@ForScope(AppScope)` / `@ForScope(ProfileScope)` `DataStores`; делегируют в `OwnerStores`, закрываются со скоупом владельца |
 | `StoreRegistry` | единственное место создания DataStore и Room: один `DataStore` на файл на процесс (своя `Job` под app-скоупом), открытие БД, `fire`, `wipeProfile` |
-| `OwnerStores` | открытые KV и БД одного владельца; закрывает БД при закрытии скоупа |
+| `OwnerStores` | открытые KV и БД одного владельца; закрывает БД при закрытии скоупа, KV-операции и подписки привязаны к тому же скоупу |
 | `LoggingKeyValueStore` | KV поверх `DataStore<Preferences>`: типы ключей, удержание рядом с записью (`__hb.exp/evt/at.<key>`), чистки, логи `DS` |
 | `DatabaseRetention` | `RoomDatabase.Callback`: таблицы с колонками `hb_*`, чистка в `onOpen` и по таймеру/событию, логи `DB` |
 | `runRetentionTimer` | сон до ближайшего дедлайна (≤ 15 мин), перезапуск на изменения хранилища; после сбоя — `W` и повтор через минуту |
@@ -44,8 +44,12 @@
 - `KeyValueStoreTest` (`commonTest`, виртуальное время `StorageTestEnv`): типы, JSON, истечение `After` / `At` / `Daily`
   и таймер, события (свои / app → профили / закрытые хранилища), переживание смены профиля и «перезапуска процесса»,
   `wipeProfile`, повреждённый файл, значения в логах;
+- `KeyValueLifecycleTest`, `KeyValuePrivacyTest`: закрытие сохранённых ссылок, отмена внешних подписок и операций,
+  приватность ошибок стандартных и пользовательских JSON-сериализаторов;
+- `StorageBoundaryTest`, `EventJournalTest`, `RetentionTimerTest`: безопасные пути, порядок меток событий,
+  завершение потока дедлайнов;
 - `DataStoreActiveProfileStorageTest`;
 - `DatabaseRetentionTest` (`jvmTest`, Room через `kspJvmTest`): каталог владельца, таймер и `Flow` DAO, события сразу
-  и при открытии, строки после события.
+  и при открытии, строки после события, таблицы `rooms` / `room_members`, БД без удержания, закрытие дочерних скоупов.
 
 Граф — `DataStoreIntegrationTest` в [platform-main/di-bundle](../../../platform-main/di-bundle/README.md).

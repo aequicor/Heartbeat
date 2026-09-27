@@ -17,8 +17,12 @@ import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.Retention
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.core.datastore.StoreValueType
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
-import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -26,9 +30,9 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import okio.IOException
@@ -46,8 +50,8 @@ internal class LoggingKeyValueStore(
     private val label: String,
     private val dataStore: DataStore<Preferences>,
     private val clock: RetentionClock,
-    private val journal: () -> Map<String, Long>,
-    private val io: CoroutineDispatcher,
+    private val journal: suspend () -> Map<String, Long>,
+    private val scope: ScopeHandle,
 ) : KeyValueStore {
 
     private val log = Log.tag(DS_LOG_TAG)
@@ -63,22 +67,24 @@ internal class LoggingKeyValueStore(
     }
 
     override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = flow {
-        log.d { "$label: observe ${key.name}" }
-        prepare()
-        emitAll(data.map { it.read(key, clock.now()) }.distinctUntilChanged())
+        withOwnerLifetime {
+            log.d { "$label: observe ${key.name}" }
+            prepare()
+            emitAll(data.map { it.read(key, clock.now()) }.distinctUntilChanged())
+        }
     }
 
-    override suspend fun <T : Any> get(key: StoreKey<T>): T? {
+    override suspend fun <T : Any> get(key: StoreKey<T>): T? = withOwnerLifetime {
         prepare()
-        return data.first().read(key, clock.now()).also { value ->
+        data.first().read(key, clock.now()).also { value ->
             log.d { "$label: get ${key.name} -> ${if (value == null) "absent" else "present"}" }
         }
     }
 
-    override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+    override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention): Unit = withOwnerLifetime {
         prepare()
         var old: T? = null
-        edit("set ${key.name}") { prefs ->
+        editWhileOpen("set ${key.name}") { prefs ->
             // inside edit: DataStore serializes edits, so an event purge never sees a stale write time
             val now = clock.now()
             old = prefs.read(key, now)
@@ -92,15 +98,15 @@ internal class LoggingKeyValueStore(
         }
     }
 
-    override suspend fun remove(key: StoreKey<*>) {
+    override suspend fun remove(key: StoreKey<*>): Unit = withOwnerLifetime {
         prepare()
-        edit("remove ${key.name}") { it.removeRecord(key.name) }
+        editWhileOpen("remove ${key.name}") { it.removeRecord(key.name) }
         log.d { "$label: remove ${key.name}" }
     }
 
-    override suspend fun clear() {
+    override suspend fun clear(): Unit = withOwnerLifetime {
         prepare()
-        edit("clear") { it.clear() }
+        editWhileOpen("clear") { it.clear() }
         log.i { "$label: cleared" }
     }
 
@@ -109,7 +115,7 @@ internal class LoggingKeyValueStore(
         if (isPrepared) return
         prepareLock.withLock {
             if (isPrepared) return
-            val fired = withContext(io) { journal() }
+            val fired = journal()
             val now = clock.now()
             val removed = purge("open") { prefs, name -> prefs.isExpired(name, now) || prefs.isFiredBy(name, fired) }
             isPrepared = true
@@ -146,9 +152,38 @@ internal class LoggingKeyValueStore(
         return removed
     }
 
+    /** Only this operation is cancelled on close; the shared Preferences file remains app-owned. */
+    private suspend fun <T> withOwnerLifetime(block: suspend () -> T): T = coroutineScope {
+        checkOpen()
+        val operation = coroutineContext.job
+        val closeHandle = scope.onClose { operation.cancel(CancellationException("$label: owner closed")) }
+        try {
+            checkOpen()
+            block()
+        } finally {
+            closeHandle.dispose()
+        }
+    }
+
+    private fun checkOpen() {
+        check(!scope.isClosed) { "$label: storages are closed with scope ${scope.name}" }
+    }
+
+    private suspend fun editWhileOpen(operation: String, transform: (MutablePreferences) -> Unit) {
+        edit(operation) { prefs ->
+            checkOpen()
+            transform(prefs)
+            checkOpen()
+        }
+    }
+
     private suspend fun edit(operation: String, transform: (MutablePreferences) -> Unit) {
         try {
-            dataStore.edit(transform)
+            dataStore.edit { prefs ->
+                currentCoroutineContext().ensureActive()
+                transform(prefs)
+                currentCoroutineContext().ensureActive()
+            }
         } catch (e: IOException) {
             log.e(e) { "$label: $operation failed" }
             throw e
@@ -182,12 +217,16 @@ internal class LoggingKeyValueStore(
     private fun <T : Any> decode(key: StoreKey<T>, type: StoreValueType.Json<T>, raw: String): T? = try {
         json.decodeFromString(type.serializer, raw)
     } catch (e: SerializationException) {
-        log.w(e) { "$label: ${key.name} is not a valid $type, treated as absent" }
+        log.w(e.withoutStoredValue()) { "$label: ${key.name} is not a valid $type, treated as absent" }
         null
     } catch (e: IllegalArgumentException) {
-        log.w(e) { "$label: ${key.name} does not match $type, treated as absent" }
+        log.w(e.withoutStoredValue()) { "$label: ${key.name} does not match $type, treated as absent" }
         null
     }
+
+    /** Decoder messages and causes can contain the stored value, including from custom serializers. */
+    private fun Throwable.withoutStoredValue(): Throwable =
+        SerializationException("Stored value decoding failed (${this::class.simpleName ?: "unknown error"})")
 
     private fun <T : Any> MutablePreferences.write(key: StoreKey<T>, value: T) {
         val stored: Any = when (val type = key.type) {

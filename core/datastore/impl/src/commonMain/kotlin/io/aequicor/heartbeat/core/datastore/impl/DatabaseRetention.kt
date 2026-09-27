@@ -149,7 +149,8 @@ internal class DatabaseRetention(
         const val CHANGES = "SELECT changes()"
         const val COLUMN_NAME_INDEX = 1 // PRAGMA table_info: cid, name, type, notnull, dflt_value, pk
         const val TABLES_QUERY = "SELECT name FROM sqlite_master WHERE type = 'table' " +
-            "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'room_%' AND name != 'android_metadata'"
+            "AND name NOT GLOB 'sqlite_*' " +
+            "AND name NOT IN ('room_master_table', 'room_table_modification_log', 'android_metadata')"
         val RETENTION_COLUMNS = setOf(
             RecordRetention.CREATED_AT_COLUMN,
             RecordRetention.EXPIRES_AT_COLUMN,

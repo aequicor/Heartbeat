@@ -13,12 +13,17 @@ import io.aequicor.heartbeat.core.datastore.RecordRetention
 import kotlinx.coroutines.flow.Flow
 
 /**
- * A feature database: one table with retention columns, one without. JVM-only, so it needs no `@ConstructedBy`:
+ * A feature database with retention tables and a permanent tag table. JVM-only, so it needs no `@ConstructedBy`:
  * the spec creates the generated `TestDatabase_Impl` directly.
  */
-@Database(entities = [NoteEntity::class, TagEntity::class], version = 1, exportSchema = false)
+@Database(
+    entities = [NoteEntity::class, TagEntity::class, RoomEntity::class, RoomMemberEntity::class],
+    version = 1,
+    exportSchema = false,
+)
 abstract class TestDatabase : RoomDatabase() {
     abstract fun notes(): NoteDao
+    abstract fun rooms(): RoomDao
 }
 
 @Entity(tableName = "notes", indices = [Index(RecordRetention.EXPIRES_AT_COLUMN)])
@@ -49,4 +54,45 @@ interface NoteDao {
 
     @Query("SELECT COUNT(*) FROM tags")
     suspend fun tagCount(): Int
+}
+
+@Entity(tableName = "rooms", indices = [Index(RecordRetention.EXPIRES_AT_COLUMN)])
+data class RoomEntity(
+    @PrimaryKey val id: String,
+    @Embedded val retention: RecordRetention,
+)
+
+@Entity(tableName = "room_members", indices = [Index(RecordRetention.EXPIRES_AT_COLUMN)])
+data class RoomMemberEntity(
+    @PrimaryKey val id: String,
+    @Embedded val retention: RecordRetention,
+)
+
+@Dao
+interface RoomDao {
+    @Insert
+    suspend fun insert(room: RoomEntity)
+
+    @Insert
+    suspend fun insert(member: RoomMemberEntity)
+
+    @Query("SELECT id FROM rooms ORDER BY id")
+    suspend fun roomIds(): List<String>
+
+    @Query("SELECT id FROM room_members ORDER BY id")
+    suspend fun memberIds(): List<String>
+}
+
+@Database(entities = [TagEntity::class], version = 1, exportSchema = false)
+abstract class PermanentTestDatabase : RoomDatabase() {
+    abstract fun tags(): TagDao
+}
+
+@Dao
+interface TagDao {
+    @Insert
+    suspend fun insert(tag: TagEntity)
+
+    @Query("SELECT COUNT(*) FROM tags")
+    suspend fun count(): Int
 }

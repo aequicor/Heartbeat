@@ -59,14 +59,18 @@ class DataStoreIntegrationTest {
     @Test
     fun `profile storages close with the profile and come back with it`() = runTest {
         val alice = app.profileSessions.open(ProfileId("alice"))
-        alice.stores.keyValue(spec).set(key, "alice")
+        val cached = alice.stores.keyValue(spec)
+        cached.set(key, "alice")
 
         val bob = app.profileSessions.open(ProfileId("bob"))
         assertFailsWith<IllegalStateException> { alice.stores.keyValue(spec) }
+        assertFailsWith<IllegalStateException> { cached.get(key) }
+        assertFailsWith<IllegalStateException> { cached.set(key, "late write") }
         assertNull(bob.stores.keyValue(spec).get(key))
 
         val aliceAgain = app.profileSessions.open(ProfileId("alice"))
         assertEquals("alice", aliceAgain.stores.keyValue(spec).get(key))
+        assertFailsWith<IllegalStateException> { cached.get(key) }
     }
 
     @Test

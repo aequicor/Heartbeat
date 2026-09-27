@@ -39,6 +39,7 @@ internal class OwnerStores(
     }
 
     override suspend fun fire(event: DataEvent) {
+        checkOpen()
         registry.fire(owner, event)
     }
 

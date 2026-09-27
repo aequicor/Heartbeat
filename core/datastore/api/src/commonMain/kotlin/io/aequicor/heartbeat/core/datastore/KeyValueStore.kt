@@ -27,6 +27,10 @@ public data class KeyValueSpec(
 /**
  * Key-value store with a per-record [Retention]. Reads never return an expired record, even before the core has
  * deleted it. All functions are main-safe. Changes of every store are logged by the core (tag `DS`).
+ *
+ * Bound to its owner's scope: closing the owner cancels in-flight operations and observations. Subsequent calls
+ * (including collection of a previously created flow) fail with [IllegalStateException]. Reopening the profile
+ * provides a new store; old references remain closed.
  */
 public interface KeyValueStore {
     /** What this store is. */

@@ -87,8 +87,8 @@ internal class StoreRegistry(
             label = label,
             dataStore = preferences(layout.keyValueFile(owner, spec.name), label),
             clock = clock,
-            journal = { firedEvents(owner) },
-            io = dispatchers.io,
+            journal = { withContext(dispatchers.io) { firedEvents(owner) } },
+            scope = scope,
         )
         scope.coroutineScope.launch(dispatchers.io + CoroutineName("retention $label")) {
             store.prepare()

@@ -16,7 +16,7 @@ private const val RETRY_DELAY_MILLIS = 60 * 1000L
 /**
  * Sleeps until the nearest deadline of [nextDeadline] and runs [purge]; the sleep restarts whenever the storage
  * changes. [purge] runs downstream of the sleep, so the change it makes itself does not cancel it halfway.
- * A failure is logged and the timer restarts after a pause. Returns only when cancelled.
+ * A failure is logged and the timer restarts after a pause. Returns when the deadline flow completes.
  */
 internal suspend fun runRetentionTimer(
     label: String,
@@ -27,6 +27,7 @@ internal suspend fun runRetentionTimer(
     while (true) {
         try {
             sleepAndPurge(clock, nextDeadline, purge)
+            return
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

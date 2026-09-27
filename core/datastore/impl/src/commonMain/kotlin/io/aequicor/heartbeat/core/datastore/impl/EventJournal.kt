@@ -34,8 +34,8 @@ internal class EventJournal(private val file: Path, private val fileSystem: File
     }
 
     /**
-     * Adds [event]. A corrupted journal is not overwritten silently: it is kept as `events.json.corrupt` (logged),
-     * and the new journal starts from this event.
+     * Keeps the latest timestamp of [event], including when concurrent fires arrive out of order.
+     * A corrupted journal is kept as `events.json.corrupt` (logged), and the new journal starts from this event.
      */
     suspend fun record(event: DataEvent, firedAt: Long): Unit = writeLock.withLock {
         val previous = try {
@@ -46,7 +46,7 @@ internal class EventJournal(private val file: Path, private val fileSystem: File
             fileSystem.atomicMove(file, backup)
             emptyMap()
         }
-        val updated = previous + (event.name to firedAt)
+        val updated = previous + (event.name to maxOf(previous[event.name] ?: Long.MIN_VALUE, firedAt))
         val temporary = file.parent?.let { it / "${file.name}.tmp" } ?: error("journal $file has no parent")
         fileSystem.createDirectories(temporary.parent ?: error("unreachable"))
         fileSystem.write(temporary) { writeUtf8(json.encodeToString(serializer, updated)) }
