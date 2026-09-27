@@ -50,10 +50,12 @@ internal class PiJournal : SessionHistory {
     }
 
     fun started(turn: Turn) = synchronized(lock) {
+        log.d { "Pi turn started in history" }
         append { SessionEvent.TurnStarted(it, turn) }
     }
 
     fun finished(turn: TurnId, outcome: TurnOutcome) = synchronized(lock) {
+        log.d { "Pi turn finished in history: ${outcome::class.simpleName.orEmpty()}" }
         append { SessionEvent.TurnFinished(it, turn, outcome) }
     }
 

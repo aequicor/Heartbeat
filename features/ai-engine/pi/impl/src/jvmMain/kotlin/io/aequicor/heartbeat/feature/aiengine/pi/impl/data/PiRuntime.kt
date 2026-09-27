@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 
 internal data class PiRuntimeCredentials(
     val identity: RuntimeIdentity,
@@ -43,7 +44,7 @@ internal class PiRuntime(
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
     private val mutex = Mutex()
-    private val sessions = mutableListOf<PiSession>()
+    private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
 
     @Volatile var isClosed: Boolean = false
         private set
@@ -61,7 +62,21 @@ internal class PiRuntime(
         }
     }
 
-    override suspend fun create(request: CreateSessionRequest): ActiveSession = mutex.withLock {
+    override suspend fun create(request: CreateSessionRequest): ActiveSession {
+        val session = prepare(request)
+        // Process startup runs outside the lock so close() and other creations are not blocked by it.
+        session.first.start { event, failed -> processes.start(source, session.second, event, failed) }
+        mutex.withLock {
+            if (isClosed) {
+                session.first.shutdown()
+                piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            }
+            sessions += session.first
+        }
+        return session.first
+    }
+
+    private suspend fun prepare(request: CreateSessionRequest): Pair<PiSession, String?> = mutex.withLock {
         validate()
         val configuration = settings.snapshot()
         if (request.target.engine != identity.engine ||
@@ -89,16 +104,14 @@ internal class PiRuntime(
                 ),
                 environment,
                 ::validate,
+                { sessions.remove(it) },
             )
-        }.also { session ->
-            session.start { event, failed -> processes.start(source, directory, event, failed) }
-            sessions += session
-        }
+        } to directory
     }
 
     override suspend fun close() = mutex.withLock {
         isClosed = true
-        sessions.forEach { it.shutdown() }
+        sessions.toList().forEach { it.shutdown() }
         sessions.clear()
     }
 }

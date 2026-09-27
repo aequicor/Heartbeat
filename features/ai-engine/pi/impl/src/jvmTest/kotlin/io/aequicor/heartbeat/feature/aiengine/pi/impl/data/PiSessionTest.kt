@@ -18,12 +18,14 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -47,7 +49,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -59,7 +60,7 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiSessionTest {
     @Test
-    fun callerCancellationDoesNotCancelNativeTurnAndHandleCloseOnlyDetaches() = runTest {
+    fun `caller cancellation keeps the native turn and close releases the process after it settles`() = runTest {
         val fixture = fixture()
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
@@ -72,8 +73,57 @@ class PiSessionTest {
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         runCurrent()
-        fixture.session.shutdown()
         assertTrue(fixture.connection.closed)
+        assertEquals(listOf(fixture.session), fixture.released)
+    }
+
+    @Test
+    fun `closing an idle session releases its process`() = runTest {
+        val fixture = fixture()
+        fixture.session.close()
+        assertTrue(fixture.connection.closed)
+        assertEquals(listOf(fixture.session), fixture.released)
+    }
+
+    @Test
+    fun `synchronize after process loss restarts pi on the same transcript`() = runTest {
+        val fixture = fixture()
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        val turn = fixture.session.send(prompt("first"))
+        fixture.connection.isOpen = false
+        fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        assertIs<ActiveSessionState.Unavailable>(fixture.session.state.value)
+        fixture.session.synchronize()
+        val restarted = fixture.connections.last()
+        assertEquals(2, fixture.connections.size)
+        assertEquals(listOf("switch_session", "get_state"), restarted.commands)
+        assertEquals("native.jsonl", restarted.fields.first().string("sessionPath"))
+        val ready = assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        assertEquals(turn, ready.lastTurn?.id)
+        assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `rejected model change keeps the session ready`() = runTest {
+        val fixture = fixture()
+        val failure = assertFailsWith<EngineException> { fixture.session.switchTo(ModelId("anthropic/missing")) }
+        assertIs<EngineFailure.Request>(failure.failure)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `validation failure before delivery is reported as a definite send failure`() = runTest {
+        var checks = 0
+        val fixture = fixture(validate = {
+            checks++
+            if (checks > 1) throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        })
+        val failure = assertFailsWith<EngineException> { fixture.session.send(prompt("blocked")) }
+        assertIs<EngineFailure.Access>(failure.failure)
+        assertFalse("prompt" in fixture.connection.commands)
+        fixture.session.shutdown()
     }
 
     @Test
@@ -155,7 +205,7 @@ class PiSessionTest {
         assertEquals(ModelId("anthropic/other"), running.turn.target.model)
         fixture.session.shutdown()
     }
-    private suspend fun TestScope.fixture(): Fixture {
+    private suspend fun TestScope.fixture(validate: suspend () -> Unit = {}): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
             override val main: CoroutineDispatcher = dispatcher
@@ -169,45 +219,78 @@ class PiSessionTest {
         }
         val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
         val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"))
+        val released = mutableListOf<PiSession>()
         val session = PiSession(
             CreateSessionRequest(target),
             route,
             PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers),
-            {},
+            validate,
+            { released += it },
         )
-        val connection = FakeConnection()
-        session.start { event, _ ->
-            connection.event = event
-            connection
+        val connections = mutableListOf<FakeConnection>()
+        session.start { event, failed ->
+            FakeConnection().also {
+                it.event = event
+                it.failed = failed
+                connections += it
+            }
         }
-        return Fixture(session, connection)
+        return Fixture(session, connections, released)
     }
 
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject
-    private data class Fixture(val session: PiSession, val connection: FakeConnection)
+    private data class Fixture(
+        val session: PiSession,
+        val connections: List<FakeConnection>,
+        val released: List<PiSession>,
+    ) {
+        val connection: FakeConnection get() = connections.first()
+    }
 }
 
 private class FakeConnection : PiConnection {
     var event: suspend (JsonObject) -> Unit = {}
+    var failed: suspend (EngineFailure) -> Unit = {}
     val promptAck = CompletableDeferred<JsonObject>()
     val abortAck = CompletableDeferred<JsonObject>()
     val modelAck = CompletableDeferred<JsonObject>()
     val commands = mutableListOf<String>()
+    val fields = mutableListOf<JsonObject>()
+    val sent = mutableListOf<JsonObject>()
     var closed = false
+    override var isOpen = true
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
         commands += type
+        this.fields += fields
         return when (type) {
-            "get_state" -> JsonObject(mapOf("sessionId" to JsonPrimitive("native")))
+            "get_state" -> state()
+
             "prompt" -> promptAck.await()
+
             "abort" -> abortAck.await()
-            "set_model" -> if (fields.string("modelId") == "other") modelAck.await() else JsonObject(emptyMap())
+
+            "set_model" -> when (fields.string("modelId")) {
+                "other" -> modelAck.await()
+                "missing" -> throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid))
+                else -> JsonObject(emptyMap())
+            }
+
             else -> JsonObject(emptyMap())
         }
     }
+    override suspend fun send(record: JsonObject) {
+        sent += record
+    }
     override fun close() {
         closed = true
+        isOpen = false
     }
+
+    private fun state() = Json.parseToJsonElement(
+        """{"sessionId":"native","sessionFile":"native.jsonl","isStreaming":false,
+           "model":{"provider":"anthropic","id":"test"}}""",
+    ).jsonObject
 }
 
 private class ReducerLauncher : MachineLauncher {

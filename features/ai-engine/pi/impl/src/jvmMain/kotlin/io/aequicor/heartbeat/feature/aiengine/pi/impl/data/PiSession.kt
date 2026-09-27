@@ -48,11 +48,21 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
+internal typealias PiConnector =
+    suspend (event: suspend (JsonObject) -> Unit, failed: suspend (EngineFailure) -> Unit) -> PiConnection
+
+/**
+ * One native Pi session over a dedicated process. Turn completion follows Pi's `agent_settled` event
+ * (`docs/rpc.md`: `agent_end` may be followed by retries). No extension commands are registered, so every
+ * accepted prompt produces an agent run. The process is released once the handle is closed and no turn runs;
+ * [released] lets the owning runtime forget this session.
+ */
 internal class PiSession(
     private val request: CreateSessionRequest,
     override val route: ExecutionRoute,
     private val environment: PiSessionEnvironment,
     private val validate: suspend () -> Unit,
+    private val released: (PiSession) -> Unit = {},
 ) : ActiveSession,
     SendsPrompts,
     CancelsTurns,
@@ -65,7 +75,12 @@ internal class PiSession(
     private val journal = PiJournal()
     private val mutex = Mutex()
     private var connection: PiConnection? = null
+    private var connector: PiConnector? = null
     private var nativeRef: SessionRef? = null
+
+    // Native transcript path, used only to reattach a restarted process; never logged.
+    private var sessionFile: String? = null
+    private var isHandleClosed = false
     private var isTurnStarted = false
     private var isCommandPending = false
     private var pendingEffect: ActiveSessionEffect? = null
@@ -83,15 +98,13 @@ internal class PiSession(
             handoff(effect)
         },
     )
-    init {
-        profile.onClose {
-            cancellationAck?.completeExceptionally(
-                EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-            )
-            acceptance?.completeExceptionally(
-                EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
-            )
-        }
+    private val profileClose = profile.onClose {
+        cancellationAck?.completeExceptionally(
+            EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
+        )
+        acceptance?.completeExceptionally(
+            EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
+        )
     }
 
     override val ref: SessionRef get() = requireNotNull(nativeRef)
@@ -106,11 +119,10 @@ internal class PiSession(
         ),
     )
 
-    suspend fun start(
-        factory: suspend (suspend (JsonObject) -> Unit, suspend (EngineFailure) -> Unit) -> PiConnection,
-    ) {
+    suspend fun start(factory: PiConnector) {
         var isStarted = false
         try {
+            connector = factory
             withContext(NonCancellable) { connection = factory(::event, ::failed) }
             currentCoroutineContext().ensureActive()
             rpc().command("set_model", modelFields(target.model))
@@ -118,6 +130,7 @@ internal class PiSession(
             val nativeId = snapshot.string("sessionId")
                 ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             nativeRef = SessionRef(route.engine, SessionSourceId("pi.profile"), nativeId)
+            sessionFile = snapshot.string("sessionFile")
             isStarted = true
         } finally {
             if (!isStarted) withContext(NonCancellable) { shutdown() }
@@ -136,6 +149,7 @@ internal class PiSession(
                 }
                 val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 val result = CompletableDeferred<TurnId>()
+                val previous = Triple(turn, acceptance, isTurnStarted)
                 prepare(ActiveSessionEffect.Submit(request, next))
                 acceptance = result
                 turn = next
@@ -144,9 +158,10 @@ internal class PiSession(
                 if (machine.send(ActiveSessionIntent.Public.Submit(request, next)) != SendResult.Accepted) {
                     isCommandPending = false
                     pendingEffect = null
-                    result.completeExceptionally(
-                        EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)),
-                    )
+                    turn = previous.first
+                    acceptance = previous.second
+                    isTurnStarted = previous.third
+                    piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
                 }
                 handoff(ActiveSessionEffect.Submit(request, next))
                 result
@@ -186,7 +201,8 @@ internal class PiSession(
             try {
                 rpc().command("set_model", modelFields(model))
             } catch (e: EngineException) {
-                failed(e.failure)
+                // A rejected model leaves the session usable; only transport or process loss needs recovery.
+                if (e.failure !is EngineFailure.Request && e.failure !is EngineFailure.Access) failed(e.failure)
                 throw e
             }
             target = target.copy(model = model)
@@ -200,10 +216,12 @@ internal class PiSession(
             if (machine.send(ActiveSessionIntent.Public.Recheck) != SendResult.Accepted) {
                 piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
             }
-            val snapshot = rpc().command("get_state")
+            val snapshot = withContext(NonCancellable) { connected() }.command("get_state")
             reconcile(snapshot)
         }
     }
+
+    /** Detaches the handle; the process stays until an accepted native turn settles, then it is released. */
     override suspend fun close() = mutex.withLock {
         withContext(dispatchers.main) {
             machine.send(ActiveSessionIntent.Public.Close)
@@ -215,6 +233,8 @@ internal class PiSession(
             )
             machine.send(ActiveSessionIntent.Internal.Released)
             handle.close()
+            isHandleClosed = true
+            if (turn == null) release()
         }
     }
 
@@ -230,12 +250,38 @@ internal class PiSession(
         }
         machine.send(ActiveSessionIntent.Public.Close)
         machine.send(ActiveSessionIntent.Internal.Released)
-        connection?.close()
-        connection = null
         acceptance?.completeExceptionally(
             EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
         )
         handle.close()
+        isHandleClosed = true
+        release()
+    }
+
+    private fun release() {
+        val active = connection ?: return
+        connection = null
+        log.i { "Releasing Pi process of a closed session" }
+        active.close()
+        profileClose.dispose()
+        released(this)
+    }
+
+    /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
+    private suspend fun connected(): PiConnection {
+        connection?.takeIf { it.isOpen }?.let { return it }
+        connection?.close()
+        connection = null
+        val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
+        val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        log.i { "Restarting Pi process for session recovery" }
+        val fresh = factory(::event, ::failed)
+        connection = fresh
+        val switched = fresh.command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
+        if (switched["cancelled"]?.jsonPrimitive?.booleanOrNull == true) {
+            piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        return fresh
     }
 
     private fun prepare(effect: ActiveSessionEffect) {
@@ -247,7 +293,7 @@ internal class PiSession(
     private fun handoff(effect: ActiveSessionEffect) {
         if (pendingEffect == effect && !isEffectStarted) {
             isEffectStarted = true
-            profile.coroutineScope.launch { execute(effect) }
+            profile.coroutineScope.launch(dispatchers.main) { execute(effect) }
         }
     }
     private suspend fun execute(effect: ActiveSessionEffect) {
@@ -272,6 +318,9 @@ internal class PiSession(
             }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: PromptNotSentException) {
+            log.w(e) { "Pi prompt was rejected before delivery" }
+            commandFailed(effect, accepted, e.failure, isDelivered = false)
         } catch (e: EngineException) {
             log.w(e) { "Pi native command failed" }
             commandFailed(effect, accepted, e.failure)
@@ -287,8 +336,9 @@ internal class PiSession(
         effect: ActiveSessionEffect,
         accepted: CompletableDeferred<TurnId>?,
         original: EngineFailure,
+        isDelivered: Boolean = true,
     ) {
-        val failure = if (effect is ActiveSessionEffect.Submit && original !is EngineFailure.Request) {
+        val failure = if (effect is ActiveSessionEffect.Submit && isDelivered && original !is EngineFailure.Request) {
             EngineFailure.Request(RequestFailureReason.OutcomeUnknown, effect.request.id)
         } else {
             original
@@ -304,14 +354,17 @@ internal class PiSession(
         if (turn?.id == affected) failed(failure)
     }
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
-        validate()
+        try {
+            validate()
+        } catch (e: EngineException) {
+            throw PromptNotSentException(e.failure, e)
+        }
         val accepted = acceptance
         val message = effect.request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        val response = rpc().command("prompt", JsonObject(mapOf("message" to JsonPrimitive(message))))
+        rpc().command("prompt", JsonObject(mapOf("message" to JsonPrimitive(message))))
         if (turn?.id == effect.turn.id) machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
         started(effect.turn)
         accepted?.complete(effect.turn.id)
-        if (response.string("disposition") == "handled" && turn?.id == effect.turn.id) finish(TurnOutcome.Unknown)
     }
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
@@ -355,6 +408,7 @@ internal class PiSession(
         }
         journal.finished(completed.id, outcome)
         turn = null
+        if (isHandleClosed) release()
     }
 
     private suspend fun failed(failure: EngineFailure) = withContext(dispatchers.main) {
@@ -388,6 +442,10 @@ internal class PiSession(
             turn = null
         }
     }
+
+    /** The prompt never reached Pi, so the failure is definite rather than an unknown delivery. */
+    private class PromptNotSentException(val failure: EngineFailure, cause: EngineException) :
+        Exception(failure.code, cause)
 
     private fun ensureOpen() {
         if (state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed) {

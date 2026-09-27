@@ -19,9 +19,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.Comparator
 import java.util.HexFormat
 
 @Inject
@@ -54,8 +56,12 @@ internal class PiProcessLauncher(
         val executable = executable()?.takeIf { Files.isRegularFile(it) }
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
-        val owner = stores.owner as StorageOwner.Profile
-        val root = Path.of(System.getProperty("user.home"), ".heartbeat", "pi", fingerprint(owner.id.value))
+        val owner = stores.owner as? StorageOwner.Profile
+            ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        val root = piProfileRoot(owner.id.value)
+        val secret = secrets.read(SecretKey(source.secret.value))
+            ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
+        // Per-process agent configuration; removed when the process exits.
         val agentDir = Files.createTempDirectory(Files.createDirectories(root.resolve("runtime")), "pi-")
         val sessionDir = Files.createDirectories(root.resolve("sessions"))
         val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
@@ -67,6 +73,7 @@ internal class PiProcessLauncher(
         val command = listOf(
             executable.toString(), "--mode", "rpc", "--provider", provider.id,
             "--session-dir", sessionDir.toString(), "--no-extensions", "--no-skills",
+            // --no-approve refuses project-local trust-gated resources; it is not tool-call approval.
             "--no-prompt-templates", "--no-context-files", "--no-themes", "--no-approve", "--tools", tools,
         )
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
@@ -74,24 +81,34 @@ internal class PiProcessLauncher(
         environment.keys.retainAll(SAFE_ENVIRONMENT)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
-        val secret = secrets.read(SecretKey(source.secret.value))
-            ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         try {
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting bundled Pi process" }
             val process = builder.start()
+            process.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
             val rpc = PiRpc(process, profile.coroutineScope, dispatchers, event, failed)
-            profile.onClose(rpc::close)
+            rpc.closeWith(profile.onClose(rpc::close))
             rpc
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            deleteTree(agentDir)
             log.w(EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))) {
                 "Pi startup failed: ${e::class.simpleName.orEmpty()}"
             }
             piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         } finally {
             environment.remove(provider.variable)
+        }
+    }
+
+    private fun deleteTree(directory: Path) {
+        try {
+            if (Files.exists(directory)) {
+                Files.walk(directory).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::delete) }
+            }
+        } catch (e: IOException) {
+            log.w(e) { "Pi runtime directory cleanup failed" }
         }
     }
 
