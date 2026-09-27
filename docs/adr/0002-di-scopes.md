@@ -82,8 +82,8 @@ AppScope (Metro)          HeartbeatGraph         platform-main:di-bundle, per-pl
 
 - Фича: маркер скоупа + `@GraphExtension` с фабрикой `@ContributesTo(ProfileScope::class)`; биндинги —
   обычные `@Contributes*`; компонент получает граф через `retainedGraph`.
-- Машины фич с пользовательскими данными должны жить в `ProfileScope` — нужен `MachineRegistry` уровня профиля
-  (отдельное изменение `core:state-machine`, пересмотреть `feature-contract.md`).
+- ~~Машины фич с пользовательскими данными должны жить в `ProfileScope`~~ — решено в [ADR-0004](0004-state-machine.md):
+  машина живёт в скоупе своей фичи (дочернем к профилю), реестр адресует только запущенные машины.
 - Постоянный `ActiveProfileStorage` — в `core:datastore` с `priority` выше дефолтного.
 - `scopedStore` для FlowMVI — в `core:di:ext` после появления `core:mvi`.
 - iOS-тесты (`iosSimulatorArm64Test`) требуют установленного Xcode.

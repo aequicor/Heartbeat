@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | Навигация | Decompose + Essenty | `com.arkivanov.decompose:decompose`, `:extensions-compose`, `:extensions-compose-experimental` (`ChildStack`/`ChildPanels` со `StackAnimationScope` — shared elements + predictive back; experimental, ADR-0003); Essenty `com.arkivanov.essenty:instance-keeper`, `:state-keeper` (в `core:di:ext`) | 3.5.0 (3.6.0-beta01); Essenty 2.5.0 (= Decompose 3.5.0) | https://arkivanov.github.io/Decompose/ |
 | MVI | FlowMVI | `pro.respawn.flowmvi:core`, `:compose`, `:essenty`, `:essenty-compose`, `:test` | 3.2.1 | https://opensource.respawn.pro/FlowMVI/ |
-| State-machine | KStateMachine | `io.github.nsk90:kstatemachine`, `:kstatemachine-coroutines` | 0.38.1 | https://kstatemachine.github.io/kstatemachine/ |
+| State-machine | KStateMachine — движок только в `core:state-machine:impl` (std-lib-абстракция, `:kstatemachine-coroutines` не нужен); фичи описывают машину DSL `machineSpec { }` (ADR-0004) | `io.github.nsk90:kstatemachine` | 0.38.1 | https://kstatemachine.github.io/kstatemachine/ |
 | DI | Metro | плагин `dev.zacsweers.metro` (runtime добавляется сам), через `heartbeat.metro` (`generateContributionProviders = true`) | 1.4.5 (поддерживает Kotlin 2.4.20 с 1.2.0) | https://zacsweers.github.io/metro/ |
 | Ресурсы | Compose Resources | `org.jetbrains.compose.components:components-resources` | = Compose | https://kotlinlang.org/docs/multiplatform/compose-multiplatform-resources.html |
 | БД | Room KMP | `androidx.room:room-runtime`, `room-compiler` (KSP), плагин `androidx.room` | 2.8.5 | https://developer.android.com/kotlin/multiplatform/room |
@@ -48,7 +48,7 @@
 | Decompose | `com.arkivanov.decompose`, `com.arkivanov.decompose.router.stack`, `com.arkivanov.decompose.extensions.compose.stack` |
 | Essenty | `com.arkivanov.essenty.lifecycle`, `com.arkivanov.essenty.instancekeeper` |
 | FlowMVI | `pro.respawn.flowmvi.api`, `pro.respawn.flowmvi.dsl`, `pro.respawn.flowmvi.plugins`, `pro.respawn.flowmvi.logging`, `pro.respawn.flowmvi.compose.dsl`, `pro.respawn.flowmvi.essenty.dsl` |
-| KStateMachine | `ru.nsk.kstatemachine.statemachine`, `.state`, `.event`, `.transition`, `.coroutines` |
+| KStateMachine (только `core:state-machine:impl`) | `ru.nsk.kstatemachine.statemachine`, `.state`, `.event`, `.transition` |
 | Metro | `dev.zacsweers.metro` |
 | Koog | `ai.koog.agents.core.agent`, `ai.koog.agents.core.tools`, `ai.koog.prompt.executor.llms.all`, `ai.koog.agents.features.eventHandler.feature` |
 | Napier | `io.github.aakira.napier` (только в `core:logging`) |
