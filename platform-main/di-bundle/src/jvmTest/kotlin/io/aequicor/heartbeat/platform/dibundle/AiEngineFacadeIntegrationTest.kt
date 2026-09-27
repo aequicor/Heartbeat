@@ -17,9 +17,13 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -37,27 +41,48 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -77,11 +102,12 @@ import kotlin.test.assertIs
 interface AiEngineTestAccessors {
     val engineFacade: EngineFacade
     val engineAuthSources: AuthSources
+    val modelSelections: ModelSelections
 }
 
 /** A scripted adapter bundled only into the test graph, registered like a real adapter. */
 @ContributesTo(ProfileScope::class)
-interface TestEngineContribution {
+interface FacadeTestEngineContribution {
     @Provides
     @IntoSet
     fun testEngine(): EngineRegistration = TestAdapter.registration
@@ -107,7 +133,14 @@ object TestAdapter {
             EngineFamily.Vendor,
             EnginePlatform.entries.toSet(),
             toggle,
-            declaredFeatures = setOf(CreatesSessions.id),
+            declaredFeatures = setOf(CreatesSessions.id, AttachesSessions.id),
+            connectionMethods = listOf(
+                ConnectionMethod.ApiKey(
+                    ConnectionMethodId("key"),
+                    ProviderInfo(ProviderId("openai"), "Test provider"),
+                    EndpointOrigin("https://api.example.com"),
+                ),
+            ),
         ),
         AuthOwnerId("itest-cli"),
         lazyOf(
@@ -145,6 +178,12 @@ class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
                     natives += it
                 }
         },
+        AttachesSessions to object : AttachesSessions {
+            override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession =
+                natives.single {
+                    it.ref == ref
+                }.also { it.native.value = ActiveSessionState.Ready() }
+        },
     )
 
     override suspend fun close() {
@@ -154,21 +193,109 @@ class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
 
 class TestNative(override val ref: SessionRef) : ActiveSession {
     val native = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
+    private val events = MutableStateFlow<List<SessionEvent>>(emptyList())
+    private var items = emptyList<SessionItem>()
+    var cancellations = 0
+    var cancelGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    var failCancellation = false
+    var decision: PermissionDecision? = null
     override val route get() = error("the facade owns the route")
     override val state: StateFlow<ActiveSessionState> = native
 
     override val features: EngineFeatures = features(
         SendsPrompts to object : SendsPrompts {
             override suspend fun send(request: PromptRequest): TurnId {
-                val turn = Turn(TurnId("native-1"), request.id, EngineTarget(ref.engine, bindingOf(), ModelId("m1")))
+                val turn = Turn(
+                    TurnId("native-${items.size}"),
+                    request.id,
+                    EngineTarget(ref.engine, bindingOf(), ModelId("m1")),
+                )
+                record(
+                    SessionItem.Message(
+                        ItemInfo(ItemId("prompt-${items.size}"), items.size.toLong(), 0, turn.id),
+                        MessageRole.User,
+                        request.parts,
+                    ),
+                )
                 native.value = ActiveSessionState.Running(turn)
                 return turn.id
             }
         },
+        CancelsTurns to object : CancelsTurns {
+            override suspend fun cancel(turn: TurnId) {
+                cancellations++
+                cancelGate?.await()
+                if (failCancellation) {
+                    throw EngineException(
+                        EngineFailure.Transport(
+                            io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason.NetworkUnavailable,
+                        ),
+                    )
+                }
+                val current = when (val status = native.value) {
+                    is ActiveSessionState.Running -> status.turn
+                    is ActiveSessionState.AwaitingUserAction -> status.turn
+                    else -> error("not running")
+                }
+                check(current.id == turn)
+                native.value = ActiveSessionState.Ready(current.copy(outcome = TurnOutcome.Cancelled))
+            }
+        },
+        RequestsPermissions to object : RequestsPermissions {
+            override suspend fun respond(decision: PermissionDecision) {
+                this@TestNative.decision = decision
+                val pending = native.value as ActiveSessionState.AwaitingUserAction
+                native.value = ActiveSessionState.Running(pending.turn)
+            }
+        },
+        SessionHistory to object : SessionHistory {
+            override suspend fun page(request: HistoryPageRequest) = HistoryPage(
+                items,
+                null,
+                null,
+                HistoryCheckpoint(events.value.size.toString()),
+                HistoryCoverage.Complete,
+            )
+
+            override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> = flow {
+                var offset = after.value.toInt()
+                events.collect { journal ->
+                    journal.drop(offset).forEach { emit(it) }
+                    offset = journal.size
+                }
+            }
+        },
     )
+
+    private fun record(item: SessionItem) {
+        items = items + item
+        events.value += SessionEvent.ItemUpserted(HistoryCheckpoint((events.value.size + 1).toString()), item)
+    }
+
+    fun requestPermission() {
+        val turn = (native.value as ActiveSessionState.Running).turn
+        native.value = ActiveSessionState.AwaitingUserAction(
+            turn,
+            listOf(
+                PermissionRequest(
+                    PermissionRequestId("approval"),
+                    turn.id,
+                    "Write file",
+                    listOf(PermissionOption(PermissionOptionId("allow-once"), "Allow once")),
+                ),
+            ),
+        )
+    }
 
     fun finish() {
         val turn = checkNotNull((native.value as ActiveSessionState.Running).turn)
+        record(
+            SessionItem.Message(
+                ItemInfo(ItemId("answer-${items.size}"), items.size.toLong(), 0, turn.id),
+                MessageRole.Assistant,
+                listOf(ContentPart.Text("Native answer")),
+            ),
+        )
         native.value = ActiveSessionState.Ready(turn.copy(outcome = TurnOutcome.Completed))
     }
 
@@ -176,7 +303,7 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
         native.value = ActiveSessionState.Closed
     }
 
-    private fun bindingOf() = io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId("native")
+    private fun bindingOf() = EngineBindingId("native")
 }
 
 private fun features(vararg entries: Pair<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {

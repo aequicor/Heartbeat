@@ -62,8 +62,17 @@ class SessionCatalogService(
         log.i { "open stored session engine=${ref.engine.value} source=${ref.source.value}" }
         val registration = registry.require(ref.engine)
         if (ref.engine !in enabled.current()) fail(EngineUnavailable)
-        val source = registry.source(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
-        return openStored(registration, adapterCall(log, "get") { source.get(ref) })
+        val source = registry.source(ref)
+        val stored = if (source != null) {
+            adapterCall(log, "get") { source.get(ref) }
+        } else {
+            val known = index.find(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
+            object : EngineSession {
+                override val summary = kotlinx.coroutines.flow.MutableStateFlow(known)
+                override val features = FeatureTable(emptyMap())
+            }
+        }
+        return openStored(registration, stored)
     }
 
     override suspend fun refresh(query: SessionQuery): SessionDiscoveryReport = refreshing.withLock {

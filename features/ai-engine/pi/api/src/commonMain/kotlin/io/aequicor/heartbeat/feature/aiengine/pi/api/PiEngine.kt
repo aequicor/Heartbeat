@@ -2,12 +2,17 @@ package io.aequicor.heartbeat.feature.aiengine.pi.api
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -43,6 +48,23 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
         ReconcilesSession.id,
         SessionHistory.id,
         RequestsPermissions.id,
+    ),
+    connectionMethods = listOf(
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("openai"),
+            ProviderInfo(ProviderId("openai"), "OpenAI"),
+            EndpointOrigin("https://api.openai.com"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("anthropic"),
+            ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+            EndpointOrigin("https://api.anthropic.com"),
+        ),
+        ConnectionMethod.ApiKey(
+            ConnectionMethodId("google"),
+            ProviderInfo(ProviderId("google"), "Google"),
+            EndpointOrigin("https://generativelanguage.googleapis.com"),
+        ),
     ),
     isDefault = true,
 )

@@ -7,14 +7,19 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -39,6 +44,15 @@ public object ClaudeBindings {
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
             ClaudeEngine.Enabled,
             requirements = listOf(EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support")),
+            connectionMethods = listOf(
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("cli"),
+                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                    EndpointOrigin("https://api.anthropic.com"),
+                    ClaudeEngine.AuthOwner,
+                    ClaudeEngine.AuthLocation,
+                ),
+            ),
             declaredFeatures = setOf(
                 CreatesSessions.id,
                 AttachesSessions.id,

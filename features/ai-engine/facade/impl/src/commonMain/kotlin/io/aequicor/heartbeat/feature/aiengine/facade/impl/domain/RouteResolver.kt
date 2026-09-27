@@ -57,6 +57,8 @@ class RouteResolver(
         val source = bindings.requireSource(saved.authSource)
         val context = EngineContext(engine, binding, workspace, model)
         bindings.requireAccepted(registration, source, context)
+        // Adapters without persistent route state learn the route again after a restart; bind is idempotent.
+        registration.factory.value.bind(saved.id, source)
         return ResolvedRoute(registration, saved, source, context)
     }
 

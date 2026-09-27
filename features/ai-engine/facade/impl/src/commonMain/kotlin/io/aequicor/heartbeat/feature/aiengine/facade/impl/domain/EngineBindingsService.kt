@@ -87,19 +87,31 @@ class EngineBindingsService(
     override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): EngineBinding {
         log.i { "connect engine=${engine.value} source=${source.value} priority=$priority" }
         val registration = gate.requireEnabled(engine)
-        val authSource = requireSource(source)
+        var authSource = requireSource(source)
         return mutex.withLock {
             val saved = store.load()
+            requireUniqueLogin(engine, authSource, saved)
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
             val id = existing?.id ?: EngineBindingId(context.token(BINDING_PREFIX))
             requireAccepted(registration, authSource, EngineContext(engine, id))
             val factory = registration.factory.value
+            val revision = factory.sourceRevision(authSource)
+            if (revision != authSource.info.revision) authSource = sources.updateRevision(source, revision)
             factory.bind(id, authSource)
             val binding = existing?.copy(priority = priority) ?: EngineBinding(id, engine, source, priority = priority)
             saveBound(saved, binding, isNew = existing == null, factory)
             log.i { "binding saved binding=${id.value} new=${existing == null}" }
             binding
         }
+    }
+
+    private suspend fun requireUniqueLogin(engine: EngineId, source: AuthSource, saved: List<EngineBinding>) {
+        if (source !is AuthSource.CliLogin) return
+        val hasDuplicate = saved.filter { it.engine == engine && it.authSource != source.info.id }.any {
+            val other = sources.get(it.authSource) as? AuthSource.CliLogin
+            other?.owner == source.owner && other.location == source.location
+        }
+        if (hasDuplicate) fail(OperationNotAllowed)
     }
 
     override suspend fun setEnabled(binding: EngineBindingId, enabled: Boolean): Unit = mutex.withLock {

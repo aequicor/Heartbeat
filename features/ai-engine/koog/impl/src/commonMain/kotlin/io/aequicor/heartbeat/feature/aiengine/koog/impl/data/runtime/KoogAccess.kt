@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -32,6 +34,11 @@ internal class KoogAccess(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val transport: KoogTransport,
 ) {
+    suspend fun configure(binding: EngineBindingId, source: AuthSource) =
+        connections.put(KoogConnection(EngineBinding(binding, KoogEngineId, source.info.id), source))
+
+    suspend fun remove(binding: EngineBindingId) = connections.remove(binding)
+
     suspend fun checkEnabled() {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         if (!toggles.get(KoogEngineEnabled)) fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
@@ -47,7 +54,7 @@ internal class KoogAccess(
         if (koogProvider(source) == null) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
-        if (source.info.revision !is AuthRevision.Known) {
+        if (source !is AuthSource.NoAuth && source.info.revision !is AuthRevision.Known) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged)))
         }
         val actual = RuntimeIdentity(connection.binding.engine, source.info.id, source.info.revision)

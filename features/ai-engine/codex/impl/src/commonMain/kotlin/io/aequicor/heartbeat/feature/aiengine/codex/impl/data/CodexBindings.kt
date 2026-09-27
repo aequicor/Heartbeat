@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
@@ -6,13 +7,19 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -27,7 +34,10 @@ public object CodexBindings {
     /** The engine factory is initialized only after facade ownership and toggle checks. */
     @Provides
     @IntoSet
-    public fun registration(factory: Lazy<CodexEngineFactory>): EngineRegistration = EngineRegistration(
+    public fun registration(
+        factory: Lazy<CodexEngineFactory>,
+        config: CodexLocalConfiguration = CodexLocalConfiguration(),
+    ): EngineRegistration = EngineRegistration(
         descriptor = EngineDescriptor(
             CodexEngine.Id,
             "Codex",
@@ -36,6 +46,15 @@ public object CodexBindings {
             CodexEngine.Enabled,
             requirements = listOf(
                 EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
+            ),
+            connectionMethods = listOf(
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("cli"),
+                    ProviderInfo(ProviderId("openai"), "OpenAI"),
+                    EndpointOrigin("https://api.openai.com"),
+                    CodexEngine.AuthOwner,
+                    config.location,
+                ),
             ),
             declaredFeatures = setOf(
                 CreatesSessions.id,

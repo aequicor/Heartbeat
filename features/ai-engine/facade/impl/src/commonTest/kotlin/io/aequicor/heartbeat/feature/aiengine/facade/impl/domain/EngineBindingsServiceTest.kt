@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthContextKey
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
@@ -43,6 +44,28 @@ class EngineBindingsServiceTest {
             { it in busy },
             facadeContext(clock),
         )
+    }
+
+    @Test
+    fun `connecting refreshes the source revision reported by the adapter before binding`() = runTest {
+        val service = service()
+        val source = sources.add(cliLogin())
+        factory.revision = { AuthRevision.Known("login-2") }
+
+        val binding = service.connect(TestEngine, source.info.id)
+
+        assertEquals(AuthRevision.Known("login-2"), sources.get(source.info.id)?.info?.revision)
+        assertEquals(AuthRevision.Known("login-2"), factory.routes.getValue(binding.id).info.revision)
+    }
+
+    @Test
+    fun `two source ids cannot alias one native CLI account location`() = runTest {
+        val service = service()
+        val first = sources.add(cliLogin("one"))
+        val second = sources.add(cliLogin("two"))
+        val binding = service.connect(TestEngine, first.info.id)
+        assertFailsWith<EngineException> { service.connect(TestEngine, second.info.id) }
+        assertEquals(listOf(binding), store.bindings.value)
     }
 
     @Test

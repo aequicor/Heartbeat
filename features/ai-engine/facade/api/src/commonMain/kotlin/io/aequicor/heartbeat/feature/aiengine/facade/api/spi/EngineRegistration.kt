@@ -55,6 +55,12 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /**
+     * Current revision of [source] as the owner sees it, read before [bind] when a binding is connected.
+     * A CLI login reports its account revision without importing credentials; by default the stored one.
+     */
+    public suspend fun sourceRevision(source: AuthSource): AuthRevision = source.info.revision
+
     /** Explicit installation probe. */
     public suspend fun checkRequirements(): EngineAvailability
 

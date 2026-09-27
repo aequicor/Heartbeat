@@ -10,7 +10,10 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthVerdict
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
@@ -46,6 +49,9 @@ internal class JvmClaudeBackend(
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ClaudeBackend {
+    /** Sources of configured bindings; the CLI resolves the login itself, so only ids are kept. */
+    private val routes = mutableMapOf<EngineBindingId, AuthSourceId>()
+
     private val log = Log.tag("ClaudeBackend")
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
@@ -53,6 +59,13 @@ internal class JvmClaudeBackend(
     override suspend fun inspect(): ClaudeLogin {
         enabled()
         return account.inspect()
+    }
+
+    override suspend fun sourceRevision(source: AuthSource): AuthRevision {
+        enabled()
+        val login = account.inspect()
+        if (login.check.verdict != AuthVerdict.Authenticated) authFailure(AuthFailureReason.NotAuthenticated)
+        return login.source.info.revision
     }
 
     /** An installation probe reports every adapter failure as availability; only cancellation escapes. */
@@ -84,19 +97,24 @@ internal class JvmClaudeBackend(
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
         context.engine == ClaudeEngine.Id && source is AuthSource.CliLogin &&
             source.owner == ClaudeEngine.AuthOwner && source.location == ClaudeEngine.AuthLocation &&
-            source.info.id == ClaudeEngine.AuthSource && source.scope.provider.value == "anthropic" &&
+            source.scope.provider.value == "anthropic" &&
             source.scope.origin.value == "https://api.anthropic.com"
 
     override fun authContext(context: EngineContext) = ClaudeEngine.AuthContext
 
-    /** No adapter-side route state: the Claude CLI login is resolved by the CLI itself. */
-    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
-        log.d { "bind ignored: no route state" }
+    /** Allows runtimes for [source] of a user-configured binding; the CLI itself still resolves the login. */
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = mutex.withLock {
+        if (!accepts(source, EngineContext(ClaudeEngine.Id, binding))) {
+            log.w { "Rejected Claude route: foreign source" }
+            authFailure(AuthFailureReason.AuthMismatch)
+        }
+        log.i { "Binding Claude route" }
+        routes[binding] = source.info.id
     }
 
-    /** No adapter-side route state, see [bind]. */
-    override suspend fun unbind(binding: EngineBindingId) {
-        log.d { "unbind ignored: no route state" }
+    /** Forgets the route of [binding]; unknown bindings are ignored. */
+    override suspend fun unbind(binding: EngineBindingId): Unit = mutex.withLock {
+        if (routes.remove(binding) != null) log.i { "Unbinding Claude route" }
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
@@ -140,7 +158,9 @@ internal class JvmClaudeBackend(
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         enabled()
-        if (identity.engine != ClaudeEngine.Id || identity.source != ClaudeEngine.AuthSource) {
+        if (identity.engine != ClaudeEngine.Id ||
+            (identity.source != ClaudeEngine.AuthSource && identity.source !in routes.values)
+        ) {
             log.w { "Claude runtime requested for a foreign identity" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
