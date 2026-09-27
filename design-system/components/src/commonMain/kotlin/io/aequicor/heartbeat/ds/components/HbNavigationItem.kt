@@ -18,11 +18,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.InputMode
+import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
@@ -39,8 +44,10 @@ private val log = Log.tag("DS/Navigation")
  * Selectable row of a navigation list: destinations, projects and conversations.
  * [level] indents nested rows (for example conversations inside a project).
  * [isEmphasized] renders the label in a stronger weight, e.g. for unread content.
- * [trailingContent] receives whether the row is hovered or focused, so secondary actions can stay hidden
- * until the pointer or keyboard reaches the row; nested actions keep their own click targets.
+ * [trailingContent] receives whether the row is active, so secondary actions can stay hidden until the
+ * pointer or keyboard reaches the row: the row is active while hovered, while focus is on the row or any of
+ * its nested actions, and always under touch input, which has no hover. Nested actions keep their own click
+ * targets.
  * [role] is [Role.Button] for list entries; pass [Role.Tab] only inside a tab list.
  * All visual styles share this foundation row; it has no native counterpart in the platform kits.
  */
@@ -60,6 +67,9 @@ public fun HbNavigationItem(
     val isFocused by interactions.collectIsFocusedAsState()
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
+    // The row's own focus ends when Tab moves to a nested action; hasFocus keeps that action visible.
+    var hasFocusWithin by remember { mutableStateOf(false) }
+    val isTouch = LocalInputModeManager.current.inputMode == InputMode.Touch
     val colors = HbTheme.colors
     val shape = HbTheme.shapes.small
     val background = navigationBackground(isSelected, isHovered, isPressed)
@@ -69,6 +79,7 @@ public fun HbNavigationItem(
             .fillMaxWidth()
             .heightIn(min = HbTheme.dimensions.touchTarget)
             .semantics { if (isSelected) selected = true }
+            .onFocusChanged { hasFocusWithin = it.hasFocus }
             .clickable(interactionSource = interactions, indication = null, role = role) {
                 log.i { "navigation item pressed level=$level selected=$isSelected" }
                 onClick()
@@ -93,7 +104,7 @@ public fun HbNavigationItem(
             color = foreground,
             maxLines = 1,
         )
-        trailingContent(isHovered || isFocused)
+        trailingContent(isHovered || isFocused || hasFocusWithin || isTouch)
     }
 }
 

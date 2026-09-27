@@ -22,6 +22,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -89,6 +90,26 @@ class HbNavigationUiTest {
             onNodeWithText("Second").performClick()
             runOnIdle { assertEquals("second", selected) }
             onNodeWithContentDescription("main").assert(!hasClickAction())
+        }
+
+    @Test
+    fun `row actions stay reachable when Tab moves focus from the row onto them`() =
+        runSkikoComposeUiTest(size = Size(320f, 120f)) {
+            var actions = 0
+            setContent {
+                HbTheme {
+                    HbGlassScene {
+                        HbNavigationItem("Session", onClick = {}) { isActive ->
+                            if (isActive) HbIconButton(HbIcons.More, "Session actions", onClick = { actions++ })
+                        }
+                    }
+                }
+            }
+            onNodeWithText("Session").requestFocus()
+            onNodeWithContentDescription("Session actions").assertExists()
+            onNodeWithText("Session").performKeyInput { pressKey(Key.Tab) }
+            onNodeWithContentDescription("Session actions").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+            runOnIdle { assertEquals(1, actions) }
         }
 
     @Test
