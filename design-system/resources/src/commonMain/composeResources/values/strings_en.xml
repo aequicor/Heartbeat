@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="en_icons">Icons</string>
+    <string name="en_icons_description">Soft outlines, rounded strokes and a filled home for the active state. Navigation: 18 dp. Metadata: 14 dp.</string>
     <string name="en_app_name">Heartbeat</string>
     <string name="en_app_subtitle">AEQUICOR STUDIO</string>
     <string name="en_sandbox">Design system sandbox</string>
@@ -132,4 +134,32 @@
     <string name="en_file_path_copied">Path copied</string>
     <string name="en_unknown_file">Code changes</string>
     <string name="en_note_draft">My idea: </string>
+    <string name="en_illustrations">Illustrations</string>
+    <string name="en_illustrations_description">Quiet vector scenes for everyday product states. Colors follow the current theme.</string>
+    <string name="en_search_icons">Search by icon name…</string>
+    <string name="en_all_icons">All icons</string>
+    <string name="en_navigation_icons">Navigation</string>
+    <string name="en_file_icons">Files and content</string>
+    <string name="en_communication_icons">Communication</string>
+    <string name="en_development_icons">Workspace and development</string>
+    <string name="en_media_icons">Media</string>
+    <string name="en_no_icons_found">No icons found. Try a different name or category.</string>
+    <string name="en_icon_sizes">14 / 18 / 24 dp · rounded outline · selectable API names</string>
+    <string name="en_illustration_welcome">Welcome</string>
+    <string name="en_illustration_welcome_hint">A starting point for a new idea.</string>
+    <string name="en_illustration_workspace">Empty workspace</string>
+    <string name="en_illustration_workspace_hint">A project waiting for its first files.</string>
+    <string name="en_illustration_chat">Start a conversation</string>
+    <string name="en_illustration_chat_hint">An invitation to send the first message.</string>
+    <string name="en_illustration_search">No results</string>
+    <string name="en_illustration_search_hint">A search that needs another query.</string>
+    <string name="en_illustration_success">All done</string>
+    <string name="en_illustration_success_hint">Work completed and changes saved.</string>
+    <string name="en_illustration_error">Something went wrong</string>
+    <string name="en_illustration_error_hint">An operation that can be tried again.</string>
+    <string name="en_illustration_offline">Offline</string>
+    <string name="en_illustration_offline_hint">Waiting for the connection to return.</string>
+    <string name="en_illustration_upload">Add your files</string>
+    <string name="en_illustration_upload_hint">A place to import documents and attachments.</string>
+    <string name="en_matching_icons">Matching icons</string>
 </resources>

@@ -27,9 +27,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.intl.Locale
@@ -40,6 +40,8 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbGlassScene
+import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbAdaptivePane
@@ -252,10 +254,10 @@ private fun NavigationItem(page: SandboxPage, state: SandboxState, modifier: Mod
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s),
         gap = HbTheme.spacing.s,
     ) {
-        HbText(
-            hbString(page.symbol()),
-            modifier = Modifier.clearAndSetSemantics { },
-            style = HbTheme.typography.label,
+        HbIcon(
+            icon = page.icon(isSelected),
+            contentDescription = null,
+            tint = if (isSelected) colors.textPrimary else colors.textSecondary,
         )
         HbText(
             hbString(page.title),
@@ -287,7 +289,7 @@ private fun navigationBackground(isSelected: Boolean, isHovered: Boolean, isPres
 @Composable
 private fun CompactNavigation(state: SandboxState, modifier: Modifier = Modifier) {
     val pages = remember {
-        listOf(SandboxPage.Chat, SandboxPage.Foundation, SandboxPage.Components, SandboxPage.Layouts)
+        listOf(SandboxPage.Chat) + SandboxPage.entries.filter { it != SandboxPage.Chat }
     }
     HbPanel(modifier = modifier.fillMaxWidth().testTag("sandbox-compact-navigation")) {
         HbRow(
@@ -311,6 +313,8 @@ private fun CatalogContent(
 ) {
     when (state.page) {
         SandboxPage.Foundation -> FoundationCatalog(modifier = modifier)
+        SandboxPage.Icons -> IconsCatalog(modifier = modifier)
+        SandboxPage.Illustrations -> IllustrationsCatalog(modifier = modifier)
         SandboxPage.Components -> ComponentsCatalog(state = state, modifier = modifier)
         SandboxPage.Layouts -> LayoutsCatalog(modifier = modifier)
         SandboxPage.Chat -> ChatCatalog(state = chat, copy = copy, isCompact = isCompact, modifier = modifier)
@@ -341,11 +345,13 @@ private fun PlatformUi.title(): HbString = when (this) {
     PlatformUi.MacOs -> HbString.MacOs
 }
 
-private fun SandboxPage.symbol(): HbString = when (this) {
-    SandboxPage.Foundation -> HbString.FoundationSymbol
-    SandboxPage.Components -> HbString.ComponentsSymbol
-    SandboxPage.Layouts -> HbString.LayoutsSymbol
-    SandboxPage.Chat -> HbString.ChatSymbol
+private fun SandboxPage.icon(isSelected: Boolean): ImageVector = when (this) {
+    SandboxPage.Foundation -> if (isSelected) HbIcons.HomeFilled else HbIcons.Home
+    SandboxPage.Icons -> HbIcons.Grid
+    SandboxPage.Illustrations -> HbIcons.Images
+    SandboxPage.Components -> HbIcons.Library
+    SandboxPage.Layouts -> HbIcons.Sidebar
+    SandboxPage.Chat -> HbIcons.Chat
 }
 
 @Composable

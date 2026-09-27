@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -111,9 +112,9 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
     val isPressed by interactionSource.collectIsPressedAsState()
     val background = toolHeaderBackground(isHovered, isPressed)
     val status = when (toolCall.status) {
-        HbToolStatus.Running -> "… ${labels.running}"
-        HbToolStatus.Complete -> "✓ ${labels.complete}"
-        HbToolStatus.Error -> "! ${labels.error}"
+        HbToolStatus.Running -> labels.running
+        HbToolStatus.Complete -> labels.complete
+        HbToolStatus.Error -> labels.error
     }
     HbRow(
         modifier = Modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget)
@@ -130,19 +131,33 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xxs),
         gap = HbTheme.spacing.s,
     ) {
+        HbIcon(
+            icon = if (isExpanded) HbIcons.ChevronDown else HbIcons.ChevronRight,
+            contentDescription = null,
+            modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
+        )
         HbText(
-            text = "${if (isExpanded) "▾" else "▸"} ${toolCall.title}",
+            text = toolCall.title,
             modifier = Modifier.weight(1f),
             style = HbTheme.typography.label,
             maxLines = 1,
         )
-        HbText(
-            text = status,
+        HbRow(
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-            style = HbTheme.typography.label,
-            color = HbTheme.colors.textPrimary,
-            maxLines = 1,
-        )
+            gap = HbTheme.spacing.xs,
+        ) {
+            HbIcon(
+                icon = when (toolCall.status) {
+                    HbToolStatus.Running -> HbIcons.More
+                    HbToolStatus.Complete -> HbIcons.Check
+                    HbToolStatus.Error -> HbIcons.Alert
+                },
+                contentDescription = null,
+                modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
+                tint = HbTheme.colors.textPrimary,
+            )
+            HbText(text = status, style = HbTheme.typography.label, maxLines = 1)
+        }
     }
 }
 

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_actions
 import io.aequicor.heartbeat.ds.resources.generated.en_add_context
 import io.aequicor.heartbeat.ds.resources.generated.en_agent
 import io.aequicor.heartbeat.ds.resources.generated.en_alignment
+import io.aequicor.heartbeat.ds.resources.generated.en_all_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_app_name
 import io.aequicor.heartbeat.ds.resources.generated.en_app_subtitle
 import io.aequicor.heartbeat.ds.resources.generated.en_ask_mode
@@ -27,6 +28,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_collapse_tool
 import io.aequicor.heartbeat.ds.resources.generated.en_column_title
 import io.aequicor.heartbeat.ds.resources.generated.en_comfortable
+import io.aequicor.heartbeat.ds.resources.generated.en_communication_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_compact
 import io.aequicor.heartbeat.ds.resources.generated.en_components
 import io.aequicor.heartbeat.ds.resources.generated.en_components_description
@@ -42,12 +44,14 @@ import io.aequicor.heartbeat.ds.resources.generated.en_cyan
 import io.aequicor.heartbeat.ds.resources.generated.en_danger
 import io.aequicor.heartbeat.ds.resources.generated.en_dark
 import io.aequicor.heartbeat.ds.resources.generated.en_demo_model
+import io.aequicor.heartbeat.ds.resources.generated.en_development_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_disabled
 import io.aequicor.heartbeat.ds.resources.generated.en_display_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_end
 import io.aequicor.heartbeat.ds.resources.generated.en_english
 import io.aequicor.heartbeat.ds.resources.generated.en_expand_tool
 import io.aequicor.heartbeat.ds.resources.generated.en_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_file_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_file_path_copied
 import io.aequicor.heartbeat.ds.resources.generated.en_fluent
 import io.aequicor.heartbeat.ds.resources.generated.en_footer
@@ -55,6 +59,27 @@ import io.aequicor.heartbeat.ds.resources.generated.en_foundation
 import io.aequicor.heartbeat.ds.resources.generated.en_foundation_symbol
 import io.aequicor.heartbeat.ds.resources.generated.en_full
 import io.aequicor.heartbeat.ds.resources.generated.en_history_section
+import io.aequicor.heartbeat.ds.resources.generated.en_icon_sizes
+import io.aequicor.heartbeat.ds.resources.generated.en_icons
+import io.aequicor.heartbeat.ds.resources.generated.en_icons_description
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_chat
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_chat_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_error
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_error_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_offline
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_offline_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_search
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_search_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_success
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_success_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_upload
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_upload_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_welcome
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_welcome_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_workspace
+import io.aequicor.heartbeat.ds.resources.generated.en_illustration_workspace_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_illustrations
+import io.aequicor.heartbeat.ds.resources.generated.en_illustrations_description
 import io.aequicor.heartbeat.ds.resources.generated.en_input_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_input_placeholder
 import io.aequicor.heartbeat.ds.resources.generated.en_inputs
@@ -78,15 +103,19 @@ import io.aequicor.heartbeat.ds.resources.generated.en_long_session_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_mac_os
 import io.aequicor.heartbeat.ds.resources.generated.en_markdown_demo
 import io.aequicor.heartbeat.ds.resources.generated.en_markdown_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_matching_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_material
+import io.aequicor.heartbeat.ds.resources.generated.en_media_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_message_style
 import io.aequicor.heartbeat.ds.resources.generated.en_mission_description
 import io.aequicor.heartbeat.ds.resources.generated.en_mission_title
 import io.aequicor.heartbeat.ds.resources.generated.en_mode_menu
 import io.aequicor.heartbeat.ds.resources.generated.en_model_menu
 import io.aequicor.heartbeat.ds.resources.generated.en_native_ui
+import io.aequicor.heartbeat.ds.resources.generated.en_navigation_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_needs_attention
 import io.aequicor.heartbeat.ds.resources.generated.en_neutral
+import io.aequicor.heartbeat.ds.resources.generated.en_no_icons_found
 import io.aequicor.heartbeat.ds.resources.generated.en_note_draft
 import io.aequicor.heartbeat.ds.resources.generated.en_notice_text
 import io.aequicor.heartbeat.ds.resources.generated.en_palette
@@ -100,6 +129,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_reset
 import io.aequicor.heartbeat.ds.resources.generated.en_row_title
 import io.aequicor.heartbeat.ds.resources.generated.en_russian
 import io.aequicor.heartbeat.ds.resources.generated.en_sandbox
+import io.aequicor.heartbeat.ds.resources.generated.en_search_icons
 import io.aequicor.heartbeat.ds.resources.generated.en_secondary
 import io.aequicor.heartbeat.ds.resources.generated.en_secondary_action
 import io.aequicor.heartbeat.ds.resources.generated.en_seed_prompt
@@ -141,6 +171,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_actions
 import io.aequicor.heartbeat.ds.resources.generated.ru_add_context
 import io.aequicor.heartbeat.ds.resources.generated.ru_agent
 import io.aequicor.heartbeat.ds.resources.generated.ru_alignment
+import io.aequicor.heartbeat.ds.resources.generated.ru_all_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_app_name
 import io.aequicor.heartbeat.ds.resources.generated.ru_app_subtitle
 import io.aequicor.heartbeat.ds.resources.generated.ru_ask_mode
@@ -159,6 +190,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_collapse_tool
 import io.aequicor.heartbeat.ds.resources.generated.ru_column_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_comfortable
+import io.aequicor.heartbeat.ds.resources.generated.ru_communication_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_compact
 import io.aequicor.heartbeat.ds.resources.generated.ru_components
 import io.aequicor.heartbeat.ds.resources.generated.ru_components_description
@@ -174,12 +206,14 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_cyan
 import io.aequicor.heartbeat.ds.resources.generated.ru_danger
 import io.aequicor.heartbeat.ds.resources.generated.ru_dark
 import io.aequicor.heartbeat.ds.resources.generated.ru_demo_model
+import io.aequicor.heartbeat.ds.resources.generated.ru_development_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_disabled
 import io.aequicor.heartbeat.ds.resources.generated.ru_display_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_end
 import io.aequicor.heartbeat.ds.resources.generated.ru_english
 import io.aequicor.heartbeat.ds.resources.generated.ru_expand_tool
 import io.aequicor.heartbeat.ds.resources.generated.ru_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_file_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_file_path_copied
 import io.aequicor.heartbeat.ds.resources.generated.ru_fluent
 import io.aequicor.heartbeat.ds.resources.generated.ru_footer
@@ -187,6 +221,27 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_foundation
 import io.aequicor.heartbeat.ds.resources.generated.ru_foundation_symbol
 import io.aequicor.heartbeat.ds.resources.generated.ru_full
 import io.aequicor.heartbeat.ds.resources.generated.ru_history_section
+import io.aequicor.heartbeat.ds.resources.generated.ru_icon_sizes
+import io.aequicor.heartbeat.ds.resources.generated.ru_icons
+import io.aequicor.heartbeat.ds.resources.generated.ru_icons_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_chat
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_chat_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_error
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_error_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_offline
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_offline_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_search
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_search_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_success
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_success_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_upload
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_upload_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_welcome
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_welcome_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_workspace
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustration_workspace_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustrations
+import io.aequicor.heartbeat.ds.resources.generated.ru_illustrations_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_input_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_input_placeholder
 import io.aequicor.heartbeat.ds.resources.generated.ru_inputs
@@ -210,15 +265,19 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_long_session_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_mac_os
 import io.aequicor.heartbeat.ds.resources.generated.ru_markdown_demo
 import io.aequicor.heartbeat.ds.resources.generated.ru_markdown_demo_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_matching_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_material
+import io.aequicor.heartbeat.ds.resources.generated.ru_media_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_message_style
 import io.aequicor.heartbeat.ds.resources.generated.ru_mission_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_mission_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_mode_menu
 import io.aequicor.heartbeat.ds.resources.generated.ru_model_menu
 import io.aequicor.heartbeat.ds.resources.generated.ru_native_ui
+import io.aequicor.heartbeat.ds.resources.generated.ru_navigation_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_needs_attention
 import io.aequicor.heartbeat.ds.resources.generated.ru_neutral
+import io.aequicor.heartbeat.ds.resources.generated.ru_no_icons_found
 import io.aequicor.heartbeat.ds.resources.generated.ru_note_draft
 import io.aequicor.heartbeat.ds.resources.generated.ru_notice_text
 import io.aequicor.heartbeat.ds.resources.generated.ru_palette
@@ -232,6 +291,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_reset
 import io.aequicor.heartbeat.ds.resources.generated.ru_row_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_russian
 import io.aequicor.heartbeat.ds.resources.generated.ru_sandbox
+import io.aequicor.heartbeat.ds.resources.generated.ru_search_icons
 import io.aequicor.heartbeat.ds.resources.generated.ru_secondary
 import io.aequicor.heartbeat.ds.resources.generated.ru_secondary_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_seed_prompt
@@ -284,6 +344,36 @@ public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
 
 /** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
 public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
+    Illustrations(Res.string.en_illustrations, Res.string.ru_illustrations),
+    IllustrationsDescription(Res.string.en_illustrations_description, Res.string.ru_illustrations_description),
+    SearchIcons(Res.string.en_search_icons, Res.string.ru_search_icons),
+    AllIcons(Res.string.en_all_icons, Res.string.ru_all_icons),
+    NavigationIcons(Res.string.en_navigation_icons, Res.string.ru_navigation_icons),
+    FileIcons(Res.string.en_file_icons, Res.string.ru_file_icons),
+    CommunicationIcons(Res.string.en_communication_icons, Res.string.ru_communication_icons),
+    DevelopmentIcons(Res.string.en_development_icons, Res.string.ru_development_icons),
+    MediaIcons(Res.string.en_media_icons, Res.string.ru_media_icons),
+    NoIconsFound(Res.string.en_no_icons_found, Res.string.ru_no_icons_found),
+    IconSizes(Res.string.en_icon_sizes, Res.string.ru_icon_sizes),
+    IllustrationWelcome(Res.string.en_illustration_welcome, Res.string.ru_illustration_welcome),
+    IllustrationWelcomeHint(Res.string.en_illustration_welcome_hint, Res.string.ru_illustration_welcome_hint),
+    IllustrationWorkspace(Res.string.en_illustration_workspace, Res.string.ru_illustration_workspace),
+    IllustrationWorkspaceHint(Res.string.en_illustration_workspace_hint, Res.string.ru_illustration_workspace_hint),
+    IllustrationChat(Res.string.en_illustration_chat, Res.string.ru_illustration_chat),
+    IllustrationChatHint(Res.string.en_illustration_chat_hint, Res.string.ru_illustration_chat_hint),
+    IllustrationSearch(Res.string.en_illustration_search, Res.string.ru_illustration_search),
+    IllustrationSearchHint(Res.string.en_illustration_search_hint, Res.string.ru_illustration_search_hint),
+    IllustrationSuccess(Res.string.en_illustration_success, Res.string.ru_illustration_success),
+    IllustrationSuccessHint(Res.string.en_illustration_success_hint, Res.string.ru_illustration_success_hint),
+    IllustrationError(Res.string.en_illustration_error, Res.string.ru_illustration_error),
+    IllustrationErrorHint(Res.string.en_illustration_error_hint, Res.string.ru_illustration_error_hint),
+    IllustrationOffline(Res.string.en_illustration_offline, Res.string.ru_illustration_offline),
+    IllustrationOfflineHint(Res.string.en_illustration_offline_hint, Res.string.ru_illustration_offline_hint),
+    IllustrationUpload(Res.string.en_illustration_upload, Res.string.ru_illustration_upload),
+    IllustrationUploadHint(Res.string.en_illustration_upload_hint, Res.string.ru_illustration_upload_hint),
+    Icons(Res.string.en_icons, Res.string.ru_icons),
+    MatchingIcons(Res.string.en_matching_icons, Res.string.ru_matching_icons),
+    IconsDescription(Res.string.en_icons_description, Res.string.ru_icons_description),
     AddContext(Res.string.en_add_context, Res.string.ru_add_context),
     InsertNote(Res.string.en_insert_note, Res.string.ru_insert_note),
     InsertNoteHint(Res.string.en_insert_note_hint, Res.string.ru_insert_note_hint),

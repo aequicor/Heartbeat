@@ -66,6 +66,12 @@ data class HbDimensions(
     val scrollbarInset: Dp = 2.dp,
     val scrollbarLazyItemExtent: Dp = 40.dp,
     val scrollbarMaxThumbFraction: Float = 0.8f,
+    val iconSize: Dp = 18.dp,
+    val iconSmallSize: Dp = 14.dp,
+    val iconLargeSize: Dp = 24.dp,
+    val iconTileWidth: Dp = 112.dp,
+    val illustrationWidth: Dp = 240.dp,
+    val illustrationHeight: Dp = 180.dp,
 )
 
 /** Animation timing; consumers may opt out of decorative movement. */

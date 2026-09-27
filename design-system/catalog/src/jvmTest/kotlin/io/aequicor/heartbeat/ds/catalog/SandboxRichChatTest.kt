@@ -4,10 +4,12 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -52,10 +54,12 @@ class SandboxRichChatTest {
 
         onNodeWithContentDescription("Add context").performClick()
         onNodeWithText("Tool result").performClick()
-        val closedTools = onAllNodesWithText("▸ workspace.inspect")
+        val closedTools = onAllNodesWithText("workspace.inspect")
         closedTools[closedTools.fetchSemanticsNodes().lastIndex].assertIsDisplayed().performClick()
-        onNodeWithText("▾ workspace.inspect").assertIsDisplayed().performClick()
-        onNodeWithText("▾ workspace.inspect").assertDoesNotExist()
+        val expandedTool = hasText("workspace.inspect") and
+            SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "Collapse tool")
+        onNode(expandedTool).assertIsDisplayed().performClick()
+        onNode(expandedTool).assertDoesNotExist()
         onNodeWithContentDescription("Send").assertIsDisplayed()
     }
 

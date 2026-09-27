@@ -70,11 +70,11 @@ private fun CopyPathButton(filePath: String, labels: HbToolLabels, modifier: Mod
         PathCopyStatus.Idle, PathCopyStatus.Copying -> labels.copyFilePath
     }
     ComposerIconButton(
-        symbol = when (status) {
-            PathCopyStatus.Copied -> "✓"
-            PathCopyStatus.Failed -> "!"
-            PathCopyStatus.Copying -> "…"
-            PathCopyStatus.Idle -> "⧉"
+        icon = when (status) {
+            PathCopyStatus.Copied -> HbIcons.Check
+            PathCopyStatus.Failed -> HbIcons.Alert
+            PathCopyStatus.Copying -> HbIcons.More
+            PathCopyStatus.Idle -> HbIcons.Copy
         },
         label = "${labels.copyFilePath}: $filePath",
         modifier = modifier.semantics {

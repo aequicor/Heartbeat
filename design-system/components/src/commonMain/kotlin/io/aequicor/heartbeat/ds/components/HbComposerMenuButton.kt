@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -26,7 +27,8 @@ private val log = Log.tag("DS/ComposerMenu")
  * Controlled toolbar menu. The owner supplies localized labels and handles action identifiers.
  * Arrow keys, Home/End and Tab navigate enabled commands; Enter/Space activate them.
  * Escape and outside clicks dismiss the menu and restore focus to its trigger.
- * [isIcon] renders [label] as a compact glyph with the separate [accessibleLabel] announced.
+ * [icon] uses the shared vector style with the separate [accessibleLabel] announced.
+ * [isIcon] retains support for custom text glyphs; prefer [icon] for design-system actions.
  */
 @Composable
 public fun HbComposerMenuButton(
@@ -40,6 +42,7 @@ public fun HbComposerMenuButton(
     headerLabel: String? = null,
     accessibleLabel: String = label,
     isIcon: Boolean = false,
+    icon: ImageVector? = null,
 ) {
     require(actions.map { it.id }.distinct().size == actions.size) { "Composer action ids must be unique" }
     val triggerFocus = remember { FocusRequester() }
@@ -62,6 +65,7 @@ public fun HbComposerMenuButton(
             modifier = Modifier.focusRequester(triggerFocus),
             enabled = enabled && actions.isNotEmpty(),
             isIcon = isIcon,
+            icon = icon,
         )
         if (isOpen) {
             ComposerMenuPopup(
@@ -88,6 +92,7 @@ private fun ComposerMenuTrigger(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isIcon: Boolean = false,
+    icon: ImageVector? = null,
 ) {
     val triggerModifier = modifier
         .semantics { contentDescription = accessibleLabel }
@@ -100,8 +105,8 @@ private fun ComposerMenuTrigger(
                 false
             }
         }
-    if (isIcon) {
-        ComposerIconButton(label, accessibleLabel, onClick, triggerModifier, enabled = enabled)
+    if (icon != null || isIcon) {
+        ComposerIconButton(icon, accessibleLabel, onClick, triggerModifier, enabled = enabled, fallbackSymbol = label)
     } else {
         HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Quiet, enabled = enabled)
     }

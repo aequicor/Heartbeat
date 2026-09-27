@@ -41,14 +41,14 @@ class HbToolCallUiTest {
             }
         }
         onNodeWithText("Saved result 0").assertDoesNotExist()
-        onNodeWithText("▸ Inspect output 0").performClick()
+        onNodeWithText("Inspect output 0").performClick()
         onNodeWithText("Saved result 0").assertIsDisplayed()
         onNodeWithTag("tools").performScrollToIndex(70)
-        onNodeWithText("▸ Inspect output 70").performSemanticsAction(SemanticsActions.RequestFocus)
+        onNodeWithText("Inspect output 70").performSemanticsAction(SemanticsActions.RequestFocus)
         onNodeWithText("Saved result 0").assertDoesNotExist()
         onNodeWithTag("tools").performScrollToIndex(0)
         onNodeWithText("Saved result 0").assertIsDisplayed()
-        onNodeWithText("▾ Inspect output 0").performClick()
+        onNodeWithText("Inspect output 0").performClick()
         onNodeWithText("Saved result 0").assertDoesNotExist()
     }
 
@@ -68,7 +68,7 @@ class HbToolCallUiTest {
                 )
             }
         }
-        onNodeWithText("▸ Inspect").performClick()
+        onNodeWithText("Inspect").performClick()
         runOnIdle { assertEquals(true, requested) }
         onNodeWithText("Payload").assertDoesNotExist()
     }

@@ -94,3 +94,34 @@ diff, меню, панели composer и сам текстовый редакт�
 или наведении на её область, не сдвигая содержимое; перетаскивание использует тот же
 scroll state. В sticky host она находится вне маски затухания и не дублируется внутри
 LazyColumn. Для длинной истории размер thumb не пересчитывается по видимым строкам.
+
+## Иконки
+
+Набор включает 110 иконок. Полный неизменяемый список — `HbIcons.All`.
+В sandbox у иконок отдельный раздел: семь категорий, поиск по имени, образцы
+14/18/24 dp и выделяемые API-имена. `Loading` — статичный знак; движение,
+если оно нужно экрану, контролируется его состоянием и reduced motion.
+
+`HbIcons` — единый набор тонких скруглённых векторов. `HbIcon(HbIcons.Folder,
+contentDescription = null)` рисует иконку размером `HbTheme.dimensions.iconSize`;
+для метаданных используйте `Modifier.size(HbTheme.dimensions.iconSmallSize)`.
+Цвет задаётся через `tint` из `HbTheme.colors`. Доступное название задаёт кнопка
+или сама иконка, если рядом нет подписи. `HbComposerMenuButton` принимает
+`icon = HbIcons.Plus` и сохраняет прежние управление фокусом и область нажатия.
+
+## Иллюстрации
+
+```kotlin
+HbIllustration(
+    illustration = HbIllustrationKind.EmptyWorkspace,
+    contentDescription = null, // The adjacent localized text describes this state.
+)
+```
+
+Восемь оригинальных векторных сцен: Welcome, EmptyWorkspace, EmptyChat, NoResults,
+Success, Error, Offline и Upload. Общий Foundation-рендер для Material, Fluent и macOS,
+размер по умолчанию 240×180 dp (`HbDimensions.illustrationWidth/illustrationHeight`),
+палитра из `HbTheme.colors`. Смена темы пересоздаёт вектор; обычные рекомпозиции его
+переиспользуют. Размер можно изменить модификатором, пропорции сохраняются.
+Если подписи рядом нет, передавай локализованный `contentDescription`.
+Галерея и светлое/тёмное превью — в отдельном разделе «Иллюстрации» sandbox.

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ru_icons">Иконки</string>
+    <string name="ru_icons_description">Тонкие контуры, мягкие углы и залитый дом для активного состояния. Навигация: 18 dp. Метаданные: 14 dp.</string>
     <string name="ru_app_name">Heartbeat</string>
     <string name="ru_app_subtitle">AEQUICOR STUDIO</string>
     <string name="ru_sandbox">Песочница дизайн-системы</string>
@@ -132,4 +134,32 @@
     <string name="ru_file_path_copied">Путь скопирован</string>
     <string name="ru_unknown_file">Изменения кода</string>
     <string name="ru_note_draft">Моя идея: </string>
+    <string name="ru_illustrations">Иллюстрации</string>
+    <string name="ru_illustrations_description">Спокойные векторные сцены для базовых состояний интерфейса. Цвета следуют текущей теме.</string>
+    <string name="ru_search_icons">Поиск по имени иконки…</string>
+    <string name="ru_all_icons">Все иконки</string>
+    <string name="ru_navigation_icons">Навигация</string>
+    <string name="ru_file_icons">Файлы и контент</string>
+    <string name="ru_communication_icons">Общение</string>
+    <string name="ru_development_icons">Рабочая среда</string>
+    <string name="ru_media_icons">Медиа</string>
+    <string name="ru_no_icons_found">Иконки не найдены. Попробуйте другое имя или категорию.</string>
+    <string name="ru_icon_sizes">14 / 18 / 24 dp · мягкий контур · имена API можно выделить</string>
+    <string name="ru_illustration_welcome">Добро пожаловать</string>
+    <string name="ru_illustration_welcome_hint">Начало работы над новой идеей.</string>
+    <string name="ru_illustration_workspace">Пустой проект</string>
+    <string name="ru_illustration_workspace_hint">Проект, в котором ещё нет файлов.</string>
+    <string name="ru_illustration_chat">Начало беседы</string>
+    <string name="ru_illustration_chat_hint">Приглашение отправить первое сообщение.</string>
+    <string name="ru_illustration_search">Ничего не найдено</string>
+    <string name="ru_illustration_search_hint">Поиск, для которого нужен другой запрос.</string>
+    <string name="ru_illustration_success">Всё готово</string>
+    <string name="ru_illustration_success_hint">Работа завершена, изменения сохранены.</string>
+    <string name="ru_illustration_error">Что-то пошло не так</string>
+    <string name="ru_illustration_error_hint">Операция, которую можно повторить.</string>
+    <string name="ru_illustration_offline">Нет соединения</string>
+    <string name="ru_illustration_offline_hint">Ожидание восстановления соединения.</string>
+    <string name="ru_illustration_upload">Добавьте файлы</string>
+    <string name="ru_illustration_upload_hint">Место для импорта документов и вложений.</string>
+    <string name="ru_matching_icons">Найдено иконок</string>
 </resources>
