@@ -82,3 +82,4 @@ include(":features:ai-engine:authenticator:api")
 include(":features:ai-engine:facade:api")
 
 include(":features:ai-engine:acp-interface:api", ":features:ai-engine:acp-interface:impl")
+include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")

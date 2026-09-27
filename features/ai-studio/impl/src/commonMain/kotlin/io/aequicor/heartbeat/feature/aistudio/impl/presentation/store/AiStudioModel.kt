@@ -6,39 +6,202 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
+import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
-import pro.respawn.flowmvi.api.MVIAction
-import pro.respawn.flowmvi.api.MVIIntent
-import pro.respawn.flowmvi.api.MVIState
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import pro.respawn.flowmvi.api.PipelineContext
+import pro.respawn.flowmvi.plugins.reduce
+import pro.respawn.flowmvi.plugins.whileSubscribed
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 
-/** Immutable presentation derived from the feature machine. */
-data object AiStudioScreenState : MVIState
+private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
-/** User events consumed by the screen store. */
-sealed interface AiStudioScreenIntent : MVIIntent
-
-/** Reserved contract for one-off screen actions. */
-sealed interface AiStudioScreenAction : MVIAction
-
-/** Feature-scoped screen store reflecting the machine and forwarding intents. */
+/**
+ * Feature-scoped screen store. Mirrors the machine (panes, runs, preferences), the repository (projects,
+ * sessions and transcripts of open panes) and keeps local input (drafts, sidebar). Business decisions stay
+ * with the machine: the store forwards intents and clears a draft only once the machine accepted it.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
 @SingleIn(AiStudioScope::class)
 @Inject
 class AiStudioModel(
-    machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    private val machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
+    private val repository: StudioRepository,
+    private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
-        "AiStudio",
-        AiStudioScreenState,
+        name = "AiStudio",
+        initial = AiStudioScreenState().reflectMachine(machine.state.value),
+        // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
-    ) { reflect(machine) { this } }
+    ) {
+        reflect(machine, onOutput = { output ->
+            when (output) {
+                is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output.paneId, output.prompt) }
+            }
+        }) { reflectMachine(it) }
+        whileSubscribed(name = "workspace") {
+            coroutineScope {
+                launch { observeWorkspace() }
+                launch { observeTranscripts() }
+                launch { tickWhileRunning() }
+            }
+        }
+        reduce { intent -> handle(intent) }
+    }
 
     init {
         store.start(scope.coroutineScope)
+        scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun StudioPipeline.observeWorkspace() {
+        repository.observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
+    }
+
+    private suspend fun StudioPipeline.observeTranscripts() {
+        machine.state
+            .map { state -> (state as? AiStudioState.Ready)?.panes?.mapNotNull { it.sessionId }?.distinct().orEmpty() }
+            .distinctUntilChanged()
+            .flatMapLatest { ids -> transcriptsOf(ids) }
+            .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
+    }
+
+    private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {
+        flowOf(emptyMap())
+    } else {
+        combine(
+            ids.map { id ->
+                repository.observeMessages(
+                    id,
+                ).map { messages -> id to messages.map { it.toUi() }.toImmutableList() }
+            },
+        ) { it.toMap() }
+    }
+
+    /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
+    private suspend fun StudioPipeline.tickWhileRunning() {
+        machine.state
+            .map { (it as? AiStudioState.Ready)?.running?.isNotEmpty() == true }
+            .distinctUntilChanged()
+            .collectLatest { isRunning ->
+                while (isRunning) {
+                    updateState { copy(now = clock.now()) }
+                    delay(1.seconds)
+                }
+            }
+    }
+
+    private suspend fun StudioPipeline.handle(intent: AiStudioScreenIntent) {
+        when (intent) {
+            is AiStudioScreenIntent.Navigation -> navigate(intent)
+            is AiStudioScreenIntent.Composer -> compose(intent)
+            is AiStudioScreenIntent.SessionAction -> act(intent)
+            is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
+        }
+    }
+
+    private suspend fun StudioPipeline.navigate(intent: AiStudioScreenIntent.Navigation) {
+        val command = when (intent) {
+            AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
+
+            is AiStudioScreenIntent.NewSession -> AiStudioIntent.Public.NewSession(intent.projectId)
+
+            is AiStudioScreenIntent.SelectProject -> AiStudioIntent.Public.SelectProject(
+                intent.paneId,
+                intent.projectId,
+            )
+
+            is AiStudioScreenIntent.OpenSession -> AiStudioIntent.Public.OpenSession(intent.sessionId)
+
+            is AiStudioScreenIntent.OpenBeside -> AiStudioIntent.Public.OpenBeside(intent.sessionId)
+
+            is AiStudioScreenIntent.ClosePane -> AiStudioIntent.Public.ClosePane(intent.paneId)
+
+            is AiStudioScreenIntent.FocusPane -> AiStudioIntent.Public.FocusPane(intent.paneId)
+        }
+        val result = sendTo(machine, command)
+        if (result == SendResult.Accepted) updateState { afterNavigation(intent) }
+    }
+
+    private suspend fun StudioPipeline.compose(intent: AiStudioScreenIntent.Composer) {
+        when (intent) {
+            is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
+
+            is AiStudioScreenIntent.Submit -> withState {
+                val result = sendTo(
+                    machine,
+                    AiStudioIntent.Public.Submit(intent.paneId, draft(intent.paneId)),
+                )
+                if (result == SendResult.Accepted) updateState { withDraft(intent.paneId, "") }
+            }
+
+            is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
+
+            is AiStudioScreenIntent.SelectModel -> updateSettings { copy(modelId = intent.modelId) }
+
+            is AiStudioScreenIntent.SelectEffort -> updateSettings { copy(effort = intent.effort.toDomain()) }
+
+            is AiStudioScreenIntent.SelectApproval -> updateSettings { copy(approval = intent.approval.toDomain()) }
+        }
+    }
+
+    private suspend fun StudioPipeline.act(intent: AiStudioScreenIntent.SessionAction) {
+        when (intent) {
+            is AiStudioScreenIntent.SetPinned -> edit(intent.sessionId, SessionEdit.SetPinned(intent.isPinned))
+
+            is AiStudioScreenIntent.SetUnread -> edit(intent.sessionId, SessionEdit.SetUnread(intent.isUnread))
+
+            is AiStudioScreenIntent.SetArchived -> edit(intent.sessionId, SessionEdit.SetArchived(intent.isArchived))
+
+            is AiStudioScreenIntent.StartRename -> updateState { startRename(intent.sessionId, intent.origin) }
+
+            is AiStudioScreenIntent.RenameChanged -> updateState {
+                copy(sidebar = sidebar.copy(renaming = sidebar.renaming?.copy(title = intent.title)))
+            }
+
+            AiStudioScreenIntent.CancelRename -> updateState { copy(sidebar = sidebar.copy(renaming = null)) }
+
+            AiStudioScreenIntent.CommitRename -> withState {
+                val renaming = sidebar.renaming
+                updateState { copy(sidebar = sidebar.copy(renaming = null)) }
+                if (renaming != null && renaming.title.trim() != session(renaming.sessionId)?.title) {
+                    edit(renaming.sessionId, SessionEdit.Rename(renaming.title))
+                }
+            }
+        }
+    }
+
+    private suspend fun StudioPipeline.edit(sessionId: String, edit: SessionEdit) {
+        sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))
+    }
+
+    private suspend fun StudioPipeline.updateSettings(change: RunSettings.() -> RunSettings) = withState {
+        val current = RunSettings(settings.modelId, settings.effort.toDomain(), settings.approval.toDomain())
+        sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
     }
 }
