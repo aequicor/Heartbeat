@@ -82,3 +82,4 @@ include(":features:ai-engine:authenticator:api")
 include(":features:ai-engine:facade:api")
 
 include(":features:ai-engine:pi:api")
+include(":features:ai-engine:pi:impl")
