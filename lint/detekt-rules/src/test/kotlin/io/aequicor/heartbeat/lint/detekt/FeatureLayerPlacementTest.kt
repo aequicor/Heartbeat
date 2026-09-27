@@ -70,6 +70,21 @@ class FeatureLayerPlacementTest {
             assertEquals(0, rule.lint("package io.aequicor.heartbeat.$suffix\nclass Example").size)
         }
     }
+
+    @Test
+    fun `nested ai engine source paths retain package validation`() {
+        val path = Path.of(
+            "features/ai-engine/facade/api/src/commonMain/kotlin/",
+            "io/aequicor/heartbeat/feature/aiengine/facade/api/Model.kt",
+        )
+        assertEquals(
+            0,
+            rule.lint(source(path, "package io.aequicor.heartbeat.feature.aiengine.facade.api\nclass Model")).size,
+        )
+        assertEquals(1, rule.lint(source(path.resolveSibling("Other.kt"), "package unrelated\nclass Model")).size)
+        assertEquals(1, rule.lint("package io.aequicor.heartbeat.feature.aiengine.codex.impl\nclass Runtime").size)
+    }
+
     private fun source(relative: Path, code: String): KtFile {
         val file = root.resolve(relative)
         Files.createDirectories(file.parent)

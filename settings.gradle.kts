@@ -78,3 +78,5 @@ include(":platform-main:uikit-sandbox:shared")
 include(":lint:detekt-rules")
 
 include(":core:secrets:api", ":core:secrets:impl")
+
+include(":features:ai-engine:authenticator:api")

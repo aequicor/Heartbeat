@@ -64,9 +64,10 @@ $hits"
   fi
 
   # 5. Feature boundaries
-  if [[ "$rel" =~ ^features/([^/]+)/impl/ ]]; then
+  if [[ "$rel" =~ ^features/((ai-engine/)?[^/]+)/impl/ ]]; then
     self="${BASH_REMATCH[1]//-/}"
-    hits="$(grep -nE 'import io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl' "$file_path" \
+    self="${self//\//.}"
+    hits="$(grep -nE 'import io\.aequicor\.heartbeat\.feature\.[a-z0-9_.]+\.impl' "$file_path" \
             | grep -vE "feature\.${self}\.impl" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl → чужой impl запрещён. Используй api другой фичи (MachineKey / EntryPoint).
 $hits"
@@ -78,8 +79,8 @@ $hits"
 $hits"
   fi
 
-  if [[ "$rel" =~ ^features/[^/]+/api/ ]]; then
-    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_]+\.impl|ru\.nsk\.kstatemachine\.|pro\.respawn\.flowmvi\.)')"
+  if [[ "$rel" =~ ^features/(ai-engine/)?[^/]+/api/ ]]; then
+    hits="$(grep_lines 'import (androidx\.compose|org\.jetbrains\.compose|io\.aequicor\.heartbeat\.ds\.|io\.aequicor\.heartbeat\.core\.(network|database|datastore|ai)\.|io\.aequicor\.heartbeat\.feature\.[a-z0-9_.]+\.impl|ru\.nsk\.kstatemachine\.|pro\.respawn\.flowmvi\.)')"
     [ -n "$hits" ] && add "api-модуль фичи: без UI/design-system/IO-модулей core, без impl, KStateMachine и FlowMVI (машина — machineSpec { }). См. .claude/rules/feature-api.md
 $hits"
   fi
@@ -114,10 +115,12 @@ if [[ "$rel" == *.gradle.kts ]]; then
   [ -n "$hits" ] && add "Координаты зависимостей — только через gradle/libs.versions.toml (libs.*).
 $hits"
 
-  if [[ "$rel" =~ ^features/([^/]+)/impl/ ]]; then
+  if [[ "$rel" =~ ^features/((ai-engine/)?[^/]+)/impl/ ]]; then
     self="${BASH_REMATCH[1]}"
-    hits="$(grep -nE '(projects\.features\.[A-Za-z0-9]+\.impl|":features:[a-z0-9-]+:impl")' "$file_path" \
-            | grep -vE "(features:${self}:impl|features\.${self//-/}\.impl)" | head -n 5 | sed 's/^/    /')"
+    self_path="${self//\//:}"
+    self_accessor="$(printf '%s' "$self" | sed -E 's/-([a-z])/\U\1/g; s#/#.#g')"
+    hits="$(grep -nE '(projects\.features\.[A-Za-z0-9.]+\.impl|":features:[a-z0-9:-]+:impl")' "$file_path" \
+            | grep -vE "(features:${self_path}:impl|features\.${self_accessor}\.impl)" | head -n 5 | sed 's/^/    /')"
     [ -n "$hits" ] && add "impl-модуль фичи не может зависеть от impl другой фичи.
 $hits"
   fi
