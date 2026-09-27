@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
@@ -16,7 +18,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.isActive
 import kotlin.test.assertIs
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -31,6 +35,7 @@ internal class FakeClaudeTransport : ClaudeTransport {
     var loggedIn = true
     var method = "claude.ai"
     val calls = mutableListOf<List<String>>()
+    var beforeRun: suspend (List<String>) -> Unit = {}
     var generation: suspend (List<String>, suspend (String) -> Boolean) -> Int = { args, line ->
         val id = args.first { it.startsWith("--session-id=") || it.startsWith("--resume=") }.substringAfter('=')
         line(initFrame(id))
@@ -46,6 +51,7 @@ internal class FakeClaudeTransport : ClaudeTransport {
         line: suspend (String) -> Boolean,
     ): Int {
         calls += arguments
+        beforeRun(arguments)
         return if (arguments == listOf("auth", "status")) {
             line("""{"loggedIn":$loggedIn,"authMethod":"$method","email":"$account","orgId":"organization"}""")
             if (loggedIn) 0 else 1
@@ -58,11 +64,20 @@ internal class FakeClaudeTransport : ClaudeTransport {
 internal class TestClaudeToggles : FeatureToggles {
     var enabled = true
 
+    // Tests read only ClaudeEngine.Enabled, a Boolean flag, so T is always Boolean here.
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled as T
 
+    // Same as get: the only observed toggle is the Boolean ClaudeEngine.Enabled flag.
     @Suppress("UNCHECKED_CAST")
     override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(enabled as T)
+}
+
+internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
+    override val name = "profile"
+    override val savedState: ScopeSavedState get() = error("Profile scope state is not persisted")
+    override val isClosed get() = !coroutineScope.isActive
+    override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
 }
 
 internal class ClaudeFixture(val scope: CoroutineScope) {

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -128,7 +129,7 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `failed resume retains native identity after reconciliation`() = runTest {
+    fun `failed resume keeps resuming the native identity`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
@@ -172,6 +173,28 @@ class ClaudeRuntimeTest {
         assertEquals(TurnOutcome.Completed, closed.lastTurn?.outcome)
         val events = history.watch(checkpoint).toList()
         assertEquals(1, events.filterIsInstance<SessionEvent.TurnFinished>().size)
+    }
+
+    @Test
+    fun `failure before any session frame rejects the prompt and keeps the session usable`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val normal = fixture.transport.generation
+        val missing = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
+        fixture.transport.generation = { _, _ -> throw EngineException(missing) }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        assertEquals(missing, rejected.await().failure)
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        fixture.transport.generation = normal
+        val retried = async { session.features.available(SendsPrompts).send(prompt("retry")) }
+        runCurrent()
+        retried.await()
+        assertTrue(fixture.transport.calls.last().any { it == "--session-id=${session.ref.nativeId}" })
+        runtime.close()
     }
 
     @Test

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -30,7 +31,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
@@ -48,20 +48,30 @@ internal class JvmClaudeBackend(
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
 
-    override suspend fun inspect() = account.inspect()
+    override suspend fun inspect(): ClaudeLogin {
+        enabled()
+        return account.inspect()
+    }
 
-    override suspend fun checkRequirements(): EngineAvailability = withTimeout(PROBE_TIMEOUT_MS) {
-        var isVersion = false
-        log.i { "Probing Claude installation" }
-        val exit = transport.run(listOf("--version")) {
-            isVersion = isVersion || VERSION.containsMatchIn(it)
-            false
+    /** An installation probe reports every adapter failure as availability; only cancellation escapes. */
+    override suspend fun checkRequirements(): EngineAvailability = try {
+        enabled()
+        withProbeTimeout {
+            var isVersion = false
+            log.i { "Probing Claude installation" }
+            val exit = transport.run(listOf("--version")) {
+                isVersion = isVersion || VERSION.containsMatchIn(it)
+                false
+            }
+            if (exit == 0 && isVersion) {
+                EngineAvailability.Available
+            } else {
+                EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            }
         }
-        if (exit == 0 && isVersion) {
-            EngineAvailability.Available
-        } else {
-            EngineAvailability.Unavailable(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        }
+    } catch (e: EngineException) {
+        log.w(e.redacted()) { "Claude installation probe failed" }
+        EngineAvailability.Unavailable(e.failure)
     }
 
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
@@ -77,7 +87,7 @@ internal class JvmClaudeBackend(
         if (!accepts(source, context)) authFailure(AuthFailureReason.AuthMismatch)
         account.validate(source.info.revision)
         log.i { "Discovering Claude models" }
-        return withTimeout(PROBE_TIMEOUT_MS) {
+        return withProbeTimeout {
             var models: List<ModelInfo>? = null
             transport.run(
                 claudeArguments() + listOf("--input-format", "stream-json"),
@@ -104,7 +114,7 @@ internal class JvmClaudeBackend(
                 }
                 models != null
             }
-            models ?: protocolFailure()
+            (models ?: protocolFailure()).also { log.i { "Discovered Claude models count=${it.size}" } }
         }
     }
 

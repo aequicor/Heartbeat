@@ -25,8 +25,10 @@ public object ClaudeEngine {
 }
 
 /**
- * Host configuration, injected by the bundle. Values are never executed through a shell or logged.
- * Null directories select the user's home and its .claude child. Workspace ids must be explicitly mapped.
+ * Host configuration. The bundle does not provide one yet, so the defaults apply and workspace-bound
+ * sessions are rejected as unmet requirements. Values are never executed through a shell or logged.
+ * A null working directory selects the user's home; a null config directory keeps the CLI's own default.
+ * Workspace ids must be explicitly mapped.
  * Only the configured native CLI login is supported; keys, helpers and ambient provider overrides are rejected.
  * Use a native executable, not a Windows .cmd/.bat wrapper. Settings and MCP discovery are disabled for runs.
  */

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
@@ -56,6 +57,8 @@ internal class ClaudeSession(
     private val leases = mutableSetOf<Lease>()
     private var current: ActiveSessionState = ActiveSessionState.Ready()
     private var operation: Job? = null
+
+    @Volatile
     private var hasNativeSession = false
 
     fun lease(): ActiveSession = synchronized(lock) {
@@ -117,10 +120,11 @@ internal class ClaudeSession(
             synchronized(lock) {
                 lease.ensureAttached()
                 ensureOpen()
+                val previous = (current as? ActiveSessionState.Ready)?.lastTurn
                 val turn = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 update(ActiveSessionState.Submitting(request, turn))
                 operation = scope.launch {
-                    execute(request, text, turn, accepted)
+                    execute(Submission(request, text, turn, previous), accepted)
                 }
                 operation?.invokeOnCompletion { cause ->
                     if (cause != null && !accepted.isCompleted) {
@@ -136,27 +140,29 @@ internal class ClaudeSession(
         return accepted.await()
     }
 
-    private suspend fun execute(
-        request: PromptRequest,
-        text: String,
-        turn: Turn,
-        accepted: CompletableDeferred<TurnId>,
-    ) {
-        val observer = ClaudeTurnObserver(ref, turn, request, history, accepted, ::update)
+    private suspend fun execute(submission: Submission, accepted: CompletableDeferred<TurnId>) {
+        val request = submission.request
+        val observer = ClaudeTurnObserver(ref, submission.turn, request, history, accepted, ::update)
         try {
             log.i { "Submitting Claude prompt" }
-            transport.run(claudeArguments(target.model, ref.nativeId, hasNativeSession), text, route.workspace) {
+            val exit = transport.run(
+                claudeArguments(target.model, ref.nativeId, hasNativeSession),
+                submission.text,
+                route.workspace,
+            ) {
                 observer.receive(parseClaudeObject(it))
                 false
             }
+            log.i { "Claude prompt process ended exit=$exit" }
             hasNativeSession = hasNativeSession || observer.hasSession
-            if (!observer.isFinished) lost(request, observer.turn, accepted)
+            settle(submission, observer, accepted, EngineFailure.Engine(EngineFailureReason.Crashed))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e.redacted()) { "Claude turn observation failed" }
             hasNativeSession = hasNativeSession || observer.hasSession
-            if (!observer.isFinished) lost(request, observer.turn, accepted)
+            val failure = (e as? EngineException)?.failure ?: EngineFailure.Engine(EngineFailureReason.Crashed)
+            settle(submission, observer, accepted, failure)
         } finally {
             if (!observer.isFinished && !scope.isActive) {
                 update(
@@ -167,6 +173,26 @@ internal class ClaudeSession(
                 )
             }
         }
+    }
+
+    /**
+     * Without any session frame the CLI never started the native turn, so the prompt is rejected with the real
+     * cause and the session stays usable. After a session frame the prompt may have been delivered: outcome unknown.
+     */
+    private fun settle(
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        accepted: CompletableDeferred<TurnId>,
+        failure: EngineFailure,
+    ) {
+        if (observer.isFinished) return
+        if (observer.hasSession) {
+            lost(submission.request, observer.turn, accepted)
+            return
+        }
+        log.w { "Claude prompt rejected before the CLI started a session" }
+        update(ActiveSessionState.Ready(submission.previous))
+        accepted.completeExceptionally(EngineException(failure))
     }
 
     private fun lost(request: PromptRequest, turn: Turn, accepted: CompletableDeferred<TurnId>) {
@@ -252,6 +278,10 @@ private fun promptText(request: PromptRequest): String {
 }
 
 private const val MAX_PROMPT_CHARS = 1024 * 1024
+
+private data class Submission(val request: PromptRequest, val text: String, val turn: Turn, val previous: Turn?) {
+    override fun toString(): String = "Submission(***)"
+}
 
 /** Dependencies shared by every session of one profile-owned runtime. */
 internal data class ClaudeSessionEnvironment(

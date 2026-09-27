@@ -17,7 +17,9 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import kotlinx.coroutines.withTimeout
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import java.security.MessageDigest
 import java.util.Locale
 import kotlin.time.Clock
@@ -26,7 +28,7 @@ import kotlin.time.Clock
 internal class ClaudeAccount(private val transport: ClaudeTransport, private val clock: Clock) {
     private val log = Log.tag("ClaudeAccount")
 
-    suspend fun inspect(): ClaudeLogin = withTimeout(PROBE_TIMEOUT_MS) {
+    suspend fun inspect(): ClaudeLogin = withProbeTimeout {
         log.i { "Checking Claude CLI login" }
         val output = StringBuilder()
         val exit = transport.run(listOf("auth", "status")) {
@@ -83,6 +85,14 @@ internal class ClaudeAccount(private val transport: ClaudeTransport, private val
 internal fun authFailure(reason: AuthFailureReason): Nothing = throw EngineException(
     EngineFailure.Authentication(AuthFailure(reason, ClaudeEngine.AuthSource)),
 )
+
+/**
+ * Bounds a CLI probe. `withTimeout` would surface as a `CancellationException` and be mistaken for caller
+ * cancellation, so an expired probe is reported as a transport timeout instead.
+ */
+internal suspend fun <T : Any> withProbeTimeout(block: suspend CoroutineScope.() -> T): T =
+    withTimeoutOrNull(PROBE_TIMEOUT_MS, block)
+        ?: throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
 
 internal const val PROBE_TIMEOUT_MS = 30_000L
 private const val MAX_AUTH_CHARS = 32 * 1024
