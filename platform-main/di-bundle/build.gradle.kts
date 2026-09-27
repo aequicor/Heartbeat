@@ -15,6 +15,7 @@ kotlin {
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.aiEngine.authenticator.impl)
+            implementation(projects.features.aiEngine.facade.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
