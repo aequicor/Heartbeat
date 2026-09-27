@@ -81,4 +81,4 @@ include(":core:secrets:api", ":core:secrets:impl")
 include(":features:ai-engine:authenticator:api")
 include(":features:ai-engine:facade:api")
 
-include(":features:ai-engine:connections:api")
+include(":features:ai-engine:connections:api", ":features:ai-engine:connections:impl")
