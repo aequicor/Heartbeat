@@ -80,3 +80,4 @@ include(":lint:detekt-rules")
 include(":core:secrets:api", ":core:secrets:impl")
 
 include(":features:ai-engine:authenticator:api")
+include(":features:ai-engine:facade:api")
