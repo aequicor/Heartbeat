@@ -1,6 +1,99 @@
 <resources>
-    <string name="studio_title">AI-studio</string>
+    <string name="studio_title">AI-студия</string>
     <string name="studio_empty">Студия готовится к запуску</string>
     <string name="studio_description">Здесь появится пространство для работы с AI.</string>
     <string name="studio_back">На главный экран</string>
+    <string name="studio_loading">Готовим рабочее пространство</string>
+    <string name="studio_error">Не удалось подготовить рабочее пространство</string>
+    <string name="studio_retry">Повторить</string>
+
+    <string name="rail_sessions">Сессии</string>
+    <string name="rail_search">Поиск по сессиям</string>
+    <string name="rail_archive">Архив</string>
+    <string name="rail_toggles">Фича-тоглы</string>
+    <string name="rail_sidebar_hide">Скрыть боковую панель</string>
+    <string name="rail_sidebar_show">Показать боковую панель</string>
+
+    <string name="sidebar_new_session">Новая сессия</string>
+    <string name="sidebar_new_in_project">Новая сессия в %1$s</string>
+    <string name="sidebar_search">Поиск по сессиям</string>
+    <string name="sidebar_pinned">Закреплённые</string>
+    <string name="sidebar_projects">Проекты</string>
+    <string name="sidebar_recent">Недавние</string>
+    <string name="sidebar_results">Результаты</string>
+    <string name="sidebar_no_results">Ничего не найдено</string>
+    <string name="sidebar_archive_empty">В архиве пусто</string>
+    <string name="sidebar_expanded">Развёрнуто</string>
+    <string name="sidebar_collapsed">Свёрнуто</string>
+    <string name="sidebar_project_empty">Сессий пока нет</string>
+
+    <string name="session_running">Агент работает</string>
+    <string name="session_unread">Непрочитано</string>
+    <string name="session_branch">Ветка %1$s</string>
+    <string name="session_actions">Действия с сессией</string>
+    <string name="session_title_field">Название сессии</string>
+    <string name="action_rename">Переименовать</string>
+    <string name="action_pin">Закрепить</string>
+    <string name="action_unpin">Открепить</string>
+    <string name="action_mark_unread">Отметить как непрочитанное</string>
+    <string name="action_mark_read">Отметить как прочитанное</string>
+    <string name="action_open_beside">Открыть рядом</string>
+    <string name="action_archive">Архивировать</string>
+    <string name="action_restore">Восстановить</string>
+
+    <string name="pane_split">Разделить экран</string>
+    <string name="pane_close">Закрыть панель</string>
+    <string name="pane_open_sidebar">Открыть боковую панель</string>
+    <string name="pane_general">Беседа</string>
+
+    <string name="new_heading">Что создадим в %1$s?</string>
+    <string name="new_heading_general">Что создадим?</string>
+    <string name="new_hint">Опишите задачу: агент спланирует её, выполнит команды и отчитается.</string>
+    <string name="no_project">Без проекта</string>
+    <string name="project_menu">Проект</string>
+    <string name="environment_local">Локальный</string>
+    <string name="environment_cloud">Облачный</string>
+
+    <string name="composer_placeholder">Поручите что угодно</string>
+    <string name="composer_send">Отправить</string>
+    <string name="composer_stop">Остановить</string>
+    <string name="composer_add">Добавить</string>
+    <string name="template_plan">Спланировать фичу</string>
+    <string name="template_plan_prompt">Спланируй фичу: </string>
+    <string name="template_tests">Написать тесты</string>
+    <string name="template_tests_prompt">Напиши тесты для </string>
+    <string name="template_review">Провести ревью</string>
+    <string name="template_review_prompt">Проведи ревью изменений в </string>
+    <string name="approval_menu">Подтверждения</string>
+    <string name="approval_ask">Спрашивать разрешение</string>
+    <string name="approval_auto">Подтверждать за меня</string>
+    <string name="model_menu">Модель и рассуждение</string>
+    <string name="effort_low">Низкое</string>
+    <string name="effort_medium">Среднее</string>
+    <string name="effort_high">Высокое</string>
+    <string name="effort_very_high">Очень высокое</string>
+
+    <string name="working_for">Работает уже %1$s</string>
+    <string name="stopping">Останавливаем…</string>
+    <string name="stopped_after">Вы остановили выполнение через %1$s</string>
+    <string name="run_failed">Не удалось выполнить задачу. Попробуйте ещё раз.</string>
+    <string name="submit_failed">Не удалось создать сессию — текст запроса восстановлен.</string>
+    <string name="duration_seconds">%1$d с</string>
+    <string name="duration_minutes">%1$d мин %2$d с</string>
+    <string name="author_you">Вы</string>
+    <string name="author_agent">Агент</string>
+    <string name="author_studio">Студия</string>
+    <string name="streaming">Пишет…</string>
+    <string name="jump_latest">К последнему</string>
+
+    <string name="tool_expand">Показать подробности</string>
+    <string name="tool_collapse">Скрыть подробности</string>
+    <string name="tool_running">Выполняется</string>
+    <string name="tool_complete">Готово</string>
+    <string name="tool_error">Ошибка</string>
+    <string name="tool_details">Подробности</string>
+    <string name="tool_console">Консоль</string>
+    <string name="tool_diff">Изменения</string>
+    <string name="tool_copy_path">Скопировать путь</string>
+    <string name="tool_path_copied">Путь скопирован</string>
 </resources>

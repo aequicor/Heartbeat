@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 /** Compact spacing scale on a two-point grid. */
 @Immutable
 data class HbSpacing(
+    val none: Dp = 0.dp,
     val xxs: Dp = 2.dp,
     val xs: Dp = 4.dp,
     val s: Dp = 6.dp,
@@ -39,6 +40,16 @@ data class HbDimensions(
     val contentMaxWidth: Dp = 1200.dp,
     val chatMessageMaxWidth: Dp = 720.dp,
     val sidebarWidth: Dp = 192.dp,
+    /** Icon rail of an application shell. */
+    val navigationRailWidth: Dp = 56.dp,
+    /** Navigation panel listing projects and conversations next to the content. */
+    val navigationPanelWidth: Dp = 256.dp,
+    /** Upper bound of a navigation drawer on compact screens. */
+    val drawerMaxWidth: Dp = 320.dp,
+    /** Narrowest readable content pane; side-by-side panes need at least two. */
+    val paneMinWidth: Dp = 360.dp,
+    /** Small status dot, e.g. unread content in a navigation row. */
+    val statusDotSize: Dp = 8.dp,
     val windowWidth: Dp = 1280.dp,
     val windowHeight: Dp = 900.dp,
     val compactBreakpoint: Dp = 720.dp,

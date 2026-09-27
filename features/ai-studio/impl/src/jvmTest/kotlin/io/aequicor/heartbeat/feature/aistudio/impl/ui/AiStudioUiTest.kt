@@ -1,0 +1,176 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.ui
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withWorkspace
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableList
+import java.io.File
+import javax.imageio.ImageIO
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.Instant
+
+@OptIn(ExperimentalTestApi::class)
+class AiStudioUiTest {
+    private val now = Instant.fromEpochSeconds(1_790_000_000)
+    private val seed = studioSeed(now)
+    private val workspace = AiStudioScreenState(phase = StudioPhase.Ready)
+        .withWorkspace(StudioWorkspace(seed.projects, seed.sessions))
+    private val exits = StudioExits(onBack = {}, onOpenToggles = {})
+
+    @Test
+    fun `wide workspace shows the rail, grouped sessions and the open transcript`() =
+        runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val state = workspace.copy(
+                panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                transcripts = transcriptsOf("s-facade"),
+            )
+            setContent { HbTheme(darkTheme = false) { AiStudioContent(state, events::add, exits) } }
+
+            onNodeWithTag("studio-rail").assertIsDisplayed()
+            onNodeWithTag("studio-sidebar").assertIsDisplayed()
+            onNodeWithTag("transcript-s-facade").assertIsDisplayed()
+            onAllNodesWithTag("session-s-facade").onFirst()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
+            save("studio-wide", captureToImage().toAwtImage())
+
+            onAllNodesWithTag("session-s-adr").onFirst().performClick()
+            onNodeWithTag("pane-split").performClick()
+            assertEquals(
+                listOf<AiStudioScreenIntent>(
+                    AiStudioScreenIntent.OpenSession("s-adr"),
+                    AiStudioScreenIntent.OpenBeside(null),
+                ),
+                events,
+            )
+        }
+
+    @Test
+    fun `new session page offers the project tray and the composer controls`() =
+        runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+            val state = workspace.copy(panes = persistentListOf(PaneUi(0, projectId = "p-heartbeat")))
+            setContent { HbTheme(darkTheme = false) { AiStudioContent(state, {}, exits) } }
+            onNodeWithTag("new-session-hero").assertIsDisplayed()
+            onNodeWithTag("context-tray-0").assertIsDisplayed()
+            onNodeWithTag("model-chip").assertIsDisplayed()
+            save("studio-new-session", captureToImage().toAwtImage())
+        }
+
+    @Test
+    fun `split view shows a running session with its elapsed time`() = runSkikoComposeUiTest(size = Size(1440f, 900f)) {
+        val running = messagesOf("s-handoff") + listOf(
+            MessageUi.Prompt("p-run", now, "Добавь отчёт о переносе в сессию"),
+            MessageUi.Reply(
+                id = "r-run",
+                createdAt = now,
+                text = "Изучаю задачу в heartbeat. ",
+                tools = persistentListOf(
+                    ToolUi("t", "Выполняется поиск по проекту", ToolStatusUi.Running, "$ git status --short", null),
+                ),
+                isStreaming = true,
+            ),
+        )
+        val state = workspace.copy(
+            panes = persistentListOf(PaneUi(0, sessionId = "s-facade"), PaneUi(1, sessionId = "s-handoff")),
+            focusedPaneId = 1,
+            running = persistentSetOf("s-handoff"),
+            transcripts = persistentMapOf(
+                "s-facade" to messagesOf("s-facade"),
+                "s-handoff" to running.toImmutableList(),
+            ),
+            now = now + 313.seconds,
+        )
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(state, {}, exits) } }
+        onNodeWithTag("pane-0").assertIsDisplayed()
+        onNodeWithTag("pane-1").assertIsDisplayed()
+        onNodeWithTag("run-status").assertIsDisplayed()
+        save("studio-split-running", captureToImage().toAwtImage())
+    }
+
+    @Test
+    fun `compact windows keep one pane and open the sidebar as a drawer`() =
+        runSkikoComposeUiTest(size = Size(400f, 820f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            var state by mutableStateOf(
+                workspace.copy(
+                    panes = persistentListOf(PaneUi(0, sessionId = "s-build"), PaneUi(1)),
+                    transcripts = transcriptsOf("s-build"),
+                ),
+            )
+            setContent {
+                HbTheme(darkTheme = false) {
+                    AiStudioContent(state, {
+                        events += it
+                        if (it is AiStudioScreenIntent.SetDrawerOpen) {
+                            state = state.copy(sidebar = state.sidebar.copy(isDrawerOpen = it.isOpen))
+                        }
+                    }, exits)
+                }
+            }
+            onNodeWithTag("pane-1").assertDoesNotExist()
+            onNodeWithTag("studio-rail").assertDoesNotExist()
+            save("studio-compact", captureToImage().toAwtImage())
+            onNodeWithTag("pane-open-sidebar").performClick()
+            onNodeWithTag("studio-drawer").assertIsDisplayed()
+            save("studio-compact-drawer", captureToImage().toAwtImage())
+            onNodeWithTag("studio-scrim").performMouseInput { click(centerRight) }
+            onNodeWithTag("studio-drawer").assertDoesNotExist()
+            assertTrue(events.contains(AiStudioScreenIntent.SetDrawerOpen(false)))
+        }
+
+    @Test
+    fun `hovering a session reveals its actions`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val state = workspace.copy(panes = persistentListOf(PaneUi(0, projectId = "p-heartbeat")))
+        setContent { HbTheme(darkTheme = true) { AiStudioContent(state, events::add, exits) } }
+        onAllNodesWithTag("session-s-adr").onFirst().performMouseInput { moveTo(center) }
+        onNodeWithTag("session-menu-project:s-adr", useUnmergedTree = true).performClick()
+        save("studio-session-menu-dark", captureToImage().toAwtImage())
+        onNodeWithTag("session-menu-project:s-adr", useUnmergedTree = true).performClick()
+        onNodeWithTag("rail-archive").performClick()
+        assertTrue(events.contains(AiStudioScreenIntent.ShowSidebarMode(SidebarMode.Archive)))
+    }
+
+    private fun messagesOf(id: String) = seed.messages.getValue(id).map { it.toUi() }.toImmutableList()
+
+    private fun transcriptsOf(id: String) = persistentMapOf(id to messagesOf(id))
+
+    private fun save(name: String, image: java.awt.image.BufferedImage) {
+        val file = File("build/reports/ai-studio/$name.png")
+        file.parentFile.mkdirs()
+        ImageIO.write(image, "png", file)
+    }
+}

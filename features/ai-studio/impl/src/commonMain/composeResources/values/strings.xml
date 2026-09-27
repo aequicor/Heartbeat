@@ -1,6 +1,99 @@
 <resources>
-    <string name="studio_title">AI-studio</string>
+    <string name="studio_title">AI studio</string>
     <string name="studio_empty">The studio is getting ready</string>
     <string name="studio_description">Your space for working with AI will be here.</string>
     <string name="studio_back">Back to welcome</string>
+    <string name="studio_loading">Preparing the workspace</string>
+    <string name="studio_error">The workspace could not be prepared</string>
+    <string name="studio_retry">Try again</string>
+
+    <string name="rail_sessions">Sessions</string>
+    <string name="rail_search">Search sessions</string>
+    <string name="rail_archive">Archive</string>
+    <string name="rail_toggles">Feature toggles</string>
+    <string name="rail_sidebar_hide">Hide sidebar</string>
+    <string name="rail_sidebar_show">Show sidebar</string>
+
+    <string name="sidebar_new_session">New session</string>
+    <string name="sidebar_new_in_project">New session in %1$s</string>
+    <string name="sidebar_search">Search sessions</string>
+    <string name="sidebar_pinned">Pinned</string>
+    <string name="sidebar_projects">Projects</string>
+    <string name="sidebar_recent">Recent</string>
+    <string name="sidebar_results">Results</string>
+    <string name="sidebar_no_results">Nothing found</string>
+    <string name="sidebar_archive_empty">No archived sessions</string>
+    <string name="sidebar_expanded">Expanded</string>
+    <string name="sidebar_collapsed">Collapsed</string>
+    <string name="sidebar_project_empty">No sessions yet</string>
+
+    <string name="session_running">Agent is working</string>
+    <string name="session_unread">Unread</string>
+    <string name="session_branch">Branch %1$s</string>
+    <string name="session_actions">Session actions</string>
+    <string name="session_title_field">Session title</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_pin">Pin</string>
+    <string name="action_unpin">Unpin</string>
+    <string name="action_mark_unread">Mark as unread</string>
+    <string name="action_mark_read">Mark as read</string>
+    <string name="action_open_beside">Open beside</string>
+    <string name="action_archive">Archive</string>
+    <string name="action_restore">Restore</string>
+
+    <string name="pane_split">Split view</string>
+    <string name="pane_close">Close pane</string>
+    <string name="pane_open_sidebar">Open sidebar</string>
+    <string name="pane_general">Conversation</string>
+
+    <string name="new_heading">What shall we build in %1$s?</string>
+    <string name="new_heading_general">What shall we build?</string>
+    <string name="new_hint">Describe a task: the agent plans it, runs commands and reports back.</string>
+    <string name="no_project">No project</string>
+    <string name="project_menu">Project</string>
+    <string name="environment_local">Local</string>
+    <string name="environment_cloud">Cloud</string>
+
+    <string name="composer_placeholder">Ask anything</string>
+    <string name="composer_send">Send</string>
+    <string name="composer_stop">Stop</string>
+    <string name="composer_add">Add</string>
+    <string name="template_plan">Plan a feature</string>
+    <string name="template_plan_prompt">Plan the feature: </string>
+    <string name="template_tests">Write tests</string>
+    <string name="template_tests_prompt">Write tests for </string>
+    <string name="template_review">Review changes</string>
+    <string name="template_review_prompt">Review the changes in </string>
+    <string name="approval_menu">Approvals</string>
+    <string name="approval_ask">Ask for approval</string>
+    <string name="approval_auto">Approve for me</string>
+    <string name="model_menu">Model and reasoning</string>
+    <string name="effort_low">Low</string>
+    <string name="effort_medium">Medium</string>
+    <string name="effort_high">High</string>
+    <string name="effort_very_high">Very high</string>
+
+    <string name="working_for">Working for %1$s</string>
+    <string name="stopping">Stopping…</string>
+    <string name="stopped_after">You stopped the run after %1$s</string>
+    <string name="run_failed">The run failed. Try again.</string>
+    <string name="submit_failed">The session could not be created. Your prompt was restored.</string>
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$d s</string>
+    <string name="author_you">You</string>
+    <string name="author_agent">Agent</string>
+    <string name="author_studio">Studio</string>
+    <string name="streaming">Writing…</string>
+    <string name="jump_latest">Jump to latest</string>
+
+    <string name="tool_expand">Show details</string>
+    <string name="tool_collapse">Hide details</string>
+    <string name="tool_running">Running</string>
+    <string name="tool_complete">Done</string>
+    <string name="tool_error">Failed</string>
+    <string name="tool_details">Details</string>
+    <string name="tool_console">Console</string>
+    <string name="tool_diff">Changes</string>
+    <string name="tool_copy_path">Copy file path</string>
+    <string name="tool_path_copied">Path copied</string>
 </resources>
