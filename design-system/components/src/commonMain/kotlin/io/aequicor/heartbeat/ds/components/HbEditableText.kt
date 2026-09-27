@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
@@ -49,6 +50,7 @@ internal fun HbEditableText(
     enabled: Boolean = true,
     singleLine: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(),
+    isSecret: Boolean = false,
 ) {
     val state = rememberTextFieldState(value)
     val scrollState = rememberScrollState()
@@ -74,6 +76,7 @@ internal fun HbEditableText(
         inputTransformation = InputTransformation {
             bridge.observeInput(this, onValueChange)
         },
+        outputTransformation = if (isSecret) SecretMask else null,
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,
         scrollState = scrollState,
         interactionSource = interactionSource,
@@ -87,6 +90,11 @@ internal fun HbEditableText(
         },
     )
 }
+
+/** Shows every character as a bullet; the edited text itself is unchanged. */
+private val SecretMask = OutputTransformation { replace(0, length, SECRET_BULLET.toString().repeat(length)) }
+
+private const val SECRET_BULLET = '•'
 
 private class ControlledEditorBridge(private var externalText: String, private var latestSelection: TextRange) {
     /** Reported texts the owner has not yet published as [externalText], oldest first. */
