@@ -63,7 +63,7 @@ Pods/
 Carthage/Build/
 # Kotlin/Native framework, собранный для Xcode
 *.xcframework
-iosApp/**/*.framework
+platform-main/ios/**/*.framework
 # Локальные переопределения xcconfig (TEAM_ID и т.п.)
 *.local.xcconfig
 
