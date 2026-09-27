@@ -62,4 +62,11 @@ class AuthSourceTest {
         assertFalse(stale.toString().contains("opaque-revision"))
         assertEquals(stale, Json.decodeFromString<AuthCheck>(Json.encodeToString(stale)))
     }
+
+    @Test
+    fun `auth exception exposes only the stable reason`() {
+        val error = AuthException(AuthFailure(AuthFailureReason.CredentialsRejected, info.id))
+        assertEquals("auth.CredentialsRejected", error.message)
+        assertFalse(error.toString().contains(info.id.value))
+    }
 }

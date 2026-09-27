@@ -33,9 +33,10 @@ paths:
 `features/ai-engine/facade/api` содержит UI-независимые сервисные интерфейсы каталога, сессий,
 истории, capabilities и SPI адаптеров, а также чистую машину активной сессии. Это явное исключение
 из ограничения состава обычного feature:api. `authenticator/api` содержит общие типы источников
-авторизации, проверок и ошибок. Зависимость направлена `facade:api → authenticator:api`;
+авторизации, проверок и ошибок, сервисы `AuthSources` / `AuthChecks` и SPI `Authenticator` / `AuthCredentials`.
+Зависимость направлена `facade:api → authenticator:api`;
 обратная зависимость запрещена. API конкретных движков могут зависеть от этих общих контрактов.
-Пакет `facade.api.spi` используют только модули `ai-engine` и `platform-main:di-bundle`.
+Пакеты `facade.api.spi` и `authenticator.api.spi` используют только модули `ai-engine` и `platform-main:di-bundle`.
 Доступ к IO, UI, сторонним SDK и любым impl в этих API по-прежнему запрещён.
 Машина активной сессии принадлежит объекту доступа в профиле; native runtime и принятый ход
 живут в скоупе профиля и не отменяются при закрытии экрана или смене состояния машины.
