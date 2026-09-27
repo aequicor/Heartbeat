@@ -10,6 +10,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.core.common)
+            api(projects.features.aiEngine.pi.api)
+            implementation(projects.features.aiEngine.pi.impl)
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
