@@ -52,4 +52,26 @@
     <string name="wizard_models_intro">Choose the models offered through this connection.</string>
     <string name="wizard_finish">Done</string>
     <string name="wizard_finish_without_models">Continue without models</string>
+    <string name="settings_title">Engines and connections</string>
+    <string name="settings_description">Engine × connection × model: choose what model pickers offer.</string>
+    <string name="settings_add_engine">Connect an engine</string>
+    <string name="settings_engines">Engines</string>
+    <string name="settings_connections">Connections</string>
+    <string name="settings_models">Models</string>
+    <string name="settings_probe">Check installation</string>
+    <string name="settings_add_connection">Add connection</string>
+    <string name="settings_no_connections">No connections yet.</string>
+    <string name="settings_select_connection">Select a connection to manage its models.</string>
+    <string name="settings_connection_active">Active</string>
+    <string name="settings_connection_off">Off</string>
+    <string name="settings_enabled_models">Models: %1$d</string>
+    <string name="settings_refresh_models">Sync models</string>
+    <string name="settings_disconnect">Disconnect</string>
+    <string name="settings_disconnect_confirm">Disconnect “%1$s”? Its model choice is removed; a stored key is deleted when nothing else uses it.</string>
+    <string name="settings_default">Default</string>
+    <string name="settings_make_default">Make default</string>
+    <string name="settings_models_stale">Cached list. Sync to refresh it.</string>
+    <string name="settings_models_never">Models have not been synced yet.</string>
+    <string name="settings_saving">Saving…</string>
+    <string name="settings_dismiss">Dismiss</string>
 </resources>

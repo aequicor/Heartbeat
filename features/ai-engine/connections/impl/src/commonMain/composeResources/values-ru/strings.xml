@@ -52,4 +52,26 @@
     <string name="wizard_models_intro">Выберите модели, которые будут доступны через это подключение.</string>
     <string name="wizard_finish">Готово</string>
     <string name="wizard_finish_without_models">Продолжить без моделей</string>
+    <string name="settings_title">Движки и подключения</string>
+    <string name="settings_description">Движок × подключение × модель: выберите, что будет доступно при выборе модели.</string>
+    <string name="settings_add_engine">Подключить движок</string>
+    <string name="settings_engines">Движки</string>
+    <string name="settings_connections">Подключения</string>
+    <string name="settings_models">Модели</string>
+    <string name="settings_probe">Проверить установку</string>
+    <string name="settings_add_connection">Добавить подключение</string>
+    <string name="settings_no_connections">Подключений пока нет.</string>
+    <string name="settings_select_connection">Выберите подключение, чтобы настроить его модели.</string>
+    <string name="settings_connection_active">Активно</string>
+    <string name="settings_connection_off">Выключено</string>
+    <string name="settings_enabled_models">Моделей: %1$d</string>
+    <string name="settings_refresh_models">Обновить модели</string>
+    <string name="settings_disconnect">Отключить</string>
+    <string name="settings_disconnect_confirm">Отключить «%1$s»? Выбор моделей будет удалён; сохранённый ключ удаляется, если больше нигде не используется.</string>
+    <string name="settings_default">По умолчанию</string>
+    <string name="settings_make_default">Сделать основной</string>
+    <string name="settings_models_stale">Список из кэша. Обновите, чтобы получить актуальный.</string>
+    <string name="settings_models_never">Модели ещё не получены.</string>
+    <string name="settings_saving">Сохранение…</string>
+    <string name="settings_dismiss">Скрыть</string>
 </resources>
