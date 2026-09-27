@@ -1,0 +1,241 @@
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
+
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class ManagedActiveSessionTest {
+    private val handles = ActiveSessionRegistry()
+    private var counter = 0
+
+    private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("hello")))
+
+    private fun TestScope.open(
+        fixture: RouteFixture,
+        native: FakeNativeSession = FakeNativeSession(),
+    ): Pair<ActiveSession, TestHandleScope> {
+        val policy = SessionPolicy(
+            fixture.routes,
+            EnabledEngines(fixture.registry, fixture.toggles, backgroundScope),
+            handles,
+            fixture.context,
+        )
+        val handle = TestHandleScope("h${++counter}", backgroundScope)
+        val route = fixture.store.bindings.value.single().let { binding ->
+            io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute(
+                TestEngine,
+                binding.id,
+                fixture.source.info.id,
+                fixture.source.info.revision,
+            )
+        }
+        val session = ActiveSessionAssembler(policy, backgroundScope).assemble(native, route, ModelId("m1"), handle)
+        runCurrent()
+        return session to handle
+    }
+
+    private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+
+    @Test
+    fun `send completes after native acceptance and the native outcome finishes the turn`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+
+        val turn = session.sender().send(prompt("r1"))
+        runCurrent()
+
+        val running = assertIs<ActiveSessionState.Running>(session.state.value)
+        assertEquals(turn, running.turn.id)
+        assertEquals(RequestId("r1"), running.turn.request)
+        assertEquals(1, native.sent.size)
+
+        native.finish()
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `rejected submission fails send and reconciliation restores a ready handle`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+        val invalid = EngineFailure.Request(RequestFailureReason.Invalid, RequestId("r1"))
+        native.sendFailure = EngineException(invalid)
+
+        assertEquals(invalid, assertFailsWith<EngineException> { session.sender().send(prompt("r1")) }.failure)
+        runCurrent()
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+
+        (session.features.resolve(ReconcilesSession) as FeatureAccess.Available).feature.synchronize()
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+    }
+
+    @Test
+    fun `permission decisions reach the native turn and only native acknowledgement resolves them`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+        val turn = session.sender().send(prompt("r1"))
+        val request = native.ask("p1")
+        runCurrent()
+        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+
+        val permissions = (session.features.resolve(RequestsPermissions) as FeatureAccess.Available).feature
+        permissions.respond(PermissionDecision(turn, request.id, PermissionOptionId("allow")))
+        runCurrent()
+        assertEquals(native.activeTurn.id, native.decisions.single().turn)
+        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+
+        val unknown = PermissionDecision(turn, request.id, PermissionOptionId("maybe"))
+        assertFailsWith<EngineException> { permissions.respond(unknown) }
+
+        native.resolve(request)
+        runCurrent()
+        assertIs<ActiveSessionState.Running>(session.state.value)
+    }
+
+    @Test
+    fun `cancellation waits for the native terminal outcome`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+        val turn = session.sender().send(prompt("r1"))
+
+        (session.features.resolve(CancelsTurns) as FeatureAccess.Available).feature.cancel(turn)
+        runCurrent()
+        assertIs<ActiveSessionState.Interrupting>(session.state.value)
+        assertEquals(listOf(native.activeTurn.id), native.cancelled)
+
+        native.finish(TurnOutcome.Cancelled)
+        runCurrent()
+        assertEquals(TurnOutcome.Cancelled, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        assertFailsWith<EngineException> {
+            (session.features.resolve(CancelsTurns) as FeatureAccess.Available).feature.cancel(TurnId("stale"))
+        }
+    }
+
+    @Test
+    fun `a busy native session rejects another turn from any handle`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession()
+        val (first, _) = open(fixture, native)
+        val (second, _) = open(fixture, FakeNativeSession(native.ref))
+        first.sender().send(prompt("r1"))
+
+        val own = assertFailsWith<EngineException> { first.sender().send(prompt("r2")) }
+        val other = assertFailsWith<EngineException> { second.sender().send(prompt("r3")) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), own.failure)
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), other.failure)
+    }
+
+    @Test
+    fun `a rotated source blocks the next turn before anything is sent`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession()
+        val (session, _) = open(fixture, native)
+        fixture.sources.remove(fixture.source.info.id)
+        fixture.sources.add(managedKey(revision = AuthRevision.Known("r2")))
+
+        val error = assertFailsWith<EngineException> { session.sender().send(prompt("r1")) }
+        assertEquals(authFailure(AuthFailureReason.SourceChanged, fixture.source.info.id), error.failure)
+        assertTrue(native.sent.isEmpty())
+    }
+
+    @Test
+    fun `close releases the native lease and ends the handle scope`() = runTest {
+        val native = FakeNativeSession()
+        val (session, handle) = open(RouteFixture(this), native)
+        assertTrue(handles.isInUse(session.route.binding))
+
+        session.close()
+        runCurrent()
+
+        assertEquals(ActiveSessionState.Closed, session.state.value)
+        assertEquals(1, native.closes)
+        assertTrue(handle.isClosed)
+        assertFalse(handles.isInUse(session.route.binding))
+        assertEquals(
+            FeatureAccess.Unavailable(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)),
+            session.features.resolve(SendsPrompts),
+        )
+        session.close()
+    }
+
+    @Test
+    fun `turns started elsewhere are adopted through reconciliation`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+
+        native.native.value = ActiveSessionState.Running(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.Turn(TurnId("external"), null, TestTarget),
+        )
+        runCurrent()
+
+        assertEquals(TurnId("external"), assertIs<ActiveSessionState.Running>(session.state.value).turn.id)
+    }
+
+    @Test
+    fun `profile shutdown releases waiters instead of hanging them`() = runTest {
+        val native = FakeNativeSession().apply { closeGate = kotlinx.coroutines.CompletableDeferred() }
+        val (session, handle) = open(RouteFixture(this), native)
+
+        val closing = async { assertFailsWith<EngineException> { session.close() } }
+        runCurrent()
+        handle.close()
+        runCurrent()
+
+        val failure = closing.await()
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), failure.failure)
+    }
+
+    @Test
+    fun `model switches are serialized with turns of every handle`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession()
+        val (first, _) = open(fixture, native)
+        val otherNative = FakeNativeSession(native.ref)
+        val (second, _) = open(fixture, otherNative)
+        val switcher = (second.features.resolve(SwitchesModels) as FeatureAccess.Available).feature
+
+        first.sender().send(prompt("r1"))
+        assertEquals(
+            EngineFailure.Session(SessionFailureReason.Busy),
+            assertFailsWith<EngineException> { switcher.switchTo(ModelId("m1")) }.failure,
+        )
+
+        native.finish()
+        runCurrent()
+        switcher.switchTo(ModelId("m1"))
+        assertEquals(listOf(ModelId("m1")), otherNative.models)
+    }
+}
