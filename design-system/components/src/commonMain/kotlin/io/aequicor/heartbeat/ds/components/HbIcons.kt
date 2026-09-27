@@ -153,10 +153,19 @@ public object HbIcons {
     )
     public val Refresh: ImageVector = outlineIcon(
         "Refresh",
-        "M16.5,7 A7,7 0,0 0,4,5 M3,2 V6 H7 M3.5,13 A7,7 0,0 0,16,15 M17,18 V14 H13",
+        "M3.5,7 C4.7,3.4 9,1.5 12.5,3 C14.6,3.9 16,5.3 17,7 M17,3 V7 H13 M16.5,13 C15.3,16.6 11,18.5 " +
+            "7.5,17 C5.4,16.1 4,14.7 3,13 M3,17 V13 H7",
     )
-    public val Undo: ImageVector = outlineIcon("Undo", "M7,4 L3,8 L7,12 M3,8 H12 A5,5 0,0 1,12,18", autoMirror = true)
-    public val Redo: ImageVector = outlineIcon("Redo", "M13,4 L17,8 L13,12 M17,8 H8 A5,5 0,0 0,8,18", autoMirror = true)
+    public val Undo: ImageVector = outlineIcon(
+        "Undo",
+        "M6.5,3.5 L3,7 L6.5,10.5 M3,7 H12 A4.5,4.5 0,0 1,12,16 H9",
+        autoMirror = true,
+    )
+    public val Redo: ImageVector = outlineIcon(
+        "Redo",
+        "M13.5,3.5 L17,7 L13.5,10.5 M17,7 H8 A4.5,4.5 0,0 0,8,16 H11",
+        autoMirror = true,
+    )
     public val Filter: ImageVector = outlineIcon("Filter", "M3,3 H17 L12,10 V16 L8,18 V10 Z")
     public val Sort: ImageVector = outlineIcon(
         "Sort",
@@ -164,25 +173,35 @@ public object HbIcons {
     )
     public val Share: ImageVector = outlineIcon(
         "Share",
-        "M7,9 L13,5 M7,11 L13,15 M7,10 A2,2 0,1 1,3,10 A2,2 0,1 1,7,10 Z M17,4 A2,2 0,1 1,13,4 A2,2 " +
-            "0,1 1,17,4 Z M17,16 A2,2 0,1 1,13,16 A2,2 0,1 1,17,16 Z",
+        "M6.065,9.217 L13.935,5.283 M6.065,10.783 L13.935,14.717 M6.25,10 A1.75,1.75 0,1 1,2.75,10 " +
+            "A1.75,1.75 0,1 1,6.25,10 Z M17.25,4.5 A1.75,1.75 0,1 1,13.75,4.5 A1.75,1.75 0,1 1,17.25,4.5 " +
+            "Z M17.25,15.5 A1.75,1.75 0,1 1,13.75,15.5 A1.75,1.75 0,1 1,17.25,15.5 Z",
     )
     public val Link: ImageVector = outlineIcon(
         "Link",
-        "M8,12 L12,8 M7,8 L5,8 Q2,8 2,11 V14 Q2,17 5,17 H8 Q11,17 11,14 V13 M9,7 V6 Q9,3 12,3 H15 " +
-            "Q18,3 18,6 V9 Q18,12 15,12 H13",
+        "M8,12 L12,8 M6.5,8.5 L4.5,10.5 A3.54,3.54 0,0 0,9.5,15.5 L11.5,13.5 M8.5,6.5 L10.5,4.5 " +
+            "A3.54,3.54 0,0 1,15.5,9.5 L13.5,11.5",
     )
     public val Pin: ImageVector = outlineIcon("Pin", "M7,3 H13 L12,8 L15,11 V12 H5 V11 L8,8 Z M10,12 V18")
     public val Unpin: ImageVector = outlineIcon(
         "Unpin",
         "M3,3 L17,17 M9,3 H13 L12,8 M8,8 L5,11 V12 H12 M10,12 V18",
     )
-    public val MoreVertical: ImageVector = outlineIcon("MoreVertical", "M10,3 V3.1 M10,10 V10.1 M10,17 V17.1")
+    public val MoreVertical: ImageVector = filledIcon(
+        "MoreVertical",
+        "M10,4.7 A1.2,1.2 0,1 1,10,2.3 A1.2,1.2 0,1 1,10,4.7 Z M10,11.2 A1.2,1.2 0,1 1,10,8.8 " +
+            "A1.2,1.2 0,1 1,10,11.2 Z M10,17.7 A1.2,1.2 0,1 1,10,15.3 A1.2,1.2 0,1 1,10,17.7 Z",
+    )
     public val Settings: ImageVector = outlineIcon(
         "Settings",
-        "M8,2 H12 L12.5,4.5 L15,6 L17.5,5.5 L19,9 L17,10.5 L16.5,13 L17.5,15 L14.5,17.5 L12.5,16 " +
-            "L10,16.5 L8,18 L5,16 L5.5,13.5 L4,11.5 L1.5,10.5 L2.5,7 L5,7 L7,5 Z M13,10 A3,3 0,1 1,7,10 " +
-            "A3,3 0,1 1,13,10 Z",
+        "M8.121,4.039 L8.887,2.078 L11.113,2.078 L11.879,4.039 A6.25,6.25 0,0 1,12.886,4.456 " +
+            "L14.815,3.611 L16.389,5.185 L15.544,7.114 A6.25,6.25 0,0 1,15.961,8.121 L17.922,8.887 " +
+            "L17.922,11.113 L15.961,11.879 A6.25,6.25 0,0 1,15.544,12.886 L16.389,14.815 L14.815,16.389 " +
+            "L12.886,15.544 A6.25,6.25 0,0 1,11.879,15.961 L11.113,17.922 L8.887,17.922 L8.121,15.961 " +
+            "A6.25,6.25 0,0 1,7.114,15.544 L5.185,16.389 L3.611,14.815 L4.456,12.886 A6.25,6.25 0,0 " +
+            "1,4.039,11.879 L2.078,11.113 L2.078,8.887 L4.039,8.121 A6.25,6.25 0,0 1,4.456,7.114 " +
+            "L3.611,5.185 L5.185,3.611 L7.114,4.456 A6.25,6.25 0,0 1,8.121,4.039 Z M12.5,10 A2.5,2.5 0,1 " +
+            "1,7.5,10 A2.5,2.5 0,1 1,12.5,10 Z",
     )
     public val Sliders: ImageVector = outlineIcon(
         "Sliders",
@@ -240,7 +259,11 @@ public object HbIcons {
             "Q2,15 2,14 V8 Q2,7 3,7 Z",
     )
     public val Send: ImageVector = outlineIcon("Send", "M2.5,3 L18,10 L2.5,17 L5.5,10 Z M5.5,10 H18", autoMirror = true)
-    public val Reply: ImageVector = outlineIcon("Reply", "M8,4 L3,9 L8,14 M3,9 H10 Q17,9 17,16 V13", autoMirror = true)
+    public val Reply: ImageVector = outlineIcon(
+        "Reply",
+        "M7,4 L3,8 L7,12 M3,8 H10 C14.4,8 17,10.6 17,15",
+        autoMirror = true,
+    )
     public val Mail: ImageVector = outlineIcon(
         "Mail",
         "M4,4 H16 Q17.5,4 17.5,5.5 V14.5 Q17.5,16 16,16 H4 Q2.5,16 2.5,14.5 V5.5 Q2.5,4 4,4 Z M3,5 " +
@@ -270,17 +293,18 @@ public object HbIcons {
     )
     public val Mic: ImageVector = outlineIcon(
         "Mic",
-        "M7,5 A3,3 0,0 1,13,5 V10 A3,3 0,0 1,7,10 Z M4,9 V10 A6,6 0,0 0,16,10 V9 M10,16 V19 M7,19 H13",
+        "M7,5 A3,3 0,0 1,13,5 V10 A3,3 0,0 1,7,10 Z M4,9 V10 A6,6 0,0 0,16,10 V9 M10,16 V18 M7,18 " +
+            "H13",
     )
     public val MicOff: ImageVector = outlineIcon(
         "MicOff",
         "M3,3 L17,17 M7,7 V10 A3,3 0,0 0,11,12.8 M9,2.2 Q13,1 13,5 V9 M4,9 V10 A6,6 0,0 0,13,15.2 " +
-            "M16,9 V10 Q16,11 15.5,12 M10,16 V19 M7,19 H13",
+            "M16,9 V10 Q16,11 15.5,12 M10,16 V18 M7,18 H13",
     )
     public val Paperclip: ImageVector = outlineIcon(
         "Paperclip",
-        "M7,11 L12,6 Q14,4 15.5,5.5 Q17,7 15,9 L8,16 Q5,19 2.5,16.5 Q0.5,14 3,11.5 L11,3.5 Q14,0.5 " +
-            "17,3.5",
+        "M13.182,8.939 L8.586,13.536 A1.5,1.5 0,0 1,6.464,11.414 L12.121,5.757 A3,3 0,0 1,16.364,10 " +
+            "L10.707,15.657 A4.5,4.5 0,0 1,4.343,9.293 L8.939,4.697",
     )
     public val Video: ImageVector = outlineIcon(
         "Video",
@@ -326,24 +350,31 @@ public object HbIcons {
     )
     public val Eye: ImageVector = outlineIcon(
         "Eye",
-        "M2,10 Q10,-1 18,10 Q10,21 2,10 Z M13,10 A3,3 0,1 1,7,10 A3,3 0,1 1,13,10 Z",
+        "M2,10 C4,6.5 6.5,4.5 10,4.5 C13.5,4.5 16,6.5 18,10 C16,13.5 13.5,15.5 10,15.5 C6.5,15.5 " +
+            "4,13.5 2,10 Z M13,10 A3,3 0,1 1,7,10 A3,3 0,1 1,13,10 Z",
     )
     public val EyeOff: ImageVector = outlineIcon(
         "EyeOff",
-        "M3,3 L17,17 M7,5 Q13,2 18,10 Q16,13 14,14 M11,15 Q6,16 2,10 Q3,8 5,6 M7.5,8 Q6,12 10,13",
+        "M3,3 L17,17 M7,4.9 C11.6,3.5 15.4,5.5 18,10 C17.2,11.5 16.3,12.6 15.2,13.5 M12.8,15.1 " +
+            "C8.5,16.6 4.5,14.4 2,10 C2.8,8.6 3.7,7.4 4.8,6.5 M10,7 A3,3 0,0 1,13,10 M10,13 A3,3 0,0 " +
+            "1,7,10",
     )
     public val Wifi: ImageVector = outlineIcon(
         "Wifi",
-        "M2,6 Q10,-0.5 18,6 M5,9 Q10,5 15,9 M8,12 Q10,10.5 12,12 M10,15 V15.1",
+        "M1.515,8.015 A12,12 0,0 1,18.485,8.015 M4.343,10.843 A8,8 0,0 1,15.657,10.843 M7.172,13.672 " +
+            "A4,4 0,0 1,12.828,13.672 M10,16.5 V16.6",
     )
     public val WifiOff: ImageVector = outlineIcon(
         "WifiOff",
-        "M3,3 L17,17 M8,3.5 Q13,2 18,6 M2,6 L4,4.5 M5,9 Q7,7 8,7.5 M8,12 Q10,10.5 12,12 M10,15 V15.1",
+        "M3,3 L17,17 M1.515,8.015 A12,12 0,0 1,4.2,5.995 M7,4.881 A12,12 0,0 1,18.485,8.015 " +
+            "M4.343,10.843 A8,8 0,0 1,7,9.084 M10.5,8.516 A8,8 0,0 1,15.657,10.843 M7.172,13.672 A4,4 " +
+            "0,0 1,12.828,13.672 M10,16.5 V16.6",
     )
     public val Sun: ImageVector = outlineIcon(
         "Sun",
-        "M14,10 A4,4 0,1 1,6,10 A4,4 0,1 1,14,10 Z M10,1 V3 M10,17 V19 M1,10 H3 M17,10 H19 M3.5,3.5 " +
-            "L5,5 M15,15 L16.5,16.5 M3.5,16.5 L5,15 M15,5 L16.5,3.5",
+        "M14,10 A4,4 0,1 1,6,10 A4,4 0,1 1,14,10 Z M10,2 V4 M10,16 V18 M2,10 H4 M16,10 H18 " +
+            "M4.343,4.343 L5.757,5.757 M14.243,14.243 L15.657,15.657 M4.343,15.657 L5.757,14.243 " +
+            "M14.243,5.757 L15.657,4.343",
     )
     public val Moon: ImageVector = outlineIcon("Moon", "M17,12 A7.5,7.5 0,1 1,8,3 A6,6 0,0 0,17,12 Z")
     public val Monitor: ImageVector = outlineIcon(
@@ -411,10 +442,14 @@ public object HbIcons {
         "M3,6 H6 L7,3 H13 L14,6 H17 Q18,6 18,7 V16 Q18,17 17,17 H3 Q2,17 2,16 V7 Q2,6 3,6 Z M14,11 " +
             "A4,4 0,1 1,6,11 A4,4 0,1 1,14,11 Z",
     )
-    public val Heart: ImageVector = outlineIcon("Heart", "M10,17 L3,10 C-2,4 5,-0.5 10,5 C15,-0.5 22,4 17,10 Z")
+    public val Heart: ImageVector = outlineIcon(
+        "Heart",
+        "M10,6 C8,1.5 2.5,2 2.5,6.5 C2.5,10 6,13 10,17 C14,13 17.5,10 17.5,6.5 C17.5,2 12,1.5 10,6 Z",
+    )
     public val Star: ImageVector = outlineIcon(
         "Star",
-        "M10,2 L12.5,7 L18,8 L14,12 L15,18 L10,15 L5,18 L6,12 L2,8 L7.5,7 Z",
+        "M10,2 L12.116,7.088 L17.608,7.528 L13.424,11.112 L14.702,16.472 L10,13.6 L5.298,16.472 " +
+            "L6.576,11.112 L2.392,7.528 L7.884,7.088 Z",
     )
 
     /** Complete, stable inventory for asset pickers and tooling. */
