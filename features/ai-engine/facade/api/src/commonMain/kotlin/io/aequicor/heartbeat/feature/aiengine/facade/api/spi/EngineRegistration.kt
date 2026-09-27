@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.isVisibleTo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
@@ -41,6 +42,9 @@ public class EngineRegistration(
         require(
             sessionSources.map { it.source.id }.distinct().size == sessionSources.size,
         ) { "Duplicate session source" }
+        require(
+            descriptor.connectionMethods.filterIsInstance<ConnectionMethod.CliLogin>().all { it.owner == authOwner },
+        ) { "CLI login method of a foreign owner" }
     }
 
     /** Ownership is checked first, so a factory can narrow compatibility but never share a foreign CLI login. */

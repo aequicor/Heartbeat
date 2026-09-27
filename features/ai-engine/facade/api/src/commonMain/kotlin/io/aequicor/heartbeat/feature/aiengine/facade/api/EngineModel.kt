@@ -28,7 +28,13 @@ public data class EngineDescriptor(
     val toggle: FeatureToggle.Flag,
     val requirements: List<EngineRequirement> = emptyList(),
     val declaredFeatures: Set<EngineFeatureId> = emptySet(),
-)
+    /** Ways the connection UI may offer to authenticate this engine; empty when it cannot be connected by users. */
+    val connectionMethods: List<ConnectionMethod> = emptyList(),
+) {
+    init {
+        require(connectionMethods.map { it.id }.distinct().size == connectionMethods.size) { "Duplicate method id" }
+    }
+}
 
 /** Availability of the installation, independent of whether a credential is configured. */
 @Serializable
