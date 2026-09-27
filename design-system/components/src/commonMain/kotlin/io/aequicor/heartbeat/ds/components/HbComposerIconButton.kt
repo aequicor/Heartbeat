@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -25,15 +26,16 @@ import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.theme.HbVisualStyle
 
-/** A compact glyph action whose complete touch target and accessible label stay stable. */
+/** A compact icon action whose complete touch target and accessible label stay stable. */
 @Composable
 internal fun ComposerIconButton(
-    symbol: String,
+    icon: ImageVector?,
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     isPrimary: Boolean = false,
+    fallbackSymbol: String = "",
 ) {
     val interactions = remember { MutableInteractionSource() }
     val isPressed by interactions.collectIsPressedAsState()
@@ -74,8 +76,17 @@ internal fun ComposerIconButton(
             .hbFocusOutline(isFocused, shape),
         contentAlignment = Alignment.Center,
     ) {
+        ComposerButtonIcon(icon, fallbackSymbol, foreground)
+    }
+}
+
+@Composable
+private fun ComposerButtonIcon(icon: ImageVector?, fallbackSymbol: String, foreground: Color) {
+    if (icon != null) {
+        HbIcon(icon, contentDescription = null, tint = foreground)
+    } else {
         HbText(
-            text = symbol,
+            text = fallbackSymbol,
             modifier = Modifier.clearAndSetSemantics {},
             style = HbTheme.typography.title,
             color = foreground,

@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
+import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -60,7 +61,7 @@ private fun AddContextMenu(state: DemoChatState, copy: ChatDemoCopy, menus: Comp
     }
 
     HbComposerMenuButton(
-        label = "+",
+        label = hbString(HbString.AddContext),
         actions = actions,
         isExpanded = menus.expanded == "add",
         onExpandedChange = { menus.setExpanded("add", it) },
@@ -76,7 +77,7 @@ private fun AddContextMenu(state: DemoChatState, copy: ChatDemoCopy, menus: Comp
         enabled = !state.isStreaming && !state.isLoadingHistory,
         headerLabel = hbString(HbString.AddContext),
         accessibleLabel = hbString(HbString.AddContext),
-        isIcon = true,
+        icon = HbIcons.Plus,
     )
 }
 
@@ -85,7 +86,7 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
     val modeLabel = hbString(if (state.isPlanning) HbString.PlanMode else HbString.AskMode)
     val modelLabel = hbString(if (state.isConcise) HbString.ConciseModel else HbString.DemoModel)
     HbComposerMenuButton(
-        label = if (isCompact) "◇" else modeLabel,
+        label = modeLabel,
         actions = persistentListOf(
             HbComposerAction("ask", hbString(HbString.AskMode)),
             HbComposerAction("plan", hbString(HbString.PlanMode)),
@@ -96,10 +97,10 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
         modifier = Modifier.semantics { stateDescription = modeLabel },
         headerLabel = if (isCompact) hbString(HbString.ModeMenu) else null,
         accessibleLabel = hbString(HbString.ModeMenu),
-        isIcon = isCompact,
+        icon = if (isCompact) HbIcons.Plan else null,
     )
     HbComposerMenuButton(
-        label = if (isCompact) "✦" else modelLabel,
+        label = modelLabel,
         actions = persistentListOf(
             HbComposerAction("full", hbString(HbString.DemoModel)),
             HbComposerAction("brief", hbString(HbString.ConciseModel)),
@@ -110,7 +111,7 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
         modifier = Modifier.semantics { stateDescription = modelLabel },
         headerLabel = if (isCompact) hbString(HbString.ModelMenu) else null,
         accessibleLabel = hbString(HbString.ModelMenu),
-        isIcon = isCompact,
+        icon = if (isCompact) HbIcons.Sparkles else null,
     )
 }
 

@@ -140,7 +140,7 @@ class HbComposerUiTest {
                             onExpandedChange = { isExpanded = it },
                             onAction = { chosen += it },
                             accessibleLabel = "Add",
-                            isIcon = true,
+                            icon = HbIcons.Plus,
                             headerLabel = "Add context",
                         )
                     })
@@ -186,7 +186,7 @@ class HbComposerUiTest {
                                     onExpandedChange = { isExpanded = it },
                                     onAction = { chosen++ },
                                     accessibleLabel = "Add",
-                                    isIcon = true,
+                                    icon = HbIcons.Plus,
                                 )
                             },
                         )

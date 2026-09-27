@@ -67,7 +67,7 @@ public fun HbChatComposer(
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val isSendEnabled = enabled && !isStreaming && value.isNotBlank()
-    val actionSymbol = if (isStreaming) "■" else "↑"
+    val actionIcon = if (isStreaming) HbIcons.Stop else HbIcons.ArrowUp
     val actionLabel = if (isStreaming) stopLabel else sendLabel
     val isActionEnabled = if (isStreaming) enabled else isSendEnabled
     val anchor = remember { mutableStateOf<IntRect?>(null) }
@@ -106,7 +106,7 @@ public fun HbChatComposer(
                 )
                 ComposerToolbar(leadingContent = leadingContent, trailingContent = trailingContent) {
                     ComposerIconButton(
-                        symbol = actionSymbol,
+                        icon = actionIcon,
                         label = actionLabel,
                         onClick = { submitComposerAction(isStreaming, onSend, onStop) },
                         enabled = isActionEnabled,

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ru_icons">Иконки</string>
+    <string name="ru_icons_description">Тонкие контуры, мягкие углы и залитый дом для активного состояния. Навигация: 18 dp. Метаданные: 14 dp.</string>
     <string name="ru_app_name">Heartbeat</string>
     <string name="ru_app_subtitle">AEQUICOR STUDIO</string>
     <string name="ru_sandbox">Песочница дизайн-системы</string>

@@ -55,6 +55,8 @@ import io.aequicor.heartbeat.ds.resources.generated.en_foundation
 import io.aequicor.heartbeat.ds.resources.generated.en_foundation_symbol
 import io.aequicor.heartbeat.ds.resources.generated.en_full
 import io.aequicor.heartbeat.ds.resources.generated.en_history_section
+import io.aequicor.heartbeat.ds.resources.generated.en_icons
+import io.aequicor.heartbeat.ds.resources.generated.en_icons_description
 import io.aequicor.heartbeat.ds.resources.generated.en_input_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_input_placeholder
 import io.aequicor.heartbeat.ds.resources.generated.en_inputs
@@ -187,6 +189,8 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_foundation
 import io.aequicor.heartbeat.ds.resources.generated.ru_foundation_symbol
 import io.aequicor.heartbeat.ds.resources.generated.ru_full
 import io.aequicor.heartbeat.ds.resources.generated.ru_history_section
+import io.aequicor.heartbeat.ds.resources.generated.ru_icons
+import io.aequicor.heartbeat.ds.resources.generated.ru_icons_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_input_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_input_placeholder
 import io.aequicor.heartbeat.ds.resources.generated.ru_inputs
@@ -284,6 +288,8 @@ public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
 
 /** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
 public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
+    Icons(Res.string.en_icons, Res.string.ru_icons),
+    IconsDescription(Res.string.en_icons_description, Res.string.ru_icons_description),
     AddContext(Res.string.en_add_context, Res.string.ru_add_context),
     InsertNote(Res.string.en_insert_note, Res.string.ru_insert_note),
     InsertNoteHint(Res.string.en_insert_note_hint, Res.string.ru_insert_note_hint),

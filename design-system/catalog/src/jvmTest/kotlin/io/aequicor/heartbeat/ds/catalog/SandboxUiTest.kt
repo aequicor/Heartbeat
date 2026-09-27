@@ -1,5 +1,11 @@
 package io.aequicor.heartbeat.ds.catalog
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -13,6 +19,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.adaptive.PlatformUi
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.theme.HbVisualStyle
 import java.io.File
 import javax.imageio.ImageIO
@@ -39,7 +46,7 @@ class SandboxUiTest {
         onNodeWithText("Dark").performClick()
         onNodeWithText("System").performClick()
         onNodeWithText("Foundation").performClick()
-        onNodeWithText("Made for your next idea.").assertIsDisplayed()
+        onNodeWithText("Icons").assertIsDisplayed()
         savePreview("desktop-foundation-light", captureToImage().toAwtImage())
     }
 
@@ -61,6 +68,27 @@ class SandboxUiTest {
         onNodeWithText("RU").performClick()
         onNodeWithText("Начать заново").performClick()
         savePreview("desktop-chat-ru", captureToImage().toAwtImage())
+    }
+
+    @Test
+    fun `outline icon catalog renders in both themes`() {
+        listOf(false, true).forEach { isDark ->
+            runSkikoComposeUiTest(size = Size(900f, 370f)) {
+                setContent {
+                    HbTheme(darkTheme = isDark) {
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(HbTheme.colors.background)
+                                .padding(HbTheme.spacing.l),
+                        ) {
+                            IconsCatalog(modifier = Modifier.fillMaxWidth())
+                        }
+                    }
+                }
+                onNodeWithText("HomeFilled").assertIsDisplayed()
+                onNodeWithText("ChevronDown").assertIsDisplayed()
+                savePreview("icons-${if (isDark) "dark" else "light"}", captureToImage().toAwtImage())
+            }
+        }
     }
 
     @Test

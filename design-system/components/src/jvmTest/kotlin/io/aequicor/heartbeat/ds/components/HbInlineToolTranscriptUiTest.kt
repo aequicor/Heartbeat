@@ -46,7 +46,7 @@ class HbInlineToolTranscriptUiTest {
         val state = LazyListState(firstVisibleItemIndex = 1)
         var appearanceCalls = 0
         setContent { InlineToolHost(timeline, state, onAppearance = { appearanceCalls++ }) }
-        onNodeWithText("▸ workspace.inspect").performClick()
+        onNodeWithText("workspace.inspect").performClick()
         onAllNodes(hasScrollToIndexAction()).assertCountEquals(1)
         val expandedCount = runOnIdle {
             assertTrue(
@@ -73,7 +73,7 @@ class HbInlineToolTranscriptUiTest {
         val timeline = toolTimeline(outputLines = 1200)
         val state = LazyListState(firstVisibleItemIndex = 1)
         setContent { InlineToolHost(timeline, state) }
-        onNodeWithText("▸ workspace.inspect").performClick()
+        onNodeWithText("workspace.inspect").performClick()
         onAllNodes(hasScrollToIndexAction()).assertCountEquals(1)
         onNodeWithText("console-00000", substring = true).assertIsDisplayed()
         val before = runOnIdle { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
@@ -101,10 +101,10 @@ class HbInlineToolTranscriptUiTest {
         val state = LazyListState(firstVisibleItemIndex = 39)
         val expansion = HbToolExpansionState()
         setContent { InlineToolHost(timeline, state, toolExpansionState = expansion) }
-        onNodeWithText("▸ workspace.inspect").performClick()
+        onNodeWithText("workspace.inspect").performClick()
         onNodeWithTag("focus-sink").performSemanticsAction(SemanticsActions.RequestFocus)
         onNode(hasScrollToIndexAction()).performScrollToIndex(5)
-        onNodeWithText("▾ workspace.inspect").assertDoesNotExist()
+        onNodeWithText("workspace.inspect").assertDoesNotExist()
         val anchor = runOnIdle { readingAnchor(state) }
         runOnIdle {
             timeline = timeline.replaceLatest(streamedToolMessage(toolMessage))
@@ -117,8 +117,8 @@ class HbInlineToolTranscriptUiTest {
             assertTrue(expansion.isExpanded("tool-message", "inspect"))
             assertEquals(anchor, readingAnchor(state), "An offscreen tool update must not move the reader")
         }
-        onNode(hasScrollToIndexAction()).performScrollToNode(hasText("▾ workspace.inspect"))
-        onNodeWithText("▾ workspace.inspect").assertIsDisplayed()
+        onNode(hasScrollToIndexAction()).performScrollToNode(hasText("workspace.inspect"))
+        onNodeWithText("workspace.inspect").assertIsDisplayed()
         onAllNodes(hasScrollToIndexAction()).assertCountEquals(1)
     }
 
