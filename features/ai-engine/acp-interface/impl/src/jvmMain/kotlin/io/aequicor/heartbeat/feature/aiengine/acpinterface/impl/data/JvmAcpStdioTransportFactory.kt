@@ -25,23 +25,29 @@ internal class JvmAcpStdioTransportFactory(private val dispatchers: DispatcherPr
         try {
             return withContext(dispatchers.io) {
                 log.i { "ACP starting stdio process" }
-                val builder = ProcessBuilder(listOf(command.executable) + command.arguments)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
-                command.workingDirectory?.let { builder.directory(File(it)) }
-                if (!command.isEnvironmentInherited) builder.environment().clear()
-                builder.environment().putAll(command.environment)
-                JvmAcpTransport(start(builder), dispatchers).also { opened = it }
+                JvmAcpTransport(start(command), dispatchers).also { opened = it }
             }.also { isTransferred = true }
         } finally {
             if (!isTransferred) opened?.close()
         }
     }
 
-    /** Platform errors name the executable, which is not safe for logs; only a sanitized diagnostic leaves here. */
-    private fun start(builder: ProcessBuilder): Process = try {
+    /**
+     * Platform errors name the executable or quote environment values, which are not safe for logs;
+     * only a sanitized diagnostic leaves here.
+     */
+    private fun start(command: AcpCommand): Process = try {
+        val builder = ProcessBuilder(listOf(command.executable) + command.arguments)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+        command.workingDirectory?.let { builder.directory(File(it)) }
+        if (!command.isEnvironmentInherited) builder.environment().clear()
+        builder.environment().putAll(command.environment)
         builder.start()
     } catch (e: IOException) {
         log.w(AcpDiagnostic(e)) { "ACP stdio process failed to start" }
+        throw AcpException.LaunchFailed()
+    } catch (e: IllegalArgumentException) {
+        log.w(AcpDiagnostic(e)) { "ACP stdio process has invalid environment" }
         throw AcpException.LaunchFailed()
     } catch (e: SecurityException) {
         log.w(AcpDiagnostic(e)) { "ACP stdio process start denied" }

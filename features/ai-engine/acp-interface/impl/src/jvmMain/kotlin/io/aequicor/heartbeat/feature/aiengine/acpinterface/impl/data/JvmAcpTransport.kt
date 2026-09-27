@@ -66,21 +66,37 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) return
         log.i { "ACP stopping stdio process" }
-        // Snapshot descendants before the parent dies: launchers (npx, uvx, cmd) leave the real agent as a child
-        // that inherits our pipes. Destroy first: blocked pipe IO must unblock before the IO coroutine can finish.
-        val descendants = process.descendants().toList()
-        descendants.forEach { it.destroyForcibly() }
+        // Destroy first: blocked pipe IO must unblock before the IO coroutine can finish.
+        destroyDescendants()
         process.destroyForcibly()
         closeStdin()
         frames.close(AcpException.Disconnected())
         scope.cancel()
     }
 
+    /**
+     * Launchers (npx, uvx, cmd) leave the real agent as a child that inherits our pipes, so descendants alive at close
+     * are stopped before the parent. Failure to enumerate them must not prevent stopping the parent.
+     */
+    private fun destroyDescendants() {
+        try {
+            process.descendants().toList().forEach { it.destroyForcibly() }
+        } catch (e: SecurityException) {
+            log.w(AcpDiagnostic(e)) { "ACP stdio descendants unavailable" }
+        } catch (e: UnsupportedOperationException) {
+            log.w(AcpDiagnostic(e)) { "ACP stdio descendants unsupported" }
+        }
+    }
+
+    /** Closing flushes under the stream monitor; while a write holds it, process death already releases the pipe. */
     private fun closeStdin() {
+        if (!writes.tryLock()) return
         try {
             process.outputStream.close()
         } catch (e: IOException) {
             log.w(AcpDiagnostic(e)) { "ACP stdio stdin close failed" }
+        } finally {
+            writes.unlock()
         }
     }
 

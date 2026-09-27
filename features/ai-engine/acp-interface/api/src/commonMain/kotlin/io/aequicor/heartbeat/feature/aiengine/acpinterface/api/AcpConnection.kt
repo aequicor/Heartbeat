@@ -83,9 +83,10 @@ public interface AcpStdioTransportFactory {
      * Runs exactly the executable and arguments supplied, without a shell or implicit credential changes.
      * On Windows the JDK runs `.cmd`/`.bat` files through `cmd.exe`; adapters should resolve a real executable.
      * The caller owns the returned transport and must close it if it is never passed to [AcpClientFactory.connect].
-     * Closing stops the process together with its descendants.
+     * Closing stops the process together with the descendants alive at that moment.
      *
-     * @throws AcpException.LaunchFailed when the process cannot be started.
+     * @throws AcpException.LaunchFailed when the process cannot be started or its environment is invalid.
+     * @throws UnsupportedOperationException when [isSupported] is false.
      */
     public suspend fun open(command: AcpCommand): AcpTransport
 }

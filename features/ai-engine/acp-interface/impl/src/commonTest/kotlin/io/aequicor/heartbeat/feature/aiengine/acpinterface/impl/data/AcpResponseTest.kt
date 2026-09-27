@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.acpinterface.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpException
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpImplementation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -56,6 +57,17 @@ class AcpResponseTest {
         }
         h.reply(h.outgoing("session/prompt"), "{}")
         prompt.await()
+        assertTrue(h.transport.isClosed)
+    }
+
+    @Test
+    fun `undecodable initialize response fails with Protocol and closes connection`() = runTest {
+        val h = AcpTestHarness(this)
+        val initializing = backgroundScope.async {
+            assertFailsWith<AcpException.Protocol> { h.client.initialize(AcpImplementation("test", "1")) }
+        }
+        h.reply(h.outgoing("initialize"), """{"protocolVersion":"one"}""")
+        initializing.await()
         assertTrue(h.transport.isClosed)
     }
 

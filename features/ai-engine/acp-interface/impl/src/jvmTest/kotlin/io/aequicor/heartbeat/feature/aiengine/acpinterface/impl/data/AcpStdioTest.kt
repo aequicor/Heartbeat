@@ -64,12 +64,14 @@ class AcpStdioTest {
     }
 
     @Test
-    fun `launch failure is sanitized`() = runTest(timeout = 30.seconds) {
-        val missing = Path.of(System.getProperty("java.io.tmpdir"), "missing-secret-agent").toString()
+    fun `missing executable fails with LaunchFailed without the platform cause`() = runTest(timeout = 30.seconds) {
+        val missing = Path.of(System.getProperty("java.io.tmpdir"), "missing-acp-agent").toString()
         val error = assertFailsWith<AcpException.LaunchFailed> {
             JvmAcpStdioTransportFactory(dispatchers).open(AcpCommand(missing))
         }
-        assertFalse("missing-secret-agent" in error.toString())
+        // The IOException names the executable; it must not travel in the cause chain.
+        // Coroutine stack-trace recovery may add a copy of LaunchFailed itself as the cause.
+        assertTrue(generateSequence<Throwable>(error) { it.cause }.all { it is AcpException.LaunchFailed })
     }
 
     private suspend fun withAgent(isSpawningChild: Boolean = false, block: suspend (AcpTransport) -> Unit) {
