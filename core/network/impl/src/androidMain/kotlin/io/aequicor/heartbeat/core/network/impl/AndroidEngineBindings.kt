@@ -8,7 +8,6 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.ktor.client.engine.HttpClientEngine
-import io.ktor.client.engine.okhttp.OkHttp
 
 /** Ktor engine on Android: OkHttp. */
 @ContributesTo(AppScope::class)
@@ -20,5 +19,5 @@ public object AndroidEngineBindings {
     @SingleIn(AppScope::class)
     public fun engine(
         @ForScope(AppScope::class) appScope: ScopeHandle,
-    ): HttpClientEngine = OkHttp.create().also { engine -> appScope.onClose(engine::close) }
+    ): HttpClientEngine = createOkHttpEngine().also { engine -> appScope.onClose(engine::close) }
 }

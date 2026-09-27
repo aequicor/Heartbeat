@@ -27,6 +27,7 @@ Engine контрибутится per-platform: `AndroidEngineBindings` / `JvmEn
 ```
 expectSuccess = true                     не-2xx → ResponseException
 ContentNegotiation(json)                 Json { ignoreUnknownKeys = true }
+ResponseHeaderValidation                проверяет метаданные финального ответа после ретраев
 HttpRequestRetry                         GET/HEAD/OPTIONS/PUT/DELETE: 5xx и IOException (не таймауты); POST/PATCH — никогда
 HttpTimeout                              request / connect / socket из NetworkConfig — на каждую попытку
 NetworkLogging                           I: "GET https://host/path?q=*** -> 200 (123 ms)", W: не-2xx / сбой (имя класса), D: заголовки
@@ -35,6 +36,10 @@ HttpResponseValidator                    W: request timeout (в Send Ktor нес
 
 - Тела запросов/ответов не логируются никогда. Значения query и чувствительных заголовков (`Authorization`, `Cookie`,
   `Set-Cookie`, `*token*`, `*key*`, `*secret*`, `*session*`, `*auth*`) — `***`.
+- Автоматические повторы разрешены только для тела в памяти (`ByteArrayContent`, включая JSON/строки) или отсутствующего тела. Потоковые тела (`ByteReadChannel`, read/write-channel content) не повторяются: для новой попытки фича должна создать новое тело.
+- На Android/JVM используй общий `createOkHttpEngine`: внутренние повторы OkHttp отключены, в том числе на 503 с `Retry-After: 0`; лимитом повторов управляет Ktor.
+- Плагин `ResponseHeaderValidation` проверяет `Content-Type` после ретраев, до встроенного валидатора Ktor: повреждённый заголовок ответа становится `InvalidResponse`, а при включённом `expectSuccess` HTTP-ошибка сохраняет свой статус. Ошибки заголовков запроса остаются ошибками программирования.
+- URL-заголовки `Location`, `Content-Location`, `Referer`, `Link`, `Refresh` скрываются целиком.
 - Ретраи логируются `I`: `retry #1 GET https://…`.
 - Настройки — `NetworkConfig` (таймауты, `maxRetries`). По умолчанию — `NetworkConfig()`; чтобы поменять, предоставь
   `NetworkConfig` в графе (`@Provides` в графе платформы). Для одного запроса — `timeout { }` / `retry { }` в билдере.

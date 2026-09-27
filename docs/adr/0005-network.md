@@ -36,11 +36,13 @@
   per-platform из-за контрибуций вроде `PlatformInfo`), а не `expect/actual`: detekt с type resolution анализирует `expect/actual` одного модуля с ошибками компиляции;
 - `expectSuccess = true`, `ContentNegotiation` с `Json { ignoreUnknownKeys = true }`;
 - `HttpRequestRetry` только для `GET`/`HEAD`/`OPTIONS`/`PUT`/`DELETE`, на 5xx и `IOException`, кроме таймаутов;
-  экспоненциальная задержка без учёта `Retry-After`;
+  экспоненциальная задержка без учёта `Retry-After`. Повторяется только отсутствие тела или `ByteArrayContent` (включая сериализованный JSON/строки); `ContentWrapper` проверяется рекурсивно. Потоки не повторяются, поскольку чтение могло уже потребить данные;
+- общий `createOkHttpEngine` для Android/JVM отключает `retryOnConnectionFailure`. У OkHttp 5.5 нет общего переключателя повторов для 503 с `Retry-After: 0` и HTTP/2 421: сетевой interceptor временно заменяет эти коды на 599, а внешний application interceptor восстанавливает исходный ответ до передачи Ktor. Состояние изолировано в теге одного вызова; тело и заголовки не меняются. Это позволяет Ktor единолично управлять повторами даже для GET без тела. При обновлении OkHttp перепроверять реальные HTTP-тесты;
 - `HttpTimeout` из `NetworkConfig`, отдельно на каждую попытку;
+- плагин `ResponseHeaderValidation` ставится перед `HttpRequestRetry`: после последней попытки, до встроенной валидации Ktor, нормализует повреждённый `Content-Type` в `ContentConvertException` (`InvalidResponse`). При включённом `expectSuccess` неуспешный статус сохраняется через `ResponseException` (`Http`). Проверка не захватывает ошибки формирования запроса;
 - собственный плагин `NetworkLogging` (тег `NET`) вместо `ktor-client-logging`: одна строка `I` на попытку с методом,
   URL без значений query, статусом и длительностью; `W` на не-2xx и сбой (имя класса исключения, без throwable);
-  `D` — заголовки со скрытыми значениями чувствительных; тела — никогда. Request timeout Ktor доставляет в плагины как
+  `D` — заголовки со скрытыми значениями чувствительных и URL-заголовков (`Location`, `Content-Location`, `Referer`, `Link`, `Refresh`); тела — никогда. Request timeout Ktor доставляет в плагины как
   `CancellationException`, поэтому его логирует (`W`, один раз) внешний `HttpResponseValidator`, где причина уже развёрнута;
 - `NetworkConfig` — опциональная зависимость провайдера (`config: NetworkConfig = NetworkConfig()`): граф платформы
   переопределяет её обычным `@Provides`.

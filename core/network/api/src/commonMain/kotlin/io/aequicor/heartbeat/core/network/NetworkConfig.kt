@@ -16,7 +16,8 @@ public data class NetworkConfig(
     val socketTimeoutMillis: Long = 30_000,
     /**
      * Retries of idempotent requests (`GET`, `HEAD`, `OPTIONS`, `PUT`, `DELETE`) after a connection failure
-     * or a 5xx response, with exponential backoff. `POST`/`PATCH` are never retried automatically.
+     * or a 5xx response, with exponential backoff. Only byte-array or absent bodies are replayed; streaming bodies
+     * and `POST`/`PATCH` are never retried automatically.
      */
     val maxRetries: Int = 2,
 ) {

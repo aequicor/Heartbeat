@@ -15,6 +15,9 @@ kotlin {
             implementation(libs.ktor.client.contentNegotiation)
             implementation(libs.ktor.serialization.kotlinxJson)
         }
+        // Compile the same OkHttp adapter on JVM and Android without changing the KMP hierarchy.
+        androidMain { kotlin.srcDir("src/okhttpMain/kotlin") }
+        jvmMain { kotlin.srcDir("src/okhttpMain/kotlin") }
         androidMain.dependencies {
             implementation(libs.ktor.client.okhttp)
         }

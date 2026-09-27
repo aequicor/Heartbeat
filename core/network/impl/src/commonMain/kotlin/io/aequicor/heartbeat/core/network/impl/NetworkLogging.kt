@@ -64,7 +64,7 @@ internal fun Url.forLog(): String = buildString {
     if (names.isNotEmpty()) append(names.sorted().joinToString("&", prefix = "?") { "$it=***" })
 }
 
-/** Header values that authenticate the user or the app are replaced by `***`. */
+/** Authentication and URL-bearing header values are replaced by `***`. */
 internal fun Headers.forLog(): String = entries().sortedBy { it.key.lowercase() }.joinToString { (name, values) ->
     val shown = if (name.isSensitiveHeader()) Log.redact(values) else values.joinToString(",")
     "$name=$shown"
@@ -75,5 +75,17 @@ private fun String.isSensitiveHeader(): Boolean {
     return name in SensitiveHeaders || SensitiveHeaderParts.any { it in name }
 }
 
-private val SensitiveHeaders = setOf("authorization", "proxy-authorization", "cookie", "set-cookie")
+private val SensitiveHeaders = setOf(
+    "authorization",
+    "proxy-authorization",
+    "cookie",
+    "set-cookie",
+    // URLs can carry credentials in queries, user-info, and fragments; hide the whole value,
+    // including relative references and compound Link/Refresh header syntax.
+    "location",
+    "content-location",
+    "referer",
+    "link",
+    "refresh",
+)
 private val SensitiveHeaderParts = listOf("token", "secret", "key", "session", "auth")
