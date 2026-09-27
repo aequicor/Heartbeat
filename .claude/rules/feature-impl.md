@@ -8,7 +8,7 @@ paths:
 Структура пакета `io.aequicor.heartbeat.feature.<name>.impl`:
 
 ```
-di/          Metro-контрибуции: граф фичи, <Name>MachineBindings (@Provides машины через MachineLauncher в <Feature>Scope), @ContributesIntoSet (RouteEntry / DeepLinkEntry с binding<Profile|AppRouteBinding>()), @ContributesIntoSet (тоглы)
+di/          Metro-контрибуции: граф фичи, <Name>MachineBindings (@Provides машины через MachineLauncher в <Feature>Scope), @ContributesIntoSet (RouteEntry / DeepLinkEntry с binding<Profile|AppRouteBinding>()), @ContributesTo + @Provides @IntoSet (тоглы: тип результата ровно FeatureToggle<*>)
 machine/     <Name>EffectHandler : EffectHandler<Effect, Intent> (@ContributesBinding(<Feature>Scope::class))
 data/        репозитории, своя Room-БД (@Database, Entity, DAO, DatabaseSpec — плагин heartbeat.room), DAO-адаптеры, мапперы DTO ↔ domain
 component/   Decompose-компоненты (ComposableComponent), внутренние Route фичи, вложенные хосты (NavHostFactory)

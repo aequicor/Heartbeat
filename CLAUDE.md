@@ -36,7 +36,8 @@ lint/            detekt-rules — собственный набор правил
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы — [ADR-0002](docs/adr/0002-di-scopes.md)),
 > `core:navigation:{api,impl,compose}` ([ADR-0003](docs/adr/0003-navigation.md)), `core:state-machine:{api,impl,flowmvi-ext}` ([ADR-0004](docs/adr/0004-state-machine.md)),
 > `core:network:{api,impl}` ([ADR-0005](docs/adr/0005-network.md)),
-> `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)).
+> `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей — [ADR-0006](docs/adr/0006-datastore.md)),
+> `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl` — [ADR-0007](docs/adr/0007-feature-toggles.md)).
 > Дальше — по [docs/ai/architecture.md](docs/ai/architecture.md#миграция-из-шаблона).
 
 ## Жёсткие правила (нарушение = блокер ревью)
@@ -48,7 +49,7 @@ lint/            detekt-rules — собственный набор правил
 5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@GraphExtension`). Граф — только в `platform-main:di-bundle`; скоупы app → profile → feature → screen, граф фичи — через `retainedGraph` (`core:di:ext`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.
 6. **Логирование через `core:logging` (Napier)**: каждое действие пользователя, смена состояния (машины/стора), запрос в сеть, чтение/запись БД/DataStore, изменение конфигурации/тоглов. `println`, `android.util.Log`, `NSLog` запрещены. Секреты и API-ключи не логируются никогда. Проверяется detekt (набор `heartbeat`, см. [logging-policy.md](docs/ai/logging-policy.md#автоматическая-проверка-detekt)).
 7. **Цвета/типографика/отступы — только токены `design-system`**. `Color(0x…)`, `.sp`/`.dp`-литералы для стилей вне `design-system` запрещены.
-8. **Тоглы** — через `core:feature-toggles`; новая функциональность за тоглом по умолчанию.
+8. **Тоглы** — через `core:feature-toggles` (`FeatureToggles` для чтения, регистрация `@IntoSet`); новая функциональность за тоглом по умолчанию.
 9. **Корутины**: без `GlobalScope`, `runBlocking` в продовом коде; диспетчеры инжектятся (`DispatcherProvider`); `CancellationException` не глотаем.
    **Ошибки**: никакая ошибка не игнорируется — минимум `log.w(e)`/`log.e(e)` с throwable или проброс (rethrow / `Result.failure(e)`); исключение — `CancellationException`, она пробрасывается. `@Suppress` этих правил запрещён (`ForbiddenSuppress`).
 10. **Detekt + compose-rules + ktlint** обязаны быть зелёными. `@Suppress` — только с комментарием-причиной.

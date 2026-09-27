@@ -32,7 +32,7 @@ log.e(error) { "generation failed chatId=$chatId" }
 | Вызовы LLM, инструменты агента, токены, ошибки | Koog event handler в `core:ai` | I (модель, tool, tokens, ms), D (контент — только debug-сборки) |
 | Запись/чтение key-value | `LoggingKeyValueStore` в `core:datastore:impl`, тег `DS` | D (ключ + удержание), I (значения — только `KeyValueSpec.areValuesLogged`), W/E (ошибка чтения / повреждённый файл) |
 | Чистка по сроку, события удержания | `core:datastore:impl`, теги `DS` / `DB` | I (сколько записей удалено, без содержимого) |
-| Изменение тогла | `core:feature-toggles` | I (`toggle key: old -> new, source`) |
+| Изменение тогла, реестр, действующие переопределения (при первом чтении) | `core:feature-toggles:impl`, тег `FT` | I (`key: old (source) -> new (source)`, реестр, переопределения), D (вычисленные значения), W (незарегистрированный / иначе объявленный тогл, удалённая опция — один раз на ключ; сбой хранилища → default) |
 | Открытие/миграции БД фич | `core:datastore:impl` (Room callback + обёртка миграций), тег `DB` | I (открытие: версия, таблицы удержания; миграции `n -> m`) |
 | DAO-операции | репозитории фич (вручную) | D |
 | Жизненный цикл компонентов | `core:navigation` (Essenty lifecycle callbacks) | V |

@@ -54,6 +54,8 @@ include(":core:profile-facade:api")
 include(":core:profile-facade:impl")
 include(":core:datastore:api")
 include(":core:datastore:impl")
+include(":core:feature-toggles:api")
+include(":core:feature-toggles:impl")
 include(":platform-main:di-bundle")
 include(":platform-main:root")
 
