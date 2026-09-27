@@ -42,23 +42,29 @@ def select_commits(base, head, cwd=None):
     return git("rev-list", "--reverse", "--topo-order", f"{base_sha}..{head_sha}", cwd=cwd).decode().splitlines()
 
 
-def is_base_sync_merge(commit, base, cwd=None):
-    """A merge whose other parents are all in base only brings base in; its own work is the resolution."""
-    parents = git("rev-list", "--parents", "-n", "1", commit, cwd=cwd).decode().split()[1:]
-    if len(parents) < 2:
-        return False
-    return all(
-        subprocess.run(["git", "merge-base", "--is-ancestor", parent, base], cwd=cwd, check=False).returncode == 0
-        for parent in parents[1:]
+def is_ancestor(ancestor, descendant, cwd=None):
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
     )
+    if result.returncode not in (0, 1):
+        raise RuntimeError(result.stderr.decode("utf-8", errors="replace").strip())
+    return result.returncode == 0
 
 
-def read_diff(commit=None, cwd=None, base=None):
+def is_base_sync(commit, base, cwd=None):
+    """Use remerge only for two-parent merges whose side parent is already in base."""
+    parents = git("rev-list", "--parents", "--max-count=1", commit, cwd=cwd).decode().split()[1:]
+    # Git skips remerge diffs for octopus merges; keep their first-parent measurement.
+    return len(parents) == 2 and is_ancestor(parents[1], base, cwd)
+
+
+def read_diff(commit=None, cwd=None, base_sync=False):
+    """Base syncs are measured by their remerge diff: only the manual conflict resolution needs review."""
     if commit is None:
         command = ("diff", "--cached")
     else:
-        # Syncing with base is measured by its conflict resolution; other merges count what they bring in.
-        merges = "remerge" if base and is_base_sync_merge(commit, base, cwd) else "first-parent"
+        merges = "remerge" if base_sync else "first-parent"
         command = ("show", "--format=", "--no-notes", "--no-show-signature",
                    f"--diff-merges={merges}", commit)
     patch = git(*command, *DIFF_OPTIONS, "--patch", "--", cwd=cwd)
@@ -139,9 +145,7 @@ def main(argv=None):
     try:
         import tiktoken
 
-        base = None
         if args.base:
-            base = resolve_commit(args.base)
             commits = select_commits(args.base, args.head)
         elif args.commit:
             if git("rev-parse", "--is-shallow-repository").strip() == b"true":
@@ -152,8 +156,10 @@ def main(argv=None):
         encodings = [tiktoken.get_encoding(name) for name in ENCODINGS]
         results = []
         for commit in commits:
-            patch, numstat = read_diff(commit, base=base)
-            results.append(measure(commit[:12] if commit else "staged", patch, numstat, encodings))
+            base_sync = bool(args.base and commit) and is_base_sync(commit, resolve_commit(args.base))
+            patch, numstat = read_diff(commit, base_sync=base_sync)
+            label = (commit[:12] + (" (base sync)" if base_sync else "")) if commit else "staged"
+            results.append(measure(label, patch, numstat, encodings))
         return report(results)
     except ImportError as error:
         print(f"ERROR: {error}. Install scripts/requirements-commit-policy.txt.", file=sys.stderr)
