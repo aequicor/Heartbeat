@@ -164,4 +164,11 @@
     <string name="ru_matching_icons">Найдено иконок</string>
     <string name="ru_cinematic_welcome">Кинематографичное приветствие</string>
     <string name="ru_replay_intro">Повторить вступление</string>
+    <string name="ru_navigation_menus">Навигация и меню</string>
+    <string name="ru_projects">Проекты</string>
+    <string name="ru_new_session">Новая сессия</string>
+    <string name="ru_more_actions">Другие действия</string>
+    <string name="ru_rename">Переименовать</string>
+    <string name="ru_pin">Закрепить</string>
+    <string name="ru_archive">Архивировать</string>
 </resources>

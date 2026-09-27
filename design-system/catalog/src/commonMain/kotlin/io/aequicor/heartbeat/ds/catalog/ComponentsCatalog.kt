@@ -83,6 +83,7 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
         }
         item { DiffExample(modifier = Modifier.fillMaxWidth()) }
         item { MessageExamples(modifier = Modifier.fillMaxWidth()) }
+        item { NavigationExample(modifier = Modifier.fillMaxWidth()) }
     }
 }
 

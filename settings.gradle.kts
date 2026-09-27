@@ -80,3 +80,4 @@ include(":core:secrets:api", ":core:secrets:impl")
 
 include(":features:ai-engine:authenticator:api", ":features:ai-engine:authenticator:impl")
 include(":features:ai-engine:facade:api", ":features:ai-engine:facade:impl")
+include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")

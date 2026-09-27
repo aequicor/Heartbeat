@@ -104,3 +104,5 @@ node_modules/
 .claude/settings.local.json
 CLAUDE.local.md
 /.claude/worktrees/*
+
+__pycache__/
