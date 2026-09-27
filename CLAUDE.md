@@ -96,6 +96,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Логирование, аудит логов | `logging` |
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |
+| Ревью PR и подпись `/reviewed` | `pr-review` |
 
 Субагенты (`.claude/agents/`): `feature-architect` (дизайн фичи до кода), `architecture-reviewer`, `ui-reviewer`, `test-writer`, `build-doctor`.
 Хук `.claude/hooks/check-conventions.sh` проверяет каждый изменённый `.kt`/`.kts` (логи, корутины, цвета, границы модулей) и возвращает нарушения — исправляй сразу.

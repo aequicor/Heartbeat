@@ -39,7 +39,7 @@ Codex обнаруживает навыки в `.agents/skills/` — станд�
 
 - `master` требует approve; его ставит `github-actions[bot]` по комментарию владельца
   `/reviewed [sha]` (`.github/workflows/review-approve.yml`). Новый push снимает approve.
-- Агент оставляет `/reviewed <полный head SHA>` от имени пользователя только по его просьбе
+- Агент оставляет `/reviewed <полный head SHA>` от имени пользователя только по его просьбе (навык `pr-review`)
   и только после собственного ревью этого SHA (`architecture-reviewer`, `verify`) без блокеров.
   Команда без SHA — для человека: засчитывается, если head закоммичен до комментария.
 
