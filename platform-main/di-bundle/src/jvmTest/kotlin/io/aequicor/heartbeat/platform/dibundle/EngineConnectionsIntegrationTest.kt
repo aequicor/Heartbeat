@@ -12,7 +12,11 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -28,8 +32,14 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+
+/** Profile accessor of the services used by the connection screens. */
+@ContributesTo(ProfileScope::class)
+interface EngineServicesAccessor {
+    val engineServices: EngineServices
+}
 
 /** Profile accessor of the model choice read by model pickers. */
 @ContributesTo(ProfileScope::class)
@@ -64,10 +74,12 @@ class EngineConnectionsIntegrationTest {
     }
 
     @Test
-    fun `a facade runtime and source registry in the profile replace the stand-ins`() = runTest {
+    fun `without a bundled runtime the screens get an empty catalog and refused writes`() = runTest {
         val services = (app.profileSessions.open(ProfileId("p1")).graph as EngineServicesAccessor).engineServices
-        assertIs<TestEngineFacade>(services.facade)
-        assertIs<TestAuthSources>(services.sources)
+        assertTrue(services.facade.engines.state.value.isEmpty())
+        assertTrue(services.sources.state.value.isEmpty())
+        val error = assertFailsWith<EngineException> { services.facade.engines.refresh(EngineId("koog")) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), error.failure)
     }
 
     @Test

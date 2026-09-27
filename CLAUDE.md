@@ -30,6 +30,8 @@ lint/            detekt-rules — собственный набор правил
 > Контракты AI-движков: `features:ai-engine:facade:api` и `authenticator:api`. Подключение движков — `features:ai-engine:connections`
 > (визард «движок → авторизация → модели» и пространство «движок × подключение × модель», тогл `ai.engine_connections`);
 > реализации фасада и реестра `AuthSources` пока нет — до их появления экраны показывают пустой каталог.
+> `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
+> логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
 > `core:di:{api,ext,impl}`, `core:profile-facade:{api,impl}`, `platform-main:di-bundle` (скоупы app → profile → feature → screen),
 > `core:navigation:{api,impl,compose}`, `core:state-machine:{api,impl,flowmvi-ext}`,
@@ -100,6 +102,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Проверка перед «готово» | `verify` |
 | Ревью PR и подпись `/reviewed` | `pr-review` |
 | Исправление PR по ревью/комментариям/CI | `pr-fix` |
+| Ревью + исправления до подписи (цикл) | `pr-review-and-fix` |
 
 Субагенты (`.claude/agents/`): `feature-architect` (дизайн фичи до кода), `architecture-reviewer`, `ui-reviewer`, `test-writer`, `build-doctor`.
 Хук `.claude/hooks/check-conventions.sh` проверяет каждый изменённый `.kt`/`.kts` (логи, корутины, цвета, границы модулей) и возвращает нарушения — исправляй сразу.

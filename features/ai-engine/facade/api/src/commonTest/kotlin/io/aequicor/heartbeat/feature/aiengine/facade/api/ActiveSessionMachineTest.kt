@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.core.statemachine.toMermaid
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class ActiveSessionMachineTest {
@@ -151,7 +150,7 @@ class ActiveSessionMachineTest {
     }
 
     @Test
-    fun `effect failures preserve domain classification and never swallow cancellation`() {
+    fun `effect failures preserve domain classification and turn escaped cancellation into a failure`() {
         val failure = EngineFailure.QuotaExceeded(LimitScope.Binding(TestTarget.binding))
         val effect = ActiveSessionEffect.Submit(TestPrompt, TestTurn)
         assertEquals(
@@ -165,6 +164,20 @@ class ActiveSessionMachineTest {
             ),
             spec.onEffectFailure(effect, IllegalStateException("private native diagnostic")),
         )
-        assertFailsWith<CancellationException> { spec.onEffectFailure(effect, CancellationException("cancel")) }
+        assertEquals(
+            ActiveSessionIntent.Internal.Failed(
+                TestTurn.id,
+                EngineFailure.Request(RequestFailureReason.OutcomeUnknown, TestPrompt.id),
+            ),
+            spec.onEffectFailure(effect, CancellationException("timeout inside effect")),
+        )
+        assertEquals(
+            ActiveSessionIntent.Internal.Failed(TestTurn.id, EngineFailure.Unknown()),
+            spec.onEffectFailure(ActiveSessionEffect.Cancel(TestTurn.id), CancellationException("timeout")),
+        )
+        assertEquals(
+            ActiveSessionIntent.Internal.Failed(null, EngineFailure.Unknown()),
+            spec.onEffectFailure(ActiveSessionEffect.Release, CancellationException("timeout")),
+        )
     }
 }
