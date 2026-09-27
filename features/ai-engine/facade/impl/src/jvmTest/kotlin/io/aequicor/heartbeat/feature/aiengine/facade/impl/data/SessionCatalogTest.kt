@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.facadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.registration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.sessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.summary
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -41,6 +42,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class SessionCatalogTest {
     private val database = Room.inMemoryDatabaseBuilder<SessionIndexDatabase>()
         .setDriver(BundledSQLiteDriver())
@@ -56,7 +58,6 @@ class SessionCatalogTest {
         val registry = EngineRegistry(listOf(registration(sources = listOf(source))), EnginePlatform.DesktopWindows)
         val context = facadeContext()
         return SessionCatalogService(
-            registry,
             EnabledEngines(registry, toggles, context.scope),
             RoomSessionIndex(database),
             SessionCursorCodec(profile),

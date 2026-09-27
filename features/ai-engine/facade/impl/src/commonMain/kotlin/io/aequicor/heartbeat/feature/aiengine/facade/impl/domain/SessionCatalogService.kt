@@ -30,7 +30,6 @@ import kotlin.coroutines.cancellation.CancellationException
  * Only engines enabled by toggles take part. [openStored] wraps an adapter session with facade capabilities.
  */
 class SessionCatalogService(
-    private val registry: EngineRegistry,
     private val enabled: EnabledEngines,
     private val index: SessionIndex,
     private val cursors: SessionCursors,
@@ -38,6 +37,7 @@ class SessionCatalogService(
     private val openStored: (EngineRegistration, EngineSession) -> EngineSession,
 ) : SessionCatalog {
     private val log = Log.tag("SessionCatalog")
+    private val registry = enabled.registry
     private val refreshing = Mutex()
 
     override suspend fun page(query: SessionQuery, request: PageRequest): SessionPage {
@@ -61,7 +61,7 @@ class SessionCatalogService(
         val registration = registry.require(ref.engine)
         if (ref.engine !in enabled.state.value) fail(EngineUnavailable)
         val source = registry.source(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
-        return openStored(registration, adapterCall("get") { source.get(ref) })
+        return openStored(registration, adapterCall(log, "get") { source.get(ref) })
     }
 
     override suspend fun refresh(query: SessionQuery): SessionDiscoveryReport = refreshing.withLock {
@@ -131,18 +131,6 @@ class SessionCatalogService(
             fail(EngineFailure.Session(SessionFailureReason.Changed))
         }
         return decoded
-    }
-
-    private suspend fun <T> adapterCall(operation: String, block: suspend () -> T): T = try {
-        block()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: EngineException) {
-        log.w(e) { "adapter $operation failed failure=${e.failure.code}" }
-        throw e
-    } catch (e: Exception) {
-        log.e(e) { "adapter $operation crashed" }
-        fail(EngineFailure.Unknown())
     }
 
     /** Narrows the query to enabled engines; null when nothing is left to show. */

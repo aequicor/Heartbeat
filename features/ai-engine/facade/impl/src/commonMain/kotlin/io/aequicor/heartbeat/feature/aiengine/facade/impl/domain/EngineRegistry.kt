@@ -53,7 +53,7 @@ class EngineRegistry(registrations: Collection<EngineRegistration>, val platform
 }
 
 /** Engines currently enabled by toggles; synchronous capability resolution and catalog filters read it. */
-class EnabledEngines(registry: EngineRegistry, toggles: EngineToggles, scope: CoroutineScope) {
+class EnabledEngines(val registry: EngineRegistry, toggles: EngineToggles, scope: CoroutineScope) {
     private val read: suspend () -> Set<EngineId> = {
         registry.all.filter { toggles.isEnabled(it.descriptor) }.mapTo(mutableSetOf()) { it.descriptor.id }
     }

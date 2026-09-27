@@ -15,7 +15,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -40,13 +42,17 @@ internal class FakeModelCache : ModelCache {
 }
 
 /** Registry, gate, bindings and route resolver over fakes, with one managed-key binding `b1`. */
-internal class RouteFixture(scope: TestScope, val factory: FakeEngineFactory = FakeEngineFactory()) {
+internal class RouteFixture(
+    scope: TestScope,
+    val factory: FakeEngineFactory = FakeEngineFactory(),
+    registration: EngineRegistration = registration(factory),
+) {
     val clock = FixedClock()
     val toggles = FakeEngineToggles()
     val store = FakeBindingStore()
     val sources = FakeAuthSources()
     val context = scope.facadeContext(clock)
-    val registry = EngineRegistry(listOf(registration(factory)), EnginePlatform.DesktopWindows)
+    val registry = EngineRegistry(listOf(registration), EnginePlatform.DesktopWindows)
     val gate = EngineGate(registry, toggles)
     val bindings = EngineBindingsService(gate, store, sources, FakeAuthChecks(clock), { false }, context)
     val routes = RouteResolver(registry, gate, bindings)
@@ -59,6 +65,7 @@ internal class RouteFixture(scope: TestScope, val factory: FakeEngineFactory = F
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RouteAndModelsTest {
     @Test
     fun `route fixes the checked source revision and pools by engine and source`() = runTest {
