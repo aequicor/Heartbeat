@@ -12,11 +12,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 /** Observes the settings space and executes its changes through the facade, the source registry and selections. */
 class EngineConnectionsEffects(private val services: EngineServices, private val selections: ModelSelections) :
@@ -30,7 +32,8 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
             }
 
             is EngineConnectionsEffect.Execute -> {
-                execute(effect.operation)
+                // A write started by the user completes even if the screen closes meanwhile.
+                withContext(NonCancellable) { execute(effect.operation) }
                 machine.send(EngineConnectionsIntent.Internal.Applied)
             }
         }
@@ -93,16 +96,23 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
         }
     }
 
-    /** Removes the binding, its model choice and, once nothing else uses it, the source. */
+    /**
+     * Removes the binding, then the source once no other binding uses it, then the model choice. The source goes
+     * before the choice, so a failed choice update never strands a key; a retry skips a binding already removed.
+     */
     private suspend fun disconnect(binding: EngineBindingId) {
         val bindings = services.facade.bindings
         val source = bindings.state.value.firstOrNull { it.id == binding }?.authSource
-        log.i { "disconnect binding" }
-        bindings.disconnect(binding)
-        selections.update { it.without(binding) }
-        if (source != null && bindings.state.value.none { it.authSource == source }) {
-            log.i { "forget unused source" }
-            services.sources.forget(source)
+        if (source == null) {
+            log.w { "disconnect: binding already removed, clearing its model choice only" }
+        } else {
+            log.i { "disconnect binding" }
+            bindings.disconnect(binding)
+            if (bindings.state.value.none { it.id != binding && it.authSource == source }) {
+                log.i { "forget unused source" }
+                services.sources.forget(source)
+            }
         }
+        selections.update { it.without(binding) }
     }
 }

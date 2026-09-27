@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsI
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent.Public
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState.Active
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState.Idle
-import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState.LoadError
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.connection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.koog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -54,12 +53,24 @@ class EngineConnectionsMachineTest {
 
     @Test
     fun `observation failure is retried explicitly`() {
-        spec.assertTransition(Active(snapshot), Internal.ObserveFailed(failure), LoadError(failure))
+        val broken = Active(loadFailure = failure)
+        spec.assertTransition(Active(snapshot), Internal.ObserveFailed(failure), broken)
+        spec.assertIgnored(broken, Public.Apply(disconnect))
+        spec.assertTransition(broken, Public.RetryLoad, Active(), effects = listOf(EngineConnectionsEffect.Observe))
+        spec.assertIgnored(Active(snapshot), Public.RetryLoad)
+        spec.assertTransition(broken, Internal.Snapshot(snapshot), Active(snapshot))
+    }
+
+    @Test
+    fun `observation failure keeps a running change and its outcome`() {
+        val running = Active(snapshot, pending = disconnect)
+        val broken = Active(pending = disconnect, loadFailure = failure)
+        spec.assertTransition(running, Internal.ObserveFailed(failure), broken)
         spec.assertTransition(
-            LoadError(failure),
-            Public.RetryLoad,
-            Active(),
-            effects = listOf(EngineConnectionsEffect.Observe),
+            broken,
+            Internal.ApplyFailed(failure),
+            Active(failed = FailedOperation(disconnect, failure), loadFailure = failure),
         )
+        spec.assertTransition(broken, Internal.Applied, Active(loadFailure = failure))
     }
 }

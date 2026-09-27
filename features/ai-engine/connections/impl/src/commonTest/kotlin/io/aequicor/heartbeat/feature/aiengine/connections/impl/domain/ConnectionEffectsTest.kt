@@ -156,6 +156,46 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `rollback still forgets the source when clearing the model choice fails`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val connection = (wizardScope.intents.single() as ConnectWizardIntent.Internal.Connected).connection
+        selections.updateFailure = IllegalStateException("store closed")
+        wizard.handle(ConnectWizardEffect.Rollback(connection), wizardScope)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(listOf(connection.source), sources.forgotten)
+        assertEquals(ConnectWizardIntent.Internal.RolledBack, wizardScope.intents.last())
+    }
+
+    @Test
+    fun `disconnect keeps a source another binding still uses`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val first = facade.bindingsState.value.single()
+        val second = facade.bindings.connect(KoogId, first.authSource, 0)
+        settings.handle(EngineConnectionsEffect.Execute(ConnectionOperation.Disconnect(first.id)), settingsScope)
+        assertEquals(listOf(second), facade.bindingsState.value)
+        assertTrue(sources.forgotten.isEmpty())
+    }
+
+    @Test
+    fun `a disconnect retried after a failed choice update only clears the choice`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val binding = facade.bindingsState.value.single().id
+        selections.update { it.withEnabled(binding, setOf(ModelId("llama"))) }
+        selections.updateFailure = IllegalStateException("store closed")
+        val disconnect = EngineConnectionsEffect.Execute(ConnectionOperation.Disconnect(binding))
+        assertFailsWith<IllegalStateException> { settings.handle(disconnect, settingsScope) }
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        selections.updateFailure = null
+        settings.handle(disconnect, settingsScope)
+        assertTrue(selections.state.value.bindings.isEmpty())
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
+    }
+
+    @Test
     fun `model operations update the selection`() = runTest {
         val target = modelInfo(EngineBindingId("binding-1"), "gpt-a").target
         settings.handle(EngineConnectionsEffect.Execute(ConnectionOperation.SetDefaultModel(target)), settingsScope)

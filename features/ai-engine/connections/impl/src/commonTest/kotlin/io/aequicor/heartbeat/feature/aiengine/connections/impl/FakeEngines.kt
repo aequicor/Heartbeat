@@ -165,10 +165,12 @@ internal class FakeAuthSources : AuthSources {
 
 internal class FakeModelSelections : ModelSelections {
     val state = MutableStateFlow(ModelSelection())
+    var updateFailure: Exception? = null
 
     override fun observe(): Flow<ModelSelection> = state
 
     override suspend fun update(change: (ModelSelection) -> ModelSelection): ModelSelection {
+        updateFailure?.let { throw it }
         state.update(change)
         return state.value
     }

@@ -50,7 +50,10 @@ public sealed interface ConnectWizardState : MachineState {
     /** Not started. */
     public data object Idle : ConnectWizardState
 
-    /** Step 1. [engines] is null until the catalog is observed; [preselected] skips the step once it appears. */
+    /**
+     * Step 1. [engines] is null until the catalog is observed; [preselected] skips the step if it is connectable
+     * in the first observed catalog and is dropped afterwards, so a later catalog never pulls the user away.
+     */
     public data class ChoosingEngine(
         val engines: List<EngineInfo>? = null,
         val preselected: EngineId? = null,
@@ -63,7 +66,10 @@ public sealed interface ConnectWizardState : MachineState {
     /** Creating the source and the binding. */
     public data class Connecting(val engine: EngineInfo, val method: ConnectionMethodId) : ConnectWizardState
 
-    /** Step 3: models discovered through the new connection; [models] is null while discovering. */
+    /**
+     * Step 3: models discovered through the new connection; [models] is null while discovering.
+     * [failure] belongs to discovery while [models] is null and to saving once they are loaded.
+     */
     public data class ChoosingModels(
         val engine: EngineId,
         val connection: NewConnection,
@@ -112,7 +118,7 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Selects every discovered model, or none. */
         public data class SelectAllModels(val isSelected: Boolean) : Public
 
-        /** Repeats the failed catalog observation or model discovery. */
+        /** Repeats the failed step: catalog observation, model discovery or saving the model choice. */
         public data object Retry : Public
 
         /** Saves the model choice and completes the wizard. */
@@ -120,6 +126,12 @@ public sealed interface ConnectWizardIntent : MachineIntent {
 
         /** Abandons the wizard, removing a connection it has already created. */
         public data object Cancel : Public
+
+        /**
+         * System back or closing the screen: steps back from the method step, otherwise acts as [Cancel].
+         * Ignored while a write is running, so its outcome is known before the wizard closes.
+         */
+        public data object Dismiss : Public
     }
 
     /** Effect results. */
@@ -181,7 +193,12 @@ public sealed interface ConnectWizardOutput : MachineOutput {
     public data object Cancelled : ConnectWizardOutput
 }
 
-/** Address of the connection wizard machine. */
+/**
+ * Address of the connection wizard machine. One machine runs per open wizard route and ends with it; the screen
+ * closes on [ConnectWizardState.Finished] or [ConnectWizardState.Cancelled]. Destroying the route without
+ * [ConnectWizardIntent.Public.Dismiss] (process death, profile switch) cannot roll back: a connection created by then
+ * stays and remains visible in the settings space.
+ */
 public object ConnectWizardMachineKey :
     MachineKey<
         ConnectWizardState,

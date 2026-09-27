@@ -6,15 +6,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicSecureTextField
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
-import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
+import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -26,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardType
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.hbScrollbars
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -39,6 +44,9 @@ private const val REJECTION_GRACE_FRAMES = 2
  * Controlled text with a hoisted editor scroll state, shared by fields and the composer.
  * Owners may answer asynchronously (for example a store on the main dispatcher): an edit is only
  * treated as rejected when [value] is still unchanged a few frames later, and late answers keep the caret.
+ *
+ * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
+ * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
  */
 @Composable
 internal fun HbEditableText(
@@ -52,8 +60,7 @@ internal fun HbEditableText(
     contentPadding: PaddingValues = PaddingValues(),
     isSecret: Boolean = false,
 ) {
-    val state = rememberTextFieldState(value)
-    val scrollState = rememberScrollState()
+    val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
     val currentValue by rememberUpdatedState(value)
     // Reading text also observes rejected proposals and edits that bypass InputTransformation, such as undo.
@@ -66,6 +73,60 @@ internal fun HbEditableText(
         repeat(REJECTION_GRACE_FRAMES) { withFrameNanos { } }
         bridge.restoreIfUnanswered(state, currentValue)
     }
+    val inputTransformation = InputTransformation { bridge.observeInput(this, onValueChange) }
+    val decorator = placeholderDecorator(placeholder, isEmpty = editingText.isEmpty(), singleLine || isSecret)
+    if (isSecret) {
+        BasicSecureTextField(
+            state = state,
+            modifier = modifier.padding(contentPadding),
+            enabled = enabled,
+            inputTransformation = inputTransformation,
+            textStyle = editorTextStyle(),
+            keyboardOptions = SecretKeyboard,
+            interactionSource = interactionSource,
+            cursorBrush = editorCursor(),
+            decorator = decorator,
+            textObfuscationMode = TextObfuscationMode.Hidden,
+        )
+    } else {
+        PlainEditor(
+            state,
+            enabled,
+            singleLine,
+            contentPadding,
+            inputTransformation,
+            interactionSource,
+            decorator,
+            modifier,
+        )
+    }
+}
+
+/** A secret must not reach saved instance state; the owner re-supplies the controlled value anyway. */
+@Composable
+private fun rememberEditorState(value: String, isSecret: Boolean): TextFieldState =
+    if (isSecret) remember { TextFieldState(value) } else rememberTextFieldState(value)
+
+private fun placeholderDecorator(placeholder: String, isEmpty: Boolean, isSingleLine: Boolean) =
+    TextFieldDecorator { innerTextField ->
+        Box(contentAlignment = if (isSingleLine) Alignment.CenterStart else Alignment.TopStart) {
+            if (isEmpty) HbText(placeholder, color = HbTheme.colors.textSecondary)
+            innerTextField()
+        }
+    }
+
+@Composable
+private fun PlainEditor(
+    state: TextFieldState,
+    enabled: Boolean,
+    singleLine: Boolean,
+    contentPadding: PaddingValues,
+    inputTransformation: InputTransformation,
+    interactionSource: MutableInteractionSource,
+    decorator: TextFieldDecorator,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
     BasicTextField(
         state = state,
         modifier = modifier.hbScrollbars(
@@ -73,28 +134,26 @@ internal fun HbEditableText(
             orientation = if (singleLine) Orientation.Horizontal else Orientation.Vertical,
         ).padding(contentPadding),
         enabled = enabled,
-        inputTransformation = InputTransformation {
-            bridge.observeInput(this, onValueChange)
-        },
-        outputTransformation = if (isSecret) SecretMask else null,
+        inputTransformation = inputTransformation,
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,
         scrollState = scrollState,
         interactionSource = interactionSource,
-        textStyle = HbTheme.typography.body.copy(color = HbTheme.colors.textPrimary),
-        cursorBrush = SolidColor(HbTheme.colors.textPrimary),
-        decorator = { innerTextField ->
-            Box(contentAlignment = if (singleLine) Alignment.CenterStart else Alignment.TopStart) {
-                if (editingText.isEmpty()) HbText(placeholder, color = HbTheme.colors.textSecondary)
-                innerTextField()
-            }
-        },
+        textStyle = editorTextStyle(),
+        cursorBrush = editorCursor(),
+        decorator = decorator,
     )
 }
 
-/** Shows every character as a bullet; the edited text itself is unchanged. */
-private val SecretMask = OutputTransformation { replace(0, length, SECRET_BULLET.toString().repeat(length)) }
+@Composable
+@ReadOnlyComposable
+private fun editorTextStyle() = HbTheme.typography.body.copy(color = HbTheme.colors.textPrimary)
 
-private const val SECRET_BULLET = '•'
+@Composable
+@ReadOnlyComposable
+private fun editorCursor() = SolidColor(HbTheme.colors.textPrimary)
+
+/** Password keyboard without suggestions, so the IME neither shows nor learns the secret. */
+private val SecretKeyboard = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false)
 
 private class ControlledEditorBridge(private var externalText: String, private var latestSelection: TextRange) {
     /** Reported texts the owner has not yet published as [externalText], oldest first. */

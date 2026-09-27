@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.api
 
 import io.aequicor.heartbeat.core.statemachine.MachineSpec
+import io.aequicor.heartbeat.core.statemachine.TransitionBuilder
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffect.ObserveEngines
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent.Internal
@@ -27,25 +28,28 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
  * |---|---|---|---|---|
  * | Idle | Start | | ChoosingEngine | ObserveEngines |
  * | ChoosingEngine | EnginesChanged | preselected engine connectable | ChoosingMethod | |
- * | ChoosingEngine | EnginesChanged | otherwise | stay | |
+ * | ChoosingEngine | EnginesChanged | otherwise | stay (preselection dropped) | |
  * | ChoosingEngine | EnginesFailed | | stay (failure) | |
  * | ChoosingEngine | Retry | has failure | ChoosingEngine (re-entry) | ObserveEngines |
  * | ChoosingEngine | ChooseEngine | engine connectable | ChoosingMethod | |
  * | ChoosingMethod | Connect | method of the engine accepts credential | Connecting | Connect |
- * | ChoosingMethod | Back | | ChoosingEngine | ObserveEngines |
+ * | ChoosingMethod | Back / Dismiss | | ChoosingEngine | ObserveEngines |
  * | Connecting | Connected | | ChoosingModels | DiscoverModels |
  * | Connecting | ConnectFailed | | ChoosingMethod (failure) | |
  * | ChoosingModels | ModelsLoaded / ModelsFailed | | stay | |
  * | ChoosingModels | ToggleModel / SelectAllModels | models discovered | stay | |
- * | ChoosingModels | Retry | has failure | stay (discovering) | DiscoverModels |
+ * | ChoosingModels | Retry | discovery failed | stay (discovering) | DiscoverModels |
+ * | ChoosingModels | Retry | saving failed | Saving | SaveModels |
  * | ChoosingModels | Finish | not discovering | Saving | SaveModels |
- * | ChoosingModels | Cancel | | RollingBack | Rollback |
+ * | ChoosingModels | Cancel / Dismiss | | RollingBack | Rollback |
  * | Saving | Saved | | Finished | Completed |
  * | Saving | SaveFailed | | ChoosingModels (failure) | |
  * | RollingBack | RolledBack | | Cancelled | Cancelled |
  * | Idle, ChoosingEngine, ChoosingMethod | Cancel | | Cancelled | Cancelled |
+ * | Idle, ChoosingEngine | Dismiss | | Cancelled | Cancelled |
  *
- * Connecting and Saving ignore Cancel: the outcome of an accepted write must be known before closing.
+ * Connecting, Saving and RollingBack ignore Cancel and Dismiss: the outcome of an accepted write must be known
+ * before closing.
  * A failed rollback still closes the wizard; the handler logs it and the binding stays visible in settings.
  */
 public val ConnectWizardMachineSpec:
@@ -56,17 +60,15 @@ public val ConnectWizardMachineSpec:
                 goto<ChoosingEngine> { ChoosingEngine(preselected = intent.engine) }
                 effect { ObserveEngines }
             }
-            on<Public.Cancel> {
-                goto<Cancelled> { Cancelled }
-                output { ConnectWizardOutput.Cancelled }
-            }
+            on<Public.Cancel> { cancel() }
+            on<Public.Dismiss> { cancel() }
         }
         state<ChoosingEngine> {
             on<Internal.EnginesChanged>(guard = { state.preselectedIn(intent.engines) != null }) {
                 goto<ChoosingMethod> { ChoosingMethod(requireNotNull(state.preselectedIn(intent.engines))) }
             }
             on<Internal.EnginesChanged>(guard = { state.preselectedIn(intent.engines) == null }) {
-                stay { state.copy(engines = intent.engines, failure = null) }
+                stay { state.copy(engines = intent.engines, preselected = null, failure = null) }
             }
             on<Internal.EnginesFailed> { stay { state.copy(failure = intent.failure) } }
             on<Public.Retry>(guard = { state.failure != null }) {
@@ -76,10 +78,8 @@ public val ConnectWizardMachineSpec:
             on<Public.ChooseEngine>(guard = { state.engines.connectable(intent.engine) != null }) {
                 goto<ChoosingMethod> { ChoosingMethod(requireNotNull(state.engines.connectable(intent.engine))) }
             }
-            on<Public.Cancel> {
-                goto<Cancelled> { Cancelled }
-                output { ConnectWizardOutput.Cancelled }
-            }
+            on<Public.Cancel> { cancel() }
+            on<Public.Dismiss> { cancel() }
         }
         state<ChoosingMethod> {
             on<Public.Connect>(guard = { state.engine.method(intent.method)?.accepts(intent.credential) == true }) {
@@ -93,10 +93,11 @@ public val ConnectWizardMachineSpec:
                 goto<ChoosingEngine> { ChoosingEngine() }
                 effect { ObserveEngines }
             }
-            on<Public.Cancel> {
-                goto<Cancelled> { Cancelled }
-                output { ConnectWizardOutput.Cancelled }
+            on<Public.Dismiss> {
+                goto<ChoosingEngine> { ChoosingEngine() }
+                effect { ObserveEngines }
             }
+            on<Public.Cancel> { cancel() }
         }
         state<Connecting> {
             on<Internal.Connected> {
@@ -113,9 +114,13 @@ public val ConnectWizardMachineSpec:
                 }
             }
             on<Internal.ModelsFailed> { stay { state.copy(failure = intent.failure) } }
-            on<Public.Retry>(guard = { state.failure != null }) {
-                stay { state.copy(models = null, failure = null) }
+            on<Public.Retry>(guard = { state.failure != null && state.models == null }) {
+                stay { state.copy(failure = null) }
                 effect { ConnectWizardEffect.DiscoverModels(state.engine, state.connection.binding) }
+            }
+            on<Public.Retry>(guard = { state.failure != null && state.models != null }) {
+                goto<Saving> { Saving(state.engine, state.connection, state.models, state.selected) }
+                effect { ConnectWizardEffect.SaveModels(state.connection.binding, state.selected) }
             }
             on<Public.ToggleModel>(guard = { state.models.orEmpty().any { it.target.model == intent.model } }) {
                 stay {
@@ -135,10 +140,8 @@ public val ConnectWizardMachineSpec:
                 goto<Saving> { Saving(state.engine, state.connection, state.models, state.selected) }
                 effect { ConnectWizardEffect.SaveModels(state.connection.binding, state.selected) }
             }
-            on<Public.Cancel> {
-                goto<RollingBack> { RollingBack(state.connection) }
-                effect { ConnectWizardEffect.Rollback(state.connection) }
-            }
+            on<Public.Cancel> { rollBack() }
+            on<Public.Dismiss> { rollBack() }
         }
         state<Saving> {
             on<Internal.Saved> {
@@ -170,6 +173,19 @@ public val ConnectWizardMachineSpec:
             }
         }
     }
+
+private fun <T : ConnectWizardState, J : ConnectWizardIntent> WizardTransition<T, J>.cancel() {
+    goto<Cancelled> { Cancelled }
+    output { ConnectWizardOutput.Cancelled }
+}
+
+private fun <J : ConnectWizardIntent> WizardTransition<ChoosingModels, J>.rollBack() {
+    goto<RollingBack> { RollingBack(state.connection) }
+    effect { ConnectWizardEffect.Rollback(state.connection) }
+}
+
+private typealias WizardTransition<T, J> =
+    TransitionBuilder<ConnectWizardState, T, ConnectWizardIntent, J, ConnectWizardEffect, ConnectWizardOutput>
 
 private fun ChoosingEngine.preselectedIn(engines: List<EngineInfo>): EngineInfo? =
     preselected?.let { engines.connectable(it) }

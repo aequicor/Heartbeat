@@ -122,7 +122,9 @@ private fun SoftButton(
 
 /**
  * Controlled input. The caller owns its text; logs never contain the input value.
- * [isSecret] masks the text on screen and marks it as a password for accessibility and autofill.
+ * [isSecret] makes a secure single-line field: obfuscated text marked as a password for accessibility,
+ * no cut/copy, a password keyboard without autocorrect, and nothing written to saved state.
+ * A secret field is always single-line, whatever [singleLine] says.
  */
 @Composable
 public fun HbTextField(

@@ -26,11 +26,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.api.PipelineContext
+import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 
 /** Wizard steps as shown to the user. */
@@ -63,6 +65,7 @@ data class ConnectWizardScreenState(
     val models: ImmutableList<ModelRowUi>? = null,
     val modelQuery: String = "",
     val isBusy: Boolean = true,
+    val isCancelAllowed: Boolean = true,
     val failure: FailureUi? = null,
 ) : MVIState
 
@@ -83,8 +86,10 @@ sealed interface ConnectWizardScreenIntent : MVIIntent {
     /** Edits the endpoint of an editable method. */
     data class EditOrigin(val value: String) : ConnectWizardScreenIntent
 
-    /** Edits the API key. */
-    data class EditKey(val value: String) : ConnectWizardScreenIntent
+    /** Edits the API key; [toString] never prints it. */
+    data class EditKey(val value: String) : ConnectWizardScreenIntent {
+        override fun toString(): String = "EditKey(***)"
+    }
 
     /** Creates the connection from the form. */
     data object Connect : ConnectWizardScreenIntent
@@ -110,10 +115,7 @@ sealed interface ConnectWizardScreenIntent : MVIIntent {
     /** Abandons the wizard. */
     data object Cancel : ConnectWizardScreenIntent
 
-    /**
-     * System back: one step back from the method step, otherwise cancel with rollback. Ignored by the machine
-     * while a write is in flight, so back never abandons a connection whose outcome is unknown.
-     */
+    /** System back; the machine decides per step (see [ConnectWizardIntent.Public.Dismiss]). */
     data object SystemBack : ConnectWizardScreenIntent
 }
 
@@ -140,12 +142,18 @@ class ConnectWizardModel(
         ConnectWizardScreenState().reflect(machine.state.value),
         onError = { copy(isBusy = false, failure = FailureUi.Unknown) },
     ) {
-        reflect(machine, onOutput = { output ->
-            when (output) {
-                is ConnectWizardOutput.Completed -> action(ConnectWizardScreenAction.Close(output.binding.value))
-                ConnectWizardOutput.Cancelled -> action(ConnectWizardScreenAction.Close(null))
+        init {
+            // Closing follows the terminal machine state for the whole store lifetime, so a result reached while
+            // the screen is not subscribed is still delivered once it is back.
+            launch {
+                val end = machine.state.first {
+                    it is ConnectWizardState.Finished || it is ConnectWizardState.Cancelled
+                }
+                action(ConnectWizardScreenAction.Close((end as? ConnectWizardState.Finished)?.binding?.value))
             }
-        }) { reflect(it) }
+            sendTo(machine, ConnectWizardIntent.Public.Start(route.engine))
+        }
+        reflect(machine) { reflect(it) }
         reduce { intent ->
             when (intent) {
                 is ConnectWizardScreenIntent.ChooseEngine ->
@@ -182,14 +190,7 @@ class ConnectWizardModel(
 
                 ConnectWizardScreenIntent.Cancel -> sendTo(machine, ConnectWizardIntent.Public.Cancel)
 
-                ConnectWizardScreenIntent.SystemBack -> sendTo(
-                    machine,
-                    if (machine.state.value is ConnectWizardState.ChoosingMethod) {
-                        ConnectWizardIntent.Public.Back
-                    } else {
-                        ConnectWizardIntent.Public.Cancel
-                    },
-                )
+                ConnectWizardScreenIntent.SystemBack -> sendTo(machine, ConnectWizardIntent.Public.Dismiss)
             }
         }
     }
@@ -197,7 +198,6 @@ class ConnectWizardModel(
     init {
         scope.onClose { sentKeys.forEach(Secret::close) }
         store.start(scope.coroutineScope)
-        scope.coroutineScope.launch { machine.send(ConnectWizardIntent.Public.Start(route.engine)) }
     }
 
     /** Validates the form, hands the key to the machine as an owned Secret, and clears it from the screen. */
@@ -208,11 +208,18 @@ class ConnectWizardModel(
         ConnectWizardScreenIntent,
         ConnectWizardScreenAction,
     >.connect() {
-        val choosing = machine.state.value as? ConnectWizardState.ChoosingMethod ?: return
+        val choosing = machine.state.value as? ConnectWizardState.ChoosingMethod
+        if (choosing == null) {
+            log.w { "connect ignored: not on the method step" }
+            return
+        }
         var screen = ConnectWizardScreenState()
         withState { screen = this }
         val method = choosing.engine.descriptor.connectionMethods.firstOrNull { it.id.value == screen.selectedMethod }
-            ?: return
+        if (method == null) {
+            log.w { "connect ignored: no method selected" }
+            return
+        }
         val request = screen.form.toRequest(method)
         if (request is FormCheck.Invalid) {
             updateState { copy(formError = request.error) }
@@ -268,34 +275,47 @@ private fun ConnectWizardScreenState.selectMethod(id: String): ConnectWizardScre
 }
 
 internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): ConnectWizardScreenState = when (state) {
-    ConnectWizardState.Idle -> copy(step = WizardStep.Engine, isBusy = true)
+    ConnectWizardState.Idle -> copy(step = WizardStep.Engine, isBusy = true, isCancelAllowed = true)
 
+    // Leaving the method step drops the form, so a typed key never outlives it or reaches another engine.
     is ConnectWizardState.ChoosingEngine -> copy(
         step = WizardStep.Engine,
+        selectedMethod = null,
+        form = CredentialForm(),
+        formError = null,
         engines = state.engines?.map { it.toRow() }?.toImmutableList(),
         isBusy = state.engines == null && state.failure == null,
+        isCancelAllowed = true,
         failure = state.failure?.toUi(),
     )
 
     is ConnectWizardState.ChoosingMethod -> withMethods(state.engine.descriptor.title, state.engine.methods())
-        .copy(step = WizardStep.Method, isBusy = false, failure = state.failure?.toUi())
+        .copy(step = WizardStep.Method, isBusy = false, isCancelAllowed = true, failure = state.failure?.toUi())
 
     is ConnectWizardState.Connecting -> withMethods(state.engine.descriptor.title, state.engine.methods())
-        .copy(step = WizardStep.Method, isBusy = true, failure = null)
+        .copy(step = WizardStep.Method, isBusy = true, isCancelAllowed = false, failure = null)
 
     is ConnectWizardState.ChoosingModels -> copy(
         step = WizardStep.Models,
         form = form.copy(key = SecretText()),
         models = state.models?.map { it.toRow(it.target.model in state.selected) }?.toImmutableList(),
         isBusy = state.models == null && state.failure == null,
+        isCancelAllowed = true,
         failure = state.failure?.toUi(),
     )
 
-    is ConnectWizardState.Saving -> copy(step = WizardStep.Models, isBusy = true, failure = null)
+    is ConnectWizardState.Saving -> copy(
+        step = WizardStep.Models,
+        isBusy = true,
+        isCancelAllowed = false,
+        failure = null,
+    )
 
-    is ConnectWizardState.RollingBack -> copy(step = WizardStep.Models, isBusy = true, failure = null)
+    is ConnectWizardState.RollingBack ->
+        copy(step = WizardStep.Models, isBusy = true, isCancelAllowed = false, failure = null)
 
-    is ConnectWizardState.Finished, ConnectWizardState.Cancelled -> copy(step = WizardStep.Done, isBusy = true)
+    is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
+        copy(step = WizardStep.Done, isBusy = true, isCancelAllowed = false)
 }
 
 private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMethods.map { it.toRow() }

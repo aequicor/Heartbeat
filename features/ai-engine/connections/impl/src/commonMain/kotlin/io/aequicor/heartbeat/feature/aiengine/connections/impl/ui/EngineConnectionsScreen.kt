@@ -340,13 +340,16 @@ private fun ConnectionHeader(
                 isEnabled,
             )
         }
-        if (state.confirmDisconnect == connection.id) DisconnectConfirmation(connection.label, onIntent)
+        if (state.confirmDisconnect == connection.id) {
+            DisconnectConfirmation(connection.label, isEnabled = !state.isSaving, onIntent)
+        }
     }
 }
 
 @Composable
 private fun DisconnectConfirmation(
     label: String,
+    isEnabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -358,6 +361,7 @@ private fun DisconnectConfirmation(
                     stringResource(Res.string.settings_disconnect),
                     { onIntent(EngineConnectionsScreenIntent.ConfirmDisconnect) },
                     Modifier.testTag("settings-disconnect-confirm"),
+                    enabled = isEnabled,
                 )
                 HbButton(
                     stringResource(Res.string.conn_cancel),
@@ -415,7 +419,7 @@ private fun ModelsList(
         HbLazyColumn(
             Modifier.weight(1f).fillMaxWidth().testTag("settings-models"),
             gap = HbTheme.spacing.xs,
-            contentPadding = PaddingValues(HbTheme.elevation.none),
+            contentPadding = PaddingValues(HbTheme.spacing.none),
         ) {
             items(visible, key = { it.id }) { model ->
                 ModelRow(
@@ -454,7 +458,7 @@ private fun Pane(title: String, modifier: Modifier = Modifier, content: @Composa
 /** Lazy list that runs vertically in wide layouts and horizontally in compact ones. */
 @Composable
 private fun SelectionList(isHorizontal: Boolean, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
-    val padding = PaddingValues(HbTheme.elevation.none)
+    val padding = PaddingValues(HbTheme.spacing.none)
     if (isHorizontal) {
         HbLazyRow(modifier.fillMaxWidth(), gap = HbTheme.spacing.s, contentPadding = padding, content = content)
     } else {

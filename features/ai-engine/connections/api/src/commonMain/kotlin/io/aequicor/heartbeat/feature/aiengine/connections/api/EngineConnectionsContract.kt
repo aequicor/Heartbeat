@@ -59,15 +59,16 @@ public sealed interface EngineConnectionsState : MachineState {
     /** Not started. */
     public data object Idle : EngineConnectionsState
 
-    /** Observing; [snapshot] is null until the first one arrives. */
+    /**
+     * Observing; [snapshot] is null until the first one arrives and after the observation fails with [loadFailure].
+     * A failed observation keeps the state, so a [pending] change still reports its outcome.
+     */
     public data class Active(
         val snapshot: ConnectionsSnapshot? = null,
         val pending: ConnectionOperation? = null,
         val failed: FailedOperation? = null,
+        val loadFailure: EngineFailure? = null,
     ) : EngineConnectionsState
-
-    /** Observation failed and can be restarted explicitly. */
-    public data class LoadError(val failure: EngineFailure) : EngineConnectionsState
 }
 
 /** Settings requests and effect results. */
@@ -134,16 +135,16 @@ public object EngineConnectionsMachineKey :
  * | From | Intent | Guard | To | Effect |
  * |---|---|---|---|---|
  * | Idle | Start | | Active | Observe |
- * | Active | Snapshot | | stay | |
+ * | Active | Snapshot | | stay (load failure cleared) | |
  * | Active | Apply | observed, nothing pending | stay (pending) | Execute |
  * | Active | Applied / ApplyFailed | | stay | |
  * | Active | RetryFailed | nothing pending, has failure | stay (pending) | Execute |
  * | Active | DismissError | | stay | |
- * | Active | ObserveFailed | | LoadError | |
- * | LoadError | RetryLoad | | Active | Observe |
+ * | Active | ObserveFailed | | stay (snapshot dropped, load failure) | |
+ * | Active | RetryLoad | has load failure | stay | Observe |
  *
- * Changes use `stay`, so the observation keeps running while they execute. Failed changes are never replayed
- * automatically: a disconnect or a model refresh may have partially completed.
+ * Changes and observation failures use `stay`, so neither cancels the other while it runs.
+ * Failed changes are never replayed automatically: a disconnect or a model refresh may have partially completed.
  */
 public val EngineConnectionsMachineSpec:
     MachineSpec<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsEffect, EngineConnectionsOutput> =
@@ -155,7 +156,9 @@ public val EngineConnectionsMachineSpec:
             }
         }
         state<EngineConnectionsState.Active> {
-            on<EngineConnectionsIntent.Internal.Snapshot> { stay { state.copy(snapshot = intent.snapshot) } }
+            on<EngineConnectionsIntent.Internal.Snapshot> {
+                stay { state.copy(snapshot = intent.snapshot, loadFailure = null) }
+            }
             on<EngineConnectionsIntent.Public.Apply>(guard = { state.pending == null && state.snapshot != null }) {
                 stay { state.copy(pending = intent.operation, failed = null) }
                 effect { EngineConnectionsEffect.Execute(intent.operation) }
@@ -170,12 +173,10 @@ public val EngineConnectionsMachineSpec:
             }
             on<EngineConnectionsIntent.Public.DismissError> { stay { state.copy(failed = null) } }
             on<EngineConnectionsIntent.Internal.ObserveFailed> {
-                goto<EngineConnectionsState.LoadError> { EngineConnectionsState.LoadError(intent.failure) }
+                stay { state.copy(snapshot = null, loadFailure = intent.failure) }
             }
-        }
-        state<EngineConnectionsState.LoadError> {
-            on<EngineConnectionsIntent.Public.RetryLoad> {
-                goto<EngineConnectionsState.Active> { EngineConnectionsState.Active() }
+            on<EngineConnectionsIntent.Public.RetryLoad>(guard = { state.loadFailure != null }) {
+                stay { state.copy(loadFailure = null) }
                 effect { EngineConnectionsEffect.Observe }
             }
         }

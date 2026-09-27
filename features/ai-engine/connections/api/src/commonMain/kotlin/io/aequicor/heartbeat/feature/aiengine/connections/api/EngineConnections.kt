@@ -43,4 +43,4 @@ public val EngineInfo.isConnectable: Boolean
     get() = availability != EngineAvailability.UnsupportedPlatform && descriptor.connectionMethods.isNotEmpty()
 
 /** Domain failure of an effect: the facade's classification, otherwise an unclassified failure. */
-public fun Throwable.toEngineFailure(): EngineFailure = (this as? EngineException)?.failure ?: EngineFailure.Unknown()
+internal fun Throwable.toEngineFailure(): EngineFailure = (this as? EngineException)?.failure ?: EngineFailure.Unknown()

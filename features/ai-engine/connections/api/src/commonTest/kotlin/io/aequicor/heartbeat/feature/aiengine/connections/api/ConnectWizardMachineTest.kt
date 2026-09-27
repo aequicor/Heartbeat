@@ -55,7 +55,16 @@ class ConnectWizardMachineTest {
         spec.assertTransition(
             ChoosingEngine(preselected = mobileOnly.descriptor.id),
             Internal.EnginesChanged(engines),
-            ChoosingEngine(engines, preselected = mobileOnly.descriptor.id),
+            ChoosingEngine(engines),
+        )
+    }
+
+    @Test
+    fun `a preselection that was not connectable is dropped`() {
+        spec.assertTransition(
+            ChoosingEngine(engines),
+            Internal.EnginesChanged(listOf(koog)),
+            ChoosingEngine(listOf(koog)),
         )
     }
 
@@ -181,6 +190,54 @@ class ConnectWizardMachineTest {
             ChoosingModels(koog.descriptor.id, connection, listOf(model("gpt-a")), selected, failure),
         )
         spec.assertIgnored(saving, Public.Cancel)
+        spec.assertIgnored(saving, Public.Dismiss)
+        spec.assertIgnored(saving, Public.Finish)
+    }
+
+    @Test
+    fun `retry after a failed save saves again and keeps the discovered models`() {
+        val selected = setOf(ModelId("gpt-a"))
+        val models = listOf(model("gpt-a"))
+        spec.assertTransition(
+            ChoosingModels(koog.descriptor.id, connection, models, selected, failure),
+            Public.Retry,
+            Saving(koog.descriptor.id, connection, models, selected),
+            effects = listOf(ConnectWizardEffect.SaveModels(connection.binding, selected)),
+        )
+    }
+
+    @Test
+    fun `dismiss steps back, cancels or rolls back depending on the step`() {
+        spec.assertTransition(
+            ChoosingMethod(koog),
+            Public.Dismiss,
+            ChoosingEngine(),
+            effects = listOf(ConnectWizardEffect.ObserveEngines),
+        )
+        spec.assertTransition(
+            ChoosingEngine(engines),
+            Public.Dismiss,
+            Cancelled,
+            outputs = listOf(ConnectWizardOutput.Cancelled),
+        )
+        spec.assertTransition(Idle, Public.Dismiss, Cancelled, outputs = listOf(ConnectWizardOutput.Cancelled))
+        spec.assertTransition(
+            ChoosingModels(koog.descriptor.id, connection),
+            Public.Dismiss,
+            RollingBack(connection),
+            effects = listOf(ConnectWizardEffect.Rollback(connection)),
+        )
+        spec.assertIgnored(Connecting(koog, apiKey.id), Public.Dismiss)
+        spec.assertIgnored(RollingBack(connection), Public.Dismiss)
+        spec.assertIgnored(RollingBack(connection), Public.Cancel)
+    }
+
+    @Test
+    fun `terminal states ignore further steps`() {
+        spec.assertIgnored(Finished(connection.binding), Public.Start())
+        spec.assertIgnored(Finished(connection.binding), Public.Dismiss)
+        spec.assertIgnored(Cancelled, Public.Start())
+        spec.assertIgnored(Cancelled, Public.Cancel)
     }
 
     @Test

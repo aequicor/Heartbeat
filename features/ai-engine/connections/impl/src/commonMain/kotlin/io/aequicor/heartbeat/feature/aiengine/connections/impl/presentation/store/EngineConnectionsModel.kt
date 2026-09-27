@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
@@ -16,10 +17,10 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.PipelineContext
+import pro.respawn.flowmvi.plugins.init
 import pro.respawn.flowmvi.plugins.reduce
 
 /** User events of the settings space. Navigation is handled by the component, not the store. */
@@ -95,13 +96,13 @@ class EngineConnectionsModel(
         EngineConnectionsScreenState().reflect(machine.state.value),
         onError = { copy(isLoading = false, isSaving = false, failure = FailureUi.Unknown) },
     ) {
+        init { sendTo(machine, EngineConnectionsIntent.Public.Start) }
         reflect(machine) { reflect(it) }
         reduce { intent -> handle(intent) }
     }
 
     init {
         store.start(scope.coroutineScope)
-        scope.coroutineScope.launch { machine.send(EngineConnectionsIntent.Public.Start) }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -150,12 +151,15 @@ class EngineConnectionsModel(
     ) {
         var screen = EngineConnectionsScreenState()
         withState { screen = this }
-        if (intent == EngineConnectionsScreenIntent.ConfirmDisconnect) updateState { copy(confirmDisconnect = null) }
         val operation = screen.operationFor(intent)
         if (operation == null) {
             log.w { "ignore ${intent::class.simpleName.orEmpty()} without a focused entry" }
-        } else {
-            sendTo(machine, EngineConnectionsIntent.Public.Apply(operation))
+            return
+        }
+        val result = sendTo(machine, EngineConnectionsIntent.Public.Apply(operation))
+        // The confirmation closes only once the machine took the disconnect; a rejected one stays to be confirmed.
+        if (intent == EngineConnectionsScreenIntent.ConfirmDisconnect && result == SendResult.Accepted) {
+            updateState { copy(confirmDisconnect = null) }
         }
     }
 }

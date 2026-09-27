@@ -51,17 +51,27 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
     when (state) {
         EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null)
 
-        is EngineConnectionsState.LoadError ->
-            copy(isLoading = false, isSaving = false, loadFailure = state.failure.toUi())
-
         is EngineConnectionsState.Active -> {
             val base = copy(
-                isLoading = state.snapshot == null,
+                isLoading = state.snapshot == null && state.loadFailure == null,
                 isSaving = state.pending != null,
-                loadFailure = null,
+                loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
             )
-            state.snapshot?.let(base::withSnapshot) ?: base
+            val snapshot = state.snapshot
+            when {
+                snapshot != null -> base.withSnapshot(snapshot)
+
+                // Without an observed snapshot nothing can be changed, so stale rows are not offered.
+                state.loadFailure != null -> base.copy(
+                    engines = persistentListOf(),
+                    connections = persistentListOf(),
+                    models = null,
+                    confirmDisconnect = null,
+                )
+
+                else -> base
+            }
         }
     }
 

@@ -59,7 +59,8 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
             }
 
             is ConnectWizardEffect.Rollback -> {
-                rollback(effect.connection)
+                // A compensation must finish even if the wizard closes meanwhile.
+                withContext(NonCancellable) { rollback(effect.connection) }
                 machine.send(ConnectWizardIntent.Internal.RolledBack)
             }
         }
@@ -106,27 +107,34 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         }
     }
 
+    /**
+     * Removes the binding, then its source, then its model choice. Each step runs even if a later one fails;
+     * the source is kept only while the binding still exists, because a referenced source cannot be forgotten.
+     */
     private suspend fun rollback(connection: NewConnection) {
         log.i { "roll back abandoned connection" }
-        try {
+        val isDisconnected = attempt("disconnect the binding; the connection stays visible in settings") {
             services.facade.bindings.disconnect(connection.binding)
+        }
+        if (isDisconnected) forgetQuietly(connection.source)
+        attempt("clear the model choice of the removed binding") {
             selections.update { it.without(connection.binding) }
-            services.sources.forget(connection.source)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "rollback failed; the connection stays visible in settings" }
         }
     }
 
     private suspend fun forgetQuietly(source: AuthSourceId) {
-        try {
-            services.sources.forget(source)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "could not forget source id=${source.value}" }
-        }
+        attempt("forget source id=${source.value}") { services.sources.forget(source) }
+    }
+
+    /** Runs one compensation step; a failure is logged and reported as false. */
+    private suspend fun attempt(step: String, block: suspend () -> Unit): Boolean = try {
+        block()
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "could not $step" }
+        false
     }
 }
 

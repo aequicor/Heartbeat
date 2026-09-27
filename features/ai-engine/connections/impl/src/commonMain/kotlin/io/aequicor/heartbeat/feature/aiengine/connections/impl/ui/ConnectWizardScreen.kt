@@ -256,7 +256,7 @@ private fun MethodList(
         HbLazyColumn(
             Modifier.weight(1f, fill = false).fillMaxWidth(),
             gap = HbTheme.spacing.xs,
-            contentPadding = PaddingValues(HbTheme.elevation.none),
+            contentPadding = PaddingValues(HbTheme.spacing.none),
         ) {
             items(visible, key = { it.id }) { method ->
                 SelectableRow(
@@ -398,7 +398,7 @@ private fun ModelsStep(
                 HbLazyColumn(
                     Modifier.weight(1f).fillMaxWidth().testTag("wizard-models"),
                     gap = HbTheme.spacing.xs,
-                    contentPadding = PaddingValues(HbTheme.elevation.none),
+                    contentPadding = PaddingValues(HbTheme.spacing.none),
                 ) {
                     items(visible, key = { it.id }) { model ->
                         ModelRow(
@@ -488,7 +488,7 @@ private fun WizardFooter(
             { onIntent(ConnectWizardScreenIntent.Cancel) },
             Modifier.testTag("wizard-cancel"),
             style = HbButtonStyle.Quiet,
-            enabled = state.step != WizardStep.Done,
+            enabled = state.isCancelAllowed,
         )
         if (state.step == WizardStep.Method) {
             HbButton(
