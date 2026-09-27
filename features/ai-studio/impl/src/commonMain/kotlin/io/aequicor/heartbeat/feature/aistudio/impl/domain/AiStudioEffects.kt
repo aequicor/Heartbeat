@@ -1,0 +1,173 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.domain
+
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
+import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
+import kotlinx.coroutines.withContext
+import kotlin.time.Clock
+
+/**
+ * Executes studio effects. A run records the prompt, streams the agent reply into the repository and
+ * finishes when the agent completes, fails or receives a stop request for its session. A stop is sticky: it is
+ * kept until its run ends, so a request arriving before the stream starts is not lost. Leaving the studio
+ * cancels runs; their replies are closed so no transcript stays "streaming".
+ */
+class AiStudioEffects(
+    private val repository: StudioRepository,
+    private val agent: StudioAgent,
+    private val availability: StudioAvailability,
+    private val clock: Clock,
+) : EffectHandler<AiStudioEffect, AiStudioIntent> {
+    private val log = Log.tag("AiStudioEffects")
+    private val activeRuns = MutableStateFlow(emptySet<String>())
+    private val stopRequests = MutableStateFlow(emptySet<String>())
+
+    override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
+        when (effect) {
+            AiStudioEffect.Load -> machine.send(
+                AiStudioIntent.Internal.Loaded(
+                    isEnabled = availability.isEnabled(),
+                    defaults = StudioDefaults(repository.defaultProjectId(), DefaultRunSettings),
+                ),
+            )
+
+            AiStudioEffect.ObserveAvailability -> availability.observe().distinctUntilChanged().collect {
+                machine.send(AiStudioIntent.Internal.AvailabilityChanged(it))
+            }
+
+            is AiStudioEffect.CreateSession -> {
+                val session = repository.createSession(effect.projectId, titleOf(effect.prompt))
+                machine.send(AiStudioIntent.Internal.SessionCreated(effect.paneId, session.id, effect.prompt))
+            }
+
+            is AiStudioEffect.Run -> machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, run(effect)))
+
+            is AiStudioEffect.Cancel -> {
+                val isActive = effect.sessionId in activeRuns.value
+                if (isActive) stopRequests.update { it + effect.sessionId }
+                log.i { "stop requested active=$isActive" }
+            }
+
+            is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+
+    /** Registers the run before its first suspension, so a stop sent right after the submit finds it. */
+    private suspend fun run(effect: AiStudioEffect.Run): RunOutcome {
+        val started = activeRuns.updateAndGet { it + effect.sessionId }
+        log.d { "active runs: ${started.size - 1} -> ${started.size}" }
+        try {
+            return execute(effect)
+        } finally {
+            val remaining = activeRuns.updateAndGet { it - effect.sessionId }
+            log.d { "active runs: ${remaining.size + 1} -> ${remaining.size}" }
+            stopRequests.update { it - effect.sessionId }
+        }
+    }
+
+    private suspend fun execute(effect: AiStudioEffect.Run): RunOutcome {
+        val startedAt = clock.now()
+        var reply: StudioMessage.Reply? = null
+        val outcome = try {
+            val history = repository.observeMessages(effect.sessionId).first()
+            val workspace = repository.observeWorkspace().first()
+            val project = workspace.project(workspace.session(effect.sessionId)?.projectId)
+            val prompt = StudioMessage.Prompt(repository.newMessageId(), startedAt, effect.prompt)
+            repository.append(effect.sessionId, prompt)
+            var streamed = StudioMessage.Reply(repository.newMessageId(), startedAt, isStreaming = true)
+            reply = streamed
+            repository.append(effect.sessionId, streamed)
+            val request = AgentRequest(effect.prompt, history, effect.settings, project)
+            merge(
+                stopRequests.filter { effect.sessionId in it }.map { RunOutcome.Stopped },
+                flow {
+                    agent.run(request).collect { event ->
+                        streamed = streamed.apply(event)
+                        reply = streamed
+                        repository.replace(effect.sessionId, streamed)
+                        if (event is AgentEvent.BranchCreated) repository.setBranch(effect.sessionId, event.name)
+                    }
+                    emit(RunOutcome.Completed)
+                },
+            ).first()
+        } catch (e: CancellationException) {
+            reply?.let { withContext(NonCancellable) { repository.replace(effect.sessionId, it.closed()) } }
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "agent run failed" }
+            RunOutcome.Failed
+        }
+        reply?.let { repository.replace(effect.sessionId, it.closed()) }
+        when (outcome) {
+            RunOutcome.Completed -> Unit
+
+            RunOutcome.Stopped -> repository.append(
+                effect.sessionId,
+                StudioMessage.Stopped(repository.newMessageId(), clock.now(), clock.now() - startedAt),
+            )
+
+            RunOutcome.Failed -> repository.append(
+                effect.sessionId,
+                StudioMessage.Failed(repository.newMessageId(), clock.now()),
+            )
+        }
+        log.i { "run ended outcome=$outcome tools=${reply?.tools?.size} length=${reply?.text?.length}" }
+        return outcome
+    }
+}
+
+/** The first line of the first prompt, shortened for the sidebar. */
+internal fun titleOf(prompt: String): String {
+    val line = prompt.trim().lineSequence().first().trim()
+    return if (line.length <= TITLE_LENGTH) line else line.take(TITLE_LENGTH).trimEnd() + "…"
+}
+
+/** Folds one agent event into the streamed reply. */
+internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply = when (event) {
+    is AgentEvent.Text -> copy(text = text + event.text)
+
+    is AgentEvent.ToolStarted -> copy(tools = tools + StudioToolRun(event.id, event.title))
+
+    is AgentEvent.ToolOutput -> copy(
+        tools = tools.map { if (it.id == event.id) it.copy(output = it.output + event.output) else it },
+    )
+
+    is AgentEvent.ToolFinished -> copy(
+        tools = tools.map { tool ->
+            if (tool.id != event.id) {
+                tool
+            } else {
+                tool.copy(
+                    title = event.title,
+                    status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
+                    diff = event.diff ?: tool.diff,
+                )
+            }
+        },
+    )
+
+    is AgentEvent.BranchCreated -> this
+}
+
+/** Ends streaming; tool calls interrupted by a stop or failure are marked failed. */
+internal fun StudioMessage.Reply.closed(): StudioMessage.Reply = copy(
+    isStreaming = false,
+    tools = tools.map { if (it.status == ToolRunStatus.Running) it.copy(status = ToolRunStatus.Failed) else it },
+)
+
+private const val TITLE_LENGTH = 60

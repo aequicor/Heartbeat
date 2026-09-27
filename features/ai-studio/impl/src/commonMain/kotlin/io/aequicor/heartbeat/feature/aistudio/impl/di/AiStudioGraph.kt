@@ -7,6 +7,7 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.GraphExtension
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
@@ -14,11 +15,11 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ext.retainedGraph
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.navigation.AppRouteBinding
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.RouteEntry
-import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -26,9 +27,15 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineSpec
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAgent
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
+import kotlin.time.Clock
 
 /** Feature graph retained by its Decompose entry. */
 @GraphExtension(AiStudioScope::class)
@@ -50,14 +57,34 @@ interface AiStudioGraph {
 @ContributesTo(AiStudioScope::class)
 @BindingContainer
 object AiStudioBindings {
+    /** Wires the domain handler without coupling domain to Metro. */
+    @Provides
+    @SingleIn(AiStudioScope::class)
+    fun effects(
+        repository: StudioRepository,
+        agent: StudioAgent,
+        availability: StudioAvailability,
+        clock: Clock,
+    ): AiStudioEffects = AiStudioEffects(repository, agent, availability, clock)
+
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides
     @SingleIn(AiStudioScope::class)
     fun machine(
         launcher: MachineLauncher,
         @ForScope(AiStudioScope::class) scope: ScopeHandle,
-    ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> =
-        launcher.launch(AiStudioMachineSpec, scope, EffectHandler.None)
+        effects: AiStudioEffects,
+    ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(AiStudioMachineSpec, scope, effects)
+}
+
+/** Registers the studio toggles in the app-wide toggle catalog. */
+@ContributesTo(AppScope::class)
+@BindingContainer
+object AiStudioToggleBindings {
+    /** The workspace switch shown in the toggles panel. */
+    @Provides
+    @IntoSet
+    fun workspace(): FeatureToggle<*> = StudioWorkspaceToggle
 }
 
 @ContributesIntoSet(AppScope::class, binding = binding<AppRouteBinding>())
