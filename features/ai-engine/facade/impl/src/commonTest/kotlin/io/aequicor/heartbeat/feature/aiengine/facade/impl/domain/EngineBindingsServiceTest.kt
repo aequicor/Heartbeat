@@ -56,6 +56,7 @@ class EngineBindingsServiceTest {
         assertEquals(first.id, second.id)
         assertEquals(5, second.priority)
         assertEquals(listOf(second), store.bindings.value)
+        assertEquals(mapOf(first.id to source), factory.routes)
     }
 
     @Test
@@ -69,6 +70,7 @@ class EngineBindingsServiceTest {
         val own = sources.add(cliLogin(id = "src_own"))
         assertFailsWith<EngineException> { service.connect(TestEngine, own.info.id) }
         assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.routes.isEmpty())
     }
 
     @Test
@@ -99,8 +101,10 @@ class EngineBindingsServiceTest {
         assertEquals(EngineFailure.Session(SessionFailureReason.Busy), error.failure)
 
         busy.clear()
+        assertTrue(binding.id in factory.routes)
         service.disconnect(binding.id)
         assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.routes.isEmpty())
         assertIs<EngineException>(assertFailsWith<EngineException> { service.setEnabled(binding.id, true) })
     }
 

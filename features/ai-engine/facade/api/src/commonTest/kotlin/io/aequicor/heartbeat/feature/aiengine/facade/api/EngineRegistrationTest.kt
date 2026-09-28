@@ -104,11 +104,45 @@ class EngineRegistrationTest {
         assertFalse(factory.isInitialized())
     }
 
+    @Test
+    fun `registry rejects two default engines for the same platform`() {
+        val first = EngineRegistration(descriptor.copy(isDefault = true), owner, lazy { AcceptingFactory() })
+        val second = EngineRegistration(
+            descriptor.copy(
+                id = EngineId("other"),
+                platforms = setOf(EnginePlatform.DesktopWindows, EnginePlatform.DesktopMacOs),
+                isDefault = true,
+            ),
+            AuthOwnerId("other"),
+            lazy { AcceptingFactory() },
+        )
+        val failure = assertFailsWith<IllegalArgumentException> { validateEngineRegistrations(listOf(first, second)) }
+        assertTrue(failure.message.orEmpty().contains("codex") && failure.message.orEmpty().contains("other"))
+    }
+
+    @Test
+    fun `registry accepts one default engine per platform`() {
+        val windows = EngineRegistration(descriptor.copy(isDefault = true), owner, lazy { AcceptingFactory() })
+        val android = EngineRegistration(
+            descriptor.copy(id = EngineId("mobile"), platforms = setOf(EnginePlatform.Android), isDefault = true),
+            AuthOwnerId("mobile"),
+            lazy { AcceptingFactory() },
+        )
+        val secondary = EngineRegistration(
+            descriptor.copy(id = EngineId("secondary")),
+            AuthOwnerId("secondary"),
+            lazy { AcceptingFactory() },
+        )
+        validateEngineRegistrations(listOf(windows, android, secondary))
+    }
+
     private class AcceptingFactory : EngineFactory {
         override suspend fun checkRequirements(): EngineAvailability = EngineAvailability.Available
         override fun accepts(source: AuthSource, context: EngineContext): Boolean =
             source.scope.origin.value == "https://api.example.com"
         override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("test")
+        override suspend fun bind(binding: EngineBindingId, source: AuthSource) = Unit
+        override suspend fun unbind(binding: EngineBindingId) = Unit
         override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> = emptyList()
         override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
             throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))

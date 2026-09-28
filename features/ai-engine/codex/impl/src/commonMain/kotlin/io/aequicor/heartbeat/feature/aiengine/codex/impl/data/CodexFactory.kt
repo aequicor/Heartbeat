@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -59,6 +60,16 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
             source.scope.origin == EndpointOrigin("https://api.openai.com")
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("codex.openai.cli")
+
+    /** No adapter-side route state: the Codex CLI login is resolved by the CLI itself. */
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        log.d { "bind ignored: no route state" }
+    }
+
+    /** No adapter-side route state, see [bind]. */
+    override suspend fun unbind(binding: EngineBindingId) {
+        log.d { "unbind ignored: no route state" }
+    }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
         if (!accepts(source, context)) fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))

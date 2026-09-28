@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
@@ -67,6 +68,7 @@ internal class FakeEngineFactory : EngineFactory {
     var modelsFailure: Exception? = null
     var runtime: (RuntimeIdentity) -> EngineRuntime = { error("no runtime in this test") }
     val createdRuntimes = mutableListOf<RuntimeIdentity>()
+    val routes = mutableMapOf<EngineBindingId, AuthSource>()
 
     override suspend fun checkRequirements(): EngineAvailability {
         probes++
@@ -77,6 +79,14 @@ internal class FakeEngineFactory : EngineFactory {
     override fun accepts(source: AuthSource, context: EngineContext): Boolean = accepts.invoke(source, context)
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("ctx.${context.engine.value}")
+
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        routes[binding] = source
+    }
+
+    override suspend fun unbind(binding: EngineBindingId) {
+        routes.remove(binding)
+    }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
         modelsFailure?.let { throw it }

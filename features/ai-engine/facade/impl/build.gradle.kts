@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
-// Реализация фасада ИИ-движков профиля: каталог движков и подключений, модели, индекс сессий,
-// пул runtime и активные сессии на машине ActiveSessionMachineSpec. Подключается только в :platform-main:di-bundle.
+// Реализация фасада ИИ-движков профиля: каталог движков и подключений, выбор движка по умолчанию, модели,
+// индекс сессий, пул runtime и активные сессии на машине ActiveSessionMachineSpec. Подключается только в :platform-main:di-bundle.
 kotlin {
     sourceSets {
         commonMain.dependencies {

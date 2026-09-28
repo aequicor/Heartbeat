@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -60,7 +61,8 @@ class EngineGate(val registry: EngineRegistry, private val toggles: EngineToggle
 
 /**
  * [EngineBindings] over [BindingStore]. Mutations are serialized. Ownership is checked through the registration
- * (CLI logins stay with their owner) before a binding is saved; authentication itself is checked only on request.
+ * (CLI logins stay with their owner) and the adapter route is stored by [EngineFactory.bind] before a binding is saved;
+ * removal calls [EngineFactory.unbind] after the binding is gone. Authentication itself is checked only on request.
  */
 class EngineBindingsService(
     private val gate: EngineGate,
@@ -85,6 +87,7 @@ class EngineBindingsService(
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
             val id = existing?.id ?: EngineBindingId(context.token(BINDING_PREFIX))
             requireAccepted(registration, authSource, EngineContext(engine, id))
+            registration.factory.value.bind(id, authSource)
             val binding = existing?.copy(priority = priority) ?: EngineBinding(id, engine, source, priority = priority)
             store.save(if (existing == null) saved + binding else saved.map { if (it.id == id) binding else it })
             log.i { "binding saved binding=${id.value} new=${existing == null}" }
@@ -103,7 +106,10 @@ class EngineBindingsService(
         log.i { "disconnect binding=${binding.value}" }
         if (usage.isInUse(binding)) fail(EngineFailure.Session(SessionFailureReason.Busy))
         val saved = store.load()
-        if (saved.any { it.id == binding }) store.save(saved.filterNot { it.id == binding })
+        val removed = saved.firstOrNull { it.id == binding } ?: return@withLock
+        store.save(saved.filterNot { it.id == binding })
+        gate.registry.find(removed.engine)?.factory?.value?.unbind(binding)
+            ?: log.w { "no registration to unbind engine=${removed.engine.value} binding=${binding.value}" }
     }
 
     override suspend fun check(target: EngineTarget, workspace: WorkspaceRef?): BindingCheck {

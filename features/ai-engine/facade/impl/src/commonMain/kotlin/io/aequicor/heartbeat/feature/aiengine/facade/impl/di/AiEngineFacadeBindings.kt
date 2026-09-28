@@ -1,9 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.di
 
-import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Multibinds
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
@@ -14,11 +12,9 @@ import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -36,15 +32,6 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 // Binding containers and contributed interfaces are public: the graph is generated in :platform-main:di-bundle.
-
-/** Registers the global AI-engine toggle for the control panel. */
-@ContributesTo(AppScope::class)
-interface AiEngineToggleContribution {
-    /** The global flag; engine flags are registered by their adapters. */
-    @Provides
-    @IntoSet
-    fun aiEngines(): FeatureToggle<*> = AiEngines
-}
 
 /** Engine registrations contributed by adapters through the application bundle. */
 @ContributesTo(ProfileScope::class)

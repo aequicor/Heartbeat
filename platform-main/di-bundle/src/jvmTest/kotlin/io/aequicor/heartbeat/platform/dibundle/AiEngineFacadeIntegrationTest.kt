@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -116,6 +117,10 @@ object TestAdapter {
                 override fun accepts(source: AuthSource, context: EngineContext) = source is AuthSource.ManagedKey
 
                 override fun authContext(context: EngineContext) = AuthContextKey("itest.default")
+
+                override suspend fun bind(binding: EngineBindingId, source: AuthSource) = Unit
+
+                override suspend fun unbind(binding: EngineBindingId) = Unit
 
                 override suspend fun discoverModels(source: AuthSource, context: EngineContext) =
                     listOf(ModelInfo(EngineTarget(engine, context.binding, ModelId("m1")), "Model"))
@@ -211,7 +216,10 @@ class AiEngineFacadeIntegrationTest {
             "sk-test".toCharArray(),
         ).use { accessors.engineAuthSources.addManagedKey("work", scope, it) }
         val binding = facade.bindings.connect(TestAdapter.engine, source.info.id)
-        assertEquals(listOf(binding), facade.engines.state.first { it.isNotEmpty() }.single().bindings)
+        // Bundled adapters (Pi, …) may be listed too; only the test engine is asserted.
+        val info = facade.engines.state.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
+            .single { it.descriptor.id == TestAdapter.engine }
+        assertEquals(listOf(binding), info.bindings)
         assertEquals(1, facade.models.refresh(TestAdapter.engine, binding.id).models.size)
 
         val creator = facade.engines.features(TestAdapter.engine).resolve(CreatesSessions)

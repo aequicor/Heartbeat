@@ -1,4 +1,6 @@
 [versions]
+pi = "0.87.1" # SHA-256 of release assets: platform-main/desktop/build.gradle.kts (piChecksums)
+koog = "1.3.0"
 jna = "5.19.1"
 agp = "9.1.1"
 android-compileSdk = "37"
@@ -40,6 +42,11 @@ desktop-jdk = "21"
 haze = "2.0.0"
 
 [libraries]
+koog-executor = { module = "ai.koog:prompt-executor-model", version.ref = "koog" }
+koog-openai = { module = "ai.koog:prompt-executor-openai-client", version.ref = "koog" }
+koog-anthropic = { module = "ai.koog:prompt-executor-anthropic-client", version.ref = "koog" }
+koog-ollama = { module = "ai.koog:prompt-executor-ollama-client", version.ref = "koog" }
+koog-ktor = { module = "ai.koog:http-client-ktor", version.ref = "koog" }
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
