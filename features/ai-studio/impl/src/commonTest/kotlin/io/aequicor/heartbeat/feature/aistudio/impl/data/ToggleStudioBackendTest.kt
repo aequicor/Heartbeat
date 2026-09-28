@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
@@ -82,5 +83,10 @@ private object IdleRuntime : StudioRuntime {
 
     override suspend fun cancel(sessionId: String): Unit = error("unused")
 
-    override suspend fun respond(sessionId: String, requestId: String, optionId: String): Unit = error("unused")
+    override suspend fun respond(
+        sessionId: String,
+        requestId: String,
+        optionId: String,
+        answer: StudioPermissionAnswer?,
+    ): Unit = error("unused")
 }

@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.component
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
+import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.GlobalRoutes
 import io.aequicor.heartbeat.core.navigation.LaunchMode
@@ -19,12 +22,18 @@ import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -36,7 +45,8 @@ class AiStudioComponent(
     @Assisted private val navigator: Navigator,
     val model: AiStudioModel,
     entries: StudioEntries,
-    hosts: NavHostFactory,
+    private val hosts: NavHostFactory,
+    @ForScope(AiStudioScope::class) scope: ScopeHandle,
 ) : ComponentContext by context {
     private val log = Log.tag("AiStudioComponent")
 
@@ -51,6 +61,35 @@ class AiStudioComponent(
         initial = listOf(StudioChatRoute),
         local = listOf(routeEntry<StudioChatRoute> { _, _, _ -> StudioChat }),
         global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
+    )
+
+    private val questionHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
+
+    /**
+     * Questionnaire hosts by session (toggle `questionnaire.enabled`): each session with open questions gets its own
+     * nested host, shown inside the pane of that session. Hosts stay for the component lifetime.
+     */
+    val questions: StateFlow<Map<String, StackHost>> = questionHosts.asStateFlow()
+
+    init {
+        val watching = scope.coroutineScope.launch {
+            entries.questionSources.collect { sources ->
+                val added = sources - questionHosts.value.keys
+                if (added.isEmpty()) return@collect
+                log.i { "Show questionnaires of sessions count=${added.size}" }
+                questionHosts.value += added.associateWith { questionHost(it) }
+            }
+        }
+        lifecycle.doOnDestroy { watching.cancel() }
+    }
+
+    private fun questionHost(sessionId: String): StackHost = hosts.stack(
+        context = this,
+        parent = navigator,
+        name = "questions-$sessionId",
+        initial = listOf(QuestionnaireRoute(sessionId)),
+        local = emptyList(),
+        global = GlobalRoutes.Only(setOf(QuestionnaireRoute::class)),
     )
 
     /** Whether the engine connection settings are offered. */

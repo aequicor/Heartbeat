@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -18,6 +19,6 @@ interface StudioRuntime {
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)
 
-    /** Sends an exact currently pending permission option. */
-    suspend fun respond(sessionId: String, requestId: String, optionId: String)
+    /** Sends an exact currently pending permission option with the structured [answer] of its input. */
+    suspend fun respond(sessionId: String, requestId: String, optionId: String, answer: StudioPermissionAnswer? = null)
 }

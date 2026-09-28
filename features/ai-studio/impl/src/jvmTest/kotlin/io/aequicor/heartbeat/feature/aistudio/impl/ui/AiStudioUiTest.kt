@@ -1,8 +1,11 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -21,6 +24,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.data.studioSeed
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
@@ -170,6 +174,27 @@ class AiStudioUiTest {
         onNodeWithTag("project-chip-0").performClick()
         onNodeWithText(addLabel).assertDoesNotExist()
     }
+
+    @Test
+    fun `questionnaire of the asking session replaces its permission buttons`() =
+        runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+            val state = workspace.copy(
+                panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                running = persistentSetOf("s-facade"),
+                transcripts = transcriptsOf("s-facade"),
+                permissions = persistentListOf(
+                    PermissionUi("s-facade", "request", "Pick", persistentListOf(PermissionOptionUi("once", "Once"))),
+                ),
+            )
+            val questions = object : ComposableComponent {
+                @Composable
+                override fun Content(modifier: Modifier) = Box(modifier)
+            }
+            val asking = exits.copy(questions = persistentMapOf("s-facade" to questions))
+            setContent { HbTheme(darkTheme = false) { AiStudioContent(state, {}, asking) } }
+            onNodeWithTag("pane-questionnaire").assertExists()
+            onNodeWithTag("permission-request").assertDoesNotExist()
+        }
 
     @Test
     fun `pending permission offers its exact options`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {

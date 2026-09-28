@@ -205,6 +205,7 @@ private fun WideWorkspace(
                     StudioPaneView(
                         content = state.paneContent(pane),
                         onOpenResearch = exits.onOpenResearch,
+                        questions = exits.questions,
                         onIntent = onIntent,
                         layout = PaneLayout(
                             isSplitAllowed = isSplitAllowed && state.panes.size == 1,
@@ -242,6 +243,7 @@ private fun CompactWorkspace(
             StudioPaneView(
                 content = state.paneContent(pane),
                 onOpenResearch = exits.onOpenResearch,
+                questions = exits.questions,
                 onIntent = onIntent,
                 layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
                 isAtWindowLeadingEdge = true,
