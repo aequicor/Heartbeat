@@ -77,15 +77,20 @@ internal class SessionRows(
         }
         val status = sessionStatus(session)
         val isMenuOpen = openMenu == rowKey
+        val isSelected = session.id == selectedId
         HbNavigationItem(
             label = session.title,
             onClick = { onIntent(AiStudioScreenIntent.OpenSession(session.id)) },
             modifier = modifier.testTag("session-${session.id}").semantics {
                 if (status.isNotEmpty()) stateDescription = status
             },
-            isSelected = session.id == selectedId,
-            isEmphasized = session.isUnread,
+            isSelected = isSelected,
             level = level,
+            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            onSecondaryClick = { onMenu(rowKey) },
+            selectedBackground = HbTheme.studioColors.selected,
+            selectedForeground = HbTheme.studioColors.onSelected,
+            contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
             if (isActive || isMenuOpen) {
                 HbMenuButton(
@@ -96,6 +101,7 @@ internal class SessionRows(
                     onExpandedChange = { onMenu(if (it) rowKey else null) },
                     onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
                     modifier = Modifier.testTag("session-menu-$rowKey"),
+                    size = HbTheme.studioDimensions.navigationRowHeight,
                 )
             } else {
                 SessionIndicator(session)
@@ -107,17 +113,16 @@ internal class SessionRows(
 @Composable
 private fun SessionIndicator(session: SessionUi) {
     val dimensions = HbTheme.dimensions
-    Box(Modifier.size(dimensions.touchTarget), contentAlignment = Alignment.Center) {
+    val foreground = if (session.isUnread) HbTheme.studioColors.accent else HbTheme.colors.textSecondary
+    Box(Modifier.size(HbTheme.studioDimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
         when {
             session.isRunning -> HbActivityIndicator()
 
             session.isUnread -> Box(
-                Modifier.size(dimensions.statusDotSize).background(HbTheme.colors.brand, CircleShape),
+                Modifier.size(dimensions.statusDotSize).background(foreground, CircleShape),
             )
 
-            session.branch != null -> HbIcon(HbIcons.Branch, null, Modifier.size(dimensions.iconSmallSize))
-
-            session.isPinned -> HbIcon(HbIcons.Pin, null, Modifier.size(dimensions.iconSmallSize))
+            session.isPinned -> HbIcon(HbIcons.Pin, null, Modifier.size(dimensions.iconSmallSize), tint = foreground)
         }
     }
 }

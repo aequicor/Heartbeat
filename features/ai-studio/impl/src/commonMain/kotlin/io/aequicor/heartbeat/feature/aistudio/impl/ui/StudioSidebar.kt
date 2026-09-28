@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -12,7 +13,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -24,10 +24,14 @@ import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbNavigationHeader
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
+import io.aequicor.heartbeat.ds.components.HbSearchField
+import io.aequicor.heartbeat.ds.components.HbStudioMark
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.HbTextField
+import io.aequicor.heartbeat.ds.components.HbTooltip
+import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectGroupUi
@@ -36,7 +40,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarCon
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.sidebarContent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_archive_empty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_collapsed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_expanded
@@ -49,7 +53,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_projects
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_recent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_results
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_title
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_search_clear
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_shortcut_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_brand
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -59,13 +65,17 @@ internal fun StudioSidebar(
     input: SidebarInput,
     onIntent: (AiStudioScreenIntent) -> Unit,
     isOpenBesideAllowed: Boolean,
+    exits: StudioExits,
+    focus: StudioFocusState,
     modifier: Modifier = Modifier,
+    isDrawer: Boolean = false,
 ) {
     val sidebar = input.sidebar
     val content = remember(input.projects, input.sessions, input.running, sidebar) {
         sidebarContent(input.projects, input.sessions, input.running, sidebar)
     }
     var openMenu by remember { mutableStateOf<String?>(null) }
+    var isPinnedExpanded by remember { mutableStateOf(true) }
     val rows = SessionRows(
         selectedId = input.selectedId,
         renaming = sidebar.renaming,
@@ -75,44 +85,104 @@ internal fun StudioSidebar(
         onIntent = onIntent,
     )
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
-        HbText(
-            text = stringResource(
-                if (sidebar.mode == SidebarMode.Archive) Res.string.rail_archive else Res.string.studio_title,
-            ),
-            modifier = Modifier.padding(
-                start = HbTheme.spacing.l,
-                end = HbTheme.spacing.l,
-                top = HbTheme.spacing.l,
-                bottom = HbTheme.spacing.s,
-            ),
-            style = HbTheme.typography.title,
-            maxLines = 1,
+        SidebarHeader(
+            onNew = { onIntent(AiStudioScreenIntent.NewSession(input.newSessionProjectId)) },
+            onCollapse = {
+                onIntent(
+                    if (isDrawer) AiStudioScreenIntent.SetDrawerOpen(false) else AiStudioScreenIntent.ToggleSidebar,
+                )
+            },
         )
-        if (sidebar.isSearchVisible) SearchField(sidebar.query, onIntent)
+        if (sidebar.isSearchVisible) {
+            SearchField(sidebar.query, onIntent, focus)
+        } else {
+            SidebarSearch { onIntent(AiStudioScreenIntent.ToggleSearch) }
+        }
         HbLazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            gap = HbTheme.spacing.xxs,
-            contentPadding = PaddingValues(horizontal = HbTheme.spacing.s, vertical = HbTheme.spacing.xs),
+            gap = HbTheme.spacing.none,
+            contentPadding = PaddingValues(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s),
         ) {
             val results = content.results
             when {
                 results != null -> searchResults(results, rows)
+
                 sidebar.mode == SidebarMode.Archive -> archivedSessions(content, rows)
-                else -> workspaceSessions(content, input, rows, onIntent)
+
+                else -> {
+                    pinnedSessions(content.pinned, isPinnedExpanded, { isPinnedExpanded = !isPinnedExpanded }, rows)
+                    workspaceSessions(content, input, rows, onIntent)
+                }
             }
+        }
+        StudioRail(sidebar, onIntent, exits)
+    }
+}
+
+@Composable
+private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
+    HbWindowDragArea(Modifier.fillMaxWidth()) {
+        HbRow(
+            Modifier.fillMaxWidth().padding(top = HbTheme.studioDimensions.titlebarInset)
+                .heightIn(min = HbTheme.studioDimensions.headerHeight)
+                .padding(horizontal = HbTheme.spacing.l),
+            gap = HbTheme.spacing.m,
+        ) {
+            HbStudioMark()
+            HbText(stringResource(Res.string.studio_brand), Modifier.weight(1f), style = HbTheme.typography.label)
+            HbIconButton(
+                HbIcons.Plus,
+                stringResource(Res.string.sidebar_new_session),
+                onNew,
+                Modifier.testTag("sidebar-new-session"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+                tooltipText = shortcutHint(stringResource(Res.string.sidebar_new_session), "N"),
+            )
+            HbIconButton(
+                HbIcons.Sidebar,
+                stringResource(Res.string.rail_sidebar_hide),
+                onCollapse,
+                Modifier.testTag("rail-sidebar"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+                tooltipText = shortcutHint(stringResource(Res.string.rail_sidebar_hide), "\\"),
+            )
         }
     }
 }
 
 @Composable
-private fun SearchField(query: String, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
-    val focus = remember { FocusRequester() }
-    SideEffect(focus) { focus.requestFocus() }
-    HbTextField(
+private fun SidebarSearch(onSearch: () -> Unit) {
+    val label = stringResource(Res.string.sidebar_search)
+    HbTooltip(shortcutHint(label, "K")) {
+        HbNavigationItem(
+            label = label,
+            onClick = onSearch,
+            modifier = Modifier.padding(horizontal = HbTheme.spacing.m).testTag("sidebar-search-open"),
+            icon = HbIcons.Search,
+            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+        ) {
+            HbText(studioShortcutLabel("K"), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
+        }
+    }
+}
+
+@Composable
+internal fun shortcutHint(label: String, key: String): String =
+    stringResource(Res.string.sidebar_shortcut_hint, label, studioShortcutLabel(key))
+
+@Composable
+private fun SearchField(
+    query: String,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    focus: StudioFocusState,
+    modifier: Modifier = Modifier,
+) {
+    SideEffect(focus, focus.searchRequest) { focus.search.requestFocus() }
+    HbSearchField(
         value = query,
         onValueChange = { onIntent(AiStudioScreenIntent.SearchChanged(it)) },
         modifier = modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs)
-            .focusRequester(focus)
+            .focusRequester(focus.search)
             .onPreviewKeyEvent { event ->
                 val isEscape = event.key == Key.Escape && event.type == KeyEventType.KeyUp
                 if (isEscape) onIntent(AiStudioScreenIntent.ToggleSearch)
@@ -120,6 +190,8 @@ private fun SearchField(query: String, onIntent: (AiStudioScreenIntent) -> Unit,
             }
             .testTag("sidebar-search"),
         placeholder = stringResource(Res.string.sidebar_search),
+        clearLabel = stringResource(Res.string.sidebar_search_clear),
+        shortcutLabel = studioShortcutLabel("K"),
     )
 }
 
@@ -138,39 +210,54 @@ private fun LazyListScope.archivedSessions(content: SidebarContent, rows: Sessio
     items(content.archived, key = { "archived-${it.id}" }) { rows.SessionRow(it, "archived") }
 }
 
+private fun LazyListScope.pinnedSessions(
+    sessions: List<SessionUi>,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    rows: SessionRows,
+) {
+    if (sessions.isEmpty()) return
+    item(key = "pinned-header") {
+        SectionHeader(Res.string.sidebar_pinned, isExpanded, onToggle, Modifier.testTag("sidebar-section-pinned"))
+    }
+    if (isExpanded) {
+        items(sessions, key = { "pinned-${it.id}" }) { rows.SessionRow(it, "pinned") }
+    }
+}
+
 private fun LazyListScope.workspaceSessions(
     content: SidebarContent,
     input: SidebarInput,
     rows: SessionRows,
     onIntent: (AiStudioScreenIntent) -> Unit,
 ) {
-    item(key = "new-session") {
-        HbNavigationItem(
-            label = stringResource(Res.string.sidebar_new_session),
-            onClick = { onIntent(AiStudioScreenIntent.NewSession(input.newSessionProjectId)) },
-            modifier = Modifier.testTag("sidebar-new-session"),
-            icon = HbIcons.Edit,
-        )
-    }
-    if (content.pinned.isNotEmpty()) {
-        item(key = "pinned-header") { HbNavigationHeader(stringResource(Res.string.sidebar_pinned)) }
-        items(content.pinned, key = { "pinned-${it.id}" }) { rows.SessionRow(it, "pinned") }
-    }
-    item(key = "projects-header") {
-        SectionHeader(
-            title = Res.string.sidebar_projects,
-            isExpanded = input.sidebar.isProjectsExpanded,
-            onToggle = { onIntent(AiStudioScreenIntent.ToggleProjectsSection) },
-        )
-    }
-    if (input.sidebar.isProjectsExpanded) {
-        content.projects.forEach { group -> projectGroup(group, rows, onIntent) }
+    if (content.projects.isNotEmpty()) {
+        item(key = "projects-header") {
+            SectionHeader(
+                title = Res.string.sidebar_projects,
+                isExpanded = input.sidebar.isProjectsExpanded,
+                onToggle = { onIntent(AiStudioScreenIntent.ToggleProjectsSection) },
+                modifier = Modifier.padding(
+                    top = if (content.pinned.isEmpty()) HbTheme.spacing.none else HbTheme.spacing.l,
+                ).testTag("sidebar-section-projects"),
+            )
+        }
+        if (input.sidebar.isProjectsExpanded) {
+            content.projects.forEach { group -> projectGroup(group, rows, onIntent) }
+        }
     }
     item(key = "recent-header") {
         SectionHeader(
             title = Res.string.sidebar_recent,
             isExpanded = input.sidebar.isRecentExpanded,
             onToggle = { onIntent(AiStudioScreenIntent.ToggleRecentSection) },
+            modifier = Modifier.padding(
+                top = if (content.pinned.isEmpty() && content.projects.isEmpty()) {
+                    HbTheme.spacing.none
+                } else {
+                    HbTheme.spacing.l
+                },
+            ).testTag("sidebar-section-recent"),
         )
     }
     if (input.sidebar.isRecentExpanded) {
@@ -189,12 +276,15 @@ private fun LazyListScope.projectGroup(
             onClick = { onIntent(AiStudioScreenIntent.ToggleProject(group.project.id)) },
             modifier = Modifier.testTag("project-${group.project.id}"),
             icon = if (group.isExpanded) HbIcons.FolderOpen else HbIcons.Folder,
+            contentColor = HbTheme.colors.textPrimary,
+            minHeight = HbTheme.studioDimensions.navigationRowHeight,
         ) { isActive ->
             if (isActive) {
                 HbIconButton(
                     icon = HbIcons.Plus,
                     contentDescription = stringResource(Res.string.sidebar_new_in_project, group.project.name),
                     onClick = { onIntent(AiStudioScreenIntent.NewSession(group.project.id)) },
+                    size = HbTheme.studioDimensions.navigationRowHeight,
                 )
             }
         }
@@ -229,6 +319,10 @@ private fun SectionHeader(
         expandedLabel = stringResource(Res.string.sidebar_expanded),
         collapsedLabel = stringResource(Res.string.sidebar_collapsed),
         onToggle = onToggle,
+        isChevronAlwaysVisible = false,
+        textStyle = HbTheme.typography.caption,
+        contentColor = HbTheme.colors.textSecondary,
+        minHeight = HbTheme.studioDimensions.navigationRowHeight,
     )
 }
 

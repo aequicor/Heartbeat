@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,6 +21,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -27,11 +31,13 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbStudioBackdrop
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
+import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -63,21 +69,25 @@ internal fun AiStudioContent(
     exits: StudioExits,
     modifier: Modifier = Modifier,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
-        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-            when (state.phase) {
-                StudioPhase.Loading -> StudioLoading(Modifier.align(Alignment.Center))
+    HbStudioTheme {
+        HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
+            HbStudioBackdrop(Modifier.fillMaxSize(), isAmbient = true) {
+                Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                    when (state.phase) {
+                        StudioPhase.Loading -> StudioLoading(Modifier.align(Alignment.Center))
 
-                StudioPhase.Error -> StudioMessage(
-                    title = stringResource(Res.string.studio_error),
-                    action = stringResource(Res.string.studio_retry),
-                    onAction = { onIntent(AiStudioScreenIntent.Retry) },
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                        StudioPhase.Error -> StudioMessage(
+                            title = stringResource(Res.string.studio_error),
+                            action = stringResource(Res.string.studio_retry),
+                            onAction = { onIntent(AiStudioScreenIntent.Retry) },
+                            modifier = Modifier.align(Alignment.Center),
+                        )
 
-                StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
+                        StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
 
-                StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits)
+                        StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits)
+                    }
+                }
             }
         }
     }
@@ -85,14 +95,46 @@ internal fun AiStudioContent(
 
 @Composable
 private fun StudioWorkspace(state: AiStudioScreenState, onIntent: (AiStudioScreenIntent) -> Unit, exits: StudioExits) {
-    HbBoxWithConstraints(Modifier.fillMaxSize().testTag("studio-workspace")) {
+    val focus = remember { StudioFocusState() }
+    val dispatch: (AiStudioScreenIntent) -> Unit = { intent ->
+        focus.beforeIntent(intent, state)
+        onIntent(intent)
+    }
+    HbBoxWithConstraints(Modifier.fillMaxSize()) {
+        val availableWidth = maxWidth
         val dimensions = HbTheme.dimensions
-        if (maxWidth < dimensions.compactBreakpoint) {
-            CompactWorkspace(state, onIntent, exits, drawerWidth = minOf(dimensions.drawerMaxWidth, maxWidth))
-        } else {
-            val panesWidth = maxWidth - dimensions.navigationRailWidth -
-                if (state.sidebar.isVisible) dimensions.navigationPanelWidth else HbTheme.spacing.none
-            WideWorkspace(state, onIntent, exits, isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2)
+        val studio = HbTheme.studioDimensions
+        val sidebarWidth by animateDpAsState(
+            if (state.sidebar.isVisible) studio.sidebarWidth + studio.panelGap else HbTheme.spacing.none,
+            animationSpec = if (HbTheme.motion.isReducedMotion) snap() else tween(HbTheme.motion.fastMillis),
+            label = "studioSidebarWidth",
+        )
+        val minimumWideWidth = studio.sidebarWidth +
+            studio.outerInset * 2 + studio.panelGap + dimensions.paneMinWidth + studio.messagePadding * 2
+        val isCompact = availableWidth < maxOf(dimensions.compactBreakpoint, minimumWideWidth)
+        Box(
+            Modifier.fillMaxSize().studioShortcuts(state, isCompact, focus, dispatch)
+                .testTag("studio-workspace"),
+        ) {
+            if (isCompact) {
+                CompactWorkspace(
+                    state,
+                    dispatch,
+                    exits,
+                    focus,
+                    drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
+                )
+            } else {
+                val panesWidth = availableWidth - sidebarWidth - studio.outerInset * 2
+                WideWorkspace(
+                    state,
+                    dispatch,
+                    exits,
+                    focus,
+                    sidebarWidth,
+                    isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
+                )
+            }
         }
     }
 }
@@ -102,22 +144,35 @@ private fun WideWorkspace(
     state: AiStudioScreenState,
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
+    focus: StudioFocusState,
+    sidebarWidth: Dp,
     isSplitAllowed: Boolean,
 ) {
-    HbRow(Modifier.fillMaxSize(), gap = HbTheme.spacing.none, verticalAlignment = Alignment.Top) {
-        StudioRail(state.sidebar, onIntent, exits, Modifier.fillMaxHeight())
-        if (state.sidebar.isVisible) {
-            StudioSidebar(
-                input = state.sidebarInput(),
-                onIntent = onIntent,
-                isOpenBesideAllowed = isSplitAllowed,
-                modifier = Modifier.width(HbTheme.dimensions.navigationPanelWidth).fillMaxHeight(),
-            )
+    HbRow(
+        Modifier.fillMaxSize().padding(
+            horizontal = HbTheme.studioDimensions.outerInset,
+            vertical = HbTheme.studioDimensions.verticalInset,
+        ),
+        gap = HbTheme.spacing.none,
+        verticalAlignment = Alignment.Top,
+    ) {
+        if (sidebarWidth > HbTheme.spacing.none) {
+            Box(Modifier.width(sidebarWidth).fillMaxHeight().clipToBounds()) {
+                StudioSidebar(
+                    input = state.sidebarInput(),
+                    onIntent = onIntent,
+                    isOpenBesideAllowed = isSplitAllowed,
+                    exits = exits,
+                    focus = focus,
+                    modifier = Modifier.width(HbTheme.studioDimensions.sidebarWidth).fillMaxHeight()
+                        .background(HbTheme.studioColors.sidebar).studioSidebarFocus(focus),
+                )
+            }
         }
         val shown = if (isSplitAllowed) state.panes else state.panes.filter { it.id == state.focusedPaneId }
         HbRow(
-            Modifier.weight(1f).fillMaxHeight().padding(HbTheme.spacing.m),
-            gap = HbTheme.spacing.m,
+            Modifier.weight(1f).fillMaxHeight(),
+            gap = HbTheme.studioDimensions.panelGap,
             verticalAlignment = Alignment.Top,
         ) {
             shown.forEach { pane ->
@@ -131,6 +186,7 @@ private fun WideWorkspace(
                             isCloseAllowed = shown.size > 1,
                             isCompact = false,
                         ),
+                        isAtWindowLeadingEdge = !state.sidebar.isVisible && pane == shown.first(),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
                     )
                 }
@@ -144,6 +200,7 @@ private fun CompactWorkspace(
     state: AiStudioScreenState,
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
+    focus: StudioFocusState,
     drawerWidth: Dp,
 ) {
     Box(Modifier.fillMaxSize()) {
@@ -153,7 +210,8 @@ private fun CompactWorkspace(
                 onOpenResearch = exits.onOpenResearch,
                 onIntent = onIntent,
                 layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
-                modifier = Modifier.fillMaxSize().padding(HbTheme.spacing.xs),
+                isAtWindowLeadingEdge = true,
+                modifier = Modifier.fillMaxSize(),
             )
         }
         if (state.sidebar.isDrawerOpen) {
@@ -167,18 +225,18 @@ private fun CompactWorkspace(
             )
             HbPanel(
                 Modifier.width(drawerWidth).fillMaxHeight().testTag("studio-drawer"),
-                background = HbTheme.colors.surface,
+                background = HbTheme.colors.assistantSurface,
                 shape = HbTheme.shapes.large,
             ) {
-                HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-                    StudioRail(state.sidebar, onIntent, exits, isHorizontal = true)
-                    StudioSidebar(
-                        state.sidebarInput(),
-                        onIntent,
-                        isOpenBesideAllowed = false,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
+                StudioSidebar(
+                    state.sidebarInput(),
+                    onIntent,
+                    isOpenBesideAllowed = false,
+                    exits = exits,
+                    focus = focus,
+                    modifier = Modifier.fillMaxSize().studioSidebarFocus(focus),
+                    isDrawer = true,
+                )
             }
         }
     }
@@ -188,7 +246,7 @@ private fun CompactWorkspace(
 private fun StudioLoading(modifier: Modifier = Modifier) {
     HbColumn(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         HbActivityIndicator(size = HbTheme.dimensions.iconLargeSize)
-        HbText(stringResource(Res.string.studio_loading), color = HbTheme.colors.textSecondary)
+        HbText(stringResource(Res.string.studio_loading), color = HbTheme.colors.textPrimary)
     }
 }
 
