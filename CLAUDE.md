@@ -28,8 +28,9 @@ lint/            detekt-rules — собственный набор правил
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
 > Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
 > AI-движки: контракты `features:ai-engine:{facade,authenticator}:api`; `authenticator:impl` — источники авторизации профиля и проверки;
-> `facade:impl` — каталог движков и привязок, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине.
-> Адаптеры конкретных движков и UI подключения пока не реализованы.
+> `facade:impl` — каталог движков и привязок, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине;
+> локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
+> UI подключения пока не реализован.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
 > логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
