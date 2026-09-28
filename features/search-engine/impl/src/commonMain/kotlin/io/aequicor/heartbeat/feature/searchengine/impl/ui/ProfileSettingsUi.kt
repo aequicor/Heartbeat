@@ -5,13 +5,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.arkivanov.decompose.ComponentContext
@@ -36,14 +38,24 @@ import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
+import io.aequicor.heartbeat.ds.components.HbActivityIndicator
+import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbDivider
+import io.aequicor.heartbeat.ds.components.HbIconButton
+import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbLoadingState
+import io.aequicor.heartbeat.ds.components.HbPaneHeader
+import io.aequicor.heartbeat.ds.components.HbSettingsRow
+import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
-import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
+import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.searchengine.api.SearchConfiguration
@@ -56,7 +68,9 @@ import io.aequicor.heartbeat.feature.searchengine.impl.presentation.SearchSettin
 import io.aequicor.heartbeat.feature.searchengine.impl.presentation.SearchSettingsState
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.Res
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.api_host
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.api_host_label
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.api_key
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.api_key_label
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_authentication
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_connection
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_connectivity
@@ -69,11 +83,13 @@ import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_success
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_timeout
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_unavailable
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.contents_provider
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.engine_section
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_configured
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_missing
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_storage_development
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_storage_protected
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.prefer_native
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.prefer_native_hint
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.provider_querit
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.remove_key
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.save_host
@@ -131,77 +147,102 @@ internal class ProfileSettingsRouteEntry(
 }
 
 @Composable
-private fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
     val state by produceState(SearchSettingsState(), model) {
         model.store.collect { states.collect { value = it } }
     }
-    Box(modifier.fillMaxSize().testTag("profile-settings").background(HbTheme.colors.background)) {
-        HbLazyColumn(Modifier.fillMaxSize().safeDrawingPadding()) {
-            item {
-                HbColumn {
-                    HbButton(stringResource(Res.string.settings_back), onBack, style = HbButtonStyle.Ghost)
-                    HbText(stringResource(Res.string.settings_title), style = HbTheme.typography.display)
-                    HbText(
-                        stringResource(
-                            if (state.isKeyStorageProtected) {
-                                Res.string.key_storage_protected
-                            } else {
-                                Res.string.key_storage_development
-                            },
-                        ),
-                        style = HbTheme.typography.caption,
+    ProfileSettingsContent(state, model.store::intent, onBack, modifier)
+}
+
+/**
+ * Search providers of the profile as settings sections: one per operation (key, API URL, connection check) and
+ * the engine preference. Keys are typed into a secret field, sent once and cleared; they are never shown back.
+ * Inside the settings host [onBack] is null and only this content is drawn.
+ */
+@Composable
+internal fun ProfileSettingsContent(
+    state: SearchSettingsState,
+    onIntent: (SearchSettingsIntent) -> Unit,
+    onBack: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    HbColumn(
+        modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("profile-settings"),
+        gap = HbTheme.spacing.none,
+    ) {
+        if (onBack != null) {
+            HbPaneHeader(
+                stringResource(Res.string.settings_title),
+                leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+                navigation = {
+                    HbIconButton(
+                        HbIcons.ArrowLeft,
+                        stringResource(Res.string.settings_back),
+                        onBack,
+                        Modifier.testTag("profile-settings-back"),
                     )
-                }
-            }
-            val settings = state.settings
-            if (settings == null) {
-                item { HbText(stringResource(Res.string.settings_loading)) }
-            } else {
-                item {
-                    ConnectionCard(
-                        SearchOperation.Search,
-                        settings.search,
-                        state.searchHost,
-                        state.searchCheck,
-                        state.searchCheckFailure,
-                        model.store::intent,
-                    )
-                }
-                item {
-                    ConnectionCard(
-                        SearchOperation.Contents,
-                        settings.contents,
-                        state.contentsHost,
-                        state.contentsCheck,
-                        state.contentsCheckFailure,
-                        model.store::intent,
-                    )
-                }
-                item {
-                    HbPanel(Modifier.fillMaxWidth()) {
-                        HbSwitch(
-                            settings.preferNative,
-                            { model.store.intent(SearchSettingsIntent.PreferNative(it)) },
-                            stringResource(Res.string.prefer_native),
-                        )
-                        HbText(stringResource(Res.string.prefer_native))
-                    }
-                }
-            }
-            if (state.failure != null) {
-                item {
-                    HbText(
-                        stringResource(Res.string.settings_error),
-                        color = HbTheme.colors.error,
-                    )
-                }
+                },
+            )
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            HbColumn(
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
+                    .hbVerticalScroll(rememberScrollState())
+                    .padding(HbTheme.spacing.xl),
+                gap = HbTheme.spacing.xxl,
+            ) {
+                SettingsBody(state, onIntent)
             }
         }
     }
 }
 
 @Composable
-private fun ConnectionCard(
+private fun SettingsBody(state: SearchSettingsState, onIntent: (SearchSettingsIntent) -> Unit) {
+    HbText(
+        stringResource(
+            if (state.isKeyStorageProtected) Res.string.key_storage_protected else Res.string.key_storage_development,
+        ),
+        style = HbTheme.typography.caption,
+        color = HbTheme.colors.textSecondary,
+    )
+    if (state.failure != null) HbBanner(stringResource(Res.string.settings_error))
+    val settings = state.settings
+    if (settings == null) {
+        HbLoadingState(stringResource(Res.string.settings_loading))
+        return
+    }
+    HbSettingsSection(stringResource(Res.string.engine_section)) {
+        val label = stringResource(Res.string.prefer_native)
+        HbSettingsRow(label, description = stringResource(Res.string.prefer_native_hint)) {
+            HbSwitch(
+                settings.preferNative,
+                { onIntent(SearchSettingsIntent.PreferNative(it)) },
+                label,
+                Modifier.testTag("prefer-native"),
+            )
+        }
+    }
+    ConnectionSection(
+        SearchOperation.Search,
+        settings.search,
+        state.searchHost,
+        state.searchCheck,
+        state.searchCheckFailure,
+        onIntent,
+    )
+    ConnectionSection(
+        SearchOperation.Contents,
+        settings.contents,
+        state.contentsHost,
+        state.contentsCheck,
+        state.contentsCheckFailure,
+        onIntent,
+    )
+}
+
+@Composable
+private fun ConnectionSection(
     operation: SearchOperation,
     connection: SearchConnection,
     host: String,
@@ -209,52 +250,69 @@ private fun ConnectionCard(
     checkFailure: SearchFailure?,
     onIntent: (SearchSettingsIntent) -> Unit,
 ) {
-    HbPanel(Modifier.fillMaxWidth().padding(HbTheme.spacing.m)) {
-        HbColumn(Modifier.padding(HbTheme.spacing.l)) {
-            HbText(
-                stringResource(
-                    if (operation == SearchOperation.Search) {
-                        Res.string.search_provider
-                    } else {
-                        Res.string.contents_provider
-                    },
-                ),
-                style = HbTheme.typography.title,
-            )
-            HbText(stringResource(Res.string.provider_querit))
-            ConnectionKeyEditor(operation, connection.hasKey, onIntent)
+    val title = if (operation == SearchOperation.Search) Res.string.search_provider else Res.string.contents_provider
+    HbSettingsSection(stringResource(title), description = stringResource(Res.string.provider_querit)) {
+        ConnectionKeyEditor(operation, connection.hasKey, onIntent)
+        HbDivider()
+        HbSettingsRow(stringResource(Res.string.api_host_label)) {
             HbTextField(
                 host,
                 { onIntent(SearchSettingsIntent.EditHost(operation, it)) },
-                Modifier.fillMaxWidth(),
+                Modifier.widthIn(min = HbTheme.dimensions.composerMenuMinWidth).testTag("host:$operation"),
                 placeholder = stringResource(Res.string.api_host),
+                accessibleLabel = stringResource(Res.string.api_host_label),
             )
-            HbButton(stringResource(Res.string.save_host), { onIntent(SearchSettingsIntent.SaveHost(operation)) })
-            ConnectionCheck(operation, connection.hasKey, phase, checkFailure, onIntent)
+            HbButton(
+                stringResource(Res.string.save_host),
+                { onIntent(SearchSettingsIntent.SaveHost(operation)) },
+                style = HbButtonStyle.Secondary,
+                size = HbButtonSize.Small,
+            )
         }
+        HbDivider()
+        ConnectionCheck(operation, connection.hasKey, phase, checkFailure, onIntent)
     }
 }
 
 @Composable
 private fun ConnectionKeyEditor(operation: SearchOperation, hasKey: Boolean, onIntent: (SearchSettingsIntent) -> Unit) {
     var keyInput by remember(operation) { mutableStateOf("") }
-    HbText(stringResource(if (hasKey) Res.string.key_configured else Res.string.key_missing))
-    HbTextField(
-        keyInput,
-        { keyInput = it },
-        Modifier.fillMaxWidth(),
-        placeholder = stringResource(Res.string.api_key),
-        isSecret = true,
-    )
-    HbButton(stringResource(Res.string.save_key), {
-        onIntent(SearchSettingsIntent.SaveKey(operation, Secret(keyInput.toCharArray())))
-        keyInput = ""
-    }, enabled = keyInput.isNotBlank())
-    if (hasKey) {
+    HbSettingsRow(
+        stringResource(Res.string.api_key_label),
+        description = stringResource(if (hasKey) Res.string.key_configured else Res.string.key_missing),
+    ) {
+        if (hasKey) {
+            HbButton(
+                stringResource(Res.string.remove_key),
+                { onIntent(SearchSettingsIntent.SaveKey(operation, null)) },
+                Modifier.testTag("remove-key:$operation"),
+                style = HbButtonStyle.Ghost,
+                size = HbButtonSize.Small,
+            )
+        }
+    }
+    HbRow(
+        Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
+        gap = HbTheme.spacing.s,
+    ) {
+        HbTextField(
+            keyInput,
+            { keyInput = it },
+            Modifier.weight(1f).testTag("key:$operation"),
+            placeholder = stringResource(Res.string.api_key),
+            accessibleLabel = stringResource(Res.string.api_key_label),
+            isSecret = true,
+        )
         HbButton(
-            stringResource(Res.string.remove_key),
-            { onIntent(SearchSettingsIntent.SaveKey(operation, null)) },
-            style = HbButtonStyle.Ghost,
+            stringResource(Res.string.save_key),
+            {
+                onIntent(SearchSettingsIntent.SaveKey(operation, Secret(keyInput.toCharArray())))
+                keyInput = ""
+            },
+            Modifier.testTag("save-key:$operation"),
+            style = HbButtonStyle.Secondary,
+            enabled = keyInput.isNotBlank(),
+            size = HbButtonSize.Small,
         )
     }
 }
@@ -267,20 +325,26 @@ private fun ConnectionCheck(
     failure: SearchFailure?,
     onIntent: (SearchSettingsIntent) -> Unit,
 ) {
-    HbButton(
-        stringResource(Res.string.check_connection),
-        { onIntent(SearchSettingsIntent.Check(operation)) },
-        enabled = hasKey && phase != CheckPhase.Checking,
-    )
-    when (phase) {
-        CheckPhase.Success -> HbText(stringResource(Res.string.check_success), color = HbTheme.colors.success)
+    val status = when (phase) {
+        CheckPhase.Success -> stringResource(Res.string.check_success)
 
-        CheckPhase.Failure -> {
-            HbText(stringResource(Res.string.check_failed), color = HbTheme.colors.error)
-            if (failure != null) HbText(checkFailureLabel(failure), color = HbTheme.colors.error)
-        }
+        CheckPhase.Failure -> listOfNotNull(
+            stringResource(Res.string.check_failed),
+            failure?.let { checkFailureLabel(it) },
+        ).joinToString(" · ")
 
-        CheckPhase.Idle, CheckPhase.Checking -> Unit
+        CheckPhase.Idle, CheckPhase.Checking -> null
+    }
+    HbSettingsRow(stringResource(Res.string.check_connection), description = status) {
+        if (phase == CheckPhase.Checking) HbActivityIndicator()
+        HbButton(
+            stringResource(Res.string.check_connection),
+            { onIntent(SearchSettingsIntent.Check(operation)) },
+            Modifier.testTag("check:$operation"),
+            style = HbButtonStyle.Secondary,
+            enabled = hasKey && phase != CheckPhase.Checking,
+            size = HbButtonSize.Small,
+        )
     }
 }
 
