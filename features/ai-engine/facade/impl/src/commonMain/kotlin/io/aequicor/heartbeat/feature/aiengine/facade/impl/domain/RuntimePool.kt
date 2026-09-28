@@ -8,8 +8,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -126,8 +128,11 @@ class RuntimePool(
             runtimes.values.toList().also { runtimes.clear() }
         }
         log.i { "close runtimes count=${all.size}" }
-        // Already unregistered: every one is closed even if shutdown is cancelled midway.
-        withContext(NonCancellable) { all.forEach { closeQuietly(it) } }
+        // Already unregistered: every one is closed even if shutdown is cancelled midway. Each close runs in its own
+        // child, so a cancellation thrown by one adapter close does not skip the others.
+        withContext(NonCancellable) {
+            coroutineScope { all.forEach { runtime -> launch { closeQuietly(runtime) } } }
+        }
     }
 
     private suspend fun closeQuietly(runtime: EngineRuntime) {

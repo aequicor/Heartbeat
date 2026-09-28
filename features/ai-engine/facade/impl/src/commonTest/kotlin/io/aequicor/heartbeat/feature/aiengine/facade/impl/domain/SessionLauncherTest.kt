@@ -232,6 +232,10 @@ class SessionLauncherTest {
 
         assertTrue(request.isCancelled)
         assertEquals(1, runtimes.single().closes)
+
+        factory.createGate = null
+        launcher.create(CreateSessionRequest(fixture.target))
+        assertEquals(2, runtimes.size, "the closed runtime was not kept in the pool")
     }
 }
 
