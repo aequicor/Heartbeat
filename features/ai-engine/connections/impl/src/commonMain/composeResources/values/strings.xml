@@ -42,12 +42,14 @@
     <string name="wizard_key_hint_development">Development build: keys are saved locally without system protection, separately from release keys.</string>
     <string name="wizard_get_key">Get an API key</string>
     <string name="wizard_field_host">API host</string>
+    <string name="wizard_base_url_hint">You may enter the full API base URL including its path, e.g. https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">The address is fixed for this provider.</string>
     <string name="wizard_field_label">Connection name</string>
     <string name="wizard_cli_hint">Uses the sign-in of the engine\'s own CLI. Heartbeat never reads, copies or refreshes its tokens.</string>
     <string name="wizard_no_auth_hint">The endpoint needs no credentials, for example a local model server.</string>
     <string name="wizard_error_missing_key">Enter the API key</string>
     <string name="wizard_error_invalid_host">Enter an address like https://api.example.com</string>
+    <string name="wizard_error_insecure_host">Plain HTTP is allowed only for localhost; use https:// for other servers</string>
     <string name="wizard_connect">Connect</string>
     <string name="wizard_connecting">Connecting…</string>
     <string name="wizard_models_intro">Choose the models offered through this connection.</string>

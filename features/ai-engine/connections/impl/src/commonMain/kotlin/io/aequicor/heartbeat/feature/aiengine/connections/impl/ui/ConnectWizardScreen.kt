@@ -79,12 +79,14 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_mo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search_clear
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_selected
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_base_url_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_cli_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connecting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engine_intro
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engine_not_connectable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engines_empty
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_insecure_host
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_invalid_host
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_missing_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_host
@@ -346,15 +348,7 @@ private fun MethodForm(
 
                 MethodKindUi.NoAuth -> Hint(stringResource(Res.string.wizard_no_auth_hint))
             }
-            FieldLabel(stringResource(Res.string.wizard_field_host))
-            HbTextField(
-                if (method.isOriginEditable) state.form.origin else method.origin,
-                { onIntent(ConnectWizardScreenIntent.EditOrigin(it)) },
-                Modifier.fillMaxWidth().testTag("wizard-host"),
-                enabled = isEnabled && method.isOriginEditable,
-                accessibleLabel = stringResource(Res.string.wizard_field_host),
-            )
-            if (!method.isOriginEditable) Hint(stringResource(Res.string.wizard_host_fixed))
+            HostField(state, method, isEnabled, onIntent)
             FieldLabel(stringResource(Res.string.wizard_field_label))
             HbTextField(
                 state.form.label,
@@ -369,6 +363,7 @@ private fun MethodForm(
                         when (error) {
                             FormError.MissingKey -> Res.string.wizard_error_missing_key
                             FormError.InvalidOrigin -> Res.string.wizard_error_invalid_host
+                            FormError.InsecureOrigin -> Res.string.wizard_error_insecure_host
                         },
                     ),
                     Modifier.testTag("wizard-form-error"),
@@ -572,4 +567,23 @@ private fun WizardFooter(
             )
         }
     }
+}
+
+@Composable
+private fun HostField(
+    state: ConnectWizardScreenState,
+    method: MethodRowUi,
+    isEnabled: Boolean,
+    onIntent: (ConnectWizardScreenIntent) -> Unit,
+) {
+    FieldLabel(stringResource(Res.string.wizard_field_host))
+    HbTextField(
+        if (method.isOriginEditable) state.form.origin else method.origin,
+        { onIntent(ConnectWizardScreenIntent.EditOrigin(it)) },
+        Modifier.fillMaxWidth().testTag("wizard-host"),
+        enabled = isEnabled && method.isOriginEditable,
+        accessibleLabel = stringResource(Res.string.wizard_field_host),
+    )
+    if (method.isPathEditable) Hint(stringResource(Res.string.wizard_base_url_hint))
+    if (!method.isOriginEditable) Hint(stringResource(Res.string.wizard_host_fixed))
 }

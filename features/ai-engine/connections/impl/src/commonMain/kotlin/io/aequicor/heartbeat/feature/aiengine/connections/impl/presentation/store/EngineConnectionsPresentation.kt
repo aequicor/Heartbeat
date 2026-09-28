@@ -87,7 +87,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
             label = source?.info?.label ?: binding.authSource.value,
             provider = source?.let { providers[it.scope.provider] ?: it.scope.provider.value }.orEmpty(),
             kind = source?.kind(),
-            origin = source?.scope?.origin?.value.orEmpty(),
+            origin = source?.scope?.let { it.origin.value + it.basePath.orEmpty() }.orEmpty(),
             isEnabled = binding.isEnabled,
             enabledModels = snapshot.selection.enabled(binding.id).size,
         )

@@ -5,9 +5,11 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.serialization.Serializable
 
 /** Stable registration identity shared by Koog providers. */
@@ -19,9 +21,16 @@ public val KoogAuthOwner: AuthOwnerId = AuthOwnerId("koog")
 /** Experimental text generation, disabled until explicitly enabled. */
 public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog", "Движок Koog")
 
-/** Supported routes. Fixed origins prevent forwarding managed credentials to an arbitrary server. */
+/**
+ * Supported routes. Fixed origins prevent forwarding managed credentials to an arbitrary server; for
+ * [isOriginEditable] routes [origin] is only the suggested default and the source scope names the user's server.
+ */
 @Serializable
-public enum class KoogProvider(public val id: ProviderId, public val origin: EndpointOrigin) {
+public enum class KoogProvider(
+    public val id: ProviderId,
+    public val origin: EndpointOrigin,
+    public val isOriginEditable: Boolean = false,
+) {
     OpenAI(ProviderId("openai"), EndpointOrigin("https://api.openai.com")),
     Anthropic(ProviderId("anthropic"), EndpointOrigin("https://api.anthropic.com")),
 
@@ -32,11 +41,25 @@ public enum class KoogProvider(public val id: ProviderId, public val origin: End
     ),
 
     Ollama(ProviderId("ollama"), EndpointOrigin("http://localhost:11434")),
+
+    /** Any server speaking OpenAI Chat Completions; see [CompatibleProtocol.OpenAI]. */
+    OpenAICompatible(
+        CompatibleProtocol.OpenAI.provider.id,
+        CompatibleProtocol.OpenAI.suggestedOrigin,
+        isOriginEditable = true,
+    ),
+
+    /** Any server speaking Anthropic Messages; see [CompatibleProtocol.Anthropic]. */
+    AnthropicCompatible(
+        CompatibleProtocol.Anthropic.provider.id,
+        CompatibleProtocol.Anthropic.suggestedOrigin,
+        isOriginEditable = true,
+    ),
 }
 
 /**
  * Non-secret profile configuration. Managed keys refer to a SecretStore key with the same opaque id.
- * Cloud providers accept managed keys only; local Ollama accepts NoAuth only. External keys, helpers
+ * Cloud and compatible providers accept managed keys only; local Ollama accepts NoAuth only. External keys, helpers
  * and CLI logins are deliberately unsupported. Updating source metadata must advance its known revision.
  */
 @Serializable
@@ -73,9 +96,13 @@ public interface KoogConnections {
 
 /** Pure compatibility check; no credential resolution or network access. */
 public fun koogProvider(source: AuthSource): KoogProvider? = KoogProvider.entries.firstOrNull { provider ->
-    source.scope.provider == provider.id && source.scope.origin == provider.origin &&
+    source.scope.provider == provider.id && provider.accepts(source.scope.origin) &&
+        (provider.isOriginEditable || source.scope.basePath == null) &&
         when (provider) {
-            KoogProvider.OpenAI, KoogProvider.Anthropic, KoogProvider.AlibabaQwen -> source is AuthSource.ManagedKey
             KoogProvider.Ollama -> source is AuthSource.NoAuth
+            else -> source is AuthSource.ManagedKey
         }
 }
+
+private fun KoogProvider.accepts(scopeOrigin: EndpointOrigin): Boolean =
+    if (isOriginEditable) isCompatibleOriginAllowed(scopeOrigin) else scopeOrigin == origin
