@@ -31,15 +31,13 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
+import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbPanel
-import io.aequicor.heartbeat.ds.components.HbStudioBackdrop
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -77,24 +75,22 @@ internal fun AiStudioContent(
     modifier: Modifier = Modifier,
     chatArea: ComposableComponent? = null,
 ) {
-    HbStudioTheme {
-        HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
-            HbStudioBackdrop(Modifier.fillMaxSize(), isAmbient = true) {
-                Box(Modifier.fillMaxSize().safeDrawingPadding()) {
-                    when (state.phase) {
-                        StudioPhase.Loading -> StudioLoading(Modifier.align(Alignment.Center))
+    Box(modifier.fillMaxSize().testTag("ai-studio").background(HbTheme.colors.background)) {
+        Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
+            Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                when (state.phase) {
+                    StudioPhase.Loading -> StudioLoading(Modifier.align(Alignment.Center))
 
-                        StudioPhase.Error -> StudioMessage(
-                            title = stringResource(Res.string.studio_error),
-                            action = stringResource(Res.string.studio_retry),
-                            onAction = { onIntent(AiStudioScreenIntent.Retry) },
-                            modifier = Modifier.align(Alignment.Center),
-                        )
+                    StudioPhase.Error -> StudioMessage(
+                        title = stringResource(Res.string.studio_error),
+                        action = stringResource(Res.string.studio_retry),
+                        onAction = { onIntent(AiStudioScreenIntent.Retry) },
+                        modifier = Modifier.align(Alignment.Center),
+                    )
 
-                        StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
+                    StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
 
-                        StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea)
-                    }
+                    StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea)
                 }
             }
         }
@@ -116,7 +112,7 @@ private fun StudioWorkspace(
     HbBoxWithConstraints(Modifier.fillMaxSize()) {
         val availableWidth = maxWidth
         val dimensions = HbTheme.dimensions
-        val studio = HbTheme.studioDimensions
+        val studio = HbTheme.dimensions
         val sidebarWidth by animateDpAsState(
             if (state.sidebar.isVisible) studio.sidebarWidth + studio.panelGap else HbTheme.spacing.none,
             animationSpec = if (HbTheme.motion.isReducedMotion) snap() else tween(HbTheme.motion.fastMillis),
@@ -166,8 +162,8 @@ private fun WideWorkspace(
 ) {
     HbRow(
         Modifier.fillMaxSize().padding(
-            horizontal = HbTheme.studioDimensions.outerInset,
-            vertical = HbTheme.studioDimensions.verticalInset,
+            horizontal = HbTheme.dimensions.outerInset,
+            vertical = HbTheme.dimensions.verticalInset,
         ),
         gap = HbTheme.spacing.none,
         verticalAlignment = Alignment.Top,
@@ -180,8 +176,8 @@ private fun WideWorkspace(
                     isOpenBesideAllowed = isSplitAllowed,
                     exits = exits,
                     focus = focus,
-                    modifier = Modifier.width(HbTheme.studioDimensions.sidebarWidth).fillMaxHeight()
-                        .background(HbTheme.studioColors.sidebar).studioSidebarFocus(focus),
+                    modifier = Modifier.width(HbTheme.dimensions.sidebarWidth).fillMaxHeight()
+                        .background(HbTheme.surfaces.sidebar).studioSidebarFocus(focus),
                 )
             }
         }
@@ -197,7 +193,7 @@ private fun WideWorkspace(
         val shown = if (isSplitAllowed) state.panes else state.panes.filter { it.id == state.focusedPaneId }
         HbRow(
             Modifier.weight(1f).fillMaxHeight(),
-            gap = HbTheme.studioDimensions.panelGap,
+            gap = HbTheme.dimensions.panelGap,
             verticalAlignment = Alignment.Top,
         ) {
             shown.forEach { pane ->
@@ -300,22 +296,23 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
         modifier.fillMaxSize().hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl),
         contentAlignment = Alignment.Center,
     ) {
-        HbPanel(Modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)) {
-            HbColumn(Modifier.padding(HbTheme.spacing.xxl), horizontalAlignment = Alignment.CenterHorizontally) {
-                HbText(stringResource(Res.string.studio_title), style = HbTheme.typography.display)
-                HbText(stringResource(Res.string.studio_empty), style = HbTheme.typography.title)
-                HbText(
-                    stringResource(Res.string.studio_description),
-                    color = HbTheme.colors.textSecondary,
-                    style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
-                )
-                HbButton(
-                    stringResource(Res.string.studio_back),
-                    onBack,
-                    Modifier.testTag("studio-back"),
-                    style = HbButtonStyle.Secondary,
-                )
-            }
+        HbColumn(
+            Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            HbText(stringResource(Res.string.studio_title), style = HbTheme.typography.display)
+            HbEmptyState(
+                stringResource(Res.string.studio_empty),
+                description = stringResource(Res.string.studio_description),
+                action = {
+                    HbButton(
+                        stringResource(Res.string.studio_back),
+                        onBack,
+                        Modifier.testTag("studio-back"),
+                        style = HbButtonStyle.Secondary,
+                    )
+                },
+            )
         }
     }
 }

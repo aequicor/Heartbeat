@@ -125,8 +125,8 @@ private fun ComposerMenuTrigger(
             enabled = enabled,
             fallbackSymbol = label,
             shape = HbTheme.shapes.small,
-            size = HbTheme.studioDimensions.composerActionSize,
-            background = HbTheme.studioColors.composerPill,
+            size = HbTheme.dimensions.composerActionSize,
+            background = HbTheme.surfaces.composerPill,
             iconSize = HbTheme.dimensions.iconSize,
             tooltipText = null,
         )
@@ -141,6 +141,6 @@ private fun ComposerMenuTrigger(
             tooltipText = null,
         )
     } else {
-        HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Quiet, enabled = enabled)
+        HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Ghost, enabled = enabled)
     }
 }

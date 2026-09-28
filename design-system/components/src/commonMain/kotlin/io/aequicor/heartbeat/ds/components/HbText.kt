@@ -22,7 +22,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * Theme typography with explicit text, style and color overrides.
  *
  * Single-line text that does not fit is clipped and fades out toward its trailing edge instead of
- * ending with an ellipsis, like native desktop sidebars; multi-line text keeps the ellipsis.
+ * ending with an ellipsis, like native desktop sidebars; while it is clipped a tooltip shows the full text
+ * ([isOverflowTooltipEnabled], on by default for single-line text). Multi-line text keeps the ellipsis on its
+ * last line. With the tooltip, [modifier] applies to the tooltip wrapper around the text node.
  */
 @Composable
 public fun HbText(
@@ -31,7 +33,7 @@ public fun HbText(
     style: TextStyle = HbTheme.typography.body,
     color: Color = HbTheme.colors.textPrimary,
     maxLines: Int = Int.MAX_VALUE,
-    isOverflowTooltipEnabled: Boolean = false,
+    isOverflowTooltipEnabled: Boolean = maxLines == 1,
 ) {
     var hasOverflow by remember(text) { mutableStateOf(false) }
     val isSingleLine = maxLines == 1

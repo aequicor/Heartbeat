@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class HbContrastTest {
     @Test
     fun `console roles remain readable on opaque dark surfaces in both themes`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             assertEquals(1f, colors.consoleSurface.alpha)
             assertTrue(colors.consoleSurface.luminance() < colors.surface.luminance())
             val roles = mapOf(
@@ -34,7 +34,7 @@ class HbContrastTest {
 
     @Test
     fun `syntax text meets WCAG AA on code and message surfaces in both themes`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val syntax = mapOf(
                 "keyword" to colors.syntaxKeyword,
                 "string" to colors.syntaxString,
@@ -66,23 +66,8 @@ class HbContrastTest {
     }
 
     @Test
-    fun `glass tint protects both text levels over pastel content`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
-            val backdrops = listOf(colors.background, colors.primary, colors.secondary, colors.success, colors.dataCyan)
-            backdrops.forEach { backdrop ->
-                val glass = colors.glassTint.compositeOver(backdrop)
-                assertTrue(contrastRatio(colors.textPrimary, glass) >= 4.5f)
-                assertTrue(
-                    contrastRatio(colors.textSecondary, glass) >= 4.5f,
-                    "Glass secondary text fails AA over $backdrop (dark=${colors.isDark})",
-                )
-            }
-        }
-    }
-
-    @Test
     fun `semantic text meets WCAG AA in both themes`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val pairs = listOf(
                 colors.textPrimary to colors.background,
                 colors.textPrimary to colors.surface,
@@ -116,14 +101,14 @@ class HbContrastTest {
 
     @Test
     fun `interactive outline remains distinguishable from surfaces`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             assertTrue(contrastRatio(colors.outline, colors.surface) >= 3f)
         }
     }
 
     @Test
     fun `soft buttons preserve readable labels while hovered and pressed in both themes`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val overlays = mapOf(
                 "hover" to colors.interactionHoverOverlay,
                 "pressed" to colors.pressedOverlay,
@@ -140,14 +125,6 @@ class HbContrastTest {
                     "Secondary/Quiet $state contrast $neutralContrast fails AA (dark=${colors.isDark})",
                 )
             }
-        }
-    }
-
-    @Test
-    fun `paired depth cues remain brighter and darker than the same surface`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
-            assertTrue(colors.shadowLight.luminance() > colors.surface.luminance())
-            assertTrue(colors.shadowDark.luminance() < colors.surface.luminance())
         }
     }
 }

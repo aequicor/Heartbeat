@@ -4,7 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -29,17 +29,30 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.adaptive.AdaptiveButton
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.theme.HbVisualStyle
+import io.aequicor.heartbeat.ds.tokens.HbColors
 
 private val log = Log.tag("DS/Controls")
 
-/** Emphasis of an accessible action, independent of its selected visual implementation. */
-public enum class HbButtonStyle { Primary, Secondary, Quiet }
+/**
+ * Emphasis of an accessible action, independent of its selected visual implementation.
+ * [Primary] is the one main action of a region; [Secondary] a quiet filled action; [Ghost] has no fill until hover;
+ * [Danger] confirms a destructive action and is used only where the consequence is spelled out next to it.
+ */
+public enum class HbButtonStyle { Primary, Secondary, Ghost, Danger }
 
-/** Flat or platform-native action with content-free interaction logging. */
+/** Height of a button: [Regular] 32dp and [Small] 28dp on desktop; touch hosts never go below their touch target. */
+public enum class HbButtonSize { Regular, Small }
+
+/**
+ * Flat or platform-native action with content-free interaction logging. Hover and press are quiet fills without
+ * outlines; the focus ring appears only for keyboard focus.
+ */
 @Composable
 public fun HbButton(
     text: String,
@@ -47,6 +60,7 @@ public fun HbButton(
     modifier: Modifier = Modifier,
     style: HbButtonStyle = HbButtonStyle.Primary,
     enabled: Boolean = true,
+    size: HbButtonSize = HbButtonSize.Regular,
 ) {
     val loggedClick = {
         log.i { "button pressed style=$style" }
@@ -56,15 +70,24 @@ public fun HbButton(
         AdaptiveButton(
             text = text,
             onClick = loggedClick,
-            modifier = modifier.heightIn(min = HbTheme.dimensions.touchTarget),
+            modifier = modifier.heightIn(min = buttonHeight(size)),
             enabled = enabled,
             primary = style == HbButtonStyle.Primary,
             dimensions = HbTheme.dimensions,
         )
     } else {
-        FlatButton(text, loggedClick, modifier, style, enabled)
+        FlatButton(text, loggedClick, modifier, style, enabled, size)
     }
 }
+
+@Composable
+@ReadOnlyComposable
+private fun buttonHeight(size: HbButtonSize): Dp = controlTargetSize(
+    when (size) {
+        HbButtonSize.Regular -> HbTheme.dimensions.controlHeight
+        HbButtonSize.Small -> HbTheme.dimensions.compactControlHeight
+    },
+)
 
 @Composable
 private fun FlatButton(
@@ -73,6 +96,7 @@ private fun FlatButton(
     modifier: Modifier = Modifier,
     style: HbButtonStyle = HbButtonStyle.Primary,
     enabled: Boolean = true,
+    size: HbButtonSize = HbButtonSize.Regular,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -80,11 +104,7 @@ private fun FlatButton(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val colors = HbTheme.colors
     val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
-    val base = when {
-        style == HbButtonStyle.Primary && enabled -> colors.primary
-        style == HbButtonStyle.Quiet -> Color.Transparent
-        else -> colors.buttonFill
-    }
+    val base = buttonFill(colors, style, enabled)
     val targetBackground = when {
         !enabled -> base
         isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -100,22 +120,23 @@ private fun FlatButton(
             label = "buttonSurface",
         ).value
     }
-    val foreground = when {
-        !enabled -> colors.textSecondary
-        style == HbButtonStyle.Primary -> colors.onPrimary
-        else -> colors.textPrimary
-    }
+    val foreground = buttonContent(colors, style, enabled)
     Box(
         modifier = modifier
-            .heightIn(min = HbTheme.dimensions.touchTarget)
-            .widthIn(min = HbTheme.dimensions.touchTarget)
+            .heightIn(min = buttonHeight(size))
+            .widthIn(min = buttonHeight(size))
             .hbFocusOutline(isFocused, shape)
             .clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
             .hbControlSurface(background, shape)
             .padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs),
         contentAlignment = Alignment.Center,
     ) {
-        HbText(text = text, style = HbTheme.typography.label, color = foreground)
+        HbText(
+            text = text,
+            style = HbTheme.typography.label.copy(fontWeight = FontWeight.Medium),
+            color = foreground,
+            maxLines = 1,
+        )
     }
 }
 
@@ -185,10 +206,9 @@ private fun FlatTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
-            .heightIn(min = HbTheme.dimensions.touchTarget)
+            .heightIn(min = controlTargetSize(HbTheme.dimensions.controlHeight))
             .hbFocusOutline(isFocused, shape, isTextInput = true)
             .background(fill, shape)
-            .border(HbTheme.dimensions.borderWidth, colors.outlineSubtle, shape)
             .hoverable(interactionSource, enabled),
         enabled = enabled,
         singleLine = singleLine,
@@ -206,4 +226,20 @@ private fun FlatTextField(
         leadingContent = leadingContent,
         trailingContent = trailingContent,
     )
+}
+
+/** Resting fill of a flat button; semantic roles keep their fill only while enabled. */
+private fun buttonFill(colors: HbColors, style: HbButtonStyle, enabled: Boolean): Color = when {
+    style == HbButtonStyle.Primary && enabled -> colors.primary
+    style == HbButtonStyle.Danger && enabled -> colors.error
+    style == HbButtonStyle.Ghost -> Color.Transparent
+    else -> colors.buttonFill
+}
+
+/** Label colour paired with [buttonFill]. */
+private fun buttonContent(colors: HbColors, style: HbButtonStyle, enabled: Boolean): Color = when {
+    !enabled -> colors.textSecondary
+    style == HbButtonStyle.Primary -> colors.onPrimary
+    style == HbButtonStyle.Danger -> colors.onError
+    else -> colors.textPrimary
 }

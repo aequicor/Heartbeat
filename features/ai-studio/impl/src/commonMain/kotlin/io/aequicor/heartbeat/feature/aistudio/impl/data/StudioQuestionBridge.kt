@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /**
  * Profile-owned bridge between engine permissions and the questionnaire (toggle `questionnaire.enabled`).
@@ -205,7 +207,8 @@ internal class StudioQuestionBridge(
                 ),
             )
         } finally {
-            if (result != SendResult.Accepted) lock.withLock { answered -= id }
+            // The claim is released even when the caller is cancelled mid-send.
+            if (result != SendResult.Accepted) withContext(NonCancellable) { lock.withLock { answered -= id } }
         }
         if (result != SendResult.Accepted) log.w { "Permission answer was not accepted: $result" }
         return result == SendResult.Accepted
@@ -229,7 +232,9 @@ internal class StudioQuestionBridge(
                 AiStudioIntent.Public.FollowUp(questionnaire.source, questionnaire.followUpText(answer)),
             )
         } finally {
-            if (result != SendResult.Accepted) lock.withLock { followUps.remove(questionnaire.source) }
+            if (result != SendResult.Accepted) {
+                withContext(NonCancellable) { lock.withLock { followUps.remove(questionnaire.source) } }
+            }
         }
         if (result != SendResult.Accepted) log.w { "Follow-up answer was not accepted: $result" }
         return result == SendResult.Accepted

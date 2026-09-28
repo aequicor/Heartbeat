@@ -1,12 +1,15 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
@@ -86,5 +89,14 @@ class ConnectWizardUiTest {
                 intents,
             )
         }
+    }
+
+    @Test
+    fun `escape is the wizard's own back`() = runSkikoComposeUiTest {
+        val intents = mutableListOf<ConnectWizardScreenIntent>()
+        val state = ConnectWizardScreenState().reflect(ConnectWizardState.ChoosingMethod(engineInfo()))
+        setContent { HbTheme { ConnectWizardContent(state, { intents += it }) } }
+        onNodeWithTag("connect-wizard").performKeyInput { pressKey(Key.Escape) }
+        runOnIdle { assertEquals(listOf<ConnectWizardScreenIntent>(ConnectWizardScreenIntent.SystemBack), intents) }
     }
 }

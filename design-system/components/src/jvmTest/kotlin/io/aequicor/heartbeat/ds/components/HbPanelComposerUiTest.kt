@@ -58,8 +58,8 @@ class HbPanelComposerUiTest {
                             inputMaxHeight = 120.dp,
                             layout = HbComposerLayout.Panel,
                             placeholder = "Prompt",
-                            leadingContent = { HbButton("Add", {}, style = HbButtonStyle.Quiet) },
-                            trailingContent = { HbButton("Model", {}, style = HbButtonStyle.Quiet) },
+                            leadingContent = { HbButton("Add", {}, style = HbButtonStyle.Ghost) },
+                            trailingContent = { HbButton("Model", {}, style = HbButtonStyle.Ghost) },
                         )
                     }
                 }

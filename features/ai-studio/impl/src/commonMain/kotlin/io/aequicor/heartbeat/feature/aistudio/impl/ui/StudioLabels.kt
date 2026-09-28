@@ -44,14 +44,14 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         failed = stringResource(Res.string.run_failed),
         durations = durationLabels(),
         promptAppearance = HbMessageAppearance(
-            background = HbTheme.studioColors.outgoing,
+            background = HbTheme.surfaces.outgoing,
             foreground = HbTheme.colors.textPrimary,
             isContentWidth = true,
             isAuthorVisible = false,
         ),
         replyAppearance = HbMessageAppearance(
             alignment = HbMessageAlignment.Center,
-            background = HbTheme.studioColors.assistant,
+            background = HbTheme.surfaces.assistant,
             foreground = HbTheme.colors.textPrimary,
             widthFraction = 1f,
             isUnified = true,

@@ -34,9 +34,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifier) {
     HbLazyColumn(modifier = modifier.testTag("components-catalog")) {
         item { CatalogHeading(HbString.ComponentsTitle, HbString.ComponentsDescription) }
-        item { CinematicExample() }
         item { StudioExample() }
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
+        item { SettingsExample() }
         item {
             HbCard(modifier = Modifier.fillMaxWidth()) {
                 HbText(hbString(HbString.Actions), style = HbTheme.typography.title)
@@ -51,7 +51,7 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                     HbButton(
                         hbString(HbString.QuietAction),
                         state::showActionFeedback,
-                        style = HbButtonStyle.Quiet,
+                        style = HbButtonStyle.Ghost,
                     )
                 }
                 if (state.hasActionFeedback) HbBadge(hbString(HbString.ActionFeedback), tone = HbTone.Success)

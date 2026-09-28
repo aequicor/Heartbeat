@@ -12,10 +12,11 @@ import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
+import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.ToggleOperation
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelIntent
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
-import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelState
 import io.aequicor.heartbeat.feature.welcome.api.CinematicIntro
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeDestination
@@ -28,12 +29,15 @@ import io.aequicor.heartbeat.platform.dibundle.root.RootStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -94,8 +98,8 @@ class WelcomeIntegrationTest {
         advanceUntilIdle()
         process.welcome.send(WelcomeIntent.Public.Skip)
         process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
-        advanceUntilIdle()
-        assertEquals(listOf(ProductionWelcomeRoute, TogglesPanelRoute), process.host.routes)
+        awaitStorage { process.host.routes.size == 2 }
+        assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)), process.host.routes)
         process.host.onBack()
         advanceUntilIdle()
         assertEquals(WelcomeState.Ready, process.welcome.state.value)
@@ -154,7 +158,7 @@ class WelcomeIntegrationTest {
         advanceUntilIdle()
         before.welcome.send(WelcomeIntent.Public.Skip)
         before.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
-        advanceUntilIdle()
+        awaitStorage { before.graph.machines.find(TogglesPanelMachineKey) != null }
         val panel = checkNotNull(before.graph.machines.find(TogglesPanelMachineKey))
         panel.state.first { it is TogglesPanelState.Active && it.rows != null }
         panel.send(TogglesPanelIntent.Public.Apply(ToggleOperation.SetFlag(CinematicIntro, false)))
@@ -179,5 +183,20 @@ class WelcomeIntegrationTest {
         assertEquals("Fast", after.toggles.featureToggles.get(TestToggles.Mode))
         assertTrue(after.toggles.toggleControl.observeStates().first().none { it.isOverridden })
         after.close()
+    }
+
+    /** Opening the flags reads the unified settings toggle from storage off the test dispatcher. */
+    private suspend fun TestScope.awaitStorage(isDone: () -> Boolean) {
+        repeat(STORAGE_ATTEMPTS) {
+            advanceUntilIdle()
+            if (isDone()) return
+            withContext(Dispatchers.Default) { delay(STORAGE_POLL_MILLIS) }
+        }
+        advanceUntilIdle()
+    }
+
+    private companion object {
+        const val STORAGE_ATTEMPTS = 100
+        const val STORAGE_POLL_MILLIS = 20L
     }
 }

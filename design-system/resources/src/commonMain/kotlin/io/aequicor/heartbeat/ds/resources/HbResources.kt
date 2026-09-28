@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_ask_mode
 import io.aequicor.heartbeat.ds.resources.generated.en_body_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_brand
 import io.aequicor.heartbeat.ds.resources.generated.en_brand_symbol
+import io.aequicor.heartbeat.ds.resources.generated.en_cancel_action
 import io.aequicor.heartbeat.ds.resources.generated.en_caption_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_center
 import io.aequicor.heartbeat.ds.resources.generated.en_chat
@@ -24,7 +25,6 @@ import io.aequicor.heartbeat.ds.resources.generated.en_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.en_chat_title
-import io.aequicor.heartbeat.ds.resources.generated.en_cinematic_welcome
 import io.aequicor.heartbeat.ds.resources.generated.en_code_label
 import io.aequicor.heartbeat.ds.resources.generated.en_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_collapse_tool
@@ -44,13 +44,19 @@ import io.aequicor.heartbeat.ds.resources.generated.en_create
 import io.aequicor.heartbeat.ds.resources.generated.en_current_section
 import io.aequicor.heartbeat.ds.resources.generated.en_cyan
 import io.aequicor.heartbeat.ds.resources.generated.en_danger
+import io.aequicor.heartbeat.ds.resources.generated.en_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.en_dark
 import io.aequicor.heartbeat.ds.resources.generated.en_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.en_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.en_dialog_body
+import io.aequicor.heartbeat.ds.resources.generated.en_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.en_disabled
 import io.aequicor.heartbeat.ds.resources.generated.en_display_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_empty_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_empty_title
 import io.aequicor.heartbeat.ds.resources.generated.en_end
 import io.aequicor.heartbeat.ds.resources.generated.en_english
+import io.aequicor.heartbeat.ds.resources.generated.en_error_banner
 import io.aequicor.heartbeat.ds.resources.generated.en_expand_tool
 import io.aequicor.heartbeat.ds.resources.generated.en_failed
 import io.aequicor.heartbeat.ds.resources.generated.en_file_icons
@@ -99,6 +105,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_layouts_title
 import io.aequicor.heartbeat.ds.resources.generated.en_lazy_title
 import io.aequicor.heartbeat.ds.resources.generated.en_light
 import io.aequicor.heartbeat.ds.resources.generated.en_load_earlier
+import io.aequicor.heartbeat.ds.resources.generated.en_loading_label
 import io.aequicor.heartbeat.ds.resources.generated.en_local_demo
 import io.aequicor.heartbeat.ds.resources.generated.en_long_session
 import io.aequicor.heartbeat.ds.resources.generated.en_long_session_hint
@@ -123,6 +130,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_new_session
 import io.aequicor.heartbeat.ds.resources.generated.en_no_icons_found
 import io.aequicor.heartbeat.ds.resources.generated.en_note_draft
 import io.aequicor.heartbeat.ds.resources.generated.en_notice_text
+import io.aequicor.heartbeat.ds.resources.generated.en_open_dialog
 import io.aequicor.heartbeat.ds.resources.generated.en_palette
 import io.aequicor.heartbeat.ds.resources.generated.en_palette_description
 import io.aequicor.heartbeat.ds.resources.generated.en_pin
@@ -133,9 +141,9 @@ import io.aequicor.heartbeat.ds.resources.generated.en_projects
 import io.aequicor.heartbeat.ds.resources.generated.en_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.en_ready
 import io.aequicor.heartbeat.ds.resources.generated.en_rename
-import io.aequicor.heartbeat.ds.resources.generated.en_replay_intro
 import io.aequicor.heartbeat.ds.resources.generated.en_research_mode
 import io.aequicor.heartbeat.ds.resources.generated.en_reset
+import io.aequicor.heartbeat.ds.resources.generated.en_retry_action
 import io.aequicor.heartbeat.ds.resources.generated.en_row_title
 import io.aequicor.heartbeat.ds.resources.generated.en_russian
 import io.aequicor.heartbeat.ds.resources.generated.en_sandbox
@@ -145,6 +153,11 @@ import io.aequicor.heartbeat.ds.resources.generated.en_secondary_action
 import io.aequicor.heartbeat.ds.resources.generated.en_seed_prompt
 import io.aequicor.heartbeat.ds.resources.generated.en_seed_reply
 import io.aequicor.heartbeat.ds.resources.generated.en_send
+import io.aequicor.heartbeat.ds.resources.generated.en_setting_prefer_engine
+import io.aequicor.heartbeat.ds.resources.generated.en_setting_prefer_engine_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_setting_provider
+import io.aequicor.heartbeat.ds.resources.generated.en_setting_provider_hint
+import io.aequicor.heartbeat.ds.resources.generated.en_settings_catalog
 import io.aequicor.heartbeat.ds.resources.generated.en_soft_ui
 import io.aequicor.heartbeat.ds.resources.generated.en_spacing
 import io.aequicor.heartbeat.ds.resources.generated.en_spacing_description
@@ -189,6 +202,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_ask_mode
 import io.aequicor.heartbeat.ds.resources.generated.ru_body_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_brand
 import io.aequicor.heartbeat.ds.resources.generated.ru_brand_symbol
+import io.aequicor.heartbeat.ds.resources.generated.ru_cancel_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_caption_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_center
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat
@@ -196,7 +210,6 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_chat_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_hint
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_symbol
 import io.aequicor.heartbeat.ds.resources.generated.ru_chat_title
-import io.aequicor.heartbeat.ds.resources.generated.ru_cinematic_welcome
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_label
 import io.aequicor.heartbeat.ds.resources.generated.ru_code_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_collapse_tool
@@ -216,13 +229,19 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_create
 import io.aequicor.heartbeat.ds.resources.generated.ru_current_section
 import io.aequicor.heartbeat.ds.resources.generated.ru_cyan
 import io.aequicor.heartbeat.ds.resources.generated.ru_danger
+import io.aequicor.heartbeat.ds.resources.generated.ru_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_dark
 import io.aequicor.heartbeat.ds.resources.generated.ru_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.ru_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_body
+import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_disabled
 import io.aequicor.heartbeat.ds.resources.generated.ru_display_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_empty_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_empty_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_end
 import io.aequicor.heartbeat.ds.resources.generated.ru_english
+import io.aequicor.heartbeat.ds.resources.generated.ru_error_banner
 import io.aequicor.heartbeat.ds.resources.generated.ru_expand_tool
 import io.aequicor.heartbeat.ds.resources.generated.ru_failed
 import io.aequicor.heartbeat.ds.resources.generated.ru_file_icons
@@ -271,6 +290,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_layouts_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_lazy_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_light
 import io.aequicor.heartbeat.ds.resources.generated.ru_load_earlier
+import io.aequicor.heartbeat.ds.resources.generated.ru_loading_label
 import io.aequicor.heartbeat.ds.resources.generated.ru_local_demo
 import io.aequicor.heartbeat.ds.resources.generated.ru_long_session
 import io.aequicor.heartbeat.ds.resources.generated.ru_long_session_hint
@@ -295,6 +315,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_new_session
 import io.aequicor.heartbeat.ds.resources.generated.ru_no_icons_found
 import io.aequicor.heartbeat.ds.resources.generated.ru_note_draft
 import io.aequicor.heartbeat.ds.resources.generated.ru_notice_text
+import io.aequicor.heartbeat.ds.resources.generated.ru_open_dialog
 import io.aequicor.heartbeat.ds.resources.generated.ru_palette
 import io.aequicor.heartbeat.ds.resources.generated.ru_palette_description
 import io.aequicor.heartbeat.ds.resources.generated.ru_pin
@@ -305,9 +326,9 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_projects
 import io.aequicor.heartbeat.ds.resources.generated.ru_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_ready
 import io.aequicor.heartbeat.ds.resources.generated.ru_rename
-import io.aequicor.heartbeat.ds.resources.generated.ru_replay_intro
 import io.aequicor.heartbeat.ds.resources.generated.ru_research_mode
 import io.aequicor.heartbeat.ds.resources.generated.ru_reset
+import io.aequicor.heartbeat.ds.resources.generated.ru_retry_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_row_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_russian
 import io.aequicor.heartbeat.ds.resources.generated.ru_sandbox
@@ -317,6 +338,11 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_secondary_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_seed_prompt
 import io.aequicor.heartbeat.ds.resources.generated.ru_seed_reply
 import io.aequicor.heartbeat.ds.resources.generated.ru_send
+import io.aequicor.heartbeat.ds.resources.generated.ru_setting_prefer_engine
+import io.aequicor.heartbeat.ds.resources.generated.ru_setting_prefer_engine_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_setting_provider
+import io.aequicor.heartbeat.ds.resources.generated.ru_setting_provider_hint
+import io.aequicor.heartbeat.ds.resources.generated.ru_settings_catalog
 import io.aequicor.heartbeat.ds.resources.generated.ru_soft_ui
 import io.aequicor.heartbeat.ds.resources.generated.ru_spacing
 import io.aequicor.heartbeat.ds.resources.generated.ru_spacing_description
@@ -364,8 +390,6 @@ public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
 
 /** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
 public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
-    CinematicWelcome(Res.string.en_cinematic_welcome, Res.string.ru_cinematic_welcome),
-    ReplayIntro(Res.string.en_replay_intro, Res.string.ru_replay_intro),
     Illustrations(Res.string.en_illustrations, Res.string.ru_illustrations),
     IllustrationsDescription(Res.string.en_illustrations_description, Res.string.ru_illustrations_description),
     SearchIcons(Res.string.en_search_icons, Res.string.ru_search_icons),
@@ -536,6 +560,21 @@ public enum class HbString(internal val english: StringResource, internal val ru
     Rename(Res.string.en_rename, Res.string.ru_rename),
     Pin(Res.string.en_pin, Res.string.ru_pin),
     Archive(Res.string.en_archive, Res.string.ru_archive),
+    SettingsCatalog(Res.string.en_settings_catalog, Res.string.ru_settings_catalog),
+    SettingPreferEngine(Res.string.en_setting_prefer_engine, Res.string.ru_setting_prefer_engine),
+    SettingPreferEngineHint(Res.string.en_setting_prefer_engine_hint, Res.string.ru_setting_prefer_engine_hint),
+    SettingProvider(Res.string.en_setting_provider, Res.string.ru_setting_provider),
+    SettingProviderHint(Res.string.en_setting_provider_hint, Res.string.ru_setting_provider_hint),
+    DangerAction(Res.string.en_danger_action, Res.string.ru_danger_action),
+    OpenDialog(Res.string.en_open_dialog, Res.string.ru_open_dialog),
+    DialogTitle(Res.string.en_dialog_title, Res.string.ru_dialog_title),
+    DialogBody(Res.string.en_dialog_body, Res.string.ru_dialog_body),
+    CancelAction(Res.string.en_cancel_action, Res.string.ru_cancel_action),
+    ErrorBanner(Res.string.en_error_banner, Res.string.ru_error_banner),
+    RetryAction(Res.string.en_retry_action, Res.string.ru_retry_action),
+    EmptyTitle(Res.string.en_empty_title, Res.string.ru_empty_title),
+    EmptyHint(Res.string.en_empty_hint, Res.string.ru_empty_hint),
+    LoadingLabel(Res.string.en_loading_label, Res.string.ru_loading_label),
     ;
 
     internal fun resource(locale: HbLocale): StringResource = when (locale) {

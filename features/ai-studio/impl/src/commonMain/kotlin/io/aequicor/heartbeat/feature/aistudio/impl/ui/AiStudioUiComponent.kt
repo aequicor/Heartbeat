@@ -23,7 +23,8 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 (host.stack.value.active.instance as? ComposableComponent)?.let { session to it }
             }.toMap().toImmutableMap()
         }
-        val exits = remember(component, isConnectionsShown, isProfileSettingsShown, questions) {
+        val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
+        val exits = remember(component, isConnectionsShown, isProfileSettingsShown, isUnifiedSettingsShown, questions) {
             StudioExits(
                 onBack = component::close,
                 onOpenToggles = component::openToggles,
@@ -31,6 +32,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
                 onOpenResearch = component::openResearch,
                 questions = questions,
+                onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
         val workspace by component.workspace.stack.subscribeAsState()

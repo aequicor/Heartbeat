@@ -48,10 +48,10 @@ public fun HbComposerIconButton(
         modifier = modifier,
         enabled = enabled,
         tooltipText = tooltipText,
-        shape = if (HbTheme.studioDimensions.isDesktop) HbTheme.shapes.small else CircleShape,
-        size = HbTheme.studioDimensions.composerActionSize,
-        background = HbTheme.studioColors.composerPill,
-        iconSize = if (HbTheme.studioDimensions.isDesktop) {
+        shape = if (HbTheme.dimensions.isDesktop) HbTheme.shapes.small else CircleShape,
+        size = HbTheme.dimensions.composerActionSize,
+        background = HbTheme.surfaces.composerPill,
+        iconSize = if (HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.iconSize
         } else {
             HbTheme.dimensions.iconLargeSize
@@ -124,7 +124,7 @@ private fun composerButtonFill(isPrimary: Boolean, enabled: Boolean): Color {
     val colors = HbTheme.colors
     return when {
         isPrimary && enabled -> colors.primary
-        !isPrimary && HbTheme.visualStyle == HbVisualStyle.Glass -> Color.Transparent
+        !isPrimary && HbTheme.visualStyle == HbVisualStyle.Flat -> Color.Transparent
         else -> colors.buttonFill
     }
 }

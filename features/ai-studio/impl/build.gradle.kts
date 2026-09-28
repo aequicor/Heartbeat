@@ -13,6 +13,7 @@ kotlin {
             implementation(projects.features.questionnaire.api)
             implementation(projects.features.aiEngine.koog.api)
             implementation(projects.features.togglesPanel.api)
+            implementation(projects.features.settings.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)

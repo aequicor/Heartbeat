@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.platform.shared
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.ComponentContext
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
-import io.aequicor.heartbeat.ds.components.HbCinematicBackdrop
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute
@@ -24,12 +26,12 @@ fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRo
     localProfile = ProfileId("local"),
 )
 
-/** Shared rendering; the welcome feature owns its light cinematic theme. */
+/** Shared rendering; while the profile is restored the window shows its plain backdrop. */
 @Composable
 fun App(root: HeartbeatRoot, modifier: Modifier = Modifier) {
     HbTheme {
         RootContent(root, modifier, loading = {
-            HbTheme(darkTheme = false) { HbCinematicBackdrop({ 0f }) }
+            Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop))
         })
     }
 }

@@ -34,7 +34,7 @@ internal fun ComposerMenuPill(
     val isPressed by interactions.collectIsPressedAsState()
     val shape = HbTheme.shapes.small
     val colors = HbTheme.colors
-    val studio = HbTheme.studioColors
+    val studio = HbTheme.surfaces
     val base = if (isAccent) studio.composerPillAccent else studio.composerPill
     val background = when {
         enabled && isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -48,7 +48,7 @@ internal fun ComposerMenuPill(
     }
     HbRow(
         modifier = modifier
-            .heightIn(min = maxOf(HbTheme.dimensions.touchTarget, HbTheme.studioDimensions.composerPillHeight))
+            .heightIn(min = maxOf(HbTheme.dimensions.touchTarget, HbTheme.dimensions.composerPillHeight))
             .hbFocusOutline(isFocused, shape)
             .background(background, shape)
             .clickable(interactions, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
@@ -58,7 +58,7 @@ internal fun ComposerMenuPill(
         if (icon != null) HbIcon(icon, null, tint = foreground)
         HbText(
             label,
-            Modifier.widthIn(max = HbTheme.studioDimensions.composerLabelMaxWidth),
+            Modifier.widthIn(max = HbTheme.dimensions.composerLabelMaxWidth),
             style = HbTheme.typography.label,
             color = foreground,
             maxLines = 1,

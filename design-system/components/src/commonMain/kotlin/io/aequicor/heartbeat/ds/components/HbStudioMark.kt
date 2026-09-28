@@ -9,7 +9,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.tooling.preview.Preview
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 /**
@@ -19,8 +18,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  */
 @Composable
 fun HbStudioMark(modifier: Modifier = Modifier) {
-    val colors = HbTheme.studioColors
-    val dimensions = HbTheme.studioDimensions
+    val colors = HbTheme.surfaces
+    val dimensions = HbTheme.dimensions
     Canvas(modifier.size(dimensions.avatarSize).clearAndSetSemantics { }) {
         val diameter = size.minDimension
         val originX = (size.width - diameter) / 2f
@@ -65,11 +64,11 @@ fun HbStudioMark(modifier: Modifier = Modifier) {
 @Preview
 @Composable
 private fun StudioMarkLightPreview() {
-    HbTheme(darkTheme = false) { HbStudioTheme { HbStudioMark() } }
+    HbTheme(darkTheme = false) { HbStudioMark() }
 }
 
 @Preview
 @Composable
 private fun StudioMarkDarkPreview() {
-    HbTheme(darkTheme = true) { HbStudioTheme { HbStudioMark() } }
+    HbTheme(darkTheme = true) { HbStudioMark() }
 }

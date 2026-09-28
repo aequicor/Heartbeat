@@ -1,25 +1,21 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBadge
+import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbPanel
-import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbIconButton
+import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbPaneHeader
+import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbTone
-import io.aequicor.heartbeat.ds.layouts.HbColumn
-import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.AvailabilityUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.FailureUi
@@ -29,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_av
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_availability_unavailable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_availability_unknown
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_availability_unsupported
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_back
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_access
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_authentication
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_failure_engine
@@ -43,24 +40,47 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_re
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** A list entry that can be selected; selection is exposed to accessibility as a single choice. */
+/**
+ * A settings row that is one option of a single-choice list: selection is shown by the quiet selected fill and
+ * exposed to accessibility. [description] is the secondary 12sp line.
+ */
 @Composable
 internal fun SelectableRow(
+    title: String,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    description: String? = null,
     enabled: Boolean = true,
-    content: @Composable ColumnScope.() -> Unit,
+    trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
-    val shape = HbTheme.shapes.medium
-    HbPanel(
-        modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget).clip(shape)
-            .selectable(selected = isSelected, enabled = enabled, role = Role.RadioButton, onClick = onClick),
-        background = if (isSelected) HbTheme.colors.accentMuted else HbTheme.colors.glassTint,
-        shape = shape,
-    ) {
-        HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.xs, content = content)
-    }
+    HbSettingsRow(
+        title,
+        modifier.semantics { selected = isSelected },
+        description = description,
+        onClick = onClick,
+        enabled = enabled,
+        isSelected = isSelected,
+        trailingContent = trailingContent,
+    )
+}
+
+/** Header of a screen opened outside the settings host: back, title and the traffic-light inset. */
+@Composable
+internal fun StandaloneHeader(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    HbPaneHeader(
+        title,
+        modifier,
+        leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+        navigation = {
+            HbIconButton(
+                HbIcons.ArrowLeft,
+                stringResource(Res.string.conn_back),
+                onBack,
+                Modifier.testTag("settings-back"),
+            )
+        },
+    )
 }
 
 /** Installation badge of an engine. */
@@ -96,7 +116,7 @@ internal fun FailureUi.message(): StringResource = when (this) {
     FailureUi.Unknown -> Res.string.conn_failure_unknown
 }
 
-/** Failure panel announced politely to screen readers, with optional recovery actions. */
+/** Failure banner announced politely to screen readers, with optional recovery actions. */
 @Composable
 internal fun FailurePanel(
     failure: FailureUi,
@@ -104,18 +124,15 @@ internal fun FailurePanel(
     onRetry: (() -> Unit)? = null,
     extra: @Composable () -> Unit = {},
 ) {
-    HbPanel(
-        modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-        background = HbTheme.colors.errorContainer,
-    ) {
-        HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.s) {
-            HbText(stringResource(failure.message()))
-            HbFlowRow {
-                if (onRetry != null) {
-                    HbButton(stringResource(Res.string.conn_retry), onRetry, style = HbButtonStyle.Secondary)
-                }
-                extra()
-            }
+    HbBanner(stringResource(failure.message()), modifier) {
+        extra()
+        if (onRetry != null) {
+            HbButton(
+                stringResource(Res.string.conn_retry),
+                onRetry,
+                style = HbButtonStyle.Secondary,
+                size = HbButtonSize.Small,
+            )
         }
     }
 }

@@ -39,7 +39,6 @@ fluent = "v0.1.0"
 macos = "1.1.0"
 kotlinx-collectionsImmutable = "0.5.2"
 desktop-jdk = "21"
-haze = "2.0.0"
 
 [libraries]
 koog-executor = { module = "ai.koog:prompt-executor-model", version.ref = "koog" }
@@ -48,8 +47,6 @@ koog-anthropic = { module = "ai.koog:prompt-executor-anthropic-client", version.
 koog-ollama = { module = "ai.koog:prompt-executor-ollama-client", version.ref = "koog" }
 koog-ktor = { module = "ai.koog:http-client-ktor", version.ref = "koog" }
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
-haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
-haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
 fluent = { module = "io.github.compose-fluent:fluent", version.ref = "fluent" }
 macos = { module = "dev.nucleusframework:compose-macos-ui", version.ref = "macos" }
 kotlinx-collectionsImmutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinx-collectionsImmutable" }

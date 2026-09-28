@@ -44,4 +44,15 @@ class TogglePresentationTest {
         assertNull(TogglesPanelScreenIntent.SetChoice(flag.key, "One").toOperation(active))
         assertNull(TogglesPanelScreenIntent.Reset(flag.key).toOperation(TogglesPanelState.LoadError))
     }
+
+    @Test
+    fun `rows carry the declared default next to an overridden value`() {
+        val flag = FeatureToggle.Flag("alpha.enabled", "Alpha", default = true)
+        val choice = FeatureToggle.Choice("beta.mode", "Mode", listOf("One", "Two"), default = "Two")
+        assertEquals(ToggleDefaultUi.Flag(true), ToggleState(flag, false, ToggleSource.LocalOverride).toUi().default)
+        assertEquals(
+            ToggleDefaultUi.Choice("Two"),
+            ToggleState(choice, "One", ToggleSource.LocalOverride).toUi().default,
+        )
+    }
 }

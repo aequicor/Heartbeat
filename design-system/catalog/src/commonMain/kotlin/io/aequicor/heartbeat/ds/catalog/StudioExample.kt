@@ -25,30 +25,26 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.ds.tokens.HbStudioDimensions
 import kotlinx.collections.immutable.persistentListOf
 
 /** Flat navigation, continuous agent prose and the compact composer in the current host density. */
 @Composable
 internal fun StudioExample(modifier: Modifier = Modifier) {
-    HbStudioTheme {
-        HbColumn(modifier.fillMaxWidth().background(HbTheme.studioColors.backdrop), gap = HbTheme.spacing.none) {
-            StudioNavigationExample()
-            HbDivider()
-            HbColumn(Modifier.padding(HbTheme.spacing.xl), gap = HbTheme.spacing.xl) {
-                HbChatMessageBubble(
-                    message = HbChatMessage(
-                        id = "studio-catalog-agent",
-                        author = hbString(HbString.Agent),
-                        text = hbString(HbString.ToolDemoHint),
-                        appearance = HbMessageAppearance(isUnified = true, widthFraction = 1f),
-                    ),
-                )
-                StudioComposerExample()
-            }
+    HbColumn(modifier.fillMaxWidth().background(HbTheme.surfaces.backdrop), gap = HbTheme.spacing.none) {
+        StudioNavigationExample()
+        HbDivider()
+        HbColumn(Modifier.padding(HbTheme.spacing.xl), gap = HbTheme.spacing.xl) {
+            HbChatMessageBubble(
+                message = HbChatMessage(
+                    id = "studio-catalog-agent",
+                    author = hbString(HbString.Agent),
+                    text = hbString(HbString.ToolDemoHint),
+                    appearance = HbMessageAppearance(isUnified = true, widthFraction = 1f),
+                ),
+            )
+            StudioComposerExample()
         }
     }
 }
@@ -56,12 +52,12 @@ internal fun StudioExample(modifier: Modifier = Modifier) {
 @Composable
 private fun StudioNavigationExample() {
     HbColumn(
-        Modifier.fillMaxWidth().background(HbTheme.studioColors.sidebar).padding(HbTheme.spacing.m),
+        Modifier.fillMaxWidth().background(HbTheme.surfaces.sidebar).padding(HbTheme.spacing.m),
         gap = HbTheme.spacing.xs,
     ) {
         HbWindowDragArea(Modifier.fillMaxWidth()) {
             HbRow(Modifier.padding(HbTheme.spacing.xs), gap = HbTheme.spacing.m) {
-                HbStudioMark(Modifier.size(HbTheme.studioDimensions.headerAvatarSize))
+                HbStudioMark(Modifier.size(HbTheme.dimensions.headerAvatarSize))
                 HbText(hbString(HbString.Workspace), style = HbTheme.typography.title)
             }
         }
@@ -69,14 +65,14 @@ private fun StudioNavigationExample() {
             label = hbString(HbString.ChatTitle),
             onClick = {},
             isSelected = true,
-            selectedBackground = HbTheme.studioColors.selected,
-            selectedForeground = HbTheme.studioColors.onSelected,
-            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            selectedBackground = HbTheme.surfaces.selected,
+            selectedForeground = HbTheme.surfaces.onSelected,
+            minHeight = HbTheme.dimensions.navigationRowHeight,
         )
         HbNavigationItem(
             label = hbString(HbString.SeedPrompt),
             onClick = {},
-            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            minHeight = HbTheme.dimensions.navigationRowHeight,
         )
     }
 }
@@ -91,7 +87,7 @@ private fun StudioComposerExample() {
         sendLabel = hbString(HbString.Send),
         stopLabel = hbString(HbString.Stop),
         layout = HbComposerLayout.Panel,
-        inputMaxHeight = HbTheme.studioDimensions.editorMaxHeight,
+        inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
         placeholder = hbString(HbString.ComposerPlaceholder),
         leadingContent = {
             HbComposerMenuButton(
@@ -121,17 +117,17 @@ private fun StudioComposerExample() {
 @Preview
 @Composable
 private fun DesktopLightStudioPreview() {
-    HbTheme(darkTheme = false, studioDimensions = HbStudioDimensions.Desktop) { StudioExample() }
+    HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) { StudioExample() }
 }
 
 @Preview
 @Composable
 private fun DesktopDarkStudioPreview() {
-    HbTheme(darkTheme = true, studioDimensions = HbStudioDimensions.Desktop) { StudioExample() }
+    HbTheme(darkTheme = true, dimensions = HbDimensions.Desktop) { StudioExample() }
 }
 
 @Preview
 @Composable
 private fun MobileStudioPreview() {
-    HbTheme(dimensions = HbDimensions(), studioDimensions = HbStudioDimensions.Mobile) { StudioExample() }
+    HbTheme(dimensions = HbDimensions.Mobile) { StudioExample() }
 }

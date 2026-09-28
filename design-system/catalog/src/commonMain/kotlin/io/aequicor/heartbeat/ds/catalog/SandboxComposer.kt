@@ -21,7 +21,6 @@ import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
 
@@ -34,38 +33,36 @@ internal fun SandboxComposer(
     isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    HbStudioTheme {
-        val menus = remember { ComposerMenus() }
-        HbChatComposer(
-            value = state.draft,
-            onValueChange = state::updateDraft,
-            onSend = { state.send(copy) },
-            onStop = state::stop,
-            sendLabel = hbString(HbString.Send),
-            stopLabel = hbString(HbString.Stop),
-            modifier = modifier.fillMaxWidth(),
-            layout = HbComposerLayout.Panel,
-            inputMaxHeight = if (isCompact && !HbTheme.studioDimensions.isDesktop) {
-                HbTheme.dimensions.composerMinHeight
-            } else {
-                HbTheme.studioDimensions.editorMaxHeight
-            },
-            placeholder = hbString(HbString.ComposerPlaceholder),
-            isStreaming = state.isStreaming,
-            enabled = !state.isLoadingHistory,
-            leadingContent = {
-                AddContextMenu(state, copy, menus, isCompact)
-                var isResearch by remember { mutableStateOf(false) }
-                HbComposerToggle(
-                    label = hbString(HbString.ResearchMode),
-                    isChecked = isResearch,
-                    onCheckedChange = { isResearch = it },
-                    icon = HbIcons.Library,
-                )
-            },
-            trailingContent = { ResponseMenus(state, menus, isCompact) },
-        )
-    }
+    val menus = remember { ComposerMenus() }
+    HbChatComposer(
+        value = state.draft,
+        onValueChange = state::updateDraft,
+        onSend = { state.send(copy) },
+        onStop = state::stop,
+        sendLabel = hbString(HbString.Send),
+        stopLabel = hbString(HbString.Stop),
+        modifier = modifier.fillMaxWidth(),
+        layout = HbComposerLayout.Panel,
+        inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
+            HbTheme.dimensions.composerMinHeight
+        } else {
+            HbTheme.dimensions.editorMaxHeight
+        },
+        placeholder = hbString(HbString.ComposerPlaceholder),
+        isStreaming = state.isStreaming,
+        enabled = !state.isLoadingHistory,
+        leadingContent = {
+            AddContextMenu(state, copy, menus, isCompact)
+            var isResearch by remember { mutableStateOf(false) }
+            HbComposerToggle(
+                label = hbString(HbString.ResearchMode),
+                isChecked = isResearch,
+                onCheckedChange = { isResearch = it },
+                icon = HbIcons.Library,
+            )
+        },
+        trailingContent = { ResponseMenus(state, menus, isCompact) },
+    )
 }
 
 @Composable

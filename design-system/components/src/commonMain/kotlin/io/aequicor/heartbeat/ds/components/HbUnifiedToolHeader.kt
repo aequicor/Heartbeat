@@ -43,24 +43,24 @@ internal fun HbUnifiedToolHeader(
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
     val background = when {
-        isPressed -> HbTheme.colors.pressedOverlay.compositeOver(HbTheme.studioColors.tool)
-        isHovered -> HbTheme.colors.interactionHoverOverlay.compositeOver(HbTheme.studioColors.tool)
-        else -> HbTheme.studioColors.tool
+        isPressed -> HbTheme.colors.pressedOverlay.compositeOver(HbTheme.surfaces.tool)
+        isHovered -> HbTheme.colors.interactionHoverOverlay.compositeOver(HbTheme.surfaces.tool)
+        else -> HbTheme.surfaces.tool
     }
-    val radius = HbTheme.studioDimensions.toolPadding
+    val radius = HbTheme.dimensions.toolPadding
     val bottomRadius = if (isExpanded) HbTheme.spacing.none else radius
     val shape = RoundedCornerShape(radius, radius, bottomRadius, bottomRadius)
     HbRow(
         modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget)
             .hbFocusOutline(isFocused, shape)
             .background(background, shape)
-            .border(HbTheme.dimensions.borderWidth, HbTheme.studioColors.outline, shape)
+            .border(HbTheme.dimensions.borderWidth, HbTheme.surfaces.outline, shape)
             .clickable(interactions, indication = null, role = Role.Button) {
                 unifiedToolLog.i { "disclosure changed id=${call.id} expanded=${!isExpanded}" }
                 onExpandedChange(!isExpanded)
             }
             .semantics { stateDescription = if (isExpanded) labels.collapse else labels.expand }
-            .padding(HbTheme.studioDimensions.toolPadding),
+            .padding(HbTheme.dimensions.toolPadding),
         gap = HbTheme.spacing.l,
     ) {
         UnifiedToolIcon(call)
@@ -78,8 +78,8 @@ private fun UnifiedToolIcon(call: HbToolCall) {
         contentDescription = null,
         modifier = Modifier.size(HbTheme.dimensions.iconSize),
         tint = when {
-            isReasoning -> HbTheme.studioColors.accent
-            call.status == HbToolStatus.Complete -> HbTheme.studioColors.success
+            isReasoning -> HbTheme.surfaces.accent
+            call.status == HbToolStatus.Complete -> HbTheme.surfaces.success
             else -> HbTheme.colors.textSecondary
         },
     )
@@ -103,7 +103,7 @@ private fun UnifiedToolTitle(call: HbToolCall, modifier: Modifier = Modifier) {
 @Composable
 private fun UnifiedToolStatus(call: HbToolCall, labels: HbToolLabels) {
     if (call.kind == HbToolKind.Reasoning) return
-    val tint = if (call.status == HbToolStatus.Complete) HbTheme.studioColors.success else HbTheme.colors.textSecondary
+    val tint = if (call.status == HbToolStatus.Complete) HbTheme.surfaces.success else HbTheme.colors.textSecondary
     HbText(
         toolStatusLabel(call.status, labels),
         Modifier.semantics { liveRegion = LiveRegionMode.Polite },

@@ -162,7 +162,7 @@ private fun AnswerActions(question: QuestionUi, onIntent: (QuestionnaireScreenIn
                 stringResource(Res.string.questionnaire_skip),
                 onClick = { onIntent(QuestionnaireScreenIntent.Skip(question.id)) },
                 modifier = Modifier.testTag("question-skip-${question.id}"),
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
                 enabled = !question.isSubmitting,
             )
         }

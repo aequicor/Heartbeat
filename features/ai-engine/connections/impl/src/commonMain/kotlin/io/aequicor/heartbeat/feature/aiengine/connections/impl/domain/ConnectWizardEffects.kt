@@ -72,7 +72,13 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         availability.failure()?.let { throw EngineException(it) }
         val credential = effect.credential
         val key = (credential as? CredentialInput.ApiKey)?.key
-        val source = services.sources.create(effect.method, credential.label, credential.origin, key)
+        val source = services.sources.create(
+            effect.method,
+            credential.label,
+            credential.origin,
+            key,
+            credential.basePath,
+        )
         val binding = bindOrForget(effect, source.info.id)
         log.i { "connected engine=${effect.engine.value}" }
         return NewConnection(binding.id, source.info.id)

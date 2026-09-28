@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -45,5 +46,22 @@ class PiProviderTest {
                 context,
             ),
         )
+    }
+
+    @Test
+    fun compatibleServersAcceptAnyHttpsOrLoopbackOrigin() {
+        val scope = AuthScope(ProviderId("openai-compatible"), EndpointOrigin("https://llm.example"))
+        val compatible = source.copy(scope = scope)
+        val model = context.copy(model = ModelId("openai-compatible/qwen3"))
+        assertTrue(acceptsPi(compatible, model))
+        assertTrue(
+            acceptsPi(compatible.copy(scope = scope.copy(origin = EndpointOrigin("http://localhost:8000"))), model),
+        )
+        assertFalse(
+            acceptsPi(compatible.copy(scope = scope.copy(origin = EndpointOrigin("http://llm.example"))), model),
+        )
+        assertFalse(acceptsPi(compatible, context))
+        val anthropic = AuthScope(ProviderId("anthropic-compatible"), EndpointOrigin("https://proxy.example"))
+        assertEquals(PiProvider.AnthropicCompatible, provider(source.copy(scope = anthropic)))
     }
 }

@@ -19,7 +19,6 @@ import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolLabels
 import io.aequicor.heartbeat.ds.components.HbToolStatus
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchMessageUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchPartUi
@@ -49,31 +48,29 @@ import org.jetbrains.compose.resources.stringResource
 /** A native answer remains one card while its tools and long outputs retain independent lazy rows. */
 @Composable
 internal fun ResearchTranscript(state: ResearchScreenState, modifier: Modifier = Modifier) {
-    HbStudioTheme {
-        val labels = ResearchMessageLabels(
-            user = stringResource(Res.string.research_you),
-            assistant = stringResource(Res.string.research_assistant),
-            notice = stringResource(Res.string.research_notice),
-            reasoning = stringResource(Res.string.research_reasoning),
-            appearance = HbMessageAppearance(
-                alignment = HbMessageAlignment.Center,
-                widthFraction = 1f,
-                background = HbTheme.studioColors.assistant,
-                foreground = HbTheme.colors.textPrimary,
-                isUnified = true,
-            ),
-        )
-        val messages = remember(state.messages, labels) { state.messages.map { it.toChat(labels) }.toImmutableList() }
-        val cache = remember { ResearchTimelineCache() }
-        HbChatTranscript(
-            timeline = cache.update(messages),
-            modifier = modifier.testTag("research-transcript"),
-            streamingLabel = stringResource(Res.string.research_streaming),
-            jumpToLatestLabel = stringResource(Res.string.research_jump_latest),
-            toolLabels = researchToolLabels(),
-            showSectionHeaders = false,
-        )
-    }
+    val labels = ResearchMessageLabels(
+        user = stringResource(Res.string.research_you),
+        assistant = stringResource(Res.string.research_assistant),
+        notice = stringResource(Res.string.research_notice),
+        reasoning = stringResource(Res.string.research_reasoning),
+        appearance = HbMessageAppearance(
+            alignment = HbMessageAlignment.Center,
+            widthFraction = 1f,
+            background = HbTheme.surfaces.assistant,
+            foreground = HbTheme.colors.textPrimary,
+            isUnified = true,
+        ),
+    )
+    val messages = remember(state.messages, labels) { state.messages.map { it.toChat(labels) }.toImmutableList() }
+    val cache = remember { ResearchTimelineCache() }
+    HbChatTranscript(
+        timeline = cache.update(messages),
+        modifier = modifier.testTag("research-transcript"),
+        streamingLabel = stringResource(Res.string.research_streaming),
+        jumpToLatestLabel = stringResource(Res.string.research_jump_latest),
+        toolLabels = researchToolLabels(),
+        showSectionHeaders = false,
+    )
 }
 
 private data class ResearchMessageLabels(

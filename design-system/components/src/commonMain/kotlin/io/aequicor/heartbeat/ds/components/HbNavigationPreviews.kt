@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
@@ -23,7 +25,7 @@ private fun DarkNavigationPreview() {
 
 @Composable
 private fun NavigationPreviewContent() {
-    HbGlassScene {
+    Box(Modifier.background(HbTheme.colors.background)) {
         HbColumn(modifier = Modifier.padding(HbTheme.spacing.l).width(HbTheme.dimensions.sidebarWidth)) {
             HbRow(gap = HbTheme.spacing.xs) {
                 HbRailItem(HbIcons.Chats, "Chats", onClick = {}, isSelected = true)
@@ -43,10 +45,10 @@ private fun NavigationPreviewContent() {
                 isSelected = true,
                 supportingText = "A two-line conversation preview",
                 leadingContent = {
-                    HbIcon(HbIcons.Chat, contentDescription = null, tint = HbTheme.studioColors.onSelected)
+                    HbIcon(HbIcons.Chat, contentDescription = null, tint = HbTheme.surfaces.onSelected)
                 },
-                selectedBackground = HbTheme.studioColors.selected,
-                selectedForeground = HbTheme.studioColors.onSelected,
+                selectedBackground = HbTheme.surfaces.selected,
+                selectedForeground = HbTheme.surfaces.onSelected,
             )
             HbRow(gap = HbTheme.spacing.xs) {
                 HbChip("heartbeat", icon = HbIcons.Folder, onClick = {})

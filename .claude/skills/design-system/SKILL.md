@@ -1,17 +1,30 @@
 ---
 name: design-system
-description: "Работа с дизайн-системой Mission в Heartbeat — токены (цвета, градиенты, типографика, отступы), HbTheme, новые Hb*-компоненты с реализациями Material (Android/iOS), Fluent (Windows) и macOS 26 UI (macOS), выбор кита в рантайме. Используй при создании/изменении UI-компонентов, экранов, тем и цветов."
+description: "Работа с дизайн-системой Heartbeat (плотный плоский стиль AI Studio) — токены и их пресеты по хосту, HbTheme, новые Hb*-компоненты с реализациями Material (Android/iOS), Fluent (Windows) и macOS 26 UI (macOS), выбор кита в рантайме. Используй при создании/изменении UI-компонентов, экранов, тем и цветов."
 ---
 
-# Дизайн-система Mission
+# Дизайн-система Heartbeat
 
-> Текущее визуальное направление изменено прямым запросом пользователя: **Aequicor Glass UI,
-> пастельный glassmorphism**.
-> Пастельная палитра сохраняется;
-> поверхности используют прозрачную заливку, мягкие тени и blur перекрывающих панелей.
-> Hex-палитра в исторических примерах ниже больше не актуальна: используй текущие `HbColors`
-> из `design-system/tokens` (назначение — в их KDoc). Основной режим —
-> `HbVisualStyle.Glass`; `Neumorphic` остаётся вариантом API, `Platform` сохраняет реальные нативные адаптеры.
+> Единственный визуальный стиль — **плотный плоский стиль AI Studio** (`HbVisualStyle.Flat`). Эталон — экран студии и режим
+> «Исследование» (`features/ai-studio/impl/**/ui`, `features/research-chat/impl/**/ui`). Glass, blur, неоморфные тени и
+> декоративные градиенты удалены. Принципы эталона (окно edge-to-edge, плотность desktop, типографика 13/12/14sp, тихие
+> состояния, гаснущий текст, режимы вместо экранов) — в `.claude/rules/design-system.md`; соблюдай их в каждом экране.
+> Примеры кода ниже показывают устройство темы и китов; актуальные значения — только в KDoc `design-system/tokens`.
+
+## Порядок работы над экраном
+1. Каркас: хост рисует сайдбар/шапку/titlebar; фича — только содержимое. Контент — колонка ≤ `HbTheme.dimensions.messageMaxWidth`
+   (настройки — `settingsMaxWidth`), фон — `HbTheme.surfaces.backdrop`, без карточек вокруг экрана.
+2. Списки и настройки — `HbSettingsSection` + `HbSettingsRow` (или `HbNavigationItem` в сайдбаре), разделители `HbDivider`.
+3. Действия — `HbButton` (`Primary` один на регион, `Secondary`/`Ghost`, `Danger` для деструктивного) размеров `Regular`/`Small`.
+4. Состояния — `HbLoadingState`, `HbEmptyState`, `HbBanner` (ошибка + «Повторить»); модальное — `HbDialog`.
+5. Однострочный текст — `HbText(maxLines = 1)` (гаснет к краю, тултип); `TextOverflow.Ellipsis` не использовать.
+6. Проверка: превью light/dark, скриншот-тест desktop 1280 и компактной ширины ~420dp в обеих темах, фокус по Tab.
+
+## Пресеты токенов
+
+`HbTheme` выбирает по хосту один пресет каждого набора: `HbDimensions.Mobile/Desktop/DesktopMacOs`,
+`HbColors.forHost(isDark, isDesktop)`, `HbSurfaceColors.forHost(...)`, `HbTypography.Mobile/Desktop` (со шрифтом хоста),
+`HbShapes.Mobile/Desktop`. Для превью мобильной плотности на desktop: `HbTheme(dimensions = HbDimensions.Mobile) { … }`.
 
 ## Токены (`design-system:tokens`) — единственное место с hex
 
@@ -137,8 +150,8 @@ Fluent/macOS-реализации лежат в `jvmMain` (киты — desktop-
 
 1. API в `components`: stateless, `modifier` первым опциональным, события `onX`, стабильные параметры.
 2. Реализации: material (+ iOS-нюансы), fluent, macos — или явный fallback на material с `// TODO(issue)`.
-3. Только токены `HbTheme`.
-4. `@Preview` light/dark; запись в `design-system:catalog`.
+3. Только токены `HbTheme`; стиль — плотный плоский (без glass/blur/теней, кроме всплывающих поверхностей).
+4. `@Preview` light/dark; запись в `design-system:catalog` со всеми состояниями (hover, pressed, selected, disabled, фокус, ошибка, длинный русский текст).
 5. Доступность: семантика, `contentDescription`, фокус/клавиатура на desktop.
 6. Проверка субагентом `ui-reviewer`.
 7. На каждой горизонтальной/вертикальной scrollable-поверхности — общий auto-hide scrollbar из `layouts`, включая поля ввода. Для lazy — нормализованный thumb без оценки средней высоты видимых строк; для sticky host — одна внешняя полоса вне fade-слоя. Проверяй hover, wheel, drag/release, RTL/reverse и края диапазона.
