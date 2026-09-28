@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -49,16 +50,8 @@ class RuntimePool(
             runtimes[key]
         }
         if (current != null && current.identity == identity) return current
-        if (current != null) {
-            if (hasActiveTurn(identity.engine, identity.source)) {
-                log.w { "runtime busy, not retired engine=${identity.engine.value} source=${identity.source.value}" }
-                fail(EngineFailure.Session(SessionFailureReason.Busy))
-            }
-            log.i { "retire runtime engine=${identity.engine.value} source=${identity.source.value}" }
-            retireHandles(identity.engine, identity.source)
-            mutex.withLock { runtimes.remove(key) }
-            closeQuietly(current)
-        }
+        if (current != null) retire(current, key)
+        mutex.withLock { ensureOpen(identity.engine) }
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
         val created = adapterCall(log, "createRuntime") {
             withContext(context.io) { resolved.registration.factory.value.createRuntime(identity) }
@@ -68,13 +61,31 @@ class RuntimePool(
             closeQuietly(created)
             fail(EngineFailure.Unknown())
         }
-        val stored = mutex.withLock { if (isClosed) false else true.also { runtimes[key] = created } }
+        // Registration must not be cancelled between creation and the pool, or the runtime would leak.
+        val stored = withContext(NonCancellable) {
+            mutex.withLock { if (isClosed) false else true.also { runtimes[key] = created } }
+        }
         if (!stored) {
             log.w { "runtime started during profile shutdown engine=${identity.engine.value}" }
-            closeQuietly(created)
+            withContext(NonCancellable) { closeQuietly(created) }
             fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
         return created
+    }
+
+    private suspend fun retire(current: EngineRuntime, key: Pair<EngineId, AuthSourceId>) {
+        val (engine, source) = key
+        if (hasActiveTurn(engine, source)) {
+            log.w { "runtime busy, not retired engine=${engine.value} source=${source.value}" }
+            fail(EngineFailure.Session(SessionFailureReason.Busy))
+        }
+        log.i { "retire runtime engine=${engine.value} source=${source.value}" }
+        retireHandles(engine, source)
+        // Only the caller that unregisters the runtime closes it, so a concurrent closeAll never closes it twice.
+        val owned = withContext(NonCancellable) {
+            mutex.withLock { (runtimes[key] === current).also { if (it) runtimes.remove(key) } }
+        }
+        if (owned) withContext(NonCancellable) { closeQuietly(current) }
     }
 
     private fun ensureOpen(engine: EngineId) {

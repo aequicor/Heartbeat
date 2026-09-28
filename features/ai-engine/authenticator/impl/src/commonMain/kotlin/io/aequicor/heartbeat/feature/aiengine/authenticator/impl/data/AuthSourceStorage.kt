@@ -102,9 +102,19 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
             is SecretRemoval.InUse -> {
                 log.w { "managed key kept, still referenced usages=${removal.usages.size}" }
                 // The source is kept, so it keeps its own reference to the value.
-                secrets.bind(slot.usage(), slot.key())
+                restoreUsage(slot)
                 throw ManagedKeyInUseException(slot)
             }
+        }
+    }
+
+    private suspend fun restoreUsage(slot: AuthSecretId) {
+        try {
+            secrets.bind(slot.usage(), slot.key())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "managed key usage not restored id=${slot.value}" }
         }
     }
 
