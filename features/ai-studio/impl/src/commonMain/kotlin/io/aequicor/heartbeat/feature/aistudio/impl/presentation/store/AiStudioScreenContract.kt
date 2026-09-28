@@ -155,6 +155,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Chooses the reasoning effort of the next runs. */
     data class SelectEffort(val effort: EffortUi) : Composer
 
+    /** Selects an advertised native effort for an exact model route; null restores the engine default. */
+    data class SelectEngineEffort(val modelId: String, val effort: String?) : Composer
+
     /** Chooses how the agent treats actions with side effects. */
     data class SelectApproval(val approval: ApprovalUi) : Composer
 

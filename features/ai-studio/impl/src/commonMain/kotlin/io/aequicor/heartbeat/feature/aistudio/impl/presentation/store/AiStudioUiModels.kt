@@ -8,11 +8,17 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModels
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -41,26 +47,62 @@ data class ModelUi(
     val name: String,
     val isResearchSupported: Boolean = false,
     val isLocalProjectSupported: Boolean = false,
+    val shortName: String = name,
+    val reasoningEfforts: ImmutableList<String> = persistentListOf(),
+    val defaultReasoningEffort: String? = null,
 )
 
 /** Composer preferences mirrored from the machine. */
 @Immutable
-data class SettingsUi(val modelId: String, val effort: EffortUi, val approval: ApprovalUi) {
+data class SettingsUi(
+    val modelId: String,
+    val effort: EffortUi,
+    val approval: ApprovalUi,
+    val engineEfforts: ImmutableMap<String, String> = persistentMapOf(),
+) {
     /** The selected model, or the first one when the id is unknown. */
     val model: ModelUi get() = StudioModelOptions.firstOrNull { it.id == modelId } ?: StudioModelOptions.first()
 }
 
 /** Models offered by the composer, from the most capable to the fastest. */
 val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map {
-    ModelUi(it.id, it.name, isLocalProjectSupported = it.isLocalProjectSupported)
+    it.toUi()
 }.toImmutableList()
 
+internal fun StudioModel.toUi(): ModelUi = ModelUi(
+    id,
+    name,
+    isResearchSupported,
+    isLocalProjectSupported,
+    shortName,
+    reasoningEfforts.toImmutableList(),
+    defaultReasoningEffort,
+)
+
 /** Progress of an agent tool call. */
-enum class ToolStatusUi { Running, Done, Failed }
+enum class ToolStatusUi { Pending, Running, Done, Failed, Cancelled }
 
 /** A tool call of a reply: literal console [output] and an optional unified [diff]. */
 @Immutable
 data class ToolUi(val id: String, val title: String, val status: ToolStatusUi, val output: String, val diff: String?)
+
+/** Chronological blocks inside one answer, retaining native identities across streaming updates. */
+@Immutable
+sealed interface ReplyPartUi {
+    /** Stable identity within one rendered answer. */
+    val id: String
+
+    /** Readable prose positioned between agent tool calls. */
+    data class Text(override val id: String, val text: String) : ReplyPartUi
+
+    /** Engine-exposed reasoning presented as a subordinate disclosure. */
+    data class Reasoning(override val id: String, val text: String) : ReplyPartUi
+
+    /** One invocation with its current status and output. */
+    data class Tool(val tool: ToolUi) : ReplyPartUi {
+        override val id: String get() = tool.id
+    }
+}
 
 /** One transcript entry as the screen shows it. */
 @Immutable
@@ -71,8 +113,16 @@ sealed interface MessageUi {
     /** When the entry was written. */
     val createdAt: Instant
 
+    /** Whether [createdAt] came from the engine and may be shown to the user. */
+    val isTimestampKnown: Boolean get() = true
+
     /** A prompt of the user. */
-    data class Prompt(override val id: String, override val createdAt: Instant, val text: String) : MessageUi
+    data class Prompt(
+        override val id: String,
+        override val createdAt: Instant,
+        val text: String,
+        override val isTimestampKnown: Boolean = true,
+    ) : MessageUi
 
     /** An agent answer, streamed while [isStreaming]. */
     data class Reply(
@@ -81,6 +131,8 @@ sealed interface MessageUi {
         val text: String,
         val tools: ImmutableList<ToolUi>,
         val isStreaming: Boolean,
+        val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
+        override val isTimestampKnown: Boolean = true,
     ) : MessageUi
 
     /** The user stopped the run after [elapsed]. */
@@ -99,7 +151,12 @@ internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Cloud -> EnvironmentUi.Cloud
 }
 
-internal fun RunSettings.toUi(): SettingsUi = SettingsUi(modelId, effort.toUi(), approval.toUi())
+internal fun RunSettings.toUi(): SettingsUi = SettingsUi(
+    modelId,
+    effort.toUi(),
+    approval.toUi(),
+    engineEfforts.toImmutableMap(),
+)
 
 internal fun ReasoningEffort.toUi(): EffortUi = when (this) {
     ReasoningEffort.Low -> EffortUi.Low
@@ -126,7 +183,7 @@ internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
 }
 
 internal fun StudioMessage.toUi(): MessageUi = when (this) {
-    is StudioMessage.Prompt -> MessageUi.Prompt(id, createdAt, text)
+    is StudioMessage.Prompt -> MessageUi.Prompt(id, createdAt, text, isTimestampKnown)
 
     is StudioMessage.Reply -> MessageUi.Reply(
         id,
@@ -134,6 +191,14 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
         text,
         tools.map { it.toUi() }.toImmutableList(),
         isStreaming,
+        parts.map { part ->
+            when (part) {
+                is StudioReplyPart.Text -> ReplyPartUi.Text(part.id, part.text)
+                is StudioReplyPart.Reasoning -> ReplyPartUi.Reasoning(part.id, part.text)
+                is StudioReplyPart.Tool -> ReplyPartUi.Tool(part.tool.toUi())
+            }
+        }.toImmutableList(),
+        isTimestampKnown,
     )
 
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
@@ -145,6 +210,8 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
     id = id,
     title = title,
     status = when (status) {
+        ToolRunStatus.Pending -> ToolStatusUi.Pending
+        ToolRunStatus.Cancelled -> ToolStatusUi.Cancelled
         ToolRunStatus.Running -> ToolStatusUi.Running
         ToolRunStatus.Done -> ToolStatusUi.Done
         ToolRunStatus.Failed -> ToolStatusUi.Failed

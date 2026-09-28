@@ -163,36 +163,70 @@ internal fun titleOf(prompt: String): String {
 }
 
 /** Folds one agent event into the streamed reply. */
-internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply = when (event) {
-    is AgentEvent.Text -> copy(text = text + event.text)
-
-    is AgentEvent.ToolStarted -> copy(tools = tools + StudioToolRun(event.id, event.title))
-
-    is AgentEvent.ToolOutput -> copy(
-        tools = tools.map { if (it.id == event.id) it.copy(output = it.output + event.output) else it },
-    )
-
-    is AgentEvent.ToolFinished -> copy(
-        tools = tools.map { tool ->
-            if (tool.id != event.id) {
-                tool
+internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
+    val ordered = parts.ifEmpty {
+        listOfNotNull(text.takeIf(String::isNotEmpty)?.let { StudioReplyPart.Text("$id:text:0", it) }) +
+            tools.map { StudioReplyPart.Tool(it) }
+    }
+    return when (event) {
+        is AgentEvent.Text -> {
+            val last = ordered.lastOrNull() as? StudioReplyPart.Text
+            val updated = if (last == null) {
+                ordered + StudioReplyPart.Text("$id:text:${ordered.size}", event.text)
             } else {
-                tool.copy(
-                    title = event.title,
-                    status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
-                    diff = event.diff ?: tool.diff,
-                )
+                ordered.dropLast(1) + last.copy(text = last.text + event.text)
             }
-        },
-    )
+            copy(text = text + event.text, parts = updated)
+        }
 
-    is AgentEvent.BranchCreated -> this
+        is AgentEvent.ToolStarted -> {
+            val tool = StudioToolRun(event.id, event.title)
+            copy(tools = tools + tool, parts = ordered + StudioReplyPart.Tool(tool))
+        }
+
+        is AgentEvent.ToolOutput -> updateTool(event.id, ordered) { copy(output = output + event.output) }
+
+        is AgentEvent.ToolFinished -> updateTool(event.id, ordered) {
+            copy(
+                title = event.title,
+                status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
+                diff = event.diff ?: diff,
+            )
+        }
+
+        is AgentEvent.BranchCreated -> this
+    }
 }
 
-/** Ends streaming; tool calls interrupted by a stop or failure are marked failed. */
-internal fun StudioMessage.Reply.closed(): StudioMessage.Reply = copy(
-    isStreaming = false,
-    tools = tools.map { if (it.status == ToolRunStatus.Running) it.copy(status = ToolRunStatus.Failed) else it },
+private fun StudioMessage.Reply.updateTool(
+    toolId: String,
+    ordered: List<StudioReplyPart>,
+    update: StudioToolRun.() -> StudioToolRun,
+): StudioMessage.Reply = copy(
+    tools = tools.map { if (it.id == toolId) it.update() else it },
+    parts = ordered.map {
+        if (it is StudioReplyPart.Tool && it.id == toolId) {
+            StudioReplyPart.Tool(it.tool.update())
+        } else {
+            it
+        }
+    },
 )
+
+/** Ends streaming; tool calls interrupted by a stop or failure are marked failed. */
+internal fun StudioMessage.Reply.closed(): StudioMessage.Reply {
+    val close: StudioToolRun.() -> StudioToolRun = {
+        if (status == ToolRunStatus.Running || status == ToolRunStatus.Pending) {
+            copy(status = ToolRunStatus.Failed)
+        } else {
+            this
+        }
+    }
+    return copy(
+        isStreaming = false,
+        tools = tools.map { it.close() },
+        parts = parts.map { if (it is StudioReplyPart.Tool) StudioReplyPart.Tool(it.tool.close()) else it },
+    )
+}
 
 private const val TITLE_LENGTH = 60

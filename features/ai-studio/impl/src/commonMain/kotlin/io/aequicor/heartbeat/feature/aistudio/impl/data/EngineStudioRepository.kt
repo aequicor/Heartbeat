@@ -45,7 +45,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
@@ -68,12 +67,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
@@ -142,6 +143,9 @@ internal class EngineStudioRepository(
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
+    private val offeredModels = facade.observeStudioModels(selections, sources)
+        .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
+
     /** Recomputed only when stored refs, engines or running chats change; storage writes per event do not. */
     private val continuability: Flow<Map<String, Boolean>> = combine(
         store.observe(ChatsKey).map { records -> records.orEmpty().map { it.id to it.ref } }.distinctUntilChanged(),
@@ -204,28 +208,9 @@ internal class EngineStudioRepository(
         }.orEmpty()
     }
 
-    override fun observeModels(): Flow<List<StudioModel>> = combine(
-        selections.observe(),
-        facade.bindings.state,
-        facade.engines.state,
-        sources.state,
-    ) { selected, bindings, engines, auth ->
-        log.d { "Observe enabled models" }
-        selected.bindings.flatMap { enabled ->
-            val binding =
-                bindings.firstOrNull { it.id == enabled.binding && it.isEnabled } ?: return@flatMap emptyList()
-            val engine = engines.firstOrNull { it.descriptor.id == binding.engine } ?: return@flatMap emptyList()
-            val label = auth.firstOrNull { it.info.id == binding.authSource }?.info?.label.orEmpty()
-            enabled.models.map { model ->
-                val target = EngineTarget(binding.engine, binding.id, model)
-                StudioModel(
-                    Json.encodeToString(EngineTarget.serializer(), target),
-                    "${engine.descriptor.title} · ${model.value} · $label",
-                    isResearchSupported = binding.engine == KoogEngineId,
-                    isLocalProjectSupported = engine.descriptor.isLocalWorkspaceSupported,
-                )
-            }
-        }
+    override fun observeModels(): Flow<List<StudioModel>> {
+        log.d { "Observe enabled models and their cached capabilities" }
+        return offeredModels
     }
 
     override suspend fun defaults(): RunSettings {
@@ -307,7 +292,7 @@ internal class EngineStudioRepository(
                 val permissions = launch { active.state.collect { updatePermissions(id, it) } }
                 try {
                     log.i { "Submitting prompt length=${prompt.length}" }
-                    val turn = submit(active, prompt)
+                    val turn = submit(active, prompt, settings.reasoningEffort(target, offeredModels.value))
                     if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
                         (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
@@ -356,8 +341,12 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun submit(active: ActiveSession, prompt: String): TurnId {
-        val request = PromptRequest(RequestId(Uuid.random().toString()), listOf(ContentPart.Text(prompt)))
+    private suspend fun submit(active: ActiveSession, prompt: String, reasoningEffort: String?): TurnId {
+        val request = PromptRequest(
+            RequestId(Uuid.random().toString()),
+            listOf(ContentPart.Text(prompt)),
+            reasoningEffort = reasoningEffort,
+        )
         return try {
             active.features.requireFeature(SendsPrompts).send(request)
         } catch (e: EngineException) {

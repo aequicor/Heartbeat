@@ -39,7 +39,7 @@ data class StudioWorkspace(val projects: List<StudioProject>, val sessions: List
 }
 
 /** Progress of a tool call made by the agent. */
-enum class ToolRunStatus { Running, Done, Failed }
+enum class ToolRunStatus { Pending, Running, Done, Failed, Cancelled }
 
 /** A command or an edit performed by the agent; [output] is literal console text, [diff] a unified diff. */
 data class StudioToolRun(
@@ -50,6 +50,23 @@ data class StudioToolRun(
     val diff: String? = null,
 )
 
+/** Ordered engine-visible answer content. Reasoning exists only when explicitly exposed by the engine. */
+sealed interface StudioReplyPart {
+    /** Stable identity within one native answer. */
+    val id: String
+
+    /** User-visible prose in its original position among tools. */
+    data class Text(override val id: String, val text: String) : StudioReplyPart
+
+    /** Reasoning text explicitly exposed by the engine. */
+    data class Reasoning(override val id: String, val text: String) : StudioReplyPart
+
+    /** A tool invocation updated in place as its output arrives. */
+    data class Tool(val tool: StudioToolRun) : StudioReplyPart {
+        override val id: String get() = tool.id
+    }
+}
+
 /** One entry of a session transcript. */
 sealed interface StudioMessage {
     /** Stable id within the session. */
@@ -58,8 +75,16 @@ sealed interface StudioMessage {
     /** When the entry was written. */
     val createdAt: Instant
 
+    /** False when the engine does not expose a timestamp for this historical entry. */
+    val isTimestampKnown: Boolean get() = true
+
     /** A prompt sent by the user. */
-    data class Prompt(override val id: String, override val createdAt: Instant, val text: String) : StudioMessage
+    data class Prompt(
+        override val id: String,
+        override val createdAt: Instant,
+        val text: String,
+        override val isTimestampKnown: Boolean = true,
+    ) : StudioMessage
 
     /** An agent answer; streamed while [isStreaming]. [tools] keep their order of appearance. */
     data class Reply(
@@ -68,6 +93,8 @@ sealed interface StudioMessage {
         val text: String = "",
         val tools: List<StudioToolRun> = emptyList(),
         val isStreaming: Boolean = false,
+        val parts: List<StudioReplyPart> = emptyList(),
+        override val isTimestampKnown: Boolean = true,
     ) : StudioMessage
 
     /** The user stopped the run after [elapsed]. */
@@ -83,6 +110,9 @@ data class StudioModel(
     val name: String,
     val isResearchSupported: Boolean = false,
     val isLocalProjectSupported: Boolean = false,
+    val shortName: String = name,
+    val reasoningEfforts: List<String> = emptyList(),
+    val defaultReasoningEffort: String? = null,
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */

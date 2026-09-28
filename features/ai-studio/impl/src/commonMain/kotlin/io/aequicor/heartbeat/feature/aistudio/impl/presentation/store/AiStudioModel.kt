@@ -22,6 +22,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
@@ -32,11 +33,13 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
@@ -59,7 +62,7 @@ class AiStudioModel(
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
-        initial = AiStudioScreenState().reflectMachine(machine.state.value),
+        initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -78,20 +81,13 @@ class AiStudioModel(
                     backend.repository().observeModels().collect { models ->
                         updateState {
                             copy(
-                                models = models.map {
-                                    ModelUi(
-                                        it.id,
-                                        it.name,
-                                        it.isResearchSupported,
-                                        it.isLocalProjectSupported,
-                                    )
-                                }.toImmutableList(),
+                                models = models.map { it.toUi() }.toImmutableList(),
                             )
                         }
                     }
                 }
                 launch { observeTranscripts(pipeline) }
-                launch { tickWhileRunning(pipeline) }
+                launch { observeClock(pipeline) }
             }
         }
         reduce { intent -> handle(this, intent) }
@@ -139,15 +135,15 @@ class AiStudioModel(
         }
     }
 
-    /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
-    private suspend fun tickWhileRunning(pipeline: StudioPipeline) = with(pipeline) {
+    /** Active runs tick each second; idle screens refresh once a minute for local Today/Yesterday labels. */
+    private suspend fun observeClock(pipeline: StudioPipeline) = with(pipeline) {
         machine.state
             .map { (it as? AiStudioState.Ready)?.running?.isNotEmpty() == true }
             .distinctUntilChanged()
             .collectLatest { isRunning ->
-                while (isRunning) {
+                while (currentCoroutineContext().isActive) {
                     updateState { copy(now = clock.now()) }
-                    delay(1.seconds)
+                    delay(if (isRunning) 1.seconds else 1.minutes)
                 }
             }
     }
@@ -209,6 +205,16 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
 
+            is AiStudioScreenIntent.SelectEngineEffort -> updateSettings(pipeline) {
+                copy(
+                    engineEfforts = if (intent.effort == null) {
+                        engineEfforts - intent.modelId
+                    } else {
+                        engineEfforts + (intent.modelId to intent.effort)
+                    },
+                )
+            }
+
             is AiStudioScreenIntent.SelectApproval -> updateSettings(
                 pipeline,
             ) { copy(approval = intent.approval.toDomain()) }
@@ -261,7 +267,12 @@ class AiStudioModel(
         pipeline,
     ) {
         withState {
-            val current = RunSettings(settings.modelId, settings.effort.toDomain(), settings.approval.toDomain())
+            val current = RunSettings(
+                settings.modelId,
+                settings.effort.toDomain(),
+                settings.approval.toDomain(),
+                settings.engineEfforts,
+            )
             sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
         }
     }

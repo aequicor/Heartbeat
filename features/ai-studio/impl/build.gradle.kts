@@ -14,6 +14,7 @@ kotlin {
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
             implementation(projects.core.datastore.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.aiEngine.authenticator.api)
