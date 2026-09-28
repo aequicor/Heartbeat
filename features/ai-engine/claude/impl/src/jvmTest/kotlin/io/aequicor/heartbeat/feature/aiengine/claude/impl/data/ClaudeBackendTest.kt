@@ -171,6 +171,8 @@ class ClaudeBackendTest {
         val models = backend.discoverModels(source, context)
         assertEquals(listOf("sonnet", "opus"), models.map { it.target.model.value })
         assertEquals("Sonnet", models.first().title)
+        assertEquals(listOf("low", "high"), models.first().reasoningEfforts)
+        assertEquals(emptyList(), models.last().reasoningEfforts)
 
         fixture.transport.generation = { _, line ->
             line(modelsFrame("other"))
@@ -182,5 +184,6 @@ class ClaudeBackendTest {
 }
 
 private fun modelsFrame(request: String) = """{"type":"control_response","response":{"request_id":"$request",
-    "subtype":"success","response":{"models":[{"value":"sonnet","displayName":"Sonnet"},{"value":"opus"}]}}}"""
+    "subtype":"success","response":{"models":[{"value":"sonnet","displayName":"Sonnet",
+    "supportsEffort":true,"supportedEffortLevels":["low","high","future"]},{"value":"opus"}]}}}"""
     .replace("\n", "")

@@ -38,6 +38,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeBackend>())
 @ContributesBinding(ProfileScope::class, binding = binding<ClaudeAuthentication>())
@@ -149,6 +151,7 @@ internal class JvmClaudeBackend(
                         ModelInfo(
                             EngineTarget(ClaudeEngine.Id, context.binding, ModelId(id)),
                             model.text("displayName") ?: id,
+                            reasoningEfforts = model.effortLevels(),
                         )
                     }
                 }
@@ -193,3 +196,9 @@ internal class JvmClaudeBackend(
 
 private val VERSION = Regex("[0-9]+\\.[0-9]+\\.[0-9]+")
 private const val INITIALIZE = """{"type":"control_request","request_id":"models","request":{"subtype":"initialize"}}"""
+
+/** Effort levels a model advertises; unknown values are dropped so `--effort` never receives them. */
+private fun JsonObject.effortLevels(): List<String> = (this["supportedEffortLevels"] as? JsonArray).orEmpty()
+    .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+    .filter { it in ClaudeEffortLevels }
+    .distinct()

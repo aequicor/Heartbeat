@@ -34,11 +34,26 @@ import kotlin.test.assertTrue
 
 class ClaudeRuntimeTest {
     @Test
-    fun `unadvertised reasoning effort is rejected before generation`() = runTest {
+    fun `selected effort is passed to the claude process`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
-        val request = prompt().copy(reasoningEffort = "high")
+        val send = async { session.features.available(SendsPrompts).send(prompt().copy(reasoningEffort = "xhigh")) }
+        runCurrent()
+        send.await()
+        assertTrue("--effort=xhigh" in fixture.transport.calls.last())
+        session.features.available(SendsPrompts).send(prompt("default"))
+        runCurrent()
+        assertTrue(fixture.transport.calls.last().none { it.startsWith("--effort") })
+        runtime.close()
+    }
+
+    @Test
+    fun `unknown reasoning effort is rejected before generation`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val request = prompt().copy(reasoningEffort = "turbo")
         val error = assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(request) }
         assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
         assertIs<ActiveSessionState.Ready>(session.state.value)
