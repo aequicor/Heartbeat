@@ -9,6 +9,8 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.features.aiEngine.koog.api)
+            implementation(projects.features.aiEngine.koog.impl)
             api(projects.core.common)
             implementation(projects.features.aiEngine.acpInterface.impl)
             implementation(projects.features.aiEngine.codex.impl)
