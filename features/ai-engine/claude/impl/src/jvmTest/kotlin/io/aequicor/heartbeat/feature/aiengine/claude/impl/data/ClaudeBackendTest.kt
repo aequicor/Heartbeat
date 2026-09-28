@@ -2,11 +2,13 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -103,6 +105,28 @@ class ClaudeBackendTest {
         val missing = assertFailsWith<EngineException> { backend.session(session.ref) }
         assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
         second.close()
+    }
+
+    @Test
+    fun `bound non-default source creates runtimes until it is unbound`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val backend = fixture.backend(backgroundScope)
+        val login = fixture.account.inspect().source
+        val routed = login.copy(info = login.info.copy(id = AuthSourceId("user-claude")))
+        val identity = fixture.identity().copy(source = routed.info.id)
+        val binding = EngineBindingId("user-binding")
+        assertFailsWith<EngineException> { backend.createRuntime(identity) }
+
+        backend.bind(binding, routed)
+        backend.bind(binding, routed)
+        assertIs<ClaudeRuntime>(backend.createRuntime(identity)).close()
+
+        backend.unbind(binding)
+        val error = assertFailsWith<EngineException> { backend.createRuntime(identity) }
+        assertEquals(
+            AuthFailureReason.AuthMismatch,
+            assertIs<EngineFailure.Authentication>(error.failure).reason.reason,
+        )
     }
 
     @Test

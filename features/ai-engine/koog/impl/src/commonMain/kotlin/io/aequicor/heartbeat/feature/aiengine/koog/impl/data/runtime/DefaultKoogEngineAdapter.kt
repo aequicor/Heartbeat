@@ -97,14 +97,12 @@ internal class DefaultKoogEngineAdapter(
 
     /** Stores the provider route of [binding]; credentials stay in the profile vault. */
     override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
-        log.i { "Binding Koog route" }
-        access.configure(binding, source)
+        if (access.configure(binding, source)) log.i { "Bound Koog route" }
     }
 
     /** Forgets the provider route of [binding]; unknown bindings are ignored. */
     override suspend fun unbind(binding: EngineBindingId) {
-        log.i { "Unbinding Koog route" }
-        access.remove(binding)
+        if (access.remove(binding)) log.i { "Unbound Koog route" }
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> = onMain {

@@ -21,6 +21,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -67,10 +69,8 @@ class SessionCatalogService(
             adapterCall(log, "get") { source.get(ref) }
         } else {
             val known = index.find(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
-            object : EngineSession {
-                override val summary = kotlinx.coroutines.flow.MutableStateFlow(known)
-                override val features = FeatureTable(emptyMap())
-            }
+            log.i { "open stored session from index engine=${ref.engine.value}" }
+            IndexedSession(known)
         }
         return openStored(registration, stored)
     }
@@ -209,3 +209,9 @@ class SessionCatalogService(
 
 /** A complete enumeration of a source: no filter could have hidden entries. */
 private fun SessionQuery.isComplete(): Boolean = workspace == null && search == null && archive == ArchiveFilter.All
+
+/** A session known only from the index while its source is not registered; it offers no features. */
+private class IndexedSession(known: SessionSummary) : EngineSession {
+    override val summary: StateFlow<SessionSummary> = MutableStateFlow(known)
+    override val features: FeatureTable = FeatureTable(emptyMap())
+}

@@ -24,7 +24,7 @@ import java.io.IOException
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class LocalCodexTransport(
-    private val config: CodexLocalConfiguration = CodexLocalConfiguration(),
+    private val config: CodexLocalConfiguration,
     private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : CodexTransport {

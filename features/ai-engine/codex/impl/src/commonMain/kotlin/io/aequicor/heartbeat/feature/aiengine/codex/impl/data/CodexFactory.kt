@@ -69,6 +69,7 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
 
     /** Allows runtimes for [source] of a user-configured binding; the CLI itself still resolves the login. */
     override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = lock.withLock {
+        if (routes[binding] == source.info.id) return@withLock
         if (!accepts(source, EngineContext(CodexEngine.Id, binding))) {
             log.w { "Rejected Codex route: foreign source" }
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))

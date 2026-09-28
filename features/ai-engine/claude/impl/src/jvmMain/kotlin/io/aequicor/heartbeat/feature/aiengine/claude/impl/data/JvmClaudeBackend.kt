@@ -104,6 +104,7 @@ internal class JvmClaudeBackend(
 
     /** Allows runtimes for [source] of a user-configured binding; the CLI itself still resolves the login. */
     override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = mutex.withLock {
+        if (routes[binding] == source.info.id) return@withLock
         if (!accepts(source, EngineContext(ClaudeEngine.Id, binding))) {
             log.w { "Rejected Claude route: foreign source" }
             authFailure(AuthFailureReason.AuthMismatch)

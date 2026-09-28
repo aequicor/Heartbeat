@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretStore
@@ -34,10 +35,31 @@ internal class KoogAccess(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val transport: KoogTransport,
 ) {
-    suspend fun configure(binding: EngineBindingId, source: AuthSource) =
-        connections.put(KoogConnection(EngineBinding(binding, KoogEngineId, source.info.id), source))
+    private val log = Log.tag("KoogAccess")
 
-    suspend fun remove(binding: EngineBindingId) = connections.remove(binding)
+    /**
+     * Saves the route of [binding] unless the same connection is already stored; returns whether it changed.
+     * Called on every route resolution, so an unchanged route performs no write.
+     */
+    suspend fun configure(binding: EngineBindingId, source: AuthSource): Boolean {
+        checkEnabled()
+        val connection = KoogConnection(EngineBinding(binding, KoogEngineId, source.info.id), source)
+        if (connections.list().any { it == connection }) return false
+        try {
+            connections.put(connection)
+        } catch (e: IllegalArgumentException) {
+            log.w(e) { "Rejected Koog route: incompatible source metadata" }
+            fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
+        }
+        return true
+    }
+
+    /** Removes the route of [binding]; returns whether a stored route existed. */
+    suspend fun remove(binding: EngineBindingId): Boolean {
+        if (connections.list().none { it.binding.id == binding }) return false
+        connections.remove(binding)
+        return true
+    }
 
     suspend fun checkEnabled() {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
@@ -54,6 +76,8 @@ internal class KoogAccess(
         if (koogProvider(source) == null) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
+        // A keyless local endpoint (Ollama) has no credential whose rotation a revision could track, so its
+        // authenticator never assigns a known revision; the identity check below still pins the source id.
         if (source !is AuthSource.NoAuth && source.info.revision !is AuthRevision.Known) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged)))
         }

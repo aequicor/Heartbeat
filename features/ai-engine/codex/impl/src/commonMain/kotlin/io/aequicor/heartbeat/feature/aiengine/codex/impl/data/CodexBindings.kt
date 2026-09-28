@@ -31,43 +31,48 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 @BindingContainer
 @ContributesTo(ProfileScope::class)
 public object CodexBindings {
+    /**
+     * The single local installation of the profile. The registration descriptor, the factory's `accepts`
+     * and the transport read this same binding, so the advertised login location always matches.
+     */
+    @Provides
+    public fun configuration(): CodexLocalConfiguration = CodexLocalConfiguration()
+
     /** The engine factory is initialized only after facade ownership and toggle checks. */
     @Provides
     @IntoSet
-    public fun registration(
-        factory: Lazy<CodexEngineFactory>,
-        config: CodexLocalConfiguration = CodexLocalConfiguration(),
-    ): EngineRegistration = EngineRegistration(
-        descriptor = EngineDescriptor(
-            CodexEngine.Id,
-            "Codex",
-            EngineFamily.Vendor,
-            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
-            CodexEngine.Enabled,
-            requirements = listOf(
-                EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
-            ),
-            connectionMethods = listOf(
-                ConnectionMethod.CliLogin(
-                    ConnectionMethodId("cli"),
-                    ProviderInfo(ProviderId("openai"), "OpenAI"),
-                    EndpointOrigin("https://api.openai.com"),
-                    CodexEngine.AuthOwner,
-                    config.location,
+    public fun registration(factory: Lazy<CodexEngineFactory>, config: CodexLocalConfiguration): EngineRegistration =
+        EngineRegistration(
+            descriptor = EngineDescriptor(
+                CodexEngine.Id,
+                "Codex",
+                EngineFamily.Vendor,
+                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+                CodexEngine.Enabled,
+                requirements = listOf(
+                    EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
+                ),
+                connectionMethods = listOf(
+                    ConnectionMethod.CliLogin(
+                        ConnectionMethodId("cli"),
+                        ProviderInfo(ProviderId("openai"), "OpenAI"),
+                        EndpointOrigin("https://api.openai.com"),
+                        CodexEngine.AuthOwner,
+                        config.location,
+                    ),
+                ),
+                declaredFeatures = setOf(
+                    CreatesSessions.id,
+                    AttachesSessions.id,
+                    SendsPrompts.id,
+                    CancelsTurns.id,
+                    RequestsPermissions.id,
+                    SessionHistory.id,
                 ),
             ),
-            declaredFeatures = setOf(
-                CreatesSessions.id,
-                AttachesSessions.id,
-                SendsPrompts.id,
-                CancelsTurns.id,
-                RequestsPermissions.id,
-                SessionHistory.id,
-            ),
-        ),
-        authOwner = CodexEngine.AuthOwner,
-        factory = lazy { factory.value },
-    )
+            authOwner = CodexEngine.AuthOwner,
+            factory = lazy { factory.value },
+        )
 }
 
 /** Adds the Codex switch to the application's toggle control panel. */

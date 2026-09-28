@@ -108,26 +108,27 @@ internal class Fixture(val test: TestScope) {
             json("turn" to json("id" to "native-turn".json())),
         )
     }
+    val environment = CodexRuntimeEnvironment(
+        CodexLocalConfiguration(),
+        object : FeatureToggles {
+            override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
+
+            @Suppress("UNCHECKED_CAST")
+            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = true as T
+        },
+        dispatchers,
+        FakeLauncher(),
+        object : ScopeFactory {
+            override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope = FakeScope(
+                test.backgroundScope,
+            )
+        },
+        profile,
+    )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),
         rpc,
-        CodexRuntimeEnvironment(
-            CodexLocalConfiguration(),
-            object : FeatureToggles {
-                override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
-
-                @Suppress("UNCHECKED_CAST")
-                override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = true as T
-            },
-            dispatchers,
-            FakeLauncher(),
-            object : ScopeFactory {
-                override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope = FakeScope(
-                    test.backgroundScope,
-                )
-            },
-            profile,
-        ),
+        environment,
     )
     init {
         wire.handler = { message ->
