@@ -100,16 +100,21 @@ internal class ProcessCodexWire(
     }
 
     override suspend fun write(message: JsonObject) {
-        writes.withLock {
-            withContext(dispatchers.io) {
-                try {
-                    writer.write(message.toString())
-                    writer.newLine()
-                    writer.flush()
-                } catch (e: IOException) {
-                    throw e.sanitized()
+        try {
+            writes.withLock {
+                withContext(dispatchers.io) {
+                    try {
+                        writer.write(message.toString())
+                        writer.newLine()
+                        writer.flush()
+                    } catch (e: IOException) {
+                        throw e.sanitized()
+                    }
                 }
             }
+        } finally {
+            // A close that raced this write could not take the lock; the write releases stdin once it is done.
+            if (isClosed.get()) closeStdin()
         }
     }
 
@@ -137,7 +142,11 @@ internal class ProcessCodexWire(
         }
     }
 
-    /** Closing flushes under the writer lock; while a write holds it, process death already releases the pipe. */
+    /**
+     * Closing flushes under the writer lock. Process death does not release the pipe while a descendant still holds
+     * it, so when an in-flight write holds the lock, that write closes stdin after releasing it: [isClosed] is set
+     * before this lock attempt, and [write] re-checks it after unlocking, so one of them always closes the writer.
+     */
     private fun closeStdin() {
         if (!writes.tryLock()) return
         try {
