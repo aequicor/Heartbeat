@@ -14,6 +14,8 @@ kotlin {
             implementation(projects.core.secrets.api)
             implementation(projects.core.network.api)
             implementation(projects.core.di.api)
+            implementation(projects.core.di.ext)
+            implementation(projects.core.featureToggles.api)
             implementation(projects.core.navigation.compose)
             implementation(projects.core.mvi)
             implementation(projects.core.logging)

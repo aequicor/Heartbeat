@@ -133,6 +133,30 @@ class SearchEngineTest {
         )
     }
 
+    @Test fun `fetch rejects local, private and non-http addresses before any request`() = runTest {
+        val router = RoutedSearchEngine(
+            options,
+            api {
+                calls++
+                respond(CONTENTS_RESPONSE, headers = jsonHeaders)
+            },
+        )
+        val rejected = listOf(
+            "file:///etc/passwd", "ftp://example.com/a", "http://localhost:8080/", "http://app.localhost/",
+            "http://printer.local/", "http://127.0.0.1/", "http://10.1.2.3/", "http://172.20.0.1/",
+            "http://192.168.1.1/", "http://169.254.169.254/latest", "http://100.64.0.1/", "http://0.0.0.0/",
+            "http://2130706433/", "http://0x7f.0.0.1/", "http://[::1]/", "http://[fe80::1]/", "http://[fd00::1]/",
+            "http://[::ffff:127.0.0.1]/", "https://user@example.com/",
+        )
+        rejected.forEach { url ->
+            val error = assertFailsWith<SearchException>(url) { router.fetch(url) }
+            assertEquals(SearchFailure.InvalidInput, error.failure, url)
+        }
+        assertEquals(0, calls)
+        assertEquals("Page text", router.fetch("https://8.8.8.8/a").text)
+        assertEquals("Page text", router.fetch("https://Example.com:443/a?b#c").text)
+    }
+
     @Test fun `provider timeout is typed and never leaks transport text`() = runTest {
         val api = api { throw ConnectTimeoutException("private endpoint") }
         val error = assertFailsWith<SearchException> { api.search("topic", 1) }

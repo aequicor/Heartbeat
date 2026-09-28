@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -24,11 +25,17 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /** Loopback-only, profile-lifetime MCP/JSON bridge; child engines never receive Querit keys. */
 @SingleIn(ProfileScope::class)
@@ -42,19 +49,54 @@ internal class LocalSearchBridge(
     private val scope = profile.coroutineScope
     private val bearer = ByteArray(TOKEN_BYTES).also(SecureRandom()::nextBytes)
     private val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bearer)
-    private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-        createContext("/mcp", ::handleMcp)
-        createContext("/execute", ::handleExecute)
-        start()
-    }
+    private val lock = Any()
+    private var server: HttpServer? = null
+    private var executor: ExecutorService? = null
+    private var closed = false
+
     init {
-        profile.onClose { server.stop(0) }
+        profile.onClose(::stop)
     }
 
-    override fun endpoint(): SearchBridgeEndpoint = SearchBridgeEndpoint(
-        "http://127.0.0.1:${server.address.port}",
-        token,
-    )
+    /** Starts the loopback server on first use; a closed profile never restarts it. */
+    override fun endpoint(): SearchBridgeEndpoint = synchronized(lock) {
+        check(!closed) { "Search bridge is closed" }
+        val running = server ?: start()
+        SearchBridgeEndpoint("http://127.0.0.1:${running.address.port}", token)
+    }
+
+    private fun start(): HttpServer {
+        val pool = Executors.newFixedThreadPool(MAX_THREADS)
+        try {
+            val created = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+                createContext("/mcp", ::handleMcp)
+                createContext("/execute", ::handleExecute)
+                setExecutor(pool)
+                start()
+            }
+            server = created
+            executor = pool
+            log.i { "Search bridge started on port ${created.address.port}" }
+            return created
+        } catch (e: IOException) {
+            pool.shutdownNow()
+            log.e(e) { "Search bridge failed to start" }
+            throw e
+        }
+    }
+
+    private fun stop() {
+        val (running, pool) = synchronized(lock) {
+            closed = true
+            (server to executor).also {
+                server = null
+                executor = null
+            }
+        }
+        running?.stop(0)
+        pool?.shutdownNow()
+        if (running != null) log.i { "Search bridge stopped" }
+    }
 
     private fun handleMcp(exchange: HttpExchange) = handle(exchange, mcp = true)
     private fun handleExecute(exchange: HttpExchange) = handle(exchange, mcp = false)
@@ -77,6 +119,12 @@ internal class LocalSearchBridge(
             }
             val response = dispatch(request, mcp)
             reply(exchange, OK, response.toString())
+        } catch (e: TimeoutException) {
+            log.w(e) { "Bridge request timed out" }
+            reply(exchange, UNAVAILABLE, "{}")
+        } catch (e: BridgeUnavailableException) {
+            log.w(e) { "Bridge request cancelled" }
+            reply(exchange, UNAVAILABLE, "{}")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -98,10 +146,21 @@ internal class LocalSearchBridge(
                 pending.completeExceptionally(e)
             }
         }
+        // A cancelled profile scope becomes a typed failure, so the HTTP thread answers 503 instead of propagating.
         job.invokeOnCompletion { error ->
-            if (error != null) pending.completeExceptionally(error)
+            if (error != null) pending.completeExceptionally(BridgeUnavailableException(error))
         }
-        return pending.get()
+        return await(pending, job)
+    }
+
+    private fun await(pending: CompletableFuture<JsonObject>, job: Job): JsonObject = try {
+        pending.get(REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+    } catch (e: TimeoutException) {
+        job.cancel()
+        throw e
+    } catch (e: ExecutionException) {
+        // Unwraps the tool failure so logs show the real cause.
+        throw e.cause ?: e
     }
 
     private fun authorized(exchange: HttpExchange): Boolean {
@@ -177,11 +236,17 @@ internal class LocalSearchBridge(
         }
     }
 
-    private suspend fun tool(name: String, args: JsonObject): Pair<String, Boolean> = try {
+    private suspend fun tool(name: String, args: JsonObject): Pair<String, Boolean> {
+        val result = runTool(name, args)
+        log.i { "Bridge tool $name: ${if (result.second) "ok" else result.first}" }
+        return result
+    }
+
+    private suspend fun runTool(name: String, args: JsonObject): Pair<String, Boolean> = try {
         val text = when (name) {
             "web_search" -> {
                 val query = (args["query"] as? JsonPrimitive)?.content.orEmpty()
-                val count = (args["count"] as? JsonPrimitive)?.intOrNull ?: 5
+                val count = ((args["count"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT)
                 JsonArray(
                     search.search(query, count).map { result ->
                         buildJsonObject {
@@ -240,6 +305,7 @@ internal class LocalSearchBridge(
     }
 
     private fun reply(exchange: HttpExchange, status: Int, body: String) {
+        log.d { "Bridge ${exchange.requestURI.path}: $status" }
         val bytes = body.toByteArray(Charsets.UTF_8)
         exchange.responseHeaders.set("Content-Type", "application/json; charset=utf-8")
         exchange.sendResponseHeaders(status, bytes.size.toLong())
@@ -253,7 +319,15 @@ internal class LocalSearchBridge(
         const val ACCEPTED = 202
         const val BAD_REQUEST = 400
         const val FORBIDDEN = 403
+        const val UNAVAILABLE = 503
+        const val MAX_THREADS = 4
+        const val REQUEST_TIMEOUT_SECONDS = 60L
+        const val DEFAULT_COUNT = 5
+        const val MAX_COUNT = 20
     }
 }
+
+/** The profile scope stopped the request before it completed. */
+private class BridgeUnavailableException(cause: Throwable) : Exception("Search bridge unavailable", cause)
 
 private fun invalidRequest(): Nothing = throw IllegalArgumentException("Invalid bridge request")

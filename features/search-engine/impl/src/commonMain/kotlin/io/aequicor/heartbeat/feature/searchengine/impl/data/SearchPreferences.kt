@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.datastore.booleanKey
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretStore
@@ -41,6 +42,7 @@ internal class SearchPreferences(
     private val secrets: SecretStore,
 ) : SearchOptions {
     private val store = stores.keyValue(storeSpec)
+    private val log = Log.tag("SearchPreferences")
     private val mutex = Mutex()
 
     override suspend fun read(): SearchSettings = SearchSettings(
@@ -59,10 +61,12 @@ internal class SearchPreferences(
 
     override suspend fun setHost(operation: SearchOperation, host: String) {
         val normalized = validHost(host)
+        log.i { "Saving $operation host" }
         store.set(if (operation == SearchOperation.Search) searchHost else contentsHost, normalized)
     }
 
     override suspend fun setProvider(operation: SearchOperation, provider: SearchProvider) {
+        log.i { "Saving $operation provider: $provider" }
         store.set(if (operation == SearchOperation.Search) searchProvider else contentsProvider, provider.name)
     }
 
@@ -70,6 +74,8 @@ internal class SearchPreferences(
         mutex.withLock {
             val usage = usage(operation)
             val identifier = key(operation)
+            // The key value itself is never logged.
+            log.i { if (key == null) "Removing $operation key" else "Saving $operation key" }
             if (key == null) {
                 secrets.bind(usage, null)
                 secrets.remove(identifier)
@@ -81,6 +87,7 @@ internal class SearchPreferences(
     }
 
     override suspend fun setPreferNative(enabled: Boolean) {
+        log.i { "Saving prefer native: $enabled" }
         store.set(preferNative, enabled)
     }
 

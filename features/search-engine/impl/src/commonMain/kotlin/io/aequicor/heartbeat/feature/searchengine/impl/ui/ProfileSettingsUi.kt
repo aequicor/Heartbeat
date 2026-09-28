@@ -13,15 +13,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.arkivanov.decompose.ComponentContext
-import com.arkivanov.essenty.lifecycle.doOnDestroy
+import com.arkivanov.essenty.instancekeeper.InstanceKeeper
+import com.arkivanov.essenty.instancekeeper.getOrCreate
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.binding
-import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeFactory
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ext.retainedScope
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
@@ -75,43 +79,50 @@ import io.aequicor.heartbeat.feature.searchengine.impl.resources.settings_back
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.settings_error
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.settings_loading
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.settings_title
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
-/** Profile route that owns only screen lifetime; the search service and credentials remain profile-owned. */
+/**
+ * Profile route that owns only screen lifetime; the search service and credentials remain profile-owned.
+ * The model lives in the retained [screen] scope: it survives configuration changes and its coroutines are
+ * cancelled when the screen scope closes with the component.
+ */
 @AssistedInject
 internal class ProfileSettingsComponent(
     @Assisted context: ComponentContext,
     @Assisted private val navigator: Navigator,
+    @Assisted screen: ScopeHandle,
     configuration: SearchConfiguration,
     factory: HeartbeatStoreFactory,
-    dispatchers: DispatcherProvider,
 ) : ComponentContext by context,
     ComposableComponent {
-    private val scope = CoroutineScope(SupervisorJob() + dispatchers.main)
-    private val model = SearchSettingsModel(configuration, factory, scope)
-
-    init {
-        lifecycle.doOnDestroy { scope.cancel() }
-    }
+    private val model = instanceKeeper.getOrCreate(MODEL_KEY) {
+        RetainedModel(SearchSettingsModel(configuration, factory, screen.coroutineScope))
+    }.model
 
     @Composable override fun Content(modifier: Modifier) = ProfileSettingsScreen(model, navigator::close, modifier)
 
+    private class RetainedModel(val model: SearchSettingsModel) : InstanceKeeper.Instance
+
     @AssistedFactory
     fun interface Factory {
-        fun create(context: ComponentContext, navigator: Navigator): ProfileSettingsComponent
+        fun create(context: ComponentContext, navigator: Navigator, screen: ScopeHandle): ProfileSettingsComponent
+    }
+
+    private companion object {
+        const val MODEL_KEY = "search-settings-model"
     }
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
 @Inject
-internal class ProfileSettingsRouteEntry(private val factory: ProfileSettingsComponent.Factory) :
-    RouteEntry<ProfileSettingsRoute>(ProfileSettingsRoute::class, ProfileSettingsRoute.serializer()) {
+internal class ProfileSettingsRouteEntry(
+    private val factory: ProfileSettingsComponent.Factory,
+    private val scopes: ScopeFactory,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+) : RouteEntry<ProfileSettingsRoute>(ProfileSettingsRoute::class, ProfileSettingsRoute.serializer()) {
     override fun create(route: ProfileSettingsRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        factory.create(context, navigator)
+        factory.create(context, navigator, context.retainedScope(scopes, profile, name = "profile-settings"))
 }
 
 @Composable

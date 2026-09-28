@@ -23,13 +23,15 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /** Querit wire adapter. Uses the app HTTP client, whose logging redacts authorization headers. */
 @Inject
 internal class QueritApi(private val client: HttpClient, private val preferences: SearchOptions) {
     private val log = Log.tag("SearchQuerit")
     private val json = Json { ignoreUnknownKeys = true }
+
+    // Derived once: shares the app engine, only disables redirects so the bearer never follows another origin.
+    private val noRedirects by lazy { client.config { followRedirects = false } }
 
     suspend fun search(query: String, count: Int): List<SearchResult> {
         log.d { "Searching Querit, count=$count" }
@@ -83,16 +85,11 @@ internal class QueritApi(private val client: HttpClient, private val preferences
                 String(chars)
             }.let { key ->
                 networkResult {
-                    val isolated = client.config { followRedirects = false }
-                    try {
-                        isolated.post("$host/v1/$endpoint") {
-                            bearerAuth(key)
-                            contentType(ContentType.Application.Json)
-                            setBody(body.toString())
-                        }.body<String>()
-                    } finally {
-                        isolated.close()
-                    }
+                    noRedirects.post("$host/v1/$endpoint") {
+                        bearerAuth(key)
+                        contentType(ContentType.Application.Json)
+                        setBody(body.toString())
+                    }.body<String>()
                 }
             }
         }
@@ -112,7 +109,7 @@ internal class QueritApi(private val client: HttpClient, private val preferences
             log.w(e) { "Querit returned invalid JSON" }
             fail(SearchFailure.InvalidResponse)
         }
-        val code = root["error_code"]?.jsonPrimitive?.intOrNull
+        val code = (root["error_code"] as? JsonPrimitive)?.intOrNull
         if (code != null && code != HTTP_OK) {
             val failure = if (code == HTTP_UNAUTHORIZED || code == HTTP_FORBIDDEN) {
                 SearchFailure.Authentication
@@ -149,11 +146,82 @@ internal class QueritApi(private val client: HttpClient, private val preferences
     }
 }
 
-internal fun validResourceUrl(url: String): Boolean =
-    (url.startsWith("https://") || url.startsWith("http://")) && url.length > MIN_RESOURCE_URL_LENGTH &&
-        !url.contains('@') && !url.any { it.isWhitespace() }
+/**
+ * Accepts only public `http(s)` URLs: no credentials in the authority, no `localhost`/`.local` names,
+ * no loopback, private, link-local, CGNAT or unspecified IP literals (IPv4, IPv6 and numeric shorthands).
+ *
+ * `web_search` / `web_fetch` run without user approval in every engine (owner decision): they are read-only,
+ * never touch the local file system and the page is read by the provider, not by this device. This check keeps
+ * model-chosen URLs from addressing the local network through the provider or a native reader. Host names are
+ * not resolved here, so DNS pointing to private addresses remains the provider's responsibility.
+ */
+internal fun validResourceUrl(url: String): Boolean {
+    val scheme = listOf("https://", "http://").firstOrNull { url.startsWith(it, ignoreCase = true) } ?: return false
+    if (url.length <= MIN_RESOURCE_URL_LENGTH || url.any { it.isWhitespace() }) return false
+    val authority = url.substring(scheme.length).substringBefore('/').substringBefore('?').substringBefore('#')
+    if (authority.isEmpty() || '@' in authority || '\\' in authority) return false
+    val host = if (authority.startsWith('[')) {
+        authority.substringAfter('[').substringBefore(']', missingDelimiterValue = "")
+    } else {
+        authority.substringBefore(':')
+    }.lowercase().trimEnd('.')
+    return host.isNotEmpty() && isPublicHost(host)
+}
+
+private fun isPublicHost(host: String): Boolean = when {
+    ':' in host -> isPublicIpv6(host)
+
+    host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local") -> false
+
+    // As in the WHATWG URL parser, a numeric last label makes the host an IPv4 address; shorthand, octal and
+    // hex forms are rejected, only a canonical public dotted quad passes.
+    host.substringAfterLast('.').let { it.all(Char::isDigit) || it.startsWith("0x") } -> isPublicIpv4(host)
+
+    else -> true
+}
+
+private fun isPublicIpv4(host: String): Boolean {
+    val parts = host.split('.').map { part -> part.toIntOrNull()?.takeIf { it in 0..BYTE_MAX && part == "$it" } }
+    if (parts.size != IPV4_PARTS || parts.any { it == null }) return false
+    val address = parts.requireNoNulls().fold(0L) { value, part -> (value shl BYTE_BITS) or part.toLong() }
+    return NON_PUBLIC_IPV4.none { (network, prefix) ->
+        val shift = IPV4_BITS - prefix
+        address shr shift == network shr shift
+    }
+}
+
+private fun ipv4Block(cidr: String): Pair<Long, Int> {
+    val (network, prefix) = cidr.split('/')
+    val value = network.split('.').fold(0L) { acc, part -> (acc shl BYTE_BITS) or part.toLong() }
+    return value to prefix.toInt()
+}
+
+/** Unspecified, private, CGNAT, loopback, link-local, and multicast/reserved IPv4 ranges. */
+private val NON_PUBLIC_IPV4 = listOf(
+    "0.0.0.0/8",
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "224.0.0.0/3",
+).map(::ipv4Block)
+
+private fun isPublicIpv6(host: String): Boolean {
+    val address = host.substringBefore('%')
+    val linkLocal = listOf("fe8", "fe9", "fea", "feb").any { address.startsWith(it) }
+    return !(
+        address == "::" || address == "::1" || address.startsWith("::ffff:") || linkLocal ||
+            address.startsWith("fc") || address.startsWith("fd") || address.startsWith("ff")
+    )
+}
 
 private const val MIN_RESOURCE_URL_LENGTH = 9
+private const val IPV4_PARTS = 4
+private const val BYTE_MAX = 255
+private const val BYTE_BITS = 8
+private const val IPV4_BITS = 32
 
 private fun fail(failure: SearchFailure): Nothing = throw SearchException(failure)
 

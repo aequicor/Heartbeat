@@ -102,7 +102,7 @@ internal class SearchSettingsModel(
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: SearchException) {
-                        log.w { "Connection check failed: ${e.failure}" }
+                        log.w(e) { "Connection check failed: ${e.failure}" }
                         updateState {
                             withCheck(
                                 intent.operation,
@@ -110,7 +110,7 @@ internal class SearchSettingsModel(
                             ).withCheckFailure(intent.operation, e.failure)
                         }
                     } catch (e: Exception) {
-                        log.w { "Connection check failed: ${e::class.simpleName.orEmpty()}" }
+                        log.w(e) { "Connection check failed" }
                         updateState {
                             withCheck(
                                 intent.operation,
@@ -148,10 +148,10 @@ internal class SearchSettingsModel(
         } catch (e: CancellationException) {
             throw e
         } catch (e: SearchException) {
-            log.w { "Settings update failed: ${e.failure}" }
+            log.w(e) { "Settings update failed: ${e.failure}" }
             updateState { copy(failure = e.failure) }
         } catch (e: Exception) {
-            log.w { "Settings update failed: ${e::class.simpleName.orEmpty()}" }
+            log.w(e) { "Settings update failed" }
             updateState { copy(failure = SearchFailure.Unavailable) }
         }
     }
