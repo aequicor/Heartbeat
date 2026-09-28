@@ -72,24 +72,28 @@ internal class LocalSearchBridge(
             Thread(task, "heartbeat-search-bridge-${threads.incrementAndGet()}").apply { isDaemon = true }
         }
         var isStarted = false
+        var created: HttpServer? = null
         try {
-            val created = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-                createContext("/mcp", ::handleMcp)
-                createContext("/execute", ::handleExecute)
-                setExecutor(pool)
-                start()
-            }
-            server = created
+            val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            created = server
+            server.createContext("/mcp", ::handleMcp)
+            server.createContext("/execute", ::handleExecute)
+            server.setExecutor(pool)
+            server.start()
+            this.server = server
             executor = pool
             isStarted = true
-            log.i { "Search bridge started on port ${created.address.port}" }
-            return created
+            log.i { "Search bridge started on port ${server.address.port}" }
+            return server
         } catch (e: IOException) {
             log.e(e) { "Search bridge failed to start" }
             throw e
         } finally {
             // Any failure, not only IO, releases the threads.
-            if (!isStarted) pool.shutdownNow()
+            if (!isStarted) {
+                created?.stop(0)
+                pool.shutdownNow()
+            }
         }
     }
 
@@ -167,8 +171,9 @@ internal class LocalSearchBridge(
         job.cancel()
         throw e
     } catch (e: ExecutionException) {
-        // Unwraps the tool failure so logs show the real cause; a cancelled request is unavailable (503).
-        throw if (e.cause is CancellationException) BridgeUnavailableException(e) else e.cause ?: e
+        // Unwraps the tool failure so logs show the real cause.
+        // A cancelled scope already completes the future with BridgeUnavailableException (503).
+        throw e.cause ?: e
     }
 
     private fun authorized(exchange: HttpExchange): Boolean {

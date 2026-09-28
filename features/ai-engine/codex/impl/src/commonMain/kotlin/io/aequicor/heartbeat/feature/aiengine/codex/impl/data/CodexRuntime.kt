@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.NonCancellable
@@ -43,7 +44,11 @@ internal class CodexRuntime(
     override val identity: RuntimeIdentity,
     private val rpc: CodexRpc,
     val host: CodexRuntimeEnvironment,
-    /** Search dynamic tools (toggle `search.engine_tools`), fixed for the lifetime of this app-server. */
+    /**
+     * Whether this app-server was initialized with the experimental API for dynamic tools (toggle
+     * `search.engine_tools` at creation). A later toggle change never restarts it; turning the toggle off still
+     * stops dynamic tools for new threads and refuses tool calls.
+     */
     val searchTools: Boolean = false,
 ) : EngineRuntime,
     CreatesSessions,
@@ -57,9 +62,6 @@ internal class CodexRuntime(
         if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
     })
     private val sessions = mutableMapOf<String, CodexSession>()
-
-    /** Whether any session still has handles or a running turn. */
-    val hasActiveSessions: Boolean get() = sessions.values.any { it.isActive }
     private val early = mutableListOf<JsonObject>()
     private var isOpening = false
     private val commands = Mutex()
@@ -182,7 +184,8 @@ internal class CodexRuntime(
         }
 
     private suspend fun openNative(nativeId: String?, target: EngineTarget, route: ExecutionRoute): ActiveSession {
-        val params = threadParams(nativeId, target, route.workspace)
+        val tools = searchTools && toggles.get(SearchEngineTools)
+        val params = threadParams(nativeId, target, route.workspace, tools)
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = response.obj("thread")
         val id = thread.text("id") ?: protocolFailure()
@@ -218,7 +221,12 @@ internal class CodexRuntime(
         }
     }
 
-    private fun threadParams(nativeId: String?, target: EngineTarget, workspace: WorkspaceRef?): JsonObject {
+    private fun threadParams(
+        nativeId: String?,
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        tools: Boolean,
+    ): JsonObject {
         val path = workspace?.let {
             config.workspaces[it] ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
@@ -228,7 +236,7 @@ internal class CodexRuntime(
             put("approvalPolicy", APPROVAL_POLICY)
             put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
-            if (nativeId == null && searchTools) put("dynamicTools", searchToolSpecs())
+            if (nativeId == null && tools) put("dynamicTools", searchToolSpecs())
             if (nativeId != null) put("threadId", nativeId)
         }
     }

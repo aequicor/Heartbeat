@@ -113,6 +113,39 @@ class CodexRuntimeTest {
     }
 
     @Test
+    fun `toggle turned off after runtime start drops dynamic tools and refuses tool calls`() = runTest {
+        var searches = 0
+        val fixture = Fixture(
+            this,
+            object : SearchEngine {
+                override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+                    searches++
+                    return listOf(SearchResult("https://example.com", "Example", "Snippet"))
+                }
+                override suspend fun fetch(url: String, native: EngineFeatures?) =
+                    ResourceContent(url, "Example", "Page")
+            },
+        )
+        fixture.isSearchEnabled = false
+        val session = fixture.open()
+        val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+        assertFalse("dynamicTools" in params)
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event(
+            "item/tool/call",
+            "turnId" to "native-turn".json(),
+            "tool" to "web_search".json(),
+            "arguments" to json("query" to "topic".json()),
+            id = JsonPrimitive(91),
+        )
+        runCurrent()
+        val response = fixture.wire.written.last { it["id"] == JsonPrimitive(91) }.obj("result")
+        assertEquals("false", response["success"].toString())
+        assertTrue(response.toString().contains("Disabled"))
+        assertEquals(0, searches)
+    }
+
+    @Test
     fun `send waits for acceptance and close only releases its lease`() = runTest {
         val fixture = Fixture(this)
         val session = fixture.open()

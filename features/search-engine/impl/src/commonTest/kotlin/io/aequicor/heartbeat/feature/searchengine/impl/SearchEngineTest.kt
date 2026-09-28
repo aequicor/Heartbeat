@@ -149,6 +149,8 @@ class SearchEngineTest {
             "http://[::ffff:127.0.0.1]/", "https://user@example.com/",
             "http://192.0.2.1/", "http://198.18.0.1/", "http://203.0.113.5/", "http://[::7f00:1]/",
             "http://[64:ff9b::7f00:1]/",
+            "http://[0:0:0:0:0:ffff:7f00:1]/", "http://[0::1]/", "http://[::ffff:10.0.0.1]/", "http://[FE80::1]/",
+            "http://[1::2::3]/",
         )
         rejected.forEach { url ->
             val error = assertFailsWith<SearchException>(url) { router.fetch(url) }
@@ -156,6 +158,7 @@ class SearchEngineTest {
         }
         assertEquals(0, calls)
         assertEquals("Page text", router.fetch("https://8.8.8.8/a").text)
+        assertEquals("Page text", router.fetch("https://[2001:4860:4860::8888]/a").text)
         assertEquals("Page text", router.fetch("https://Example.com:443/a?b#c").text)
     }
 

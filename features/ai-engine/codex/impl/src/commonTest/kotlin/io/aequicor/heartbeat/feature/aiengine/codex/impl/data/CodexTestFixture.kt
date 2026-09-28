@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -120,13 +121,15 @@ internal class Fixture(
             json("turn" to json("id" to "native-turn".json())),
         )
     }
+    var isSearchEnabled = true
     val environment = CodexRuntimeEnvironment(
         CodexLocalConfiguration(),
         object : FeatureToggles {
             override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
 
             @Suppress("UNCHECKED_CAST")
-            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = true as T
+            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
+                (toggle != SearchEngineTools || isSearchEnabled) as T
         },
         dispatchers,
         FakeLauncher(),

@@ -231,14 +231,13 @@ internal class KoogNativeSession(
         }
     }
 
+    // Ollama tool support per model id, looked up once per session.
+    private val toolSupport = mutableMapOf<String, Boolean>()
+
     /**
      * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
      * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
      */
-
-    // Ollama tool support per model id, looked up once per session.
-    private val toolSupport = mutableMapOf<String, Boolean>()
-
     private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
         if (!access.searchToolsEnabled()) return false
         if (provider != KoogProvider.Ollama) return true

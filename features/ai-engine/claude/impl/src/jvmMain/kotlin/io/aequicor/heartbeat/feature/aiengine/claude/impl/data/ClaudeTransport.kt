@@ -104,18 +104,27 @@ internal class ProcessClaudeTransport(
         }
     }
 
-    /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
     private val configDirectory by lazy { mcpConfigDirectory() }
 
+    /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
     private fun searchConfig(): Path = try {
         claudeSearchConfig(searchBridge.endpoint(), configDirectory)
     } catch (e: IOException) {
         log.w(e) { "Search bridge config could not be prepared" }
-        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        searchUnavailable()
     } catch (e: IllegalStateException) {
         log.w(e) { "Search bridge is closed" }
-        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        searchUnavailable()
+    } catch (e: UnsupportedOperationException) {
+        log.w(e) { "MCP config permissions are not supported" }
+        searchUnavailable()
+    } catch (e: SecurityException) {
+        log.w(e) { "MCP config permissions were denied" }
+        searchUnavailable()
     }
+
+    private fun searchUnavailable(): Nothing =
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
 
     /** One owner-only directory; files left by a crashed run are removed once per profile transport. */
     private fun mcpConfigDirectory(): Path {
@@ -124,9 +133,10 @@ internal class ProcessClaudeTransport(
         restrictToOwner(directory, directory = true)
         val staleBefore = System.currentTimeMillis() - STALE_CONFIG_MILLIS
         Files.list(directory).use { files ->
-            files.filter { Files.getLastModifiedTime(it).toMillis() < staleBefore }.forEach { stale ->
+            files.forEach { file ->
+                // Another run may delete the file between listing and stat; each file is handled on its own.
                 try {
-                    Files.deleteIfExists(stale)
+                    if (Files.getLastModifiedTime(file).toMillis() < staleBefore) Files.deleteIfExists(file)
                 } catch (e: IOException) {
                     log.w(e) { "Stale MCP config could not be removed" }
                 }
@@ -263,8 +273,10 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path)
 }
 
 /**
- * Restricts [path] to its owner: POSIX permissions, otherwise a single owner-only ACL entry (Windows).
- * On a file system with neither view the platform temp-directory permissions are the only protection.
+ * Restricts [path] to its owner: POSIX permissions, otherwise the ACL is replaced by one owner-only ALLOW entry
+ * (Windows). The DACL is not marked protected, so inheritable entries of the parent may still apply; the
+ * per-user temp directory is the remaining boundary. On a file system with neither view only the temp-directory
+ * permissions protect the file. May throw [UnsupportedOperationException] or [SecurityException].
  */
 internal fun restrictToOwner(path: Path, directory: Boolean) {
     val posix = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)

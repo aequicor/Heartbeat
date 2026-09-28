@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
@@ -64,9 +65,6 @@ internal class CodexSession(
 
     /** Turns whose tool jobs were closed; late tool calls for them are refused, never restarted. */
     private val toolsClosed = mutableSetOf<TurnId>()
-
-    /** Whether a handle is open or a turn is in flight; such a session must not lose its runtime. */
-    val isActive: Boolean get() = leases.isNotEmpty() || currentTurn() != null
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(Uuid.random().toString()), ActiveSessionState.Ready()),
         scope,
@@ -353,6 +351,11 @@ internal class CodexSession(
             rpc.respond(id, toolFailureResult("TurnUnavailable"))
             return
         }
+        if (!runtime.host.toggles.get(SearchEngineTools)) {
+            log.i { "Codex tool call refused: search tools disabled" }
+            rpc.respond(id, toolFailureResult("Disabled"))
+            return
+        }
         accept(checkNotNull(turn))
         val tool = params.text("tool").orEmpty()
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
@@ -380,14 +383,20 @@ internal class CodexSession(
         }
     }
 
-    private fun cancelTools(turn: TurnId) {
+    private fun closeTools(turn: TurnId) {
         toolsClosed += turn
+        // Only recent turns can still receive late calls; older entries are dropped to keep the set bounded.
+        if (toolsClosed.size > MAX_CLOSED_TOOL_TURNS) toolsClosed.remove(toolsClosed.first())
+    }
+
+    private fun cancelTools(turn: TurnId) {
+        closeTools(turn)
         toolJobs.remove(turn)?.cancel()
     }
 
     /** Normal completion: running calls may still answer, but no new call starts for this turn. */
     private fun completeTools(turn: TurnId) {
-        toolsClosed += turn
+        closeTools(turn)
         toolJobs.remove(turn)?.complete()
     }
 
@@ -518,3 +527,5 @@ internal class CodexSession(
         const val IN_PROGRESS = "inProgress"
     }
 }
+
+private const val MAX_CLOSED_TOOL_TURNS = 32

@@ -214,19 +214,61 @@ private val NON_PUBLIC_IPV4 = listOf(
 ).map(::ipv4Block)
 
 private fun isPublicIpv6(host: String): Boolean {
-    val address = host.substringBefore('%')
-    val linkLocal = listOf("fe8", "fe9", "fea", "feb").any { address.startsWith(it) }
-    return !(
-        // "::"-prefixed covers unspecified, loopback, IPv4-compatible and IPv4-mapped; 64:ff9b: is NAT64.
-        address.startsWith("::") || address.startsWith("64:ff9b:") || linkLocal ||
-            address.startsWith("fc") || address.startsWith("fd") || address.startsWith("ff")
-    )
+    val groups = ipv6Groups(host.substringBefore('%')) ?: return false
+    val first = groups[0]
+    val v4Marker = groups[IPV6_V4_PREFIX_GROUPS]
+    // Unspecified, loopback, IPv4-compatible and IPv4-mapped addresses.
+    val isEmbeddedIpv4 = groups.take(IPV6_V4_PREFIX_GROUPS).all { it == 0 } && (v4Marker == 0 || v4Marker == HEXTET_MAX)
+    val isNat64 = first == NAT64_FIRST && groups[1] == NAT64_SECOND
+    val isLocalScope = first and ULA_MASK == ULA_PREFIX || first and LINK_LOCAL_MASK == LINK_LOCAL_PREFIX
+    val isMulticast = first and MULTICAST_MASK == MULTICAST_MASK
+    return !(isEmbeddedIpv4 || isNat64 || isLocalScope || isMulticast)
+}
+
+/** Expands any textual IPv6 form (`::`, leading zeros, dotted IPv4 tail) to eight hextets; null if invalid. */
+private fun ipv6Groups(address: String): List<Int>? {
+    val text = withHexIpv4Tail(address) ?: return null
+    val halves = text.split("::")
+    if (halves.size > 2) return null
+    val head = hextets(halves[0])
+    val rest = if (halves.size == 2) hextets(halves[1]) else emptyList()
+    val missing = IPV6_GROUPS - head.size - rest.size
+    val isValidLength = if (halves.size == 2) missing >= 1 else missing == 0
+    if (!isValidLength) return null
+    val groups = head + List(missing) { 0 } + rest
+    return groups.takeIf { all -> all.all { it != null && it in 0..HEXTET_MAX } }?.requireNoNulls()
+}
+
+private fun hextets(part: String): List<Int?> =
+    if (part.isEmpty()) emptyList() else part.split(':').map { it.toIntOrNull(HEX) }
+
+/** Rewrites a dotted IPv4 tail (`::ffff:1.2.3.4`) as two hextets; null if the tail is not a valid quad. */
+private fun withHexIpv4Tail(address: String): String? {
+    val tail = address.substringAfterLast(':')
+    if ('.' !in tail) return address
+    val quad = tail.split('.').map { part -> part.toIntOrNull()?.takeIf { it in 0..BYTE_MAX && part == "$it" } }
+    if (quad.size != IPV4_PARTS || quad.any { it == null }) return null
+    val bytes = quad.requireNoNulls()
+    val high = (bytes[0] shl BYTE_BITS) or bytes[1]
+    val low = (bytes[2] shl BYTE_BITS) or bytes[IPV4_PARTS - 1]
+    return address.dropLast(tail.length) + high.toString(HEX) + ":" + low.toString(HEX)
 }
 
 private const val MIN_RESOURCE_URL_LENGTH = 9
 private const val IPV4_PARTS = 4
 private const val BYTE_MAX = 255
 private const val BYTE_BITS = 8
+private const val HEX = 16
+private const val IPV6_GROUPS = 8
+private const val IPV6_V4_PREFIX_GROUPS = 5
+private const val HEXTET_MAX = 0xffff
+private const val NAT64_FIRST = 0x64
+private const val NAT64_SECOND = 0xff9b
+private const val ULA_MASK = 0xfe00
+private const val ULA_PREFIX = 0xfc00
+private const val LINK_LOCAL_MASK = 0xffc0
+private const val LINK_LOCAL_PREFIX = 0xfe80
+private const val MULTICAST_MASK = 0xff00
 private const val IPV4_BITS = 32
 
 private fun fail(failure: SearchFailure): Nothing = throw SearchException(failure)
