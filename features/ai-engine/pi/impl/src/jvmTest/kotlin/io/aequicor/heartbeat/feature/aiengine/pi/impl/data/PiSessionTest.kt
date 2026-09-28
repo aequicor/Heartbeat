@@ -30,7 +30,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionInput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -256,16 +259,82 @@ class PiSessionTest {
     fun `dialogs nobody can answer are dismissed so pi blocks the tool`() = runTest {
         val fixture = fixture()
         fixture.connection.event(approval("idle"))
-        fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"other","method":"input","title":"Name?"}"""),
         )
+        fixture.runningTurn()
         fixture.connection.event(record("""{"type":"extension_ui_request","id":"n","method":"notify"}"""))
         assertEquals(
             listOf(answer("idle", "cancelled", true), answer("other", "cancelled", true)),
             fixture.connection.sent,
         )
         assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `select dialog becomes a single choice and the chosen value reaches pi`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(
+            record(
+                """{"type":"extension_ui_request","id":"s","method":"select","title":"Pick",""" +
+                    """"options":["red","blue"]}""",
+            ),
+        )
+        val request = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests.single()
+        assertEquals(
+            PermissionInput.SingleChoice(listOf(PermissionChoice("0", "red"), PermissionChoice("1", "blue"))),
+            request.input,
+        )
+        fixture.session.respond(
+            PermissionDecision(turn, request.id, PermissionOptionId("answer"), PermissionAnswer.Selected(listOf("1"))),
+        )
+        runCurrent()
+        assertEquals(listOf(valueAnswer("s", "blue")), fixture.connection.sent)
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `text dialogs send the typed value and skipping cancels them`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(
+            record("""{"type":"extension_ui_request","id":"t","method":"editor","title":"Notes"}"""),
+        )
+        fixture.connection.event(
+            record("""{"type":"extension_ui_request","id":"u","method":"input","title":"Name?"}"""),
+        )
+        val requests = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests
+        assertEquals(PermissionInput.FreeText(isMultiline = true), requests.first().input)
+        fixture.session.respond(
+            PermissionDecision(
+                turn,
+                PermissionRequestId("t"),
+                PermissionOptionId("answer"),
+                PermissionAnswer.Text("hi"),
+            ),
+        )
+        runCurrent()
+        fixture.session.respond(PermissionDecision(turn, PermissionRequestId("u"), PermissionOptionId("skip")))
+        runCurrent()
+        assertEquals(listOf(valueAnswer("t", "hi"), answer("u", "cancelled", true)), fixture.connection.sent)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `plain confirm dialog is answered with the chosen option`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(
+            record("""{"type":"extension_ui_request","id":"c","method":"confirm","title":"Go?","message":"Sure"}"""),
+        )
+        val request = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests.single()
+        assertEquals("Sure", request.description)
+        fixture.session.respond(PermissionDecision(turn, request.id, PermissionOptionId("yes")))
+        runCurrent()
+        assertEquals(listOf(answer("c", "confirmed", true)), fixture.connection.sent)
         fixture.session.shutdown()
     }
 
@@ -428,6 +497,14 @@ class PiSessionTest {
             "type" to JsonPrimitive("extension_ui_response"),
             "id" to JsonPrimitive(id),
             field to JsonPrimitive(value),
+        ),
+    )
+
+    private fun valueAnswer(id: String, value: String) = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("extension_ui_response"),
+            "id" to JsonPrimitive(id),
+            "value" to JsonPrimitive(value),
         ),
     )
 
