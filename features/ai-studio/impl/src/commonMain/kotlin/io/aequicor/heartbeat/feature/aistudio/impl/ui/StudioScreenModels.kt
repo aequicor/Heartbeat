@@ -3,7 +3,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
@@ -11,11 +13,13 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 
 /** Navigation leaving the studio, provided by its component. */
 @Immutable
-internal class StudioExits(
+internal data class StudioExits(
     val onBack: () -> Unit,
     val onOpenToggles: () -> Unit,
     val onOpenConnections: (() -> Unit)? = null,
@@ -23,7 +27,7 @@ internal class StudioExits(
 
 /** What a pane may offer in the current window layout. */
 @Immutable
-internal data class PaneLayout(val canSplit: Boolean, val canClose: Boolean, val isCompact: Boolean)
+internal data class PaneLayout(val isSplitAllowed: Boolean, val isCloseAllowed: Boolean, val isCompact: Boolean)
 
 /**
  * Everything one pane renders. Equal values skip the pane, so a streamed chunk or the elapsed-time tick of one
@@ -43,6 +47,10 @@ internal data class PaneContent(
     val isSubmitFailed: Boolean,
     val renaming: RenameUi?,
     val settings: SettingsUi,
+    val models: ImmutableList<ModelUi> = persistentListOf(),
+    val permissions: ImmutableList<PermissionUi> = persistentListOf(),
+    val isStopFailed: Boolean = false,
+    val isStoppable: Boolean = true,
 )
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
@@ -74,7 +82,11 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         draft = draft(pane.id),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
-        settings = settings,
+        settings = session?.modelId?.let { settings.copy(modelId = it) } ?: settings,
+        isStopFailed = pane.sessionId in stopFailures,
+        isStoppable = pane.sessionId !in uncancellable,
+        models = models,
+        permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
     )
 }
 

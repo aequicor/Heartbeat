@@ -86,8 +86,10 @@ internal class DesktopPiEngine(
             log.w { "Rejected Pi credential route: unknown revision" }
             piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        log.i { "Binding Pi credential route" }
         val before = settings.snapshot().bindings
+        // Route resolution repeats bind before every turn; an unchanged route must not rewrite settings.
+        if (before[binding.value] == source) return@withLock
+        log.i { "Binding Pi credential route" }
         settings.bind(binding, source)
         retireUnused(retiredSources(before, settings.snapshot().bindings))
     }

@@ -34,6 +34,8 @@ data class SessionUi(
     val isArchived: Boolean = false,
     val branch: String? = null,
     val isRunning: Boolean = false,
+    val modelId: String? = null,
+    val isContinuable: Boolean = true,
 )
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */
@@ -61,11 +63,15 @@ data class SidebarUi(
  */
 @Immutable
 data class AiStudioScreenState(
+    val models: ImmutableList<ModelUi> = persistentListOf(),
+    val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val phase: StudioPhase = StudioPhase.Loading,
     val panes: ImmutableList<PaneUi> = persistentListOf(),
     val focusedPaneId: Int = 0,
     val running: ImmutableSet<String> = persistentSetOf(),
     val stopping: ImmutableSet<String> = persistentSetOf(),
+    val stopFailures: ImmutableSet<String> = persistentSetOf(),
+    val uncancellable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val sessions: ImmutableList<SessionUi> = persistentListOf(),
@@ -92,6 +98,9 @@ data class AiStudioScreenState(
 sealed interface AiStudioScreenIntent : MVIIntent {
     /** Changes what the panes show; forwarded to the machine. */
     sealed interface Navigation : AiStudioScreenIntent
+
+    /** Explicit reply to an engine permission request. */
+    data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Composer
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
@@ -189,3 +198,16 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
 /** No one-shot screen actions: every reaction is state. */
 sealed interface AiStudioScreenAction : MVIAction
+
+/** One actionable permission exposed by the current native session. */
+@Immutable
+data class PermissionUi(
+    val sessionId: String,
+    val requestId: String,
+    val title: String,
+    val options: ImmutableList<PermissionOptionUi>,
+)
+
+/** Exact native choice identity, displayed without inventing approval policy. */
+@Immutable
+data class PermissionOptionUi(val id: String, val title: String)

@@ -9,6 +9,7 @@ kotlin {
         commonMain.dependencies {
             api(projects.core.stateMachine.api)
             api(projects.core.navigation.api)
+            api(projects.core.featureToggles.api)
         }
     }
 }

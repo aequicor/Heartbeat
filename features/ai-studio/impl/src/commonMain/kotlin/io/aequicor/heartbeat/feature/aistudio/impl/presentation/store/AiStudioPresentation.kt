@@ -21,10 +21,20 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
 
     is AiStudioState.Ready -> copy(
         phase = StudioPhase.Ready,
+        permissions = machine.permissions.map { request ->
+            PermissionUi(
+                request.sessionId,
+                request.requestId,
+                request.title,
+                request.options.map { PermissionOptionUi(it.id, it.title) }.toImmutableList(),
+            )
+        }.toImmutableList(),
         panes = machine.panes.map { it.toUi() }.toImmutableList(),
         focusedPaneId = machine.focusedPaneId,
         running = machine.running.toImmutableSet(),
         stopping = machine.stopping.toImmutableSet(),
+        stopFailures = machine.stopFailures.toImmutableSet(),
+        uncancellable = machine.uncancellable.toImmutableSet(),
         settings = machine.settings.toUi(),
     )
 }
@@ -146,5 +156,8 @@ fun sidebarContent(
 
 internal fun StudioProject.toUi(): ProjectUi = ProjectUi(id, name, environment.toUi(), branch)
 
-internal fun StudioSession.toUi(): SessionUi =
-    SessionUi(id, title, projectId, updatedAt, isPinned, isUnread, isArchived, branch)
+internal fun StudioSession.toUi(): SessionUi = SessionUi(
+    id, title, projectId, updatedAt, isPinned, isUnread, isArchived, branch,
+    modelId = modelId,
+    isContinuable = isContinuable,
+)

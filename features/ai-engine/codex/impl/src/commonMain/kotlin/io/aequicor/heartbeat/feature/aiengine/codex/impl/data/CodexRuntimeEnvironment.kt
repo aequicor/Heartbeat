@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 
 @Inject
 internal data class CodexRuntimeEnvironment(
-    val config: CodexLocalConfiguration = CodexLocalConfiguration(),
+    val config: CodexLocalConfiguration,
     val toggles: FeatureToggles,
     val dispatchers: DispatcherProvider,
     val launcher: MachineLauncher,

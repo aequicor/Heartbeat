@@ -92,7 +92,7 @@ private fun StudioWorkspace(state: AiStudioScreenState, onIntent: (AiStudioScree
         } else {
             val panesWidth = maxWidth - dimensions.navigationRailWidth -
                 if (state.sidebar.isVisible) dimensions.navigationPanelWidth else HbTheme.spacing.none
-            WideWorkspace(state, onIntent, exits, canSplit = panesWidth >= dimensions.paneMinWidth * 2)
+            WideWorkspace(state, onIntent, exits, isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2)
         }
     }
 }
@@ -102,7 +102,7 @@ private fun WideWorkspace(
     state: AiStudioScreenState,
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
-    canSplit: Boolean,
+    isSplitAllowed: Boolean,
 ) {
     HbRow(Modifier.fillMaxSize(), gap = HbTheme.spacing.none, verticalAlignment = Alignment.Top) {
         StudioRail(state.sidebar, onIntent, exits, Modifier.fillMaxHeight())
@@ -110,11 +110,11 @@ private fun WideWorkspace(
             StudioSidebar(
                 input = state.sidebarInput(),
                 onIntent = onIntent,
-                canOpenBeside = canSplit,
+                isOpenBesideAllowed = isSplitAllowed,
                 modifier = Modifier.width(HbTheme.dimensions.navigationPanelWidth).fillMaxHeight(),
             )
         }
-        val shown = if (canSplit) state.panes else state.panes.filter { it.id == state.focusedPaneId }
+        val shown = if (isSplitAllowed) state.panes else state.panes.filter { it.id == state.focusedPaneId }
         HbRow(
             Modifier.weight(1f).fillMaxHeight().padding(HbTheme.spacing.m),
             gap = HbTheme.spacing.m,
@@ -126,8 +126,8 @@ private fun WideWorkspace(
                         content = state.paneContent(pane),
                         onIntent = onIntent,
                         layout = PaneLayout(
-                            canSplit = canSplit && state.panes.size == 1,
-                            canClose = shown.size > 1,
+                            isSplitAllowed = isSplitAllowed && state.panes.size == 1,
+                            isCloseAllowed = shown.size > 1,
                             isCompact = false,
                         ),
                         modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -150,7 +150,7 @@ private fun CompactWorkspace(
             StudioPaneView(
                 content = state.paneContent(pane),
                 onIntent = onIntent,
-                layout = PaneLayout(canSplit = false, canClose = false, isCompact = true),
+                layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
                 modifier = Modifier.fillMaxSize().padding(HbTheme.spacing.xs),
             )
         }
@@ -170,7 +170,12 @@ private fun CompactWorkspace(
             ) {
                 HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
                     StudioRail(state.sidebar, onIntent, exits, isHorizontal = true)
-                    StudioSidebar(state.sidebarInput(), onIntent, canOpenBeside = false, modifier = Modifier.weight(1f))
+                    StudioSidebar(
+                        state.sidebarInput(),
+                        onIntent,
+                        isOpenBesideAllowed = false,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
         }

@@ -9,12 +9,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Workspace of the studio: projects, sessions, split panes and the offline demo agent.
+ * Workspace of the studio: profile conversations, native engine sessions and split panes.
  * Enabled by default; switching it off restores the placeholder screen, also while the studio is open.
  */
 internal val StudioWorkspaceToggle: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.workspace",
-    description = "Рабочее пространство AI-студии: проекты, сессии и демо-агент",
+    description = "Рабочее пространство AI-студии: чаты, сессии и подключённые движки",
     default = true,
 )
 

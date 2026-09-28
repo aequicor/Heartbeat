@@ -87,18 +87,39 @@ class EngineBindingsService(
     override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): EngineBinding {
         log.i { "connect engine=${engine.value} source=${source.value} priority=$priority" }
         val registration = gate.requireEnabled(engine)
-        val authSource = requireSource(source)
+        var authSource = requireSource(source)
+        // Cheap scope check first, so a rejected connect never persists a refreshed source revision.
+        requireAccepted(registration, authSource, EngineContext(engine, PROVISIONAL_BINDING))
+        val factory = registration.factory.value
+        // The owner may be slow (a CLI probe); read it outside the lock so other binding edits are not blocked.
+        val revision = adapterCall(log, "sourceRevision") { factory.sourceRevision(authSource) }
+        if (revision != authSource.info.revision) {
+            authSource = sources.updateRevision(source, revision)
+            log.i { "source revision refreshed engine=${engine.value} source=${source.value}" }
+        }
         return mutex.withLock {
             val saved = store.load()
+            requireUniqueLogin(engine, authSource, saved)
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
             val id = existing?.id ?: EngineBindingId(context.token(BINDING_PREFIX))
             requireAccepted(registration, authSource, EngineContext(engine, id))
-            val factory = registration.factory.value
             factory.bind(id, authSource)
             val binding = existing?.copy(priority = priority) ?: EngineBinding(id, engine, source, priority = priority)
             saveBound(saved, binding, isNew = existing == null, factory)
             log.i { "binding saved binding=${id.value} new=${existing == null}" }
             binding
+        }
+    }
+
+    private suspend fun requireUniqueLogin(engine: EngineId, source: AuthSource, saved: List<EngineBinding>) {
+        if (source !is AuthSource.CliLogin) return
+        val hasDuplicate = saved.filter { it.engine == engine && it.authSource != source.info.id }.any {
+            val other = sources.get(it.authSource) as? AuthSource.CliLogin
+            other?.owner == source.owner && other.location == source.location
+        }
+        if (hasDuplicate) {
+            log.w { "connect rejected: login already bound engine=${engine.value} source=${source.info.id.value}" }
+            fail(OperationNotAllowed)
         }
     }
 
@@ -195,6 +216,9 @@ class EngineBindingsService(
 
     private companion object {
         const val BINDING_PREFIX = "bnd_"
+
+        /** Binding id of the pre-check, before the real id is known under the lock. */
+        val PROVISIONAL_BINDING = EngineBindingId("bnd_provisional")
     }
 }
 

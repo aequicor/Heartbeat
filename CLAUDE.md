@@ -36,7 +36,9 @@ lint/            detekt-rules — собственный набор правил
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
 > Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
 > «движок × подключение × модель», тогл `ai.engine_connections`) поверх `EngineFacade` и `AuthSources`; экраны показывают
-> только движки, объявившие `connectionMethods`, — продовые адаптеры их пока не объявляют, каталог пуст.
+> движки, объявившие `connectionMethods` (Pi, Koog, Codex, Claude); адаптеры узнают источники привязок через SPI `bind`/`unbind`.
+> `ai-studio` использует профильный фасад, сохраняет идентичность и историю чатов; принятые ходы принадлежат профилю
+> и переживают закрытие экрана (тогл `ai_studio.engine_runtime`, по умолчанию false — демо-пространство и старт профиля с welcome).
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов

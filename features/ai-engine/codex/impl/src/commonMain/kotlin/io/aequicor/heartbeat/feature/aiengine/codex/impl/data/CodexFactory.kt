@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
@@ -9,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
@@ -36,6 +38,10 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
     private val toggles get() = environment.toggles
     private val dispatchers get() = environment.dispatchers
     private val profile get() = environment.profile
+
+    /** Sources of configured bindings; the CLI resolves the login itself, so only ids are kept. */
+    private val routes = mutableMapOf<EngineBindingId, AuthSourceId>()
+
     private val log = Log.tag("CodexFactory")
     private val lock = Mutex()
     private var runtime: CodexRuntime? = null
@@ -56,19 +62,26 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
     override fun accepts(source: AuthSource, context: EngineContext): Boolean =
         context.engine == CodexEngine.Id && source is AuthSource.CliLogin &&
             source.owner == CodexEngine.AuthOwner && source.location == config.location &&
-            source.info.id == config.source && source.scope.provider == ProviderId("openai") &&
+            source.scope.provider == ProviderId("openai") &&
             source.scope.origin == EndpointOrigin("https://api.openai.com")
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("codex.openai.cli")
 
-    /** No adapter-side route state: the Codex CLI login is resolved by the CLI itself. */
-    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
-        log.d { "bind ignored: no route state" }
+    /** Allows runtimes for [source] of a user-configured binding; the CLI itself still resolves the login. */
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = lock.withLock {
+        if (!accepts(source, EngineContext(CodexEngine.Id, binding))) {
+            log.w { "Rejected Codex route: foreign source" }
+            fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
+        }
+        // Checked before the no-op shortcut: an unchanged source id may now carry a foreign scope.
+        if (routes[binding] == source.info.id) return@withLock
+        log.i { "Binding Codex route" }
+        routes[binding] = source.info.id
     }
 
-    /** No adapter-side route state, see [bind]. */
-    override suspend fun unbind(binding: EngineBindingId) {
-        log.d { "unbind ignored: no route state" }
+    /** Forgets the route of [binding]; unknown bindings are ignored. */
+    override suspend fun unbind(binding: EngineBindingId): Unit = lock.withLock {
+        if (routes.remove(binding) != null) log.i { "Unbinding Codex route" }
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
@@ -107,7 +120,9 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
     private suspend fun gate(identity: RuntimeIdentity) {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         if (!toggles.get(CodexEngine.Enabled)) fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
-        if (identity.engine != CodexEngine.Id || identity.source != config.source) {
+        if (identity.engine != CodexEngine.Id ||
+            (identity.source != config.source && identity.source !in routes.values)
+        ) {
             fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
         }
         // This adapter cannot verify an authenticator's opaque revision. Never pretend it matched.

@@ -7,13 +7,18 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -51,6 +56,24 @@ public object KoogBindings {
             EngineFamily.MultiProvider,
             EnginePlatform.entries.toSet(),
             KoogEngineEnabled,
+            connectionMethods = listOf(
+                ConnectionMethod.ApiKey(
+                    ConnectionMethodId("openai"),
+                    ProviderInfo(ProviderId("openai"), "OpenAI"),
+                    EndpointOrigin("https://api.openai.com"),
+                ),
+                ConnectionMethod.ApiKey(
+                    ConnectionMethodId("anthropic"),
+                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                    EndpointOrigin("https://api.anthropic.com"),
+                ),
+                ConnectionMethod.NoAuth(
+                    ConnectionMethodId("ollama"),
+                    ProviderInfo(ProviderId("ollama"), "Ollama"),
+                    EndpointOrigin("http://localhost:11434"),
+                    isOriginEditable = false,
+                ),
+            ),
             declaredFeatures = setOf(
                 CreatesSessions.id,
                 SendsPrompts.id,

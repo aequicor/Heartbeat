@@ -25,6 +25,8 @@ data class StudioSession(
     val isUnread: Boolean = false,
     val isArchived: Boolean = false,
     val branch: String? = null,
+    val modelId: String? = null,
+    val isContinuable: Boolean = true,
 )
 
 /** Projects and sessions shown in the sidebar. */
