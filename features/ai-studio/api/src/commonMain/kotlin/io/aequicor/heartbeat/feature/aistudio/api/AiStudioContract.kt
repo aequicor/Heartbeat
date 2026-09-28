@@ -246,7 +246,7 @@ public sealed interface AiStudioOutput : MachineOutput {
     /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
     public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput
 
-    /** A run of [sessionId] started by the studio ended with [outcome]. */
+    /** An effect run of [sessionId] ended with [outcome] (emitted for every `RunFinished`). */
     public data class RunEnded(val sessionId: String, val outcome: RunOutcome) : AiStudioOutput
 }
 

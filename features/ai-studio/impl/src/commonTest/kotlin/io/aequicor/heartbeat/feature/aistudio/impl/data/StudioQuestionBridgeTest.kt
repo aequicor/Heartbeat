@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
@@ -169,6 +170,33 @@ class StudioQuestionBridgeTest {
     }
 
     @Test
+    fun `an answer failing before the send returns still reopens its question`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        fixture.studio.onSend = { fixture.studio.outputs.emit(AiStudioOutput.PermissionAnswerFailed("s1", "r1")) }
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+    }
+
+    @Test
+    fun `a second follow-up of a running session never drops the first one`() = runTest {
+        val fixture = Fixture(this)
+        runCurrent()
+        val second = question.copy(id = QuestionnaireId("s1/r2"))
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(second, Answer.Confirmed(true)))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(second), fixture.queue.sent.last())
+
+        fixture.studio.outputs.emit(AiStudioOutput.RunEnded("s1", RunOutcome.Failed))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+    }
+
+    @Test
     fun `permissions without options are not asked`() = runTest {
         val fixture = Fixture(this)
         fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission.copy(options = emptyList())))
@@ -239,10 +267,12 @@ private class FakeStudio : MachineRef<AiStudioState, AiStudioIntent.Public, AiSt
     val sent = mutableListOf<AiStudioIntent.Public>()
     var result = SendResult.Accepted
     var failure: Exception? = null
+    var onSend: suspend () -> Unit = {}
 
     override suspend fun send(intent: AiStudioIntent.Public): SendResult {
         failure?.let { throw it }
         sent += intent
+        onSend()
         return result
     }
 }

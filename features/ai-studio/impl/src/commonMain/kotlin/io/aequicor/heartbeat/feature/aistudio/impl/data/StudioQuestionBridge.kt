@@ -153,7 +153,11 @@ internal class StudioQuestionBridge(
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun watchDeliveries() {
         machines.observe(AiStudioMachineKey)
-            .flatMapLatest { it?.outputs ?: emptyFlow() }
+            .flatMapLatest { machine ->
+                // Runs outlive the studio machine unobserved: their follow-ups are no longer tracked.
+                if (machine == null) lock.withLock { followUps.clear() }
+                machine?.outputs ?: emptyFlow()
+            }
             .collect { output -> guarded("watch a delivery") { onDelivery(output) } }
     }
 
@@ -186,28 +190,38 @@ internal class StudioQuestionBridge(
             return false
         }
         log.i { "Answer native permission request=${permission.requestId}" }
-        val result = machines.send(
-            AiStudioMachineKey,
-            AiStudioIntent.Public.RespondPermission(
-                permission.sessionId,
-                permission.requestId,
-                decision.optionId,
-                decision.answer,
-            ),
-        )
-        if (result != SendResult.Accepted) {
-            log.w { "Permission answer was not accepted: $result" }
-            return false
+        val id = permission.questionnaireId()
+        // Marked before sending: the answer may fail (PermissionAnswerFailed) before [send] returns.
+        lock.withLock { answered += id }
+        var result: SendResult? = null
+        try {
+            result = machines.send(
+                AiStudioMachineKey,
+                AiStudioIntent.Public.RespondPermission(
+                    permission.sessionId,
+                    permission.requestId,
+                    decision.optionId,
+                    decision.answer,
+                ),
+            )
+        } finally {
+            if (result != SendResult.Accepted) lock.withLock { answered -= id }
         }
-        lock.withLock { answered += permission.questionnaireId() }
-        return true
+        if (result != SendResult.Accepted) log.w { "Permission answer was not accepted: $result" }
+        return result == SendResult.Accepted
     }
 
     /** Sends the answer as the next user message of the session; false while the studio cannot run it. */
     private suspend fun followUp(questionnaire: Questionnaire, answer: Answer): Boolean {
         log.i { "Deliver answer as a follow-up message kind=${answer::class.simpleName.orEmpty()}" }
-        // Registered before sending: the run may end before [send] returns.
-        lock.withLock { followUps[questionnaire.source] = questionnaire }
+        // Registered before sending: the run may end before [send] returns. A session runs one follow-up at a time.
+        val isRegistered = lock.withLock {
+            (questionnaire.source !in followUps).also { if (it) followUps[questionnaire.source] = questionnaire }
+        }
+        if (!isRegistered) {
+            log.w { "Session already runs a follow-up answer" }
+            return false
+        }
         var result: SendResult? = null
         try {
             result = machines.send(
