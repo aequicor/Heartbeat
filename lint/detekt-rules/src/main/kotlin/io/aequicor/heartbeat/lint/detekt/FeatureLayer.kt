@@ -50,7 +50,7 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
         target.module == "impl" && (isContract || target.feature != feature) ->
             "Feature implementations are private; depend on the public api"
 
-        layer == "ui" && target.isContract -> "UI sends presentation events instead of machine intents"
+        layer == "ui" && target.isContract -> uiContractViolation(target)
 
         target.isContract -> null
 
@@ -62,6 +62,14 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
 
         else -> null
     }
+
+    /** Search settings display service contract values directly; this feature has no business state machine. */
+    private fun uiContractViolation(target: FeatureLayer): String? =
+        if (feature == "searchengine" && target.feature == feature) {
+            null
+        } else {
+            "UI sends presentation events instead of machine intents"
+        }
 
     private fun isUiReference(reference: String): Boolean =
         UI_PACKAGES.any(reference::isInPackage) && !(layer == "presentation" && reference in PRESENTATION_ANNOTATIONS)

@@ -10,6 +10,24 @@ class FeatureLayerDependencyTest {
     private val rule = FeatureLayerDependency(Config.empty)
 
     @Test
+    fun `search service settings UI may display its own contract values`() {
+        assertEquals(
+            0,
+            rule.lint(
+                "package io.aequicor.heartbeat.feature.searchengine.impl.ui\n" +
+                    "import io.aequicor.heartbeat.feature.searchengine.api.SearchOperation",
+            ).size,
+        )
+        assertEquals(
+            1,
+            rule.lint(
+                "package io.aequicor.heartbeat.feature.chat.impl.ui\n" +
+                    "import io.aequicor.heartbeat.feature.chat.api.ChatIntent",
+            ).size,
+        )
+    }
+
+    @Test
     fun `nested engine modules retain IO and implementation boundaries`() {
         val prefix = "io.aequicor.heartbeat.feature.aiengine"
         assertEquals(1, rule.lint("package $prefix.facade.api\nimport io.ktor.client.HttpClient").size)

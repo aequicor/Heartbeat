@@ -129,6 +129,7 @@ public fun HbTextField(
     enabled: Boolean = true,
     singleLine: Boolean = true,
     accessibleLabel: String = placeholder,
+    obscured: Boolean = false,
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
@@ -142,6 +143,7 @@ public fun HbTextField(
         placeholder,
         enabled,
         singleLine,
+        obscured,
     )
 }
 
@@ -153,6 +155,7 @@ private fun SoftTextField(
     placeholder: String = "",
     enabled: Boolean = true,
     singleLine: Boolean = true,
+    obscured: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -167,6 +170,7 @@ private fun SoftTextField(
             .hbFocusOutline(isFocused, shape),
         enabled = enabled,
         singleLine = singleLine,
+        obscured = obscured,
         interactionSource = interactionSource,
         placeholder = placeholder,
         contentPadding = PaddingValues(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs),

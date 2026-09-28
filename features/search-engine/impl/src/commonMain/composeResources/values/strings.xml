@@ -1,0 +1,28 @@
+<resources>
+    <string name="settings_title">Настройки профиля</string>
+    <string name="settings_back">Назад</string>
+    <string name="search_provider">Поиск ресурсов</string>
+    <string name="contents_provider">Получение содержимого</string>
+    <string name="provider_querit">Querit</string>
+    <string name="api_key">API-ключ</string>
+    <string name="api_host">URL API</string>
+    <string name="key_configured">Ключ сохранён</string>
+    <string name="key_missing">Ключ не задан</string>
+    <string name="save_host">Сохранить URL</string>
+    <string name="save_key">Сохранить ключ</string>
+    <string name="remove_key">Удалить ключ</string>
+    <string name="check_connection">Проверить подключение</string>
+    <string name="check_success">Подключение работает</string>
+    <string name="check_failed">Не удалось подключиться</string>
+    <string name="check_not_configured">API-ключ не задан</string>
+    <string name="check_invalid_input">Некорректный запрос или URL</string>
+    <string name="check_authentication">Ключ не принят сервисом</string>
+    <string name="check_rate_limited">Превышен лимит запросов</string>
+    <string name="check_connectivity">Нет соединения с сервисом</string>
+    <string name="check_timeout">Время ожидания истекло</string>
+    <string name="check_invalid_response">Некорректный ответ сервиса</string>
+    <string name="check_unavailable">Сервис недоступен</string>
+    <string name="prefer_native">Предпочитать инструменты движка</string>
+    <string name="settings_error">Не удалось сохранить настройки</string>
+    <string name="settings_loading">Загрузка настроек…</string>
+</resources>

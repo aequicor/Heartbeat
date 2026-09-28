@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
@@ -48,6 +49,7 @@ internal fun HbEditableText(
     placeholder: String = "",
     enabled: Boolean = true,
     singleLine: Boolean = false,
+    obscured: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(),
 ) {
     val state = rememberTextFieldState(value)
@@ -73,6 +75,13 @@ internal fun HbEditableText(
         enabled = enabled,
         inputTransformation = InputTransformation {
             bridge.observeInput(this, onValueChange)
+        },
+        outputTransformation = if (obscured) {
+            OutputTransformation {
+                replace(0, length, "•".repeat(length))
+            }
+        } else {
+            null
         },
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,
         scrollState = scrollState,
