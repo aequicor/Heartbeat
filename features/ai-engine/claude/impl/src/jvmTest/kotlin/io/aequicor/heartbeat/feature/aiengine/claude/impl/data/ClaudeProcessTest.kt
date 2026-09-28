@@ -154,7 +154,10 @@ class ClaudeProcessTest {
                     }
                 }
             }
-            assertNotEquals(first.await(), second.await())
+            val pids = withContext(Dispatchers.Default) {
+                withTimeout(CONCURRENT_START_TIMEOUT_MS) { first.await() to second.await() }
+            }
+            assertNotEquals(pids.first, pids.second)
             tasks.forEach { it.cancelAndJoin() }
         } finally {
             Files.deleteIfExists(program)
@@ -204,6 +207,7 @@ private fun assertExited(pid: Long) {
 
 private const val EXIT_TIMEOUT_SECONDS = 10L
 private const val HELPER_CANCEL_TIMEOUT_MS = 20_000L
+private const val CONCURRENT_START_TIMEOUT_MS = 20_000L
 
 private val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
 
