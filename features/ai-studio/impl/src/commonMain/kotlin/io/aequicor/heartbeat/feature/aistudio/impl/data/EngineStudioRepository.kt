@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
@@ -60,6 +61,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationOutput
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -120,6 +125,7 @@ internal class EngineStudioRepository(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
     private val workspaces: LocalWorkspaces,
+    private val efforts: Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput>,
 ) : StudioRepository,
     StudioRuntime {
     private val log = Log.tag("EngineStudio")
@@ -292,7 +298,11 @@ internal class EngineStudioRepository(
                 val permissions = launch { active.state.collect { updatePermissions(id, it) } }
                 try {
                     log.i { "Submitting prompt length=${prompt.length}" }
-                    val turn = submit(active, prompt, settings.reasoningEffort(target, offeredModels.value))
+                    val turn = submit(
+                        active,
+                        prompt,
+                        efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
+                    )
                     if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
                         (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||

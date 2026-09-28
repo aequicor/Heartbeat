@@ -17,7 +17,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationOutput
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +65,7 @@ class AiStudioModel(
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
     private val entries: StudioEntries,
+    private val efforts: Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput>,
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
@@ -71,6 +78,7 @@ class AiStudioModel(
                 is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output.paneId, output.prompt) }
             }
         }) { reflectMachine(it) }
+        reflect(efforts) { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) }
         whileSubscribed(name = "workspace") {
             val pipeline = this
             coroutineScope {
@@ -205,15 +213,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
 
-            is AiStudioScreenIntent.SelectEngineEffort -> updateSettings(pipeline) {
-                copy(
-                    engineEfforts = if (intent.effort == null) {
-                        engineEfforts - intent.modelId
-                    } else {
-                        engineEfforts + (intent.modelId to intent.effort)
-                    },
-                )
-            }
+            is AiStudioScreenIntent.SelectEngineEffort -> selectEngineEffort(pipeline, intent)
 
             is AiStudioScreenIntent.SelectApproval -> updateSettings(
                 pipeline,
@@ -259,6 +259,12 @@ class AiStudioModel(
         }
     }
 
+    private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
+        with(pipeline) {
+            val target = studioModelTarget(intent.modelId) ?: return@with
+            sendTo(efforts, EffortConfigurationIntent.Public.Select(target, intent.effort))
+        }
+
     private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {
         sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))
     }
@@ -271,9 +277,14 @@ class AiStudioModel(
                 settings.modelId,
                 settings.effort.toDomain(),
                 settings.approval.toDomain(),
-                settings.engineEfforts,
             )
             sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
         }
     }
+}
+
+/** Stored choices keyed by studio model id; empty until the effort machine is ready. */
+private fun EffortConfigurationState.studioEfforts() = when (this) {
+    EffortConfigurationState.Idle, EffortConfigurationState.Loading -> persistentMapOf()
+    is EffortConfigurationState.Ready -> choices.associate { it.target.studioModelId() to it.effort }.toImmutableMap()
 }

@@ -5,10 +5,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineStudioModelOptionsTest {
@@ -29,18 +27,9 @@ class EngineStudioModelOptionsTest {
         val model = studioModel(target, null, "Engine", "Connection", false)
         assertEquals("model-id", model.shortName)
         assertTrue(model.reasoningEfforts.isEmpty())
-        val advertised = model.copy(reasoningEfforts = listOf("high"))
-        val settings = DefaultRunSettings.copy(engineEfforts = mapOf(model.id to "high"))
-        assertEquals("high", settings.reasoningEffort(target, listOf(advertised)))
-        assertNull(settings.reasoningEffort(target.copy(binding = EngineBindingId("other")), listOf(advertised)))
-        assertNull(settings.reasoningEffort(target.copy(model = ModelId("other")), listOf(advertised)))
-    }
-
-    @Test
-    fun `withdrawn reasoning capabilities restore the native default instead of sending a hidden override`() {
-        val model = studioModel(target, null, "Engine", "Connection", false)
-        val settings = DefaultRunSettings.copy(engineEfforts = mapOf(model.id to "high"))
-        assertNull(settings.reasoningEffort(target, listOf(model)))
-        assertNull(settings.reasoningEffort(target, listOf(model.copy(reasoningEfforts = listOf("low")))))
+        val advertised = listOf(model.copy(reasoningEfforts = listOf("high")))
+        assertEquals(listOf("high"), advertised.reasoningEfforts(target))
+        assertEquals(emptyList(), advertised.reasoningEfforts(target.copy(binding = EngineBindingId("other"))))
+        assertEquals(emptyList(), advertised.reasoningEfforts(target.copy(model = ModelId("other"))))
     }
 }

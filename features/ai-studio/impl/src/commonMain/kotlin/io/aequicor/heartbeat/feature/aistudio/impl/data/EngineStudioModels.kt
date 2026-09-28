@@ -6,15 +6,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
-import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.Json
 
 /** Joins the user's selected routes with cached capability updates; observation never starts discovery. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -54,7 +53,7 @@ internal fun studioModel(
 ): StudioModel {
     val shortName = info?.title?.takeIf(String::isNotBlank) ?: target.model.value
     return StudioModel(
-        id = Json.encodeToString(EngineTarget.serializer(), target),
+        id = target.studioModelId(),
         name = listOf(engineName, shortName, connectionName).filter(String::isNotBlank).joinToString(" · "),
         isResearchSupported = target.engine == KoogEngineId,
         isLocalProjectSupported = isLocalProjectSupported,
@@ -64,9 +63,8 @@ internal fun studioModel(
     )
 }
 
-/** A preference belongs to one route and applies only while that catalog still advertises its value. */
-internal fun RunSettings.reasoningEffort(target: EngineTarget, models: List<StudioModel>): String? {
-    val id = Json.encodeToString(EngineTarget.serializer(), target)
-    val supported = models.firstOrNull { it.id == id }?.reasoningEfforts.orEmpty()
-    return engineEfforts[id]?.takeIf { it in supported }
+/** Native effort levels the catalog advertises for [target]; empty when the route is not offered. */
+internal fun List<StudioModel>.reasoningEfforts(target: EngineTarget): List<String> {
+    val id = target.studioModelId()
+    return firstOrNull { it.id == id }?.reasoningEfforts.orEmpty()
 }
