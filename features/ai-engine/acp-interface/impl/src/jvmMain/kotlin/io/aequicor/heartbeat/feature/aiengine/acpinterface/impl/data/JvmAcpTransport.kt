@@ -56,9 +56,14 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
         require('\n' !in frame && '\r' !in frame && frame.length <= MAX_FRAME_CHARS) { "Invalid ACP frame" }
         writes.withLock {
             withContext(dispatchers.io) {
-                if (isClosed.get()) throw AcpException.Disconnected()
-                process.outputStream.write((frame + "\n").toByteArray(Charsets.UTF_8))
-                process.outputStream.flush()
+                try {
+                    if (isClosed.get()) throw AcpException.Disconnected()
+                    process.outputStream.write((frame + "\n").toByteArray(Charsets.UTF_8))
+                    process.outputStream.flush()
+                } finally {
+                    // close() could not take the lock while this write held it and deferred closing stdin to us.
+                    if (isClosed.get()) closeStdinLocked()
+                }
             }
         }
     }
@@ -88,15 +93,26 @@ internal class JvmAcpTransport(private val process: Process, private val dispatc
         }
     }
 
-    /** Closing flushes under the stream monitor; while a write holds it, process death already releases the pipe. */
+    /**
+     * Closing flushes under the stream monitor, so it must not race an in-flight write. Process death alone does not
+     * release our pipe handle: a descendant may still hold the other end, and on Windows the handle lives until GC.
+     * If a write holds [writes], it closes stdin itself on release because [isClosed] is already set.
+     */
     private fun closeStdin() {
         if (!writes.tryLock()) return
+        try {
+            closeStdinLocked()
+        } finally {
+            writes.unlock()
+        }
+    }
+
+    /** Must be called while holding [writes]; closing an already closed stream is a no-op. */
+    private fun closeStdinLocked() {
         try {
             process.outputStream.close()
         } catch (e: IOException) {
             log.w(AcpDiagnostic(e)) { "ACP stdio stdin close failed" }
-        } finally {
-            writes.unlock()
         }
     }
 

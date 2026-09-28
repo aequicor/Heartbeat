@@ -8,8 +8,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -61,6 +65,19 @@ class AcpStdioTest {
                 child.destroyForcibly()
             }
         }
+    }
+
+    @Test
+    fun `close during an in-flight write closes stdin once the write finishes`() = runTest(timeout = 30.seconds) {
+        val stdin = BlockingStdin()
+        val transport = JvmAcpTransport(FakeProcess(stdin), dispatchers)
+        val writing = backgroundScope.async(Dispatchers.IO) { transport.send("{}") }
+        withContext(Dispatchers.IO) { assertTrue(stdin.entered.await(5, TimeUnit.SECONDS)) }
+        transport.close()
+        assertFalse(stdin.isClosed)
+        stdin.release.countDown()
+        writing.await()
+        assertTrue(stdin.isClosed)
     }
 
     @Test
@@ -126,5 +143,38 @@ class AcpStdioTest {
             Files.deleteIfExists(source)
             Files.deleteIfExists(directory)
         }
+    }
+
+    private class BlockingStdin : OutputStream() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+
+        @Volatile
+        var isClosed = false
+
+        override fun write(b: Int) = write(byteArrayOf(b.toByte()), 0, 1)
+
+        override fun write(b: ByteArray, off: Int, len: Int) {
+            entered.countDown()
+            release.await(10, TimeUnit.SECONDS)
+        }
+
+        override fun close() {
+            isClosed = true
+        }
+    }
+
+    private class FakeProcess(private val stdin: OutputStream) : Process() {
+        override fun getOutputStream(): OutputStream = stdin
+
+        override fun getInputStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+
+        override fun getErrorStream(): InputStream = ByteArrayInputStream(ByteArray(0))
+
+        override fun waitFor(): Int = 0
+
+        override fun exitValue(): Int = 0
+
+        override fun destroy() = Unit
     }
 }
