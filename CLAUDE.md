@@ -30,6 +30,8 @@ lint/            detekt-rules — собственный набор правил
 > AI-движки: контракты `features:ai-engine:{facade,authenticator}:api`; `authenticator:impl` — источники авторизации профиля и проверки;
 > `facade:impl` — каталог движков и привязок, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине;
 > локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
+> ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
+> stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > UI подключения пока не реализован.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
 > логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
