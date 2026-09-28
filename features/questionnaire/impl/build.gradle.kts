@@ -8,6 +8,8 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.questionnaire.api)
+            implementation(projects.core.common)
+            implementation(projects.core.datastore.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)
             implementation(projects.core.stateMachine.flowmviExt)

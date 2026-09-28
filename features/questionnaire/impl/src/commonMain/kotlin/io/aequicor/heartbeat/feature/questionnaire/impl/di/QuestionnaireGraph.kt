@@ -11,6 +11,7 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
@@ -31,8 +32,11 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import io.aequicor.heartbeat.feature.questionnaire.impl.di.scope.QuestionnaireScope
+import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireJournal
+import io.aequicor.heartbeat.feature.questionnaire.impl.domain.QuestionnaireStorage
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.component.QuestionnaireComponent
 import io.aequicor.heartbeat.feature.questionnaire.impl.ui.QuestionnaireUiComponent
+import kotlinx.coroutines.launch
 
 /** Screen graph of one questionnaire source, retained by its navigation entry under the profile. */
 @GraphExtension(QuestionnaireScope::class)
@@ -53,7 +57,7 @@ interface QuestionnaireGraph {
 
 /**
  * The question queue belongs to the profile, so questions outlive the screens that show them.
- * It has no effects: sources deliver answers themselves.
+ * It has no effects: sources deliver answers themselves. [QuestionnaireJournal] keeps open questions across restarts.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -63,8 +67,13 @@ object QuestionnaireBindings {
     internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
+        storage: QuestionnaireStorage,
+        dispatchers: DispatcherProvider,
     ): Machine<QuestionnaireState, QuestionnaireIntent, QuestionnaireOutput> =
-        launcher.launch(QuestionnaireMachineSpec, scope, EffectHandler.None)
+        launcher.launch(QuestionnaireMachineSpec, scope, EffectHandler.None).also { machine ->
+            // Storage IO and saving run off the main thread; the machine accepts intents from any thread.
+            scope.coroutineScope.launch(dispatchers.io) { QuestionnaireJournal(storage).run(machine) }
+        }
 }
 
 /** Registers the questionnaire flag in the toggle panel. */

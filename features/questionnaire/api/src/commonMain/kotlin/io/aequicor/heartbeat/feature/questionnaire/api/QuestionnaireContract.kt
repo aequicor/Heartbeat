@@ -25,11 +25,14 @@ public val QuestionnaireEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /** Queue of questions awaiting the user in the profile. */
+@Serializable
 public sealed interface QuestionnaireState : MachineState {
     /** Nothing to answer. */
+    @Serializable
     public data object Idle : QuestionnaireState
 
     /** Questions in asking order; [submitting] were answered and wait for their source to withdraw them. */
+    @Serializable
     public data class Asking(val pending: List<Questionnaire>, val submitting: Set<QuestionnaireId> = emptySet()) :
         QuestionnaireState
 }
@@ -89,6 +92,7 @@ public object QuestionnaireMachineKey : MachineKey<
  *
  * Everything else is ignored. The machine is a pure queue without effects; answers stay pending until the
  * source withdraws them, so a failed delivery can re-ask the same id.
+ * Restoration keeps every pending question and reopens submitted ones: a delivery does not survive the process.
  */
 public val QuestionnaireMachineSpec:
     MachineSpec<QuestionnaireState, QuestionnaireIntent, QuestionnaireEffect, QuestionnaireOutput> =
@@ -125,6 +129,12 @@ public val QuestionnaireMachineSpec:
             }) {
                 goto<QuestionnaireState.Idle> { QuestionnaireState.Idle }
                 output { QuestionnaireOutput.Withdrawn(intent.id) }
+            }
+        }
+        persist(QuestionnaireState.serializer()) { saved ->
+            when (saved) {
+                QuestionnaireState.Idle -> restore(saved)
+                is QuestionnaireState.Asking -> restore(saved.copy(submitting = emptySet()))
             }
         }
     }
