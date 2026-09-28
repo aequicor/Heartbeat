@@ -88,8 +88,14 @@ internal class ClaudeRuntime(
 
     suspend fun stored(ref: SessionRef): EngineSession = mutex.withLock {
         log.d { "Looking up stored Claude session" }
-        if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
-        val session = sessions[ref] ?: throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        if (isClosed) {
+            log.w { "Claude runtime is closed; stored session is unavailable" }
+            throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        }
+        val session = sessions[ref] ?: run {
+            log.w { "Stored Claude session is unknown to this runtime" }
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
         session.stored { request -> attach(ref, request) }
     }
 
@@ -100,10 +106,15 @@ internal class ClaudeRuntime(
     }
 
     private suspend fun validate(target: EngineTarget) {
-        if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
-        requireClaudeEnabled(toggles)
-        if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
-        account.validate(identity.revision)
+        try {
+            if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            requireClaudeEnabled(toggles)
+            if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
+            account.validate(identity.revision)
+        } catch (e: EngineException) {
+            log.w(e.redacted()) { "Claude session request rejected: ${e.failure::class.simpleName.orEmpty()}" }
+            throw e
+        }
     }
 }
 

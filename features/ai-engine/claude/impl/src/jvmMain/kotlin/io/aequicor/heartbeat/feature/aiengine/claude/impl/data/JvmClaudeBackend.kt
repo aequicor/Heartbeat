@@ -127,6 +127,7 @@ internal class JvmClaudeBackend(
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
         enabled()
         if (identity.engine != ClaudeEngine.Id || identity.source != ClaudeEngine.AuthSource) {
+            log.w { "Claude runtime requested for a foreign identity" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
         account.validate(identity.revision)
@@ -138,9 +139,10 @@ internal class JvmClaudeBackend(
     }
 
     override suspend fun session(ref: SessionRef): EngineSession = mutex.withLock {
-        runtime?.stored(ref) ?: throw EngineException(
-            EngineFailure.Session(SessionFailureReason.NotFound),
-        )
+        runtime?.stored(ref) ?: run {
+            log.w { "No Claude runtime holds the requested session" }
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
     }
 
     private suspend fun enabled() {

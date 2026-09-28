@@ -81,6 +81,8 @@ internal class ProcessClaudeTransport(
                 process.inputStream.bufferedReader(Charsets.UTF_8).use { stream ->
                     var value = stream.readFrame()
                     while (value != null) {
+                        // Frames buffered before a kill, and a truncated last frame, must not mask cancellation.
+                        ensureActive()
                         if (value.isNotBlank() && line(value)) return@async 0
                         value = stream.readFrame()
                     }
