@@ -49,7 +49,7 @@ internal fun ComposerMenuPopup(
     val anchor = LocalComposerAnchor.current?.value
     val density = LocalDensity.current
     val dimensions = HbTheme.dimensions
-    val gutter = maxOf(dimensions.composerMenuGutter, dimensions.glassShadowRadius + dimensions.glassShadowOffset)
+    val gutter = maxOf(dimensions.composerMenuGutter, dimensions.popupShadowRadius + dimensions.popupShadowOffset)
     val window = LocalWindowInfo.current.containerSize
     val availableWidth = with(density) { window.width.toDp() } - gutter * 2
     val availableHeight = with(
@@ -104,7 +104,7 @@ private fun ComposerMenuSheet(
             .semantics { paneTitle = label }
             // Popups may use a separate native window, so underlying text cannot be blurred reliably.
             .background(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
-            .hbSurface(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
+            .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.medium)
             .focusRequester(emptyFocus)
             .focusable(enabledIndices.isEmpty())
             .hbVerticalScroll(rememberScrollState())

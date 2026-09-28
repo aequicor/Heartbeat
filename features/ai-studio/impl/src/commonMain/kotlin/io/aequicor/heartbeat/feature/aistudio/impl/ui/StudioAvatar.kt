@@ -24,9 +24,9 @@ internal fun StudioAvatar(title: String, modifier: Modifier = Modifier, isSmall:
     val tint = accent.copy(alpha = 0.32f).compositeOver(colors.surface)
     Box(
         modifier.size(
-            if (isSmall) HbTheme.studioDimensions.headerAvatarSize else HbTheme.studioDimensions.avatarSize,
+            if (isSmall) HbTheme.dimensions.headerAvatarSize else HbTheme.dimensions.avatarSize,
         ).background(
-            Brush.linearGradient(listOf(tint, HbTheme.studioColors.avatar)),
+            Brush.linearGradient(listOf(tint, HbTheme.surfaces.avatar)),
             CircleShape,
         ).clearAndSetSemantics { },
         contentAlignment = Alignment.Center,

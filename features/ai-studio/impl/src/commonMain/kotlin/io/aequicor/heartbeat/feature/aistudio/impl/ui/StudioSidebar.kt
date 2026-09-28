@@ -123,8 +123,8 @@ internal fun StudioSidebar(
 private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
     HbWindowDragArea(Modifier.fillMaxWidth()) {
         HbRow(
-            Modifier.fillMaxWidth().padding(top = HbTheme.studioDimensions.titlebarInset)
-                .heightIn(min = HbTheme.studioDimensions.headerHeight)
+            Modifier.fillMaxWidth().padding(top = HbTheme.dimensions.titlebarInset)
+                .heightIn(min = HbTheme.dimensions.headerHeight)
                 .padding(horizontal = HbTheme.spacing.l),
             gap = HbTheme.spacing.m,
         ) {
@@ -135,7 +135,7 @@ private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
                 stringResource(Res.string.sidebar_new_session),
                 onNew,
                 Modifier.testTag("sidebar-new-session"),
-                size = HbTheme.studioDimensions.navigationRowHeight,
+                size = HbTheme.dimensions.navigationRowHeight,
                 tooltipText = shortcutHint(stringResource(Res.string.sidebar_new_session), "N"),
             )
             HbIconButton(
@@ -143,7 +143,7 @@ private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
                 stringResource(Res.string.rail_sidebar_hide),
                 onCollapse,
                 Modifier.testTag("rail-sidebar"),
-                size = HbTheme.studioDimensions.navigationRowHeight,
+                size = HbTheme.dimensions.navigationRowHeight,
                 tooltipText = shortcutHint(stringResource(Res.string.rail_sidebar_hide), "\\"),
             )
         }
@@ -159,7 +159,7 @@ private fun SidebarSearch(onSearch: () -> Unit) {
             onClick = onSearch,
             modifier = Modifier.padding(horizontal = HbTheme.spacing.m).testTag("sidebar-search-open"),
             icon = HbIcons.Search,
-            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            minHeight = HbTheme.dimensions.navigationRowHeight,
         ) {
             HbText(studioShortcutLabel("K"), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
         }
@@ -277,14 +277,14 @@ private fun LazyListScope.projectGroup(
             modifier = Modifier.testTag("project-${group.project.id}"),
             icon = if (group.isExpanded) HbIcons.FolderOpen else HbIcons.Folder,
             contentColor = HbTheme.colors.textPrimary,
-            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            minHeight = HbTheme.dimensions.navigationRowHeight,
         ) { isActive ->
             if (isActive) {
                 HbIconButton(
                     icon = HbIcons.Plus,
                     contentDescription = stringResource(Res.string.sidebar_new_in_project, group.project.name),
                     onClick = { onIntent(AiStudioScreenIntent.NewSession(group.project.id)) },
-                    size = HbTheme.studioDimensions.navigationRowHeight,
+                    size = HbTheme.dimensions.navigationRowHeight,
                 )
             }
         }
@@ -322,7 +322,7 @@ private fun SectionHeader(
         isChevronAlwaysVisible = false,
         textStyle = HbTheme.typography.caption,
         contentColor = HbTheme.colors.textSecondary,
-        minHeight = HbTheme.studioDimensions.navigationRowHeight,
+        minHeight = HbTheme.dimensions.navigationRowHeight,
     )
 }
 

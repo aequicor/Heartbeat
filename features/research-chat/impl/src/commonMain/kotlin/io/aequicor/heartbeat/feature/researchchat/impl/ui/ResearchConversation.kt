@@ -51,7 +51,7 @@ internal fun ResearchConversation(
     modifier: Modifier = Modifier,
     panelToggle: (@Composable () -> Unit)? = null,
 ) {
-    val column = Modifier.widthIn(max = HbTheme.studioDimensions.composerMaxWidth).fillMaxWidth()
+    val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
     HbColumn(
         modifier.testTag("research-conversation"),
         gap = HbTheme.spacing.none,
@@ -65,7 +65,7 @@ internal fun ResearchConversation(
                 key(state.questionId) {
                     ResearchTranscript(
                         state,
-                        Modifier.fillMaxSize().widthIn(max = HbTheme.studioDimensions.messageMaxWidth),
+                        Modifier.fillMaxSize().widthIn(max = HbTheme.dimensions.messageMaxWidth),
                     )
                 }
             }
@@ -122,7 +122,7 @@ private fun ResearchComposer(
         stopLabel = stringResource(Res.string.research_stop),
         modifier = modifier.testTag("research-composer"),
         layout = HbComposerLayout.Panel,
-        inputMaxHeight = HbTheme.studioDimensions.editorMaxHeight,
+        inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
         placeholder = stringResource(Res.string.research_composer_hint),
         isStreaming = state.isRunning,
         enabled = state.isEditable || state.isRunning,
@@ -150,7 +150,7 @@ private fun ResearchComposer(
 private fun ResearchEmptyConversation(modifier: Modifier = Modifier) {
     Box(modifier.hbVerticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
         HbColumn(
-            Modifier.padding(HbTheme.spacing.xxl).widthIn(max = HbTheme.studioDimensions.composerMaxWidth),
+            Modifier.padding(HbTheme.spacing.xxl).widthIn(max = HbTheme.dimensions.composerMaxWidth),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             HbIcon(HbIcons.Library, contentDescription = null, tint = HbTheme.colors.primary)

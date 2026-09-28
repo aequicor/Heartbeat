@@ -5,8 +5,7 @@
     <string name="flags_search">Search by key or description</string>
     <string name="flags_reset">Reset</string>
     <string name="flags_reset_all">Reset all</string>
-    <string name="flags_default">Default</string>
-    <string name="flags_override">Local override</string>
+    <string name="flags_override">Local override · default: %1$s</string>
     <string name="flags_loading">Loading flags…</string>
     <string name="flags_saving">Saving…</string>
     <string name="flags_empty">No flags found</string>
@@ -17,4 +16,6 @@
     <string name="flags_on">On</string>
     <string name="flags_off">Off</string>
     <string name="flags_intro_description">A six-second introduction on a fresh launch. Changes apply to the next introduction.</string>
+    <string name="flags_default_value">Default: %1$s</string>
+    <string name="flags_search_clear">Clear search</string>
 </resources>

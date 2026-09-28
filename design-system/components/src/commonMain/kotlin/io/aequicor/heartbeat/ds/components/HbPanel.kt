@@ -19,7 +19,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 @Composable
 public fun HbPanel(
     modifier: Modifier = Modifier,
-    background: Color = HbTheme.colors.glassTint,
+    background: Color = HbTheme.colors.surface,
     shape: Shape = HbTheme.shapes.medium,
     content: @Composable BoxScope.() -> Unit,
 ) {

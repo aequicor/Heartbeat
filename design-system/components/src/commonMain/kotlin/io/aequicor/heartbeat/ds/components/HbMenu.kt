@@ -194,7 +194,7 @@ private fun MenuSheet(
             .semantics { paneTitle = label }
             // Popups may use a separate native window, so the menu uses an opaque elevated fill.
             .background(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
-            .hbSurface(HbTheme.colors.surfaceElevated, HbTheme.shapes.large)
+            .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.medium)
             .hbVerticalScroll(rememberScrollState())
             .padding(HbTheme.spacing.xs),
         gap = HbTheme.spacing.none,

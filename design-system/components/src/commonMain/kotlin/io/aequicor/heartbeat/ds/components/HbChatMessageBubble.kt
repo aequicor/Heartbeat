@@ -69,7 +69,7 @@ private fun MessageBubblePlacement(
 ) {
     val placement = message.bubblePlacement()
     val maxWidth = if (message.appearance.isUnified) {
-        HbTheme.studioDimensions.messageMaxWidth
+        HbTheme.dimensions.messageMaxWidth
     } else {
         HbTheme.dimensions.chatMessageMaxWidth
     }
@@ -114,7 +114,7 @@ private fun Modifier.messageBubbleDecoration(
         messageBubbleSurface(background, showHeader, showStatus, isReadingSurface)
     }
     val padding = contentPadding ?: if (isUnified) {
-        PaddingValues(HbTheme.studioDimensions.messagePadding)
+        PaddingValues(HbTheme.dimensions.messagePadding)
     } else {
         messageBubblePadding(showHeader, showStatus)
     }

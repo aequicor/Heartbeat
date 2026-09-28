@@ -15,13 +15,15 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
     override fun Content(modifier: Modifier) {
         val isConnectionsShown by component.showsConnections.collectAsState(false)
         val isProfileSettingsShown by component.showsProfileSettings.collectAsState(false)
-        val exits = remember(component, isConnectionsShown, isProfileSettingsShown) {
+        val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
+        val exits = remember(component, isConnectionsShown, isProfileSettingsShown, isUnifiedSettingsShown) {
             StudioExits(
                 onBack = component::close,
                 onOpenToggles = component::openToggles,
                 onOpenProfileSettings = if (isProfileSettingsShown) component::openProfileSettings else null,
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
                 onOpenResearch = component::openResearch,
+                onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }
         val workspace by component.workspace.stack.subscribeAsState()

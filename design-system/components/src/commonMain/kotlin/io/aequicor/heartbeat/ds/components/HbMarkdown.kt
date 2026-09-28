@@ -246,4 +246,4 @@ private fun annotatedMarkdown(
 @Composable
 @androidx.compose.runtime.ReadOnlyComposable
 private fun markdownEmphasisWeight(): FontWeight =
-    if (HbTheme.studioDimensions.isDesktop) FontWeight.SemiBold else FontWeight.Bold
+    if (HbTheme.dimensions.isDesktop) FontWeight.SemiBold else FontWeight.Bold

@@ -17,7 +17,10 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 
-/** Navigation leaving the studio, provided by its component. */
+/**
+ * Navigation leaving the studio, provided by its component. With [onOpenSettings] the sidebar shows one
+ * "Settings" action; otherwise (unified settings off) it keeps the separate toggles, profile and connection actions.
+ */
 @Immutable
 internal data class StudioExits(
     val onBack: () -> Unit,
@@ -25,6 +28,7 @@ internal data class StudioExits(
     val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
     val onOpenResearch: ((String) -> Unit)? = null,
+    val onOpenSettings: (() -> Unit)? = null,
 )
 
 /** What a pane may offer in the current window layout. */

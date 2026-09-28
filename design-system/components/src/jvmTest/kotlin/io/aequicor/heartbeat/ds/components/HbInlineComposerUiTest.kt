@@ -56,10 +56,10 @@ class HbInlineComposerUiTest {
                             layout = HbComposerLayout.Inline,
                             placeholder = "Prompt",
                             isStreaming = isStreaming,
-                            leadingContent = { HbButton("Add", {}, style = HbButtonStyle.Quiet) },
+                            leadingContent = { HbButton("Add", {}, style = HbButtonStyle.Ghost) },
                             trailingContent = {
-                                HbButton("A deliberately long model name", {}, style = HbButtonStyle.Quiet)
-                                HbButton("Reasoning mode", {}, style = HbButtonStyle.Quiet)
+                                HbButton("A deliberately long model name", {}, style = HbButtonStyle.Ghost)
+                                HbButton("Reasoning mode", {}, style = HbButtonStyle.Ghost)
                             },
                         )
                     }

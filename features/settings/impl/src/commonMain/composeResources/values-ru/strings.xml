@@ -1,0 +1,7 @@
+<resources>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_back">Назад</string>
+    <string name="settings_section_models">Модели и движки</string>
+    <string name="settings_section_search">Поиск</string>
+    <string name="settings_section_feature_flags">Фича-флаги</string>
+</resources>

@@ -15,12 +15,15 @@ import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
+import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeDestination
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeIntent
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeOutput
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeState
 import io.aequicor.heartbeat.feature.welcome.impl.di.scope.WelcomeScope
+import io.aequicor.heartbeat.feature.welcome.impl.domain.UnifiedSettingsPolicy
 import io.aequicor.heartbeat.feature.welcome.impl.presentation.store.WelcomeModel
 import kotlinx.coroutines.launch
 
@@ -31,6 +34,7 @@ class WelcomeComponent(
     @Assisted private val navigator: Navigator,
     val model: WelcomeModel,
     machine: Machine<WelcomeState, WelcomeIntent, WelcomeOutput>,
+    policy: UnifiedSettingsPolicy,
     @ForScope(WelcomeScope::class) scope: ScopeHandle,
 ) : ComponentContext by context {
     init {
@@ -39,7 +43,13 @@ class WelcomeComponent(
                 if (state is WelcomeState.Opening) {
                     val route = when (state.destination) {
                         WelcomeDestination.Studio -> AiStudioRoute
-                        WelcomeDestination.Toggles -> TogglesPanelRoute
+
+                        // The flags live in a section of the unified settings; the separate panel is the fallback.
+                        WelcomeDestination.Toggles -> if (policy.isUnified()) {
+                            SettingsRoute(SettingsSection.FeatureFlags)
+                        } else {
+                            TogglesPanelRoute()
+                        }
                     }
                     navigator.navigate(
                         route,

@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_profile_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sessions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_toggles
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_connections
@@ -53,21 +54,39 @@ internal fun StudioRail(
                 isSelected = sidebar.mode == SidebarMode.Archive,
             )
         }
-        HbRow(gap = HbTheme.spacing.xxs) {
-            FooterAction(HbIcons.Sliders, stringResource(Res.string.rail_toggles), exits.onOpenToggles, "rail-toggles")
-            exits.onOpenProfileSettings?.let {
-                FooterAction(
-                    HbIcons.Settings,
-                    stringResource(Res.string.rail_profile_settings),
-                    it,
-                    "rail-profile-settings",
-                )
-            }
-            exits.onOpenConnections?.let {
-                FooterAction(HbIcons.Link, stringResource(Res.string.studio_connections), it, "rail-connections")
-            }
+        val openSettings = exits.onOpenSettings
+        if (openSettings != null) {
+            val label = stringResource(Res.string.rail_settings)
+            FooterAction(
+                HbIcons.Settings,
+                label,
+                openSettings,
+                "rail-settings",
+                tooltip = "$label ${studioShortcutLabel(",")}",
+            )
+        } else {
+            LegacySettingsActions(exits)
         }
         FooterAction(HbIcons.ArrowLeft, stringResource(Res.string.studio_back), exits.onBack, "rail-back")
+    }
+}
+
+/** The separate settings actions kept while unified settings are off. */
+@Composable
+private fun LegacySettingsActions(exits: StudioExits, modifier: Modifier = Modifier) {
+    HbRow(modifier, gap = HbTheme.spacing.xxs) {
+        FooterAction(HbIcons.Sliders, stringResource(Res.string.rail_toggles), exits.onOpenToggles, "rail-toggles")
+        exits.onOpenProfileSettings?.let {
+            FooterAction(
+                HbIcons.Settings,
+                stringResource(Res.string.rail_profile_settings),
+                it,
+                "rail-profile-settings",
+            )
+        }
+        exits.onOpenConnections?.let {
+            FooterAction(HbIcons.Link, stringResource(Res.string.studio_connections), it, "rail-connections")
+        }
     }
 }
 
@@ -79,6 +98,7 @@ private fun FooterAction(
     tag: String,
     modifier: Modifier = Modifier,
     isSelected: Boolean = false,
+    tooltip: String = label,
 ) {
     HbIconButton(
         icon = icon,
@@ -86,6 +106,7 @@ private fun FooterAction(
         onClick = onClick,
         modifier = modifier.testTag(tag),
         isSelected = isSelected,
-        size = HbTheme.studioDimensions.navigationRowHeight,
+        size = HbTheme.dimensions.navigationRowHeight,
+        tooltipText = tooltip,
     )
 }

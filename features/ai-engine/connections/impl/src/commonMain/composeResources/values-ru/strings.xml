@@ -77,4 +77,6 @@
     <string name="settings_models_never">Модели ещё не получены.</string>
     <string name="settings_saving">Сохранение…</string>
     <string name="settings_dismiss">Скрыть</string>
+    <string name="conn_models_search_clear">Очистить поиск</string>
+    <string name="settings_disconnect_title">Отключить подключение?</string>
 </resources>

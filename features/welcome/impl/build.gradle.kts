@@ -23,6 +23,7 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
+            implementation(projects.features.settings.api)
         }
         commonTest.dependencies { implementation(libs.flowmvi.test) }
         jvmTest.dependencies {

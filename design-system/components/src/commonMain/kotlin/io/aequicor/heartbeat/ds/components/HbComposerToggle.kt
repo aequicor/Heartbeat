@@ -43,7 +43,7 @@ public fun HbComposerToggle(
     val isHovered by interactions.collectIsHoveredAsState()
     val isFocused by interactions.collectIsFocusedAsState()
     val colors = HbTheme.colors
-    val studio = HbTheme.studioColors
+    val studio = HbTheme.surfaces
     val motion = HbTheme.motion
     val shape = HbTheme.shapes.small
     val base = if (isChecked) studio.selected else studio.composerPill
@@ -67,7 +67,7 @@ public fun HbComposerToggle(
     }
     HbRow(
         modifier = modifier
-            .heightIn(min = controlTargetSize(HbTheme.studioDimensions.composerActionSize))
+            .heightIn(min = controlTargetSize(HbTheme.dimensions.composerActionSize))
             .hbFocusOutline(isFocused, shape)
             .toggleable(isChecked, interactions, indication = null, enabled = enabled, role = Role.Switch) {
                 log.i { "composer toggle changed checked=$it" }
