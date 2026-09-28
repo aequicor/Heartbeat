@@ -24,7 +24,10 @@ import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
-/** Foundation switch with keyboard focus and mobile-sized hit area, shared by all visual kits. */
+/**
+ * Foundation switch with keyboard focus and mobile-sized hit area, shared by all visual kits.
+ * The checked track uses the brand accent with its accessible thumb color; unchecked stays neutral.
+ */
 @Composable
 fun HbSwitch(
     checked: Boolean,
@@ -39,8 +42,8 @@ fun HbSwitch(
     val isPressed by interaction.collectIsPressedAsState()
     val colors = HbTheme.colors
     val alpha = if (enabled) 1f else 0.45f
-    val track = (if (checked) colors.primary else colors.outlineSubtle).copy(alpha = alpha)
-    val thumb = (if (checked) colors.onPrimary else colors.textSecondary).copy(alpha = alpha)
+    val track = (if (checked) colors.brand else colors.outlineSubtle).copy(alpha = alpha)
+    val thumb = (if (checked) colors.onBrand else colors.textSecondary).copy(alpha = alpha)
     val feedback = when {
         !enabled -> Color.Transparent
         isPressed -> colors.pressedOverlay
