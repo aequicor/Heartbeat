@@ -29,7 +29,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | OpenBeside | | Ready (second pane, focused) | Apply(SetUnread(false)) for sessions |
  * | Ready | ClosePane | several panes | Ready (pane removed) | |
  * | Ready | FocusPane | another open pane | Ready | |
- * | Ready | UpdateSettings | | Ready | |
+ * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
