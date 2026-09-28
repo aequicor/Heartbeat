@@ -1,0 +1,8 @@
+<resources>
+    <string name="questionnaire_submit">Answer</string>
+    <string name="questionnaire_skip">Skip</string>
+    <string name="questionnaire_text_hint">Your answer</string>
+    <string name="questionnaire_selected">Selected: %1$s</string>
+    <string name="questionnaire_pick_range">Choose %1$d–%2$d</string>
+    <string name="questionnaire_sending">Sending…</string>
+</resources>
