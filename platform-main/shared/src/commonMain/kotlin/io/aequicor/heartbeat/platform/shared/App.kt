@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.platform.shared
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.ComponentContext
+import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.ds.components.HbCinematicBackdrop
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
@@ -20,6 +21,7 @@ fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRo
     context,
     graph,
     RootStart(guest = listOf(WelcomeRoute), profile = listOf(AiStudioRoute)),
+    localProfile = ProfileId("local"),
 )
 
 /** Shared rendering; the welcome feature owns its light cinematic theme. */

@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import ai.koog.agents.core.tools.ToolDescriptor
+import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
+import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
@@ -29,14 +32,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -61,6 +68,7 @@ import kotlin.uuid.Uuid
  * Without leases, a running turn or an operation holding its lock it reports [onIdle] so the runtime can forget it;
  * main dispatcher only.
  */
+@Suppress("LongParameterList") // A session owns separate runtime, history, snapshot, and search dependencies.
 internal class KoogNativeSession(
     initial: KoogRecord,
     private val identity: RuntimeIdentity,
@@ -68,6 +76,7 @@ internal class KoogNativeSession(
     private val records: KoogSessionRecords,
     private val scope: CoroutineScope,
     private val snapshot: KoogSessionSnapshot,
+    private val search: SearchEngine,
 ) {
     /** Set by the owning runtime before the first lease is issued. */
     var onIdle: (KoogNativeSession) -> Unit = {}
@@ -185,15 +194,16 @@ internal class KoogNativeSession(
         publish(ActiveSessionState.Running(turn))
         val provider = requireNotNull(koogProvider(connection.source))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider.textModel(model.value))
+            runTurn(turn, client, provider, model.value)
         }
         return turn.id
     }
 
-    private suspend fun runTurn(turn: Turn, client: KoogClient, model: LLModel) {
+    private suspend fun runTurn(turn: Turn, client: KoogClient, provider: KoogProvider, model: String) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            generate(turn, client, model)
+            val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
+            generate(turn, client, provider.textModel(model, tools = tools.isNotEmpty()), tools)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -221,27 +231,92 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel) {
+    // Ollama tool support per model id, looked up once per session.
+    private val toolSupport = mutableMapOf<String, Boolean>()
+
+    /**
+     * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
+     * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
+     */
+    private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
+        if (!access.searchToolsEnabled()) return false
+        if (provider != KoogProvider.Ollama) return true
+        toolSupport[model]?.let { return it }
+        return try {
+            (client.models().firstOrNull { it.id == model }?.capabilities?.contains(LLMCapability.Tools) == true)
+                .also { toolSupport[model] = it }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.sanitized()) { "Model capabilities unavailable; search tools disabled for this turn" }
+            false
+        }
+    }
+
+    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: List<ToolDescriptor>) {
         log.i { "Starting provider stream" }
-        val input = prompt("heartbeat") {
-            record.items.filterIsInstance<SessionItem.Message>().forEach { message ->
-                val text = message.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-                when (message.role) {
-                    MessageRole.User -> user(text)
-                    MessageRole.Assistant -> assistant(text)
-                    MessageRole.System -> system(text)
+        var input = initialPrompt()
+        repeat(MAX_TOOL_ROUNDS) { _ ->
+            val round = streamRound(turn, client, model, input, tools)
+            if (round.calls.isEmpty()) return
+            val results = round.calls.map { call -> recordSearchCall(turn, call) }
+            input = continuePrompt(input, round.text, results)
+        }
+        log.w { "Search tool round limit reached ($MAX_TOOL_ROUNDS)" }
+        fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+    }
+
+    private fun initialPrompt(): Prompt = prompt("heartbeat") {
+        val calls = record.items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
+        record.items.forEach { item ->
+            when (item) {
+                is SessionItem.Message -> {
+                    val text = item.parts.filterIsInstance<ContentPart.Text>()
+                        .joinToString("") { it.text }
+                    when (item.role) {
+                        MessageRole.User -> user(text)
+                        MessageRole.Assistant -> assistant(text)
+                        MessageRole.System -> system(text)
+                    }
                 }
+
+                is SessionItem.ToolCall -> if (item.status == ToolCallStatus.Succeeded ||
+                    item.status == ToolCallStatus.Failed
+                ) {
+                    toolCall(item.call.value, item.name, item.arguments)
+                }
+
+                is SessionItem.ToolResult -> calls[item.call]?.let { call ->
+                    val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+                    toolResult(item.call.value, call.name, text, item.failure != null)
+                }
+
+                is SessionItem.Plan, is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
             }
         }
-        val item = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
+    }
+
+    private suspend fun streamRound(
+        turn: Turn,
+        client: KoogClient,
+        model: LLModel,
+        input: Prompt,
+        tools: List<ToolDescriptor>,
+    ): SearchRound {
+        val info = ItemInfo(
+            ItemId(Uuid.random().toString()),
+            history.items.size.toLong(),
+            0,
+            turn.id,
+        )
         val texts = mutableMapOf<Int, String>()
+        val calls = mutableListOf<StreamFrame.ToolCallComplete>()
         var revision = 0L
-        var hasEnded = false
-        client.executor.executeStreaming(input, model).collect { frame ->
+        var isEnded = false
+        client.executor.executeStreaming(input, model, tools).collect { frame ->
             val hasChanged = when (frame) {
                 is StreamFrame.TextDelta -> {
-                    val index = frame.index ?: 0
-                    texts[index] = texts[index].orEmpty() + frame.text
+                    texts[frame.index ?: 0] = texts[frame.index ?: 0].orEmpty() + frame.text
                     true
                 }
 
@@ -250,27 +325,61 @@ internal class KoogNativeSession(
                     true
                 }
 
-                is StreamFrame.End -> {
-                    hasEnded = true
+                is StreamFrame.ToolCallComplete -> {
+                    calls += frame
                     false
                 }
 
-                is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete ->
-                    fail(EngineFailure.Request(RequestFailureReason.UnsupportedContent, turn.request))
+                is StreamFrame.End -> {
+                    isEnded = true
+                    false
+                }
 
-                is StreamFrame.ReasoningDelta, is StreamFrame.ReasoningComplete -> false
+                is StreamFrame.ToolCallDelta,
+                is StreamFrame.ReasoningDelta,
+                is StreamFrame.ReasoningComplete,
+                -> false
             }
             if (hasChanged) {
                 revision++
+                val text = texts.keys.sorted().joinToString("") { texts.getValue(it) }
                 val message = SessionItem.Message(
-                    item.copy(revision = revision),
+                    info.copy(revision = revision),
                     MessageRole.Assistant,
-                    listOf(ContentPart.Text(texts.keys.sorted().joinToString("") { texts.getValue(it) })),
+                    listOf(ContentPart.Text(text)),
                 )
                 history.append { SessionEvent.ItemUpserted(it, message) }
             }
         }
-        if (!hasEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        return SearchRound(texts.keys.sorted().joinToString("") { texts.getValue(it) }, calls)
+    }
+
+    private suspend fun recordSearchCall(turn: Turn, call: StreamFrame.ToolCallComplete): HandledSearchCall {
+        val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
+        val id = ToolCallId(call.id?.takeIf { it.isNotBlank() } ?: Uuid.random().toString())
+        val started = SessionItem.ToolCall(info, id, call.name, call.content, ToolCallStatus.Running)
+        history.append { SessionEvent.ItemUpserted(it, started) }
+        val result = executeKoogSearch(search, call)
+        val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
+        history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 1), status = status)) }
+        val output = SessionItem.ToolResult(
+            ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
+            id,
+            listOf(ContentPart.Text(result.text)),
+            if (result.isFailed) EngineFailure.Unknown() else null,
+        )
+        history.append { SessionEvent.ItemUpserted(it, output) }
+        return HandledSearchCall(id.value, call.name, call.content, result)
+    }
+
+    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledSearchCall>): Prompt = prompt(
+        "heartbeat",
+    ) {
+        messages(input.messages)
+        if (text.isNotBlank()) assistant(text)
+        calls.forEach { toolCall(it.id, it.name, it.arguments) }
+        calls.forEach { toolResult(it.id, it.name, it.result.text, it.result.isFailed) }
     }
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {
@@ -358,7 +467,19 @@ internal class KoogNativeSession(
     }
 }
 
+/** Upper bound of search tool rounds in one turn. */
+internal const val MAX_TOOL_ROUNDS = 8
+
 private typealias Lease = MutableStateFlow<ActiveSessionState>
+
+private data class SearchRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
+
+private data class HandledSearchCall(
+    val id: String,
+    val name: String,
+    val arguments: String,
+    val result: KoogSearchResult,
+)
 
 private fun unknownOutcome(request: PromptRequest) =
     EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))

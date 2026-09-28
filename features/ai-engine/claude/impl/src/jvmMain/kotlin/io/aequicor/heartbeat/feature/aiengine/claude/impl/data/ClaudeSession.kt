@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -176,7 +177,7 @@ internal class ClaudeSession(
         try {
             log.i { "Submitting Claude prompt" }
             val exit = transport.run(
-                claudeArguments(target.model, ref.nativeId, hasNativeSession),
+                claudeArguments(target.model, ref.nativeId, hasNativeSession, search = toggles.get(SearchEngineTools)),
                 submission.text,
                 route.workspace,
             ) {

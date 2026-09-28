@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -15,9 +16,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
+import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -33,6 +36,55 @@ import kotlin.test.assertNotSame
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogRuntimeTest {
+    @Test
+    fun searchToolCallContinuesGenerationAndIsRecorded() = runTest {
+        val f = KoogTestFixture(this)
+        f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-1", "web_search", """{"query":"topic"}""", 0))
+        f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        f.executor.complete("Answer")
+        runCurrent()
+        assertEquals(2, f.executor.prompts.size)
+        assertEquals(koogSearchTools, f.executor.tools.first())
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val items = session.features.require(SessionHistory).page().items
+        assertEquals(1, items.filterIsInstance<SessionItem.ToolCall>().size)
+        assertEquals(1, items.filterIsInstance<SessionItem.ToolResult>().size)
+    }
+
+    @Test
+    fun searchToolsAreNotSentWhenToggleIsOffOrModelLacksTools() = runTest {
+        val f = KoogTestFixture(this)
+        f.isSearchEnabled = false
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request("first"))
+        f.executor.complete()
+        runCurrent()
+        f.isSearchEnabled = true
+        f.modelSupportsTools = false
+        session.features.require(SendsPrompts).send(f.request("second"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf(emptyList(), emptyList()), f.executor.tools)
+    }
+
+    @Test
+    fun toolRoundLimitFailsTheTurn() = runTest {
+        val f = KoogTestFixture(this)
+        f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        repeat(MAX_TOOL_ROUNDS) { round ->
+            f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-$round", "web_search", "{\"query\":\"q\"}", 0))
+            f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        }
+        runCurrent()
+        val outcome = assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome
+        assertIs<TurnOutcome.Failed>(outcome)
+    }
+
     @Test
     fun acceptedTurnOutlivesLeaseAndPreservesConversation() = runTest {
         val f = KoogTestFixture(this)

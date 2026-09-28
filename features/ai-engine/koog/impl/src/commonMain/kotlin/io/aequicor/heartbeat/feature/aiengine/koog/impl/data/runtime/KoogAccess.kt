@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 
@@ -60,6 +61,9 @@ internal class KoogAccess(
         connections.remove(binding)
         return true
     }
+
+    /** Whether search tools may be offered to models (toggle `search.engine_tools`). */
+    suspend fun searchToolsEnabled(): Boolean = toggles.get(SearchEngineTools)
 
     suspend fun checkEnabled() {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))

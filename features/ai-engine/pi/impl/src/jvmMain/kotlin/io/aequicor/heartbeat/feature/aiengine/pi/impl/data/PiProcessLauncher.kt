@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretStore
@@ -15,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -31,6 +34,8 @@ import java.util.HexFormat
 internal class PiProcessLauncher(
     private val dispatchers: DispatcherProvider,
     private val secrets: SecretStore,
+    private val searchBridge: SearchBridge,
+    private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
 ) {
@@ -71,14 +76,9 @@ internal class PiProcessLauncher(
         } else {
             "read,bash,edit,write"
         }
-        val approval = agentDir.resolve(APPROVAL_EXTENSION)
-        val command = listOf(
-            executable.toString(), "--mode", "rpc", "--provider", provider.id,
-            // Only the bundled approval gate loads; discovered and configured extensions stay disabled.
-            "--session-dir", sessionDir.toString(), "--no-extensions", "-e", approval.toString(), "--no-skills",
-            // --no-approve refuses project-local trust-gated resources; it is not tool-call approval.
-            "--no-prompt-templates", "--no-context-files", "--no-themes", "--no-approve", "--tools", tools,
-        )
+        val searchTools = toggles.get(SearchEngineTools)
+        val extensions = piExtensions(agentDir, searchTools)
+        val command = piCommand(executable, provider.id, sessionDir, extensions, tools)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         environment.keys.retainAll(SAFE_ENVIRONMENT)
@@ -86,7 +86,12 @@ internal class PiProcessLauncher(
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         var process: Process? = null
         try {
-            installApprovalExtension(approval)
+            if (searchTools) {
+                val endpoint = searchBridge.endpoint()
+                environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
+                environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
+            }
+            extensions.forEach { installExtension(it.fileName.toString(), it) }
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting bundled Pi process" }
             val started = builder.start()
@@ -109,8 +114,8 @@ internal class PiProcessLauncher(
         }
     }
 
-    private fun installApprovalExtension(target: Path) {
-        val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$APPROVAL_EXTENSION")
+    private fun installExtension(name: String, target: Path) {
+        val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$name")
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         source.use { Files.copy(it, target) }
     }
@@ -130,7 +135,6 @@ internal class PiProcessLauncher(
     }
 
     private companion object {
-        const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
         val SAFE_ENVIRONMENT = setOf(
             "PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "ComSpec",
             "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PATHEXT",
@@ -140,3 +144,37 @@ internal class PiProcessLauncher(
 
 internal fun fingerprint(value: String): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
+
+/** The approval gate always loads; the search extension only while `search.engine_tools` is on. */
+internal fun piExtensions(agentDir: Path, searchTools: Boolean): List<Path> = buildList {
+    add(agentDir.resolve(APPROVAL_EXTENSION))
+    if (searchTools) add(agentDir.resolve(SEARCH_EXTENSION))
+}
+
+private const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
+private const val SEARCH_EXTENSION = "heartbeat-search.ts"
+
+internal fun piCommand(
+    executable: Path,
+    provider: String,
+    sessionDir: Path,
+    extensions: List<Path>,
+    tools: String,
+): List<String> = listOf(
+    executable.toString(),
+    "--mode",
+    "rpc",
+    "--provider",
+    provider,
+    "--session-dir",
+    sessionDir.toString(),
+    "--no-extensions",
+) + extensions.flatMap { listOf("-e", it.toString()) } + listOf(
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--no-themes",
+    "--no-approve",
+    "--tools",
+    tools,
+)

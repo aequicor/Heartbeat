@@ -7,7 +7,7 @@
  * `tool_call` handler as a block as well.
  */
 const APPROVAL_TITLE = "heartbeat.tool-approval";
-const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {

@@ -35,13 +35,18 @@ class RootIntegrationTest {
     private val start = RootStart(guest = listOf(WelcomeRoute), profile = listOf(WelcomeRoute))
 
     /** One app process: its graph and the root created in it; [save] + a new process = process death. */
-    private inner class Process(disk: PersistedProfile, saved: SerializableContainer? = null) {
+    private inner class Process(
+        disk: PersistedProfile,
+        saved: SerializableContainer? = null,
+        localProfile: ProfileId? = null,
+    ) {
         val graph: TestAppGraph = createGraphFactory<TestAppGraph.Factory>().create(disk)
         private val stateKeeper = StateKeeperDispatcher(saved)
         val root = HeartbeatRoot(
             context = DefaultComponentContext(LifecycleRegistry().apply { resume() }, stateKeeper = stateKeeper),
             graph = graph,
             start = start,
+            localProfile = localProfile,
         )
 
         /** Serialized like the platform does it: only bytes survive process death. */
@@ -79,6 +84,18 @@ class RootIntegrationTest {
 
         assertIs<RootChild.Guest>(process.root.child)
         assertEquals(listOf<Route>(WelcomeRoute), process.root.host?.routes)
+    }
+
+    @Test
+    fun `ordinary startup opens a stable local profile when no profile is restored`() = runRootTest {
+        val disk = PersistedProfile()
+        val first = Process(disk, localProfile = ProfileId("local"))
+        advanceUntilIdle()
+        assertEquals(ProfileId("local"), assertIs<RootChild.Profile>(first.root.child).id)
+
+        val reopened = Process(disk, localProfile = ProfileId("local"))
+        advanceUntilIdle()
+        assertEquals(ProfileId("local"), assertIs<RootChild.Profile>(reopened.root.child).id)
     }
 
     @Test

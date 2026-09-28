@@ -23,6 +23,7 @@ kotlin {
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
+            implementation(projects.features.searchEngine.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.aiEngine.authenticator.impl)
             implementation(projects.features.aiEngine.facade.impl)

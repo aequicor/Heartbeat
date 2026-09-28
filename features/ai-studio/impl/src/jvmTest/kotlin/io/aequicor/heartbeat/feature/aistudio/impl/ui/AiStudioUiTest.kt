@@ -53,6 +53,21 @@ class AiStudioUiTest {
     private val exits = StudioExits(onBack = {}, onOpenToggles = {})
 
     @Test
+    fun `rail opens profile settings`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        var opened = false
+        val actions = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = { opened = true })
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, actions) } }
+        onNodeWithTag("rail-profile-settings").performClick()
+        assertTrue(opened)
+    }
+
+    @Test
+    fun `rail hides profile settings while search tools are off`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, exits) } }
+        onNodeWithTag("rail-profile-settings").assertDoesNotExist()
+    }
+
+    @Test
     fun `wide workspace shows the rail, grouped sessions and the open transcript`() =
         runSkikoComposeUiTest(size = Size(1280f, 900f)) {
             val events = mutableListOf<AiStudioScreenIntent>()
@@ -88,7 +103,12 @@ class AiStudioUiTest {
         var isEnabled by mutableStateOf(false)
         setContent {
             val open: () -> Unit = { opened++ }
-            val exits = StudioExits(onBack = {}, onOpenToggles = {}, open.takeIf { isEnabled })
+            val exits = StudioExits(
+                onBack = {},
+                onOpenToggles = {},
+                onOpenProfileSettings = {},
+                onOpenConnections = open.takeIf { isEnabled },
+            )
             HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, exits) }
         }
         onNodeWithTag("rail-connections").assertDoesNotExist()

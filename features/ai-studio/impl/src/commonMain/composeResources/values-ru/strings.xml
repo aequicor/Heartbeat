@@ -12,6 +12,7 @@
     <string name="rail_search">Поиск по сессиям</string>
     <string name="rail_archive">Архив</string>
     <string name="rail_toggles">Фича-тоглы</string>
+    <string name="rail_profile_settings">Настройки профиля</string>
     <string name="rail_sidebar_hide">Скрыть боковую панель</string>
     <string name="rail_sidebar_show">Показать боковую панель</string>
 

@@ -16,6 +16,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 
 /** Confined to the injected main dispatcher; readers never block waiting for event consumers. */
 internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : AutoCloseable {
@@ -37,8 +38,15 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         }
     }
 
-    suspend fun initialize() {
-        request("initialize", json("clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json())))
+    /** [experimentalApi] opts into dynamic tools; without it the handshake is the stable one. */
+    suspend fun initialize(experimentalApi: Boolean = false) {
+        request(
+            "initialize",
+            buildJsonObject {
+                put("clientInfo", json("name" to "heartbeat".json(), "version" to "0.1.0".json()))
+                if (experimentalApi) put("capabilities", json("experimentalApi" to JsonPrimitive(true)))
+            },
+        )
         wire.write(json("method" to "initialized".json()))
     }
 

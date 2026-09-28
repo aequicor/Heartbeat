@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlin.uuid.Uuid
 
@@ -143,34 +144,65 @@ internal class CodexHistory : SessionHistory {
             (old?.info?.revision ?: -1) + 1,
             turn ?: old?.info?.turn,
         )
-        val item = when (val kind = native.text("type")) {
-            "agentMessage" -> SessionItem.Message(
-                info,
-                MessageRole.Assistant,
-                listOf(ContentPart.Text(native.text("text").orEmpty())),
-            )
-
-            "userMessage" -> SessionItem.Message(
-                info,
-                MessageRole.User,
-                native.array("content").map { part ->
-                    val value = part as? JsonObject ?: protocolFailure()
-                    ContentPart.Text(value.text("text") ?: "[Unsupported input]")
-                },
-            )
-
-            "commandExecution" -> SessionItem.ToolCall(
-                info,
-                ToolCallId(id.value),
-                "command",
-                native.text("command").orEmpty(),
-                toolStatus(native.text("status")),
-            )
-
-            else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
-        }
+        val kind = native.text("type")
+        val item = decodeNativeItem(native, kind, info)
         items[id] = item
         publish { SessionEvent.ItemUpserted(it, item) }
+        if (kind == "dynamicToolCall" && native.text("status") in setOf("completed", "failed")) {
+            recordDynamicResult(native, info)
+        }
+    }
+
+    private fun decodeNativeItem(native: JsonObject, kind: String?, info: ItemInfo): SessionItem = when (kind) {
+        "agentMessage" -> SessionItem.Message(
+            info,
+            MessageRole.Assistant,
+            listOf(ContentPart.Text(native.text("text").orEmpty())),
+        )
+
+        "userMessage" -> SessionItem.Message(
+            info,
+            MessageRole.User,
+            native.array("content").map { part ->
+                val value = part as? JsonObject ?: protocolFailure()
+                ContentPart.Text(value.text("text") ?: "[Unsupported input]")
+            },
+        )
+
+        "commandExecution", "dynamicToolCall" -> SessionItem.ToolCall(
+            info,
+            ToolCallId(info.id.value),
+            if (kind == "commandExecution") "command" else native.text("tool").orEmpty(),
+            if (kind == "commandExecution") {
+                native.text("command").orEmpty()
+            } else {
+                native["arguments"]?.toString().orEmpty()
+            },
+            toolStatus(native.text("status")),
+        )
+
+        else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
+    }
+
+    private fun recordDynamicResult(native: JsonObject, info: ItemInfo) {
+        val resultId = ItemId("${info.id.value}:result")
+        val prior = items[resultId]
+        val content = (native["contentItems"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject)?.text("text") }
+            .joinToString("\n")
+        val result = SessionItem.ToolResult(
+            ItemInfo(
+                resultId,
+                prior?.info?.position ?: items.size.toLong(),
+                (prior?.info?.revision ?: -1) + 1,
+                info.turn,
+            ),
+            ToolCallId(info.id.value),
+            listOf(ContentPart.Text(content)),
+            if (native.text("status") == "failed") EngineFailure.Unknown() else null,
+        )
+        items[resultId] = result
+        publish { SessionEvent.ItemUpserted(it, result) }
     }
 
     fun delta(native: JsonObject, turn: TurnId?) {

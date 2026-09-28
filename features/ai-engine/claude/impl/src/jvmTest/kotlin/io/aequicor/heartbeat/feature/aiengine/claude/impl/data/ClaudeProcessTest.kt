@@ -5,6 +5,8 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -16,8 +18,10 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,7 +38,13 @@ class ClaudeProcessTest {
             override val default = testDispatcher
             override val io = Dispatchers.IO
         }
-        return ProcessClaudeTransport(dispatchers, ClaudeConfiguration(executable = executable))
+        return ProcessClaudeTransport(
+            dispatchers,
+            ClaudeConfiguration(executable = executable),
+            object : SearchBridge {
+                override fun endpoint() = SearchBridgeEndpoint("http://127.0.0.1:1", "test")
+            },
+        )
     }
 
     @Test
@@ -197,6 +207,30 @@ class ClaudeProcessTest {
         val arguments = claudeArguments()
         assertTrue(arguments.containsAll(listOf("--tools=", "--setting-sources=", "--strict-mcp-config")))
         assertTrue(arguments.none { '"' in it || it.startsWith("--mcp-config") })
+    }
+
+    @Test
+    fun `search session receives only local MCP bridge and its two tools`() {
+        val config = claudeSearchConfig(
+            SearchBridgeEndpoint("http://127.0.0.1:4321", "bridge-token"),
+            Files.createTempDirectory("heartbeat-mcp-test"),
+        )
+        try {
+            val arguments = claudeSearchArguments(claudeArguments(search = true), config)
+            assertFalse(SEARCH_BRIDGE_MARKER in arguments)
+            assertTrue("--strict-mcp-config" in arguments)
+            assertTrue(arguments.any { it.startsWith("--tools=mcp__heartbeat_search__web_search") })
+            assertEquals(config.toString(), arguments[arguments.indexOf("--mcp-config") + 1])
+            val contents = Files.readString(config)
+            assertTrue("http://127.0.0.1:4321/mcp" in contents)
+            assertTrue("Bearer bridge-token" in contents)
+            assertFalse("querit" in contents.lowercase())
+            if ("posix" in FileSystems.getDefault().supportedFileAttributeViews()) {
+                assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(config)))
+            }
+        } finally {
+            Files.deleteIfExists(config)
+        }
     }
 }
 

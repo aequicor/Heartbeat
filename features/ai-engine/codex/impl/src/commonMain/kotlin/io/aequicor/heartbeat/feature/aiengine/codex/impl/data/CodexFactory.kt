@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -90,17 +91,28 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
         return owner.models(context.binding)
     }
 
+    private var searchToolsChangeLogged = false
+
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = withContext(dispatchers.main) {
         lock.withLock {
             gate(identity)
-            runtime?.takeIf { !it.isClosed && it.identity == identity }?.let { return@withLock it }
+            val searchTools = toggles.get(SearchEngineTools)
+            // The toggle never closes a live runtime: its value is captured at creation and applies to later ones.
+            runtime?.takeIf { !it.isClosed && it.identity == identity }?.let { live ->
+                if (live.searchTools != searchTools && !searchToolsChangeLogged) {
+                    searchToolsChangeLogged = true
+                    log.i { "Search tools toggle changed; applies after runtime restart" }
+                }
+                return@withLock live
+            }
+            searchToolsChangeLogged = false
             runtime?.close()
             runtime = null
             val rpc = CodexRpc(transport.open(), profile.coroutineScope)
             val startup = profile.onClose(rpc::close)
             try {
-                rpc.initialize()
-                val owner = CodexRuntime(identity, rpc, environment)
+                rpc.initialize(experimentalApi = searchTools)
+                val owner = CodexRuntime(identity, rpc, environment, searchTools)
                 owner.checkAccount()
                 runtime = owner
                 log.i { "Codex runtime ready" }

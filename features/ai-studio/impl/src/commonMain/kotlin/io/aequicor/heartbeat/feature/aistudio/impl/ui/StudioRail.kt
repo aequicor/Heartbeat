@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMod
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_profile_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
@@ -68,6 +69,14 @@ internal fun StudioRail(
             onClick = exits.onOpenToggles,
             modifier = Modifier.testTag("rail-toggles"),
         )
+        exits.onOpenProfileSettings?.let { openProfileSettings ->
+            HbIconButton(
+                icon = HbIcons.Settings,
+                contentDescription = stringResource(Res.string.rail_profile_settings),
+                onClick = openProfileSettings,
+                modifier = Modifier.testTag("rail-profile-settings"),
+            )
+        }
         exits.onOpenConnections?.let { openConnections ->
             HbIconButton(
                 icon = HbIcons.Link,

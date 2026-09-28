@@ -50,7 +50,7 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
         target.module == "impl" && (isContract || target.feature != feature) ->
             "Feature implementations are private; depend on the public api"
 
-        layer == "ui" && target.isContract -> "UI sends presentation events instead of machine intents"
+        layer == "ui" && target.isContract -> uiContractViolation(target)
 
         target.isContract -> null
 
@@ -63,12 +63,27 @@ internal data class FeatureLayer(val feature: String, val module: String, val la
         else -> null
     }
 
+    /** UI of a [SERVICE_CONTRACT_FEATURES] entry may display values of its own contract; it has no machine to drive. */
+    private fun uiContractViolation(target: FeatureLayer): String? =
+        if (feature in SERVICE_CONTRACT_FEATURES && target.feature == feature) {
+            null
+        } else {
+            "UI sends presentation events instead of machine intents"
+        }
+
     private fun isUiReference(reference: String): Boolean =
         UI_PACKAGES.any(reference::isInPackage) && !(layer == "presentation" && reference in PRESENTATION_ANNOTATIONS)
 
     companion object {
         const val FEATURE_PREFIX = "io.aequicor.heartbeat.feature"
         val layers: Set<String> = setOf("domain", "data", "presentation", "ui", "di")
+
+        /**
+         * Service-contract features: their `api` is a UI-independent service (types, configuration, operations)
+         * without a business state machine, so their own UI renders contract values directly instead of sending
+         * machine intents. Adding an entry is an owner decision recorded in `.claude/rules/feature-api.md`.
+         */
+        val SERVICE_CONTRACT_FEATURES: Set<String> = setOf("searchengine")
         private val FEATURE_PACKAGE = Regex(
             "^io\\.aequicor\\.heartbeat\\.feature\\.((?:aiengine\\.)?[a-z0-9_]+)\\.(api|impl)(?=\\.|$)(?:\\.([^.]+))?",
         )

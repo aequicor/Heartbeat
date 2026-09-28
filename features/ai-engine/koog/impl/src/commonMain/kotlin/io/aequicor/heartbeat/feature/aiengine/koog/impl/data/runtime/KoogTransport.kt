@@ -14,14 +14,15 @@ internal class KoogClient(val executor: PromptExecutor, val models: suspend () -
 }
 
 /**
- * SDK model for the chosen text route. Anthropic 1.3 requires Tools even for an empty tool list;
- * this is an SDK precondition, not an advertised adapter capability.
+ * SDK model for the chosen text route. [tools] is set only when search tools are sent to a model that supports them.
+ * Anthropic 1.3 requires Tools even for an empty tool list; this is an SDK precondition, not an advertised
+ * adapter capability.
  */
-internal fun KoogProvider.textModel(id: String): LLModel = LLModel(
+internal fun KoogProvider.textModel(id: String, tools: Boolean = false): LLModel = LLModel(
     provider = llmProvider,
     id = id,
     capabilities = buildList {
         add(LLMCapability.Completion)
-        if (this@textModel == KoogProvider.Anthropic) add(LLMCapability.Tools)
+        if (tools || this@textModel == KoogProvider.Anthropic) add(LLMCapability.Tools)
     },
 )

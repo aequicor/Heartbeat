@@ -11,14 +11,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.attribute.AclEntry
+import java.nio.file.attribute.AclEntryPermission
+import java.nio.file.attribute.AclEntryType
+import java.nio.file.attribute.AclFileAttributeView
+import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
@@ -46,6 +58,7 @@ internal interface ClaudeTransport {
 internal class ProcessClaudeTransport(
     private val dispatchers: DispatcherProvider,
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
+    private val searchBridge: SearchBridge,
 ) : ClaudeTransport {
     private val log = Log.tag("ClaudeProcess")
 
@@ -75,24 +88,84 @@ internal class ProcessClaudeTransport(
         workspace: WorkspaceRef?,
         closeInput: Boolean,
         line: suspend (String) -> Boolean,
-    ): Int = coroutineScope {
-        val process = start(processBuilder(arguments, workspace))
+    ): Int {
+        val bridgeConfig = if (SEARCH_BRIDGE_MARKER in arguments) searchConfig() else null
+        val effectiveArguments = bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
         try {
-            val writer = async { writeInput(process, input, closeInput) }
-            val reader = async {
-                process.inputStream.bufferedReader(Charsets.UTF_8).use { stream ->
-                    var value = stream.readFrame()
-                    while (value != null) {
-                        // Frames buffered before a kill, and a truncated last frame, must not mask cancellation.
-                        ensureActive()
-                        if (value.isNotBlank() && line(value)) return@async 0
-                        value = stream.readFrame()
-                    }
-                }
-                process.waitFor()
+            val process = start(processBuilder(effectiveArguments, workspace))
+            try {
+                return communicate(process, input, closeInput, line)
+            } finally {
+                process.destroyTree()
+                closeInput(process)
             }
+        } finally {
+            bridgeConfig?.let(Files::deleteIfExists)
+        }
+    }
+
+    private val configDirectory by lazy { mcpConfigDirectory() }
+
+    /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
+    private fun searchConfig(): Path = try {
+        claudeSearchConfig(searchBridge.endpoint(), configDirectory)
+    } catch (e: IOException) {
+        log.w(e) { "Search bridge config could not be prepared" }
+        searchUnavailable()
+    } catch (e: IllegalStateException) {
+        log.w(e) { "Search bridge is closed" }
+        searchUnavailable()
+    } catch (e: UnsupportedOperationException) {
+        log.w(e) { "MCP config permissions are not supported" }
+        searchUnavailable()
+    } catch (e: SecurityException) {
+        log.w(e) { "MCP config permissions were denied" }
+        searchUnavailable()
+    }
+
+    private fun searchUnavailable(): Nothing =
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+
+    /** One owner-only directory; files left by a crashed run are removed once per profile transport. */
+    private fun mcpConfigDirectory(): Path {
+        val directory = Path.of(System.getProperty("java.io.tmpdir"), MCP_CONFIG_DIRECTORY)
+        Files.createDirectories(directory)
+        restrictToOwner(directory, directory = true)
+        val staleBefore = System.currentTimeMillis() - STALE_CONFIG_MILLIS
+        Files.list(directory).use { files ->
+            files.forEach { file ->
+                // Another run may delete the file between listing and stat; each file is handled on its own.
+                try {
+                    if (Files.getLastModifiedTime(file).toMillis() < staleBefore) Files.deleteIfExists(file)
+                } catch (e: IOException) {
+                    log.w(e) { "Stale MCP config could not be removed" }
+                }
+            }
+        }
+        log.d { "MCP config directory ready" }
+        return directory
+    }
+
+    private suspend fun communicate(
+        process: Process,
+        input: String,
+        closeInput: Boolean,
+        line: suspend (String) -> Boolean,
+    ): Int = coroutineScope {
+        val writer = async { writeInput(process, input, closeInput) }
+        val reader = async {
+            process.inputStream.bufferedReader(Charsets.UTF_8).use { stream ->
+                var value = stream.readFrame()
+                while (value != null) {
+                    ensureActive()
+                    if (value.isNotBlank() && line(value)) return@async 0
+                    value = stream.readFrame()
+                }
+            }
+            process.waitFor()
+        }
+        try {
             val exit = reader.await()
-            // After an early stop the child may still block the input write; killing it releases the writer.
             process.destroyTree()
             closeInput(process)
             val writeFailure = writer.await()
@@ -167,6 +240,64 @@ internal class ProcessClaudeTransport(
         return builder
     }
 }
+
+internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
+    arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it == "--tools=" } + listOf(
+        "--tools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
+        "--allowedTools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
+        "--mcp-config",
+        config.toString(),
+    )
+
+internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path): Path {
+    val config = buildJsonObject {
+        put(
+            "mcpServers",
+            buildJsonObject {
+                put(
+                    "heartbeat_search",
+                    buildJsonObject {
+                        put("type", "http")
+                        put("url", "${endpoint.origin}/mcp")
+                        put("headers", buildJsonObject { put("Authorization", "Bearer ${endpoint.token}") })
+                    },
+                )
+            },
+        )
+    }
+    // The file carries the bridge bearer: owner-only before any content is written; deleted after the run.
+    val file = Files.createTempFile(directory, "heartbeat-mcp-", ".json")
+    restrictToOwner(file, directory = false)
+    Files.writeString(file, config.toString())
+    return file
+}
+
+/**
+ * Restricts [path] to its owner: POSIX permissions, otherwise the ACL is replaced by one owner-only ALLOW entry
+ * (Windows). The DACL is not marked protected, so inheritable entries of the parent may still apply; the
+ * per-user temp directory is the remaining boundary. On a file system with neither view only the temp-directory
+ * permissions protect the file. May throw [UnsupportedOperationException] or [SecurityException].
+ */
+internal fun restrictToOwner(path: Path, directory: Boolean) {
+    val posix = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)
+    val acl = Files.getFileAttributeView(path, AclFileAttributeView::class.java)
+    when {
+        posix != null -> posix.setPermissions(
+            PosixFilePermissions.fromString(if (directory) "rwx------" else "rw-------"),
+        )
+
+        acl != null -> acl.acl = listOf(
+            AclEntry.newBuilder()
+                .setType(AclEntryType.ALLOW)
+                .setPrincipal(acl.owner)
+                .setPermissions(AclEntryPermission.entries.toSet())
+                .build(),
+        )
+    }
+}
+
+private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
+private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
 /**
  * Host variables passed to the CLI: no API keys or endpoint overrides. `CLAUDE_CONFIG_DIR` is set only when
