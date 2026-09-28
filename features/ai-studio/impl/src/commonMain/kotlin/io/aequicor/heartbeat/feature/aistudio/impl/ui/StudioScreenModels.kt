@@ -57,6 +57,7 @@ internal data class PaneContent(
     val isProjectAddingAvailable: Boolean = false,
     val isPickingProject: Boolean = false,
     val isProjectFailed: Boolean = false,
+    val calendar: StudioCalendar = StudioCalendar(),
 )
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
@@ -98,6 +99,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isPickingProject = addingProjectTo == pane.id,
         isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
+        calendar = studioCalendar(now),
     )
 }
 
