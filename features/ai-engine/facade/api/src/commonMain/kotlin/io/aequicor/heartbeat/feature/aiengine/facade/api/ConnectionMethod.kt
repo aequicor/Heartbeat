@@ -46,13 +46,21 @@ public sealed interface ConnectionMethod {
     /** Whether the user may enter another origin (self-hosted server, proxy); fixed origins prevent key forwarding. */
     public val isOriginEditable: Boolean
 
+    /** Whether the user may add an API base path on the origin (`https://host/api/v1`); implies [isOriginEditable]. */
+    public val isPathEditable: Boolean get() = false
+
     /** A key entered by the user and kept in the profile vault. */
     public data class ApiKey(
         override val id: ConnectionMethodId,
         override val provider: ProviderInfo,
         override val origin: EndpointOrigin,
         override val isOriginEditable: Boolean = false,
-    ) : ConnectionMethod
+        override val isPathEditable: Boolean = false,
+    ) : ConnectionMethod {
+        init {
+            require(!isPathEditable || isOriginEditable) { "An editable path requires an editable origin" }
+        }
+    }
 
     /** An existing login of the engine's own CLI; Heartbeat never reads, imports or refreshes its tokens. */
     public data class CliLogin(
@@ -77,9 +85,10 @@ public sealed interface ConnectionMethod {
 }
 
 /** Scope of a source created by this method against [origin]; a fixed origin cannot be replaced. */
-public fun ConnectionMethod.scopeFor(origin: EndpointOrigin = this.origin): AuthScope {
+public fun ConnectionMethod.scopeFor(origin: EndpointOrigin = this.origin, basePath: String? = null): AuthScope {
     require(isOriginEditable || origin == this.origin) { "The method has a fixed origin" }
-    return AuthScope(provider.id, origin)
+    require(isPathEditable || basePath == null) { "The method has no base path" }
+    return AuthScope(provider.id, origin, basePath)
 }
 
 /**
@@ -91,8 +100,9 @@ public suspend fun AuthSources.create(
     label: String,
     origin: EndpointOrigin = method.origin,
     key: Secret? = null,
+    basePath: String? = null,
 ): AuthSource {
-    val scope = method.scopeFor(origin)
+    val scope = method.scopeFor(origin, basePath)
     require((method is ConnectionMethod.ApiKey) == (key != null)) { "A key belongs exactly to the API key method" }
     return when (method) {
         is ConnectionMethod.ApiKey -> addManagedKey(label, scope, requireNotNull(key))
