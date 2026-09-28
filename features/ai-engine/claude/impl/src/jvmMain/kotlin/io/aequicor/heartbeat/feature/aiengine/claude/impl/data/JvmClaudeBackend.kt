@@ -136,7 +136,11 @@ internal class JvmClaudeBackend(
         account.validate(identity.revision)
         val current = runtime
         if (current != null && current.identity == identity && !current.isClosed) return@withLock current
-        if (current != null && current.identity != identity) current.retire() else current?.close()
+        when {
+            current == null -> Unit
+            current.identity != identity && !current.isClosed -> current.retire()
+            else -> current.close()
+        }
         log.i { "Creating Claude profile runtime" }
         ClaudeRuntime(identity, transport, account, toggles, profile.coroutineScope).also { runtime = it }
     }

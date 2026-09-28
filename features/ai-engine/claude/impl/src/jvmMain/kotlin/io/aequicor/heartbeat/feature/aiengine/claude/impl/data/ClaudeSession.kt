@@ -109,7 +109,8 @@ internal class ClaudeSession(
         update(
             ActiveSessionState.Unavailable(
                 failure,
-                lastTurn = last ?: unfinished?.copy(outcome = unfinished.outcome ?: displacedOutcome(unfinished)),
+                // A displaced turn is the latest one, even when an earlier turn was remembered as last.
+                lastTurn = unfinished?.let { it.copy(outcome = it.outcome ?: displacedOutcome(it)) } ?: last,
             ),
         )
         history.close()
@@ -165,12 +166,8 @@ internal class ClaudeSession(
             }
             log.i { "Claude prompt process ended exit=$exit" }
             hasNativeSession = hasNativeSession || observer.hasMatchingSession
-            // The CLI exits nonzero after an error result; only a success needs a clean exit to be trusted.
-            if (observer.isFinished && (exit == 0 || observer.turn.outcome is TurnOutcome.Failed)) {
-                observer.complete()
-            } else if (observer.isFinished) {
-                log.w { "Claude CLI exited with an error after a successful result; outcome is unknown" }
-                observer.resultUnconfirmed()
+            if (observer.isFinished) {
+                finishObserved(observer, isConfirmed = exit == 0)
             } else {
                 settle(submission, observer, accepted, EngineFailure.Engine(EngineFailureReason.Crashed))
             }
@@ -181,7 +178,7 @@ internal class ClaudeSession(
             hasNativeSession = hasNativeSession || observer.hasMatchingSession
             val failure = (e as? EngineException)?.failure ?: EngineFailure.Engine(EngineFailureReason.Crashed)
             if (observer.isFinished) {
-                observer.resultUnconfirmed()
+                finishObserved(observer, isConfirmed = false)
             } else {
                 settle(submission, observer, accepted, failure)
             }
@@ -195,6 +192,16 @@ internal class ClaudeSession(
                     ),
                 )
             }
+        }
+    }
+
+    /** The CLI exits nonzero after an error result; only a success needs a confirmed transport to be trusted. */
+    private fun finishObserved(observer: ClaudeTurnObserver, isConfirmed: Boolean) {
+        if (isConfirmed || observer.turn.outcome is TurnOutcome.Failed) {
+            observer.complete()
+        } else {
+            log.w { "Claude result was not confirmed by the process; outcome is unknown" }
+            observer.resultUnconfirmed()
         }
     }
 
@@ -266,7 +273,10 @@ internal class ClaudeSession(
         update(ActiveSessionState.Ready(turn.copy(outcome = TurnOutcome.Unknown)))
     }
 
-    /** A turn that never reached a CLI process failed locally; any other displaced turn has an unknown outcome. */
+    /**
+     * A turn that never reached a CLI process failed locally; any other displaced turn has an unknown outcome.
+     * Its TurnFinished may have no TurnStarted, because the CLI never accepted it.
+     */
     private fun displacedOutcome(turn: Turn): TurnOutcome =
         if (turn.id == undelivered) TurnOutcome.Failed(LAUNCH_FAILURE) else TurnOutcome.Unknown
 

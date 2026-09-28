@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
@@ -95,6 +96,10 @@ class ClaudeBackendTest {
             AuthFailureReason.SourceChanged,
             assertIs<EngineFailure.Authentication>(retired.failure).reason.reason,
         )
+        val rejected = assertFailsWith<EngineException> { first.create(CreateSessionRequest(testTarget)) }
+        assertEquals(retired.failure, rejected.failure)
+        val command = assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        assertEquals(retired.failure, command.failure)
         val missing = assertFailsWith<EngineException> { backend.session(session.ref) }
         assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
         second.close()

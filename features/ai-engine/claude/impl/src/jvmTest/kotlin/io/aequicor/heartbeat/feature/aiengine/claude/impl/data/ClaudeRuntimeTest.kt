@@ -208,6 +208,29 @@ class ClaudeRuntimeTest {
     }
 
     @Test
+    fun `shutdown records the interrupted turn as the last one after an earlier turn`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val first = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        first.await()
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(assistantFrame(id))
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val second = async { session.features.available(SendsPrompts).send(prompt("second")) }
+        runCurrent()
+        val interrupted = second.await()
+        runtime.close()
+        val closed = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(interrupted, closed.lastTurn?.id)
+        assertEquals(TurnOutcome.Unknown, closed.lastTurn?.outcome)
+    }
+
+    @Test
     fun `an error result keeps its failure although the CLI exits nonzero`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { args, line ->

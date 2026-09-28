@@ -94,7 +94,7 @@ internal class ClaudeRuntime(
         log.d { "Looking up stored Claude session" }
         if (isClosed) {
             log.w { "Claude runtime is closed; stored session is unavailable" }
-            throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            throw EngineException(closeFailure)
         }
         val session = sessions[ref] ?: run {
             log.w { "Stored Claude session is unknown to this runtime" }
@@ -120,7 +120,7 @@ internal class ClaudeRuntime(
 
     private suspend fun validate(target: EngineTarget) {
         try {
-            if (isClosed) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+            if (isClosed) throw EngineException(closeFailure)
             requireClaudeEnabled(toggles)
             if (target.engine != identity.engine) authFailure(AuthFailureReason.AuthMismatch)
             account.validate(identity.revision)
