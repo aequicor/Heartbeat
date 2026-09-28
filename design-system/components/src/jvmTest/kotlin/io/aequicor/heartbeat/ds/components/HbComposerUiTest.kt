@@ -45,7 +45,7 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class HbComposerUiTest {
     @Test
-    fun `Enter inserts newline while Ctrl and Command Enter each send once without clearing the draft`() =
+    fun `Shift Enter inserts newline while Enter Ctrl and Command Enter each send without clearing the draft`() =
         runSkikoComposeUiTest(size = Size(620f, 400f)) {
             var draft by mutableStateOf("")
             var sends = 0
@@ -56,7 +56,7 @@ class HbComposerUiTest {
             }
             val editor = onNodeWithContentDescription("Prompt")
             editor.performTextInput("First line")
-            editor.performKeyInput { pressKey(Key.Enter) }
+            editor.performKeyInput { withKeyDown(Key.ShiftLeft) { pressKey(Key.Enter) } }
             runOnIdle {
                 assertEquals("First line\n", draft)
                 assertEquals(0, sends)
@@ -66,6 +66,11 @@ class HbComposerUiTest {
             editor.performKeyInput { withKeyDown(Key.MetaLeft) { pressKey(Key.Enter) } }
             runOnIdle {
                 assertEquals(2, sends)
+                assertEquals("First line\n", draft)
+            }
+            editor.performKeyInput { pressKey(Key.Enter) }
+            runOnIdle {
+                assertEquals(3, sends)
                 assertEquals("First line\n", draft)
             }
             saveComposerPreview("editor", captureToImage().toAwtImage())

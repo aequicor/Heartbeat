@@ -19,8 +19,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 private val log = Log.tag("DS/ComposerMenuItem")
@@ -55,12 +58,14 @@ internal fun ComposerMenuItem(
     HbColumn(
         modifier = modifier
             .heightIn(min = HbTheme.dimensions.touchTarget)
+            .semantics { selected = action.isSelected }
             .onFocusChanged { state ->
                 if (state.isFocused) {
                     log.d { "composer command focused" }
                     onFocus()
                 }
             }
+            .hbFocusOutline(isFocused, shape)
             .clickable(
                 interactions,
                 indication = null,
@@ -69,15 +74,17 @@ internal fun ComposerMenuItem(
                 onClick = onClick,
             )
             .background(background, shape)
-            .hbFocusOutline(isFocused, shape)
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s),
         gap = HbTheme.spacing.xs,
     ) {
-        HbText(
-            text = action.label,
-            style = HbTheme.typography.label,
-            color = if (action.isEnabled) colors.textPrimary else colors.textSecondary,
-        )
+        HbRow(gap = HbTheme.spacing.s) {
+            if (action.isSelected) HbIcon(HbIcons.Check, null, tint = colors.textPrimary)
+            HbText(
+                text = action.label,
+                style = HbTheme.typography.label,
+                color = if (action.isEnabled) colors.textPrimary else colors.textSecondary,
+            )
+        }
         if (action.supportingText != null) {
             HbText(action.supportingText, style = HbTheme.typography.caption, color = colors.textSecondary)
         }
