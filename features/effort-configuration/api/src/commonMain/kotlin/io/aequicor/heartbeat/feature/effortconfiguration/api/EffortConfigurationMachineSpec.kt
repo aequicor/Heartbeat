@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
  * | Idle | Start | | Loading | Load |
  * | Loading | Loaded | | Ready(choices) | |
  * | Loading | LoadFailed | | Ready() | |
- * | Ready | Select | effort differs from stored | Ready(updated) | Save(updated) |
+ * | Ready | Select | effort differs from stored | Ready(updated, revision + 1) | Save(updated, revision + 1) |
  * | Ready | SaveFailed | | Ready | SaveFailed |
  * | Idle / Loading | Select | — | ignored | selection is not known before loading |
  *
@@ -40,8 +40,12 @@ public val EffortConfigurationMachineSpec: EffortSpec =
             on<EffortConfigurationIntent.Public.Select>(
                 guard = { state.effortFor(intent.target) != intent.effort },
             ) {
-                stay { EffortConfigurationState.Ready(state.choices.with(intent.target, intent.effort)) }
-                effect { EffortConfigurationEffect.Save(state.choices.with(intent.target, intent.effort)) }
+                stay {
+                    EffortConfigurationState.Ready(state.choices.with(intent.target, intent.effort), state.revision + 1)
+                }
+                effect {
+                    EffortConfigurationEffect.Save(state.choices.with(intent.target, intent.effort), state.revision + 1)
+                }
             }
             on<EffortConfigurationIntent.Internal.SaveFailed> {
                 stay { state }

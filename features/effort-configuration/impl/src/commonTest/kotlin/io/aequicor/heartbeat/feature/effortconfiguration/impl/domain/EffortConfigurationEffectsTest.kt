@@ -48,6 +48,17 @@ class EffortConfigurationEffectsTest {
         )
     }
 
+    @Test
+    fun `a save older than the stored revision is dropped`() = runTest {
+        val store = MemoryChoices()
+        val effects = EffortConfigurationEffects(store) { true }
+
+        effects.handle(EffortConfigurationEffect.Save(listOf(choice), revision = 2), RecordingScope())
+        effects.handle(EffortConfigurationEffect.Save(emptyList(), revision = 1), RecordingScope())
+
+        assertEquals(listOf(choice), store.load())
+    }
+
     private class MemoryChoices : EffortChoices {
         private var stored = emptyList<EffortChoice>()
         override suspend fun load(): List<EffortChoice> = stored

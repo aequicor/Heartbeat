@@ -11,44 +11,46 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
-import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineSpec
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationOutput
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.effortconfiguration.impl.domain.EffortChoices
 import io.aequicor.heartbeat.feature.effortconfiguration.impl.domain.EffortConfigurationEffects
 import kotlinx.coroutines.launch
+
+private val log = Log.tag("EffortConfigurationBindings")
 
 /** The effort machine belongs to the profile; it is created and started on first injection. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object EffortConfigurationBindings {
+    /**
+     * The only binding other features inject: state without the ability to send internal intents. The machine
+     * itself is not bound, so it is reachable only through `MachineRegistry` with `Public` intents.
+     */
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun machine(
+    internal fun view(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         store: EffortChoices,
         toggles: FeatureToggles,
-    ): Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput> = launcher.launch(
-        EffortConfigurationMachineSpec,
-        scope,
-        EffortConfigurationEffects(store) { toggles.get(EffortConfiguration) },
-    ).also { machine ->
-        scope.coroutineScope.launch { machine.send(EffortConfigurationIntent.Public.Start) }
-    }
-
-    /** The only binding other features inject: state without the ability to send internal intents. */
-    @Provides
-    @SingleIn(ProfileScope::class)
-    fun view(
-        machine: Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput>,
-    ): EffortChoicesView = object : EffortChoicesView {
-        override val state = machine.state
+    ): EffortChoicesView {
+        val machine = launcher.launch(
+            EffortConfigurationMachineSpec,
+            scope,
+            EffortConfigurationEffects(store) { toggles.get(EffortConfiguration) },
+        )
+        scope.coroutineScope.launch {
+            val result = machine.send(EffortConfigurationIntent.Public.Start)
+            log.i { "effort configuration start: $result" }
+        }
+        return object : EffortChoicesView {
+            override val state = machine.state
+        }
     }
 }
 

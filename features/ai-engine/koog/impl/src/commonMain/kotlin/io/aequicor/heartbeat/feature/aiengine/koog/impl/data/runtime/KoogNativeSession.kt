@@ -268,7 +268,8 @@ internal class KoogNativeSession(
 
     /**
      * A provider that refuses the reasoning parameters before producing any output gets the same prompt again without
-     * them, and the model stops offering effort, so a wrong capability guess never fails the user's turn.
+     * them. Only when that retry succeeds were the reasoning parameters the cause, and the model stops offering effort,
+     * so a wrong capability guess never fails the user's turn and an unrelated 400 does not disable effort.
      */
     private suspend fun generateWithEffort(
         turn: Turn,
@@ -280,14 +281,14 @@ internal class KoogNativeSession(
     ) {
         val produced = history.items.size
         try {
-            generate(turn, client, model, tools, provider.reasoningParams(effort))
+            generate(turn, client, model, tools, provider.reasoningParams(effort, model.maxOutputTokens))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             if (effort == null || !e.isRequestRejection() || history.items.size != produced) throw e
             log.w(e.sanitized()) { "Reasoning parameters rejected; retrying without effort" }
-            access.reasoning.reject(provider, model.id)
             generate(turn, client, model, tools, LLMParams())
+            access.reasoning.reject(provider, model.id)
         }
     }
 

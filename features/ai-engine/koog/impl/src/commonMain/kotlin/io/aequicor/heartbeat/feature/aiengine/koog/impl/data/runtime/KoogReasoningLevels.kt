@@ -31,8 +31,9 @@ internal data class KoogReasoningState(
 )
 
 /**
- * Decides which effort levels a Koog model offers. Order: a model whose provider once rejected reasoning parameters
- * offers none; the provider API (Anthropic, Ollama) is authoritative; otherwise the public catalog when its toggle
+ * Decides which effort levels a Koog model offers. Order: the provider API (Anthropic, Ollama) is authoritative and
+ * clears an earlier rejection of the models it reports; a model whose provider once rejected reasoning parameters
+ * offers none; otherwise the public catalog when its toggle
  * is on; otherwise the family guess. Discovery results are kept, so sessions validate without network calls.
  */
 @SingleIn(ProfileScope::class)
@@ -54,14 +55,22 @@ internal class KoogReasoningLevels(
         val state = store.read()
         val isCatalogUsed = native == null && toggles.get(KoogReasoningCatalogEnabled)
         val resolved = models.associateWith { model ->
+            val reported = native?.get(model)
             when {
+                reported != null -> reported
                 key(provider, model) in state.rejected -> emptyList()
-                native != null -> native[model] ?: provider.fallbackReasoningEfforts(model)
+                native != null -> provider.fallbackReasoningEfforts(model)
                 isCatalogUsed -> catalog.levels(provider, model) ?: provider.fallbackReasoningEfforts(model)
                 else -> provider.fallbackReasoningEfforts(model)
             }
         }
-        store.write(state.copy(levels = state.levels + resolved.mapKeys { key(provider, it.key) }))
+        val confirmed = native.orEmpty().keys.map { key(provider, it) }.toSet()
+        store.write(
+            state.copy(
+                levels = state.levels + resolved.mapKeys { key(provider, it.key) },
+                rejected = state.rejected - confirmed,
+            ),
+        )
         log.i { "reasoning levels resolved for ${models.size} models, source=${source(native, isCatalogUsed)}" }
         resolved
     }

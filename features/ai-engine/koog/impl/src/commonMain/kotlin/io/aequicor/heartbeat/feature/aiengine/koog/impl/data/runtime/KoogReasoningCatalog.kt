@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /** Public model catalog for providers whose API does not report reasoning support. */
@@ -36,7 +37,8 @@ internal interface KoogReasoningCatalog {
 
 /**
  * models.dev catalog (`reasoning_options` of type `effort`), refreshed at most daily and cached in the profile, so
- * an offline start keeps the last snapshot. Only OpenAI and the Alibaba token plan are kept; levels Koog cannot send
+ * an offline start keeps the last snapshot. A failed download is not retried for [RetryInterval], so offline discovery
+ * does not hit the network once per model. Only OpenAI and the Alibaba token plan are kept; levels Koog cannot send
  * are dropped.
  */
 @SingleIn(ProfileScope::class)
@@ -51,6 +53,7 @@ internal class ModelsDevReasoningCatalog(
     private val store by lazy { stores.keyValue(Spec) }
     private val mutex = Mutex()
     private var snapshot: CatalogSnapshot? = null
+    private var failedAt: Instant? = null
 
     override suspend fun levels(provider: KoogProvider, model: String): List<String>? {
         val section = CatalogSections[provider] ?: return null
@@ -60,7 +63,14 @@ internal class ModelsDevReasoningCatalog(
     private suspend fun current(): CatalogSnapshot? = mutex.withLock {
         val cached = snapshot ?: store.get(Key).also { snapshot = it }
         if (cached != null && clock.now() - cached.fetchedAt < RefreshInterval) return@withLock cached
-        val fresh = fetch() ?: return@withLock cached
+        val now = clock.now()
+        if (failedAt?.let { now - it < RetryInterval } == true) return@withLock cached
+        val fresh = fetch()
+        if (fresh == null) {
+            failedAt = now
+            return@withLock cached
+        }
+        failedAt = null
         store.set(Key, fresh)
         log.i { "reasoning catalog refreshed: ${fresh.providers.values.sumOf { it.size }} models" }
         snapshot = fresh
@@ -88,6 +98,7 @@ internal class ModelsDevReasoningCatalog(
         val Spec = KeyValueSpec("koog_reasoning_catalog")
         val Key = jsonKey("snapshot", CatalogSnapshot.serializer())
         val RefreshInterval = 24.hours
+        val RetryInterval = 10.minutes
         const val CATALOG_URL = "https://models.dev/api.json"
     }
 }

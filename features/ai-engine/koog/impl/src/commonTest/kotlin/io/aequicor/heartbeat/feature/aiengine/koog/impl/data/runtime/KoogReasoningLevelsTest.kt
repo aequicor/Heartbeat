@@ -38,16 +38,31 @@ class KoogReasoningLevelsTest {
     }
 
     @Test
-    fun `rejected models offer no effort`() = runTest {
+    fun `rejected models offer no effort until the provider api reports it`() = runTest {
         val fixture = KoogTestFixture(this)
+        fixture.catalogLevels = mapOf("o4-mini" to listOf("high"))
         fixture.reasoning.reject(KoogProvider.OpenAI, "o4-mini")
         assertEquals(emptyList(), fixture.reasoning.levels(KoogProvider.OpenAI, "o4-mini"))
+        assertEquals(emptyList(), fixture.reasoning.discover(KoogProvider.OpenAI, listOf("o4-mini"), null)["o4-mini"])
         val levels = fixture.reasoning.discover(
             KoogProvider.OpenAI,
             listOf("o4-mini"),
             mapOf("o4-mini" to listOf("low")),
         )
-        assertEquals(emptyList(), levels["o4-mini"])
+        assertEquals(listOf("low"), levels["o4-mini"])
+        assertEquals(listOf("low"), fixture.reasoning.levels(KoogProvider.OpenAI, "o4-mini"))
+    }
+
+    @Test
+    fun `a rejection the retry also hits keeps effort available`() = runTest {
+        val fixture = KoogTestFixture(this)
+        fixture.reasoning.discover(KoogProvider.Ollama, listOf("test-model"), mapOf("test-model" to KoogToggleLevels))
+        fixture.executor.failure = KoogHttpClientException(statusCode = 400, errorBody = "context too long")
+        val session = fixture.session()
+        session.features.require(SendsPrompts).send(fixture.request().copy(reasoningEffort = "on"))
+        runCurrent()
+        assertEquals(2, fixture.executor.prompts.size)
+        assertEquals(KoogToggleLevels, fixture.reasoning.levels(KoogProvider.Ollama, "test-model"))
     }
 
     @Test

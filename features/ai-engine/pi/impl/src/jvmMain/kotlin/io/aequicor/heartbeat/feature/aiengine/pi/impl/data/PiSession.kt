@@ -240,6 +240,8 @@ internal class PiSession(
                 throw e
             }
             target = target.copy(model = model)
+            // Pi clamps the thinking level to the new model; resend it with the next prompt.
+            appliedThinking = null
         }
     }
 

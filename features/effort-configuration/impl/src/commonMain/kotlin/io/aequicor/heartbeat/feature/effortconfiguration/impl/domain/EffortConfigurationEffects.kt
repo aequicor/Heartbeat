@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationEffect
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Storage of effort choices owned by the profile. */
 internal interface EffortChoices {
@@ -18,7 +20,8 @@ internal interface EffortChoices {
 
 /**
  * Executes effort effects; failures are mapped by the spec's `onEffectFailure`. While [isPersistent] is false the
- * store is neither read nor written, so choices stay in the machine only.
+ * store is neither read nor written, so choices stay in the machine only. Saves run one at a time and a save older
+ * than the last written revision is dropped, so concurrent effects never leave a stale selection in the store.
  */
 internal class EffortConfigurationEffects(
     private val store: EffortChoices,
@@ -26,6 +29,8 @@ internal class EffortConfigurationEffects(
 ) : EffectHandler<EffortConfigurationEffect, EffortConfigurationIntent> {
 
     private val log = Log.tag("EffortConfigurationEffects")
+    private val saving = Mutex()
+    private var savedRevision = -1L
 
     override suspend fun handle(effect: EffortConfigurationEffect, machine: EffectScope<EffortConfigurationIntent>) {
         when (effect) {
@@ -35,11 +40,19 @@ internal class EffortConfigurationEffects(
                 machine.send(EffortConfigurationIntent.Internal.Loaded(choices))
             }
 
-            is EffortConfigurationEffect.Save -> if (isPersistent()) {
-                store.save(effect.choices)
-                log.i { "effort choices saved: ${effect.choices.size}" }
-            } else {
-                log.d { "effort choices kept in memory: persistence toggle is off" }
+            is EffortConfigurationEffect.Save -> saving.withLock {
+                when {
+                    effect.revision <= savedRevision ->
+                        log.d { "stale effort save skipped: ${effect.revision} <= $savedRevision" }
+
+                    isPersistent() -> {
+                        store.save(effect.choices)
+                        savedRevision = effect.revision
+                        log.i { "effort choices saved: ${effect.choices.size}, revision ${effect.revision}" }
+                    }
+
+                    else -> log.d { "effort choices kept in memory: persistence toggle is off" }
+                }
             }
         }
     }

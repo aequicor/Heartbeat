@@ -43,15 +43,15 @@ class EffortConfigurationMachineTest {
         spec.assertTransition(
             ready,
             EffortConfigurationIntent.Public.Select(target, "medium"),
-            EffortConfigurationState.Ready(updated),
-            effects = listOf(EffortConfigurationEffect.Save(updated)),
+            EffortConfigurationState.Ready(updated, revision = 1),
+            effects = listOf(EffortConfigurationEffect.Save(updated, revision = 1)),
         )
         val reset = listOf(EffortChoice(other, "low"))
         spec.assertTransition(
             ready,
             EffortConfigurationIntent.Public.Select(target, null),
-            EffortConfigurationState.Ready(reset),
-            effects = listOf(EffortConfigurationEffect.Save(reset)),
+            EffortConfigurationState.Ready(reset, revision = 1),
+            effects = listOf(EffortConfigurationEffect.Save(reset, revision = 1)),
         )
     }
 

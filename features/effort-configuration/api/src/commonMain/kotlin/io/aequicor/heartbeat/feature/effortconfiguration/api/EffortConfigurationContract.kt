@@ -26,8 +26,12 @@ public sealed interface EffortConfigurationState : MachineState {
     /** Reading stored choices. */
     public data object Loading : EffortConfigurationState
 
-    /** Choices are known; at most one per target. */
-    public data class Ready(val choices: List<EffortChoice> = emptyList()) : EffortConfigurationState {
+    /**
+     * Choices are known; at most one per target. [revision] grows with every change so the effect handler
+     * can drop saves that arrive after a newer one.
+     */
+    public data class Ready(val choices: List<EffortChoice> = emptyList(), val revision: Long = 0) :
+        EffortConfigurationState {
         /** Stored effort for [target], or null for the engine's native default. */
         public fun effortFor(target: EngineTarget): String? = choices.firstOrNull { it.target == target }?.effort
     }
@@ -66,8 +70,8 @@ public sealed interface EffortConfigurationEffect : MachineEffect {
     /** Reads stored choices. */
     public data object Load : EffortConfigurationEffect
 
-    /** Replaces stored choices with [choices]. */
-    public data class Save(val choices: List<EffortChoice>) : EffortConfigurationEffect
+    /** Replaces stored choices with [choices]; ignored when a save of a newer [revision] already ran. */
+    public data class Save(val choices: List<EffortChoice>, val revision: Long = 0) : EffortConfigurationEffect
 }
 
 /** One-shot notifications. */

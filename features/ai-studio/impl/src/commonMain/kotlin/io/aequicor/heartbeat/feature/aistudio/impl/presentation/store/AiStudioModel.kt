@@ -276,7 +276,10 @@ class AiStudioModel(
 
     private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
         with(pipeline) {
-            val target = studioModelTarget(intent.modelId) ?: return@with
+            log.i { "select effort: ${intent.effort ?: "default"}" }
+            val target = studioModelTarget(intent.modelId) ?: return@with log.w {
+                "effort selection ignored: model is not an engine route"
+            }
             val select = EffortConfigurationIntent.Public.Select(target, intent.effort)
             val result = machines.send(EffortConfigurationMachineKey, select)
             if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }

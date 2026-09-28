@@ -33,17 +33,27 @@ internal fun KoogProvider.fallbackReasoningEfforts(model: String): List<String> 
     -> emptyList()
 }
 
-/** Request parameters carrying [effort]; default parameters when no effort is selected. */
-internal fun KoogProvider.reasoningParams(effort: String?): LLMParams {
+/**
+ * Request parameters carrying [effort]; default parameters when no effort is selected. [maxOutputTokens] is the
+ * model's output limit when known: Anthropic then gets the whole limit for thinking plus answer instead of a fixed cap.
+ */
+internal fun KoogProvider.reasoningParams(effort: String?, maxOutputTokens: Long? = null): LLMParams {
     val level = effort ?: return LLMParams()
     return when (this) {
         KoogProvider.OpenAI, KoogProvider.AlibabaQwen, KoogProvider.OpenAICompatible ->
             OpenAIChatParams(reasoningEffort = openAIEffort(level))
 
         KoogProvider.Anthropic, KoogProvider.AnthropicCompatible -> {
-            val budget = anthropicBudget(level)
             // Anthropic requires max_tokens above the thinking budget; the rest is left for the answer.
-            AnthropicParams(maxTokens = budget + ANSWER_TOKENS, thinking = AnthropicThinking.Enabled(budget))
+            val limit = maxOutputTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+            val budget = limit?.let {
+                anthropicBudget(
+                    level,
+                ).coerceAtMost(it - ANSWER_TOKENS).coerceAtLeast(MIN_BUDGET)
+            }
+                ?: anthropicBudget(level)
+            val maxTokens = limit?.coerceAtLeast(budget + MIN_BUDGET) ?: (budget + ANSWER_TOKENS)
+            AnthropicParams(maxTokens = maxTokens, thinking = AnthropicThinking.Enabled(budget))
         }
 
         KoogProvider.Ollama -> OllamaParams(think = level == "on")
@@ -71,3 +81,4 @@ private const val LOW_BUDGET = 2_048
 private const val MEDIUM_BUDGET = 8_192
 private const val HIGH_BUDGET = 24_576
 private const val ANSWER_TOKENS = 8_192
+private const val MIN_BUDGET = 1_024

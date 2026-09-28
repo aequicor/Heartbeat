@@ -32,4 +32,12 @@ class KoogReasoningTest {
         assertTrue(requireNotNull(anthropic.maxTokens) > thinking.budgetTokens)
         assertEquals(LLMParams(), KoogProvider.OpenAI.reasoningParams(null))
     }
+
+    @Test
+    fun `anthropic uses the model output limit and keeps the budget below it`() {
+        val anthropic = assertIs<AnthropicParams>(KoogProvider.Anthropic.reasoningParams("high", 32_000))
+        val thinking = assertIs<AnthropicThinking.Enabled>(anthropic.thinking)
+        assertEquals(32_000, anthropic.maxTokens)
+        assertTrue(thinking.budgetTokens < 32_000)
+    }
 }
