@@ -64,20 +64,23 @@ class AiStudioComponent(
 
     /** Opens the feature toggles panel above the studio; the studio keeps its state underneath. */
     fun openToggles() = navigator.navigate(
-        TogglesPanelRoute,
+        TogglesPanelRoute(),
         NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
     )
 
     /** Opens profile-owned search provider settings. */
     fun openProfileSettings() {
         log.i { "open profile settings" }
-        navigator.navigate(ProfileSettingsRoute, NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+        navigator.navigate(ProfileSettingsRoute(), NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
     }
 
     /** Opens the engine × connection × model settings of the active profile above the studio. */
     fun openConnections() {
         log.i { "open engine connections" }
-        navigator.navigate(EngineConnectionsRoute, NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+        navigator.navigate(
+            EngineConnectionsRoute(),
+            NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
+        )
     }
 
     /** Switches the chat area to the projectless research layout for the selected Koog route. */

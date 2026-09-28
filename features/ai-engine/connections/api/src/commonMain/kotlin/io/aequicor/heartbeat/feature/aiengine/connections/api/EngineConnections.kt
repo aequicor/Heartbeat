@@ -15,10 +15,11 @@ import kotlinx.serialization.Serializable
 /**
  * Profile settings space "engine × connection × model": every engine, its connections (bindings) and the models
  * enabled through each connection. Registered in the profile tree because the engine facade is profile-owned.
+ * [isEmbedded] marks the route shown as a section of the settings window, where only the content is drawn.
  */
 @Serializable
 @SerialName("engine_connections")
-public data object EngineConnectionsRoute : Route
+public data class EngineConnectionsRoute(val isEmbedded: Boolean = false) : Route
 
 /**
  * Wizard adding a connection: engine → authentication method → models. [engine] skips the first step when that

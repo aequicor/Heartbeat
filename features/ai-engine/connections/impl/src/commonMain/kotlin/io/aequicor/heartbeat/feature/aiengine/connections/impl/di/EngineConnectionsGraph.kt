@@ -73,5 +73,5 @@ internal class EngineConnectionsRouteEntry(
 ) : RouteEntry<EngineConnectionsRoute>(EngineConnectionsRoute::class, EngineConnectionsRoute.serializer()) {
     override fun create(route: EngineConnectionsRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, profile, name = "engineconnections") { graphs.createEngineConnections(it) }
-            .factory.create(context, navigator).let { EngineConnectionsUiComponent(it) }
+            .factory.create(context, navigator, route).let { EngineConnectionsUiComponent(it) }
 }

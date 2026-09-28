@@ -95,7 +95,7 @@ class WelcomeIntegrationTest {
         process.welcome.send(WelcomeIntent.Public.Skip)
         process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
         advanceUntilIdle()
-        assertEquals(listOf(ProductionWelcomeRoute, TogglesPanelRoute), process.host.routes)
+        assertEquals(listOf(ProductionWelcomeRoute, TogglesPanelRoute()), process.host.routes)
         process.host.onBack()
         advanceUntilIdle()
         assertEquals(WelcomeState.Ready, process.welcome.state.value)

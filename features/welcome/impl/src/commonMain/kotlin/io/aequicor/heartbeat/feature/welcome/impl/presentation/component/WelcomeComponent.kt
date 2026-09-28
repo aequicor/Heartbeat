@@ -39,7 +39,7 @@ class WelcomeComponent(
                 if (state is WelcomeState.Opening) {
                     val route = when (state.destination) {
                         WelcomeDestination.Studio -> AiStudioRoute
-                        WelcomeDestination.Toggles -> TogglesPanelRoute
+                        WelcomeDestination.Toggles -> TogglesPanelRoute()
                     }
                     navigator.navigate(
                         route,

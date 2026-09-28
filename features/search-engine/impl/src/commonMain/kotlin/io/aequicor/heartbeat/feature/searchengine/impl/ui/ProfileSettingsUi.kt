@@ -112,6 +112,7 @@ internal class ProfileSettingsComponent(
     @Assisted context: ComponentContext,
     @Assisted private val navigator: Navigator,
     @Assisted screen: ScopeHandle,
+    @Assisted private val route: ProfileSettingsRoute,
     configuration: SearchConfiguration,
     factory: HeartbeatStoreFactory,
     storage: SecretStorageInfo,
@@ -121,13 +122,19 @@ internal class ProfileSettingsComponent(
         RetainedModel(SearchSettingsModel(configuration, factory, screen.coroutineScope, storage.protection))
     }.model
 
-    @Composable override fun Content(modifier: Modifier) = ProfileSettingsScreen(model, navigator::close, modifier)
+    @Composable override fun Content(modifier: Modifier) =
+        ProfileSettingsScreen(model, if (route.isEmbedded) null else navigator::close, modifier)
 
     private class RetainedModel(val model: SearchSettingsModel) : InstanceKeeper.Instance
 
     @AssistedFactory
     fun interface Factory {
-        fun create(context: ComponentContext, navigator: Navigator, screen: ScopeHandle): ProfileSettingsComponent
+        fun create(
+            context: ComponentContext,
+            navigator: Navigator,
+            screen: ScopeHandle,
+            route: ProfileSettingsRoute,
+        ): ProfileSettingsComponent
     }
 
     private companion object {
@@ -143,7 +150,7 @@ internal class ProfileSettingsRouteEntry(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : RouteEntry<ProfileSettingsRoute>(ProfileSettingsRoute::class, ProfileSettingsRoute.serializer()) {
     override fun create(route: ProfileSettingsRoute, context: ComponentContext, navigator: Navigator): NavComponent =
-        factory.create(context, navigator, context.retainedScope(scopes, profile, name = "profile-settings"))
+        factory.create(context, navigator, context.retainedScope(scopes, profile, name = "profile-settings"), route)
 }
 
 @Composable

@@ -8,6 +8,10 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.comp
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */
 internal class EngineConnectionsUiComponent(private val component: EngineConnectionsComponent) : ComposableComponent {
     @Composable
-    override fun Content(modifier: Modifier) =
-        EngineConnectionsScreen(component.model, component::openWizard, component::close, modifier)
+    override fun Content(modifier: Modifier) = EngineConnectionsScreen(
+        component.model,
+        component::openWizard,
+        if (component.isEmbedded) null else component::close,
+        modifier,
+    )
 }
