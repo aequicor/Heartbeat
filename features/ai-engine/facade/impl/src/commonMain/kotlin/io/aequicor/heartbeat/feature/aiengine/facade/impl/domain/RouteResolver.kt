@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.flow.StateFlow
 
 /** A route that passed every gate; [route] fixes the checked source revision. */
 data class ResolvedRoute(
@@ -58,6 +59,12 @@ class RouteResolver(
         bindings.requireAccepted(registration, source, context)
         return ResolvedRoute(registration, saved, source, context)
     }
+
+    /** Saved bindings and their changes; used to hide data of removed bindings. */
+    val saved: StateFlow<List<EngineBinding>> get() = bindings.state
+
+    /** Currently saved bindings (enabled or not), read consistently with binding mutations. */
+    suspend fun savedNow(): List<EngineBinding> = bindings.saved()
 
     /**
      * Rechecks a fixed [route] before a subsequent turn. Besides every gate of [resolve], the binding must still

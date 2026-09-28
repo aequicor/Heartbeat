@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -36,12 +37,16 @@ class EngineRegistry(registrations: Collection<EngineRegistration>, val platform
     val all: List<EngineRegistration> = registrations.sortedBy { it.descriptor.id.value }
 
     private val byId = all.associateBy { it.descriptor.id }
+    private val log = Log.tag("EngineRegistry")
 
     /** Registration of [engine], or null. */
     fun find(engine: EngineId): EngineRegistration? = byId[engine]
 
     /** Registration of [engine]; an unknown engine is reported as unavailable. */
-    fun require(engine: EngineId): EngineRegistration = find(engine) ?: fail(EngineUnavailable)
+    fun require(engine: EngineId): EngineRegistration = find(engine) ?: run {
+        log.w { "unknown engine=${engine.value}" }
+        fail(EngineUnavailable)
+    }
 
     /** Whether [registration] declares the current host platform. */
     fun supportsPlatform(registration: EngineRegistration): Boolean =

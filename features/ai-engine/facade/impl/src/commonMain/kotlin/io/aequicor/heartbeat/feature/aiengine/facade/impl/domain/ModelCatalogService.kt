@@ -12,7 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -47,6 +47,8 @@ interface ModelCache {
 /**
  * [ModelCatalog] with a persistent cache. Discovery runs only on [refresh] through the exact binding's route;
  * a failure is thrown and leaves the previous cache intact. Entries older than [freshFor] are reported stale.
+ * A binding removed during discovery gets no cache entry, and entries of removed bindings are hidden and dropped
+ * on the next write.
  */
 class ModelCatalogService(
     private val cache: ModelCache,
@@ -57,9 +59,11 @@ class ModelCatalogService(
     private val log = Log.tag("ModelCatalog")
     private val mutex = Mutex()
 
-    override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot> = cache.observe()
-        .map { entries -> snapshot(entries.find(engine, binding)) }
-        .stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null))
+    override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot> =
+        combine(cache.observe(), routes.saved) { entries, saved ->
+            val bound = saved.any { it.id == binding && it.engine == engine }
+            snapshot(if (bound) entries.find(engine, binding) else null)
+        }.stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null))
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
         log.i { "discover models engine=${engine.value} binding=${binding.value}" }
@@ -80,7 +84,15 @@ class ModelCatalogService(
         val models = discovered.filter { it.target.engine == engine && it.target.binding == binding }
         if (models.size != discovered.size) log.w { "dropped foreign models count=${discovered.size - models.size}" }
         val entry = CachedModels(engine, binding, models, context.clock.now())
-        mutex.withLock { cache.save(cache.load().filterNot { it.engine == engine && it.binding == binding } + entry) }
+        mutex.withLock {
+            val live = routes.savedNow().map { it.engine to it.id }.toSet()
+            if ((engine to binding) !in live) {
+                log.w { "binding removed during discovery binding=${binding.value}" }
+                fail(OperationNotAllowed)
+            }
+            val kept = cache.load().filter { (it.engine to it.binding) in live && it.binding != binding }
+            cache.save(kept + entry)
+        }
         log.i { "models cached engine=${engine.value} count=${models.size}" }
         return snapshot(entry)
     }

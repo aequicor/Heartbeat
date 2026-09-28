@@ -1,8 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -21,10 +25,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -237,5 +245,43 @@ class ManagedActiveSessionTest {
         runCurrent()
         switcher.switchTo(ModelId("m1"))
         assertEquals(listOf(ModelId("m1")), otherNative.models)
+    }
+
+    @Test
+    fun `a native turn published before send returns is not treated as lost while submitting`() = runTest {
+        // Adapter without request correlation: the native turn is visible under its own id before send returns.
+        val native = FakeNativeSession().apply { correlateOnSend = false }
+        val (session, _) = open(RouteFixture(this), native)
+
+        val turn = session.sender().send(prompt("r1"))
+        runCurrent()
+
+        assertEquals(turn, assertIs<ActiveSessionState.Running>(session.state.value).turn.id)
+        native.finish()
+        runCurrent()
+        assertEquals(turn, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.id)
+    }
+
+    @Test
+    fun `commands after profile shutdown fail as ProfileClosed instead of leaking a foreign cancellation`() = runTest {
+        val commands = CoroutineScope(coroutineContext + Job(coroutineContext[Job]))
+        val effects = ActiveSessionEffects(FakeNativeSession(), commands)
+        commands.cancel()
+        val sent = mutableListOf<ActiveSessionIntent>()
+        val machine = object : EffectScope<ActiveSessionIntent> {
+            override suspend fun send(intent: ActiveSessionIntent): SendResult {
+                sent += intent
+                return SendResult.Accepted
+            }
+        }
+        val request = prompt("r1")
+        val turn = Turn(TurnId("t1"), request.id, TestTarget)
+
+        val error = assertFailsWith<EngineException> {
+            effects.handle(ActiveSessionEffect.Submit(request, turn), machine)
+        }
+
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), error.failure)
+        assertTrue(sent.isEmpty())
     }
 }

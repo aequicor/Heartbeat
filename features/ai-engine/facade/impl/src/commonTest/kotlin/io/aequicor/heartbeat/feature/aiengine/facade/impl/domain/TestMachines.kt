@@ -152,6 +152,9 @@ internal class FakeNativeSession(
     val decisions = mutableListOf<PermissionDecision>()
     var sendFailure: Exception? = null
     var acceptOnSend = true
+
+    /** Whether the published native turn carries the request id (adapters may not correlate). */
+    var correlateOnSend = true
     var closes = 0
     var closeGate: CompletableDeferred<Unit>? = null
     val models = mutableListOf<ModelId>()
@@ -172,7 +175,10 @@ internal class FakeNativeSession(
                         sendFailure?.let { throw it }
                         sent += request
                         val id = TurnId("native-${sent.size}")
-                        if (acceptOnSend) native.value = ActiveSessionState.Running(Turn(id, request.id, TestTarget))
+                        if (acceptOnSend) {
+                            val correlated = request.id.takeIf { correlateOnSend }
+                            native.value = ActiveSessionState.Running(Turn(id, correlated, TestTarget))
+                        }
                         return id
                     }
                 },

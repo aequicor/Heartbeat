@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Open handles of the profile. Commands are serialized per native session across handles, and a handle may
@@ -49,6 +50,26 @@ class ActiveSessionRegistry : BindingUsage {
     /** Whether a handle executing through the runtime of [engine] and [source] still has a turn in flight. */
     fun hasActiveTurn(engine: EngineId, source: AuthSourceId): Boolean = handles.value.any {
         it.route.engine == engine && it.route.authSource == source && it.state.value.activeTurn() != null
+    }
+
+    /**
+     * Closes every open handle executing through the runtime of [engine] and [source], before that runtime is
+     * retired: an idle handle must not outlive its runtime. A failed close is logged and does not stop the rest.
+     */
+    suspend fun closeHandles(engine: EngineId, source: AuthSourceId) {
+        val open = handles.value.filter {
+            it.route.engine == engine && it.route.authSource == source && it.state.value != ActiveSessionState.Closed
+        }
+        log.i { "close handles of retired runtime engine=${engine.value} count=${open.size}" }
+        open.forEach { handle ->
+            try {
+                handle.close()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "handle close failed engine=${engine.value}" }
+            }
+        }
     }
 
     /** Runs [block] exclusively for the native session [ref]. */

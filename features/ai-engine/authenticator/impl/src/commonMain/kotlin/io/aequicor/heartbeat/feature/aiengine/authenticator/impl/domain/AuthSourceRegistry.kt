@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -24,7 +25,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * [AuthSources] over a metadata store and the profile vault. Mutations are serialized. A new managed value is written
  * before its metadata, a replacement after its new revision, and a value is removed before it is forgotten: metadata
- * never points at a value of another source and a replaced value never keeps the old revision.
+ * never points at a value of another source and a replaced value never keeps the old revision. If the value cannot
+ * be removed, [forget] fails and keeps the source, so no value is orphaned in the vault.
  * [newToken] yields random `[a-z0-9]` tokens used for ids and managed-key revisions.
  */
 class AuthSourceRegistry(
@@ -37,7 +39,11 @@ class AuthSourceRegistry(
     private val mutex = Mutex()
 
     override val state: StateFlow<List<AuthSource>> =
-        store.observe().stateIn(scope, SharingStarted.Eagerly, emptyList())
+        store.observe()
+            .catch { e ->
+                log.e(e) { "observe sources failed, keeping last list" }
+            }
+            .stateIn(scope, SharingStarted.Eagerly, emptyList())
 
     override suspend fun get(id: AuthSourceId): AuthSource? = store.load().firstOrNull { it.info.id == id }
 
@@ -58,7 +64,14 @@ class AuthSourceRegistry(
                 throw e
             } catch (e: Exception) {
                 log.w(e) { "metadata write failed, removing orphan value source=${source.info.id.value}" }
-                vault.remove(source.secret)
+                try {
+                    vault.remove(source.secret)
+                } catch (rollback: CancellationException) {
+                    throw rollback
+                } catch (rollback: Exception) {
+                    log.w(rollback) { "orphan value rollback failed source=${source.info.id.value}" }
+                    e.addSuppressed(rollback)
+                }
                 throw e
             }
             source

@@ -51,6 +51,10 @@ data class SessionParts(
  * Facade handle following ActiveSessionMachineSpec. Commands go through the machine; native observations reach
  * it through a bridge running in the handle scope, independently of state-scoped effects. [send] completes only
  * after native acceptance, and every ignored command is reported as a domain failure.
+ *
+ * The one command outside the machine is the model switch ([SwitchesModels]): ActiveSessionMachineSpec has no
+ * model state, and a switch does not change the handle lifecycle. It is therefore only allowed in Ready and is
+ * serialized with every turn of the native session through [ActiveSessionRegistry.exclusive].
  */
 class ManagedActiveSession(
     override val ref: SessionRef,
@@ -210,6 +214,7 @@ class ManagedActiveSession(
         }
     }
 
+    /** Switches the model outside the machine; see the class KDoc for why this does not bypass the lifecycle. */
     private inner class ModelSwitcher(private val native: SwitchesModels) : SwitchesModels {
         override suspend fun switchTo(model: ModelId) {
             log.i { "switch model engine=${route.engine.value}" }

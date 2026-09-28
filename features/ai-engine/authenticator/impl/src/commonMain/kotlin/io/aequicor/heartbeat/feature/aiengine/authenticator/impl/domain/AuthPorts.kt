@@ -19,7 +19,7 @@ interface AuthSourceStore {
 
 /** Profile vault slots of Heartbeat-owned keys. Values are never logged or cached. */
 interface ManagedKeyVault {
-    /** Creates or replaces the value; the caller keeps ownership of [key]. */
+    /** Creates or replaces the value; the caller keeps ownership of [key]. On failure no new value is left behind. */
     suspend fun store(slot: AuthSecretId, key: Secret)
 
     /** A newly owned value, or null; the caller closes it. */
@@ -28,6 +28,9 @@ interface ManagedKeyVault {
     /** Whether a value exists, without revealing it. */
     suspend fun contains(slot: AuthSecretId): Boolean
 
-    /** Removes the value; missing values are ignored. */
+    /**
+     * Removes the value; missing values are ignored. Throws when the value could not be removed (e.g. it is still
+     * referenced elsewhere), so callers must not forget metadata that points at it.
+     */
     suspend fun remove(slot: AuthSecretId)
 }

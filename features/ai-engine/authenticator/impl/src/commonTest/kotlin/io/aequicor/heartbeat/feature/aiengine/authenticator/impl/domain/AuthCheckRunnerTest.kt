@@ -30,6 +30,7 @@ private class FixedClock(var now: Instant = Instant.fromEpochSeconds(100)) : Clo
 private class CliAuthenticator(private val clock: Clock) : Authenticator {
     var failure: Exception? = null
     var calls = 0
+    var onCheck: suspend () -> Unit = {}
 
     override val id = AuthenticatorId("codex.cli")
 
@@ -37,6 +38,7 @@ private class CliAuthenticator(private val clock: Clock) : Authenticator {
 
     override suspend fun check(source: AuthSource, context: AuthContextKey): AuthCheck {
         calls++
+        onCheck()
         failure?.let { throw it }
         return AuthCheck(
             source.info.id,
@@ -128,5 +130,17 @@ class AuthCheckRunnerTest {
         val missing = AuthSourceId("src_missing")
         assertNull(checks.last(missing, context))
         assertEquals(AuthVerdict.SourceUnavailable, checks.check(missing, context).verdict)
+    }
+
+    @Test
+    fun `a late answer for an old revision does not overwrite the current verdict`() = runTest {
+        val (registry, checks) = fixture()
+        val source = registry.cliLogin()
+        cli.onCheck = { registry.updateRevision(source.info.id, AuthRevision.Known("account-2")) }
+
+        val late = checks.check(source.info.id, context, setOf(cli.id))
+
+        assertEquals(AuthRevision.Unknown, late.revision)
+        assertNull(checks.last(source.info.id, context))
     }
 }

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import kotlinx.coroutines.sync.Mutex
@@ -15,14 +16,25 @@ import kotlin.coroutines.cancellation.CancellationException
  * Profile pool of native runtimes, one per engine and source across workspaces. A changed source revision
  * retires the old runtime before its replacement starts, so two credential rotators never run at once; while
  * [hasActiveTurn] reports an accepted turn on the old runtime, the new route is refused as Busy instead.
+ * Idle handles still open on the old runtime are closed through [retireHandles] before it stops, so no handle
+ * outlives its runtime. After [closeAll] the pool refuses new runtimes with ProfileClosed.
  */
-class RuntimePool(private val context: FacadeContext, private val hasActiveTurn: (EngineId, AuthSourceId) -> Boolean) {
+class RuntimePool(
+    private val context: FacadeContext,
+    private val hasActiveTurn: (EngineId, AuthSourceId) -> Boolean,
+    private val retireHandles: suspend (EngineId, AuthSourceId) -> Unit,
+) {
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, EngineRuntime>()
+    private var isClosed = false
 
     /** Runtime of the checked [resolved] route, created on first use. */
     suspend fun runtime(resolved: ResolvedRoute): EngineRuntime = mutex.withLock {
+        if (isClosed) {
+            log.w { "runtime requested after profile shutdown engine=${resolved.identity.engine.value}" }
+            fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        }
         val identity = resolved.identity
         val key = identity.engine to identity.source
         val current = runtimes[key]
@@ -33,6 +45,7 @@ class RuntimePool(private val context: FacadeContext, private val hasActiveTurn:
                 fail(EngineFailure.Session(SessionFailureReason.Busy))
             }
             log.i { "retire runtime engine=${identity.engine.value} source=${identity.source.value}" }
+            retireHandles(identity.engine, identity.source)
             runtimes.remove(key)
             closeQuietly(current)
         }
@@ -49,9 +62,12 @@ class RuntimePool(private val context: FacadeContext, private val hasActiveTurn:
         created
     }
 
-    /** Closes every runtime at profile shutdown. */
+    /** Closes every runtime at profile shutdown; later [runtime] calls fail with ProfileClosed. */
     suspend fun closeAll() {
-        val all = mutex.withLock { runtimes.values.toList().also { runtimes.clear() } }
+        val all = mutex.withLock {
+            isClosed = true
+            runtimes.values.toList().also { runtimes.clear() }
+        }
         log.i { "close runtimes count=${all.size}" }
         all.forEach { closeQuietly(it) }
     }

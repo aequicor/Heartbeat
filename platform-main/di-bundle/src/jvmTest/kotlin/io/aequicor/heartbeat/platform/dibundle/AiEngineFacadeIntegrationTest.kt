@@ -134,7 +134,9 @@ object TestAdapter {
 
 class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
     val natives = mutableListOf<TestNative>()
-    var closes = 0
+
+    /** Close calls; the profile releases runtimes asynchronously on the app scope. */
+    val closes = MutableStateFlow(0)
 
     override val features: EngineFeatures = features(
         CreatesSessions to object : CreatesSessions {
@@ -146,7 +148,7 @@ class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
     )
 
     override suspend fun close() {
-        closes++
+        closes.value++
     }
 }
 
@@ -244,6 +246,8 @@ class AiEngineFacadeIntegrationTest {
         assertEquals(ActiveSessionState.Closed, session.state.value)
         facade.bindings.disconnect(binding.id)
         app.profileSessions.close()
-        assertEquals(1, TestAdapter.runtimes.single().closes)
+        // closeAll runs asynchronously on the app scope: await it instead of sampling.
+        TestAdapter.runtimes.single().closes.first { it > 0 }
+        assertEquals(1, TestAdapter.runtimes.single().closes.value)
     }
 }

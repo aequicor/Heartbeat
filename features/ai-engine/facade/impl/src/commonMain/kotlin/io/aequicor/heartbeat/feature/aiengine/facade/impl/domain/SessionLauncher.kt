@@ -139,8 +139,8 @@ class FacadeCapabilities(private val sessions: SessionCatalog, private val launc
 
     /** [stored] with facade resumption when the engine declares runtime attachment. */
     fun stored(registration: EngineRegistration, stored: EngineSession): EngineSession {
-        val declared = registration.descriptor.declaredFeatures
-        val isResumable = AttachesSessions.id in declared || ResumesSessions.id in declared
+        // The facade resumes only through runtime attachment; a declared native ResumesSessions alone is not enough.
+        val isResumable = AttachesSessions.id in registration.descriptor.declaredFeatures
         return StoredSession(stored) {
             if (isResumable) {
                 FeatureAccess.Available(

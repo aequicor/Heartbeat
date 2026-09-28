@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -11,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -66,6 +68,7 @@ class SessionLauncherTest {
     private val runtimes = mutableListOf<FakeRuntime>()
     private val index = RecordingSessionIndex()
     private val source = FakeSessionSource()
+    private lateinit var pool: RuntimePool
 
     private fun TestScope.launcher(
         features: Set<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId> =
@@ -86,9 +89,10 @@ class SessionLauncherTest {
         val host = ActiveSessionHost { native, route, model ->
             assembler.assemble(native, route, model, TestHandleScope("h${++handles}", backgroundScope))
         }
+        pool = RuntimePool(fixture.context, registry::hasActiveTurn, registry::closeHandles)
         val launcher = SessionLauncher(
             fixture.routes,
-            RuntimePool(fixture.context, registry::hasActiveTurn),
+            pool,
             sessions,
             host,
             fixture.context,
@@ -181,6 +185,35 @@ class SessionLauncherTest {
 
         assertEquals(EngineFailure.Session(SessionFailureReason.Busy), error.failure)
         assertEquals(0, runtimes.single().closes)
+    }
+
+    @Test
+    fun `idle handles are closed before their rotated runtime stops`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        val idle = launcher.create(CreateSessionRequest(fixture.target))
+        val native = runtimes.single().sessions.single()
+        fixture.sources.remove(fixture.source.info.id)
+        fixture.sources.add(managedKey(revision = AuthRevision.Known("r2")))
+
+        launcher.create(CreateSessionRequest(fixture.target))
+        runCurrent()
+
+        assertEquals(ActiveSessionState.Closed, idle.state.value)
+        assertEquals(1, native.closes)
+        assertEquals(1, runtimes.first().closes)
+    }
+
+    @Test
+    fun `the pool refuses new runtimes after profile shutdown`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        launcher.create(CreateSessionRequest(fixture.target))
+
+        pool.closeAll()
+        val error = assertFailsWith<EngineException> { launcher.create(CreateSessionRequest(fixture.target)) }
+
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), error.failure)
+        assertEquals(1, runtimes.size)
+        assertEquals(1, runtimes.single().closes)
     }
 }
 

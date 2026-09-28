@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -10,24 +11,37 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Maps native turn ids to the ids this handle allocated for its own submissions. A native turn is bound to a
  * local one by the returned native id or by the request correlation id; every other turn keeps its native id.
- * Confined to the main thread, like the machine that uses it.
+ *
+ * Written by the Submit handoff in the profile scope and read by the handle bridge, so the mapping is an
+ * immutable snapshot replaced atomically: readers never observe a half-written binding.
+ *
+ * A submission is bound twice, idempotently: by the request id as soon as the native state shows the turn (the
+ * bridge, possibly before the native send returned), and by the returned native id afterwards. Until then an
+ * unknown native turn is not treated as lost while the machine is Submitting (see [reconcile]).
  */
 class TurnCorrelation {
-    private val toLocal = mutableMapOf<TurnId, TurnId>()
-    private val toNative = mutableMapOf<TurnId, TurnId>()
+    private data class Ids(
+        val toLocal: Map<TurnId, TurnId> = emptyMap(),
+        val toNative: Map<TurnId, TurnId> = emptyMap(),
+    )
+
+    private val log = Log.tag("TurnCorrelation")
+    private val ids = MutableStateFlow(Ids())
 
     /** Binds [native] to [local]. */
     fun bind(native: TurnId, local: TurnId) {
-        toLocal[native] = local
-        toNative[local] = native
+        log.d { "ids: bind native=${native.value} -> local=${local.value}" }
+        ids.update { Ids(it.toLocal + (native to local), it.toNative + (local to native)) }
     }
 
     /** Native id of a local turn. */
-    fun native(local: TurnId): TurnId = toNative[local] ?: local
+    fun native(local: TurnId): TurnId = ids.value.toNative[local] ?: local
 
     /** Decision addressed to the native turn. */
     fun native(decision: PermissionDecision): PermissionDecision = decision.copy(turn = native(decision.turn))
@@ -38,15 +52,19 @@ class TurnCorrelation {
      */
     fun localize(state: ActiveSessionState, machine: ActiveSessionState): ActiveSessionState {
         if (machine is ActiveSessionState.Submitting) {
+            val bound = ids.value.toLocal
             listOfNotNull(state.activeTurn(), state.lastTurn())
-                .firstOrNull { it.request == machine.request.id && it.id !in toLocal }
+                .firstOrNull { it.request == machine.request.id && it.id !in bound }
                 ?.let { bind(it.id, machine.turn.id) }
         }
         return localize(state)
     }
 
     /** Native [state] in local ids, without binding new turns. */
-    fun localize(state: ActiveSessionState): ActiveSessionState = state.mapTurnIds { toLocal[it] ?: it }
+    fun localize(state: ActiveSessionState): ActiveSessionState {
+        val bound = ids.value.toLocal
+        return state.mapTurnIds { bound[it] ?: it }
+    }
 }
 
 /**

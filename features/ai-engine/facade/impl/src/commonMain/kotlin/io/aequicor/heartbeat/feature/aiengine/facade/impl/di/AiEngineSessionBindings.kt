@@ -63,7 +63,7 @@ object AiEngineSessionBindings {
         handles: ActiveSessionRegistry,
         @ForScope(ProfileScope::class) profile: ScopeHandle,
         @ForScope(AppScope::class) app: ScopeHandle,
-    ): RuntimePool = RuntimePool(context, handles::hasActiveTurn).also { pool ->
+    ): RuntimePool = RuntimePool(context, handles::hasActiveTurn, handles::closeHandles).also { pool ->
         profile.onClose { app.coroutineScope.launch { pool.closeAll() } }
     }
 

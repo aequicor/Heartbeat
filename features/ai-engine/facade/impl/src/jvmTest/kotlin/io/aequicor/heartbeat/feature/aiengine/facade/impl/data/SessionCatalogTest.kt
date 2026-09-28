@@ -200,4 +200,13 @@ class SessionCatalogTest {
 
         assertEquals(listOf("a"), catalog.page().items.map { it.ref.nativeId })
     }
+
+    @Test
+    fun `stored sessions read the toggles before their first observation`() = runTest {
+        val catalog = catalog(settle = false)
+        val ref = sessionRef("a")
+        source.stored[ref] = FakeStoredSession(summary("a"), BlockedEngineFeatures(EngineFailure.Unknown()))
+
+        assertEquals(ref, catalog.get(ref).summary.value.ref)
+    }
 }

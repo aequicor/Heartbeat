@@ -24,6 +24,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 internal val TestAuthScope = AuthScope(ProviderId("openai"), EndpointOrigin("https://api.example.com"))
@@ -44,6 +45,7 @@ internal class FakeSourceStore : AuthSourceStore {
 
 internal class FakeVault : ManagedKeyVault {
     val values = mutableMapOf<AuthSecretId, String>()
+    var removeFailure: Exception? = null
 
     override suspend fun store(secret: AuthSecretId, key: Secret) {
         values[secret] = key.reveal { it.concatToString() }
@@ -54,6 +56,7 @@ internal class FakeVault : ManagedKeyVault {
     override suspend fun contains(secret: AuthSecretId): Boolean = secret in values
 
     override suspend fun remove(secret: AuthSecretId) {
+        removeFailure?.let { throw it }
         values -= secret
     }
 }
@@ -154,5 +157,31 @@ class AuthSourceRegistryTest {
     fun `blank labels are rejected before any write`() = runTest {
         assertFailsWith<IllegalArgumentException> { registry().register(AuthSourceDraft.NoAuth(" ", TestAuthScope)) }
         assertTrue(store.sources.value.isEmpty())
+    }
+
+    @Test
+    fun `a failed orphan rollback keeps the original error and suppresses the rollback one`() = runTest {
+        val original = IllegalStateException("disk")
+        store.saveFailure = original
+        vault.removeFailure = IllegalArgumentException("vault")
+
+        val thrown = assertFailsWith<IllegalStateException> {
+            registry().addManagedKey("work", TestAuthScope, Secret("sk-value".toCharArray()))
+        }
+
+        assertSame(original, thrown)
+        assertIs<IllegalArgumentException>(thrown.suppressedExceptions.single())
+    }
+
+    @Test
+    fun `a managed key whose value cannot be removed is not forgotten`() = runTest {
+        val registry = registry()
+        val managed = registry.addManagedKey("work", TestAuthScope, Secret("v".toCharArray()))
+        vault.removeFailure = IllegalStateException("in use")
+
+        assertFailsWith<IllegalStateException> { registry.forget(managed.info.id) }
+
+        assertEquals(managed, registry.get(managed.info.id))
+        assertEquals("v", vault.values[managed.secret])
     }
 }

@@ -80,11 +80,18 @@ internal class FakeEngineFactory : EngineFactory {
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("ctx.${context.engine.value}")
 
+    var bindFailure: Exception? = null
+    var unbindFailure: Exception? = null
+    val unbinds = mutableListOf<EngineBindingId>()
+
     override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        bindFailure?.let { throw it }
         routes[binding] = source
     }
 
     override suspend fun unbind(binding: EngineBindingId) {
+        unbinds += binding
+        unbindFailure?.let { throw it }
         routes.remove(binding)
     }
 
@@ -136,7 +143,10 @@ internal class FakeBindingStore : BindingStore {
 
     override suspend fun load(): List<EngineBinding> = bindings.value
 
+    var saveFailure: Exception? = null
+
     override suspend fun save(bindings: List<EngineBinding>) {
+        saveFailure?.let { throw it }
         this.bindings.value = bindings
     }
 }

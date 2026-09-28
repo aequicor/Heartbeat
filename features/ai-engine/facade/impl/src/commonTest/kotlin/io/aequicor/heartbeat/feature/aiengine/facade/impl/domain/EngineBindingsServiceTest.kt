@@ -123,4 +123,43 @@ class EngineBindingsServiceTest {
             checks.calls.single(),
         )
     }
+
+    @Test
+    fun `a failed bind saves no binding`() = runTest {
+        val service = service()
+        val source = sources.add(managedKey())
+        factory.bindFailure = IllegalStateException("adapter bind")
+
+        assertFailsWith<IllegalStateException> { service.connect(TestEngine, source.info.id) }
+
+        assertTrue(store.bindings.value.isEmpty())
+        assertTrue(factory.routes.isEmpty())
+    }
+
+    @Test
+    fun `a failed save of a new binding unbinds the adapter route`() = runTest {
+        val service = service()
+        val source = sources.add(managedKey())
+        store.saveFailure = IllegalStateException("disk")
+        factory.unbindFailure = IllegalArgumentException("unbind")
+
+        val error = assertFailsWith<IllegalStateException> { service.connect(TestEngine, source.info.id) }
+
+        assertEquals("disk", error.message)
+        assertIs<IllegalArgumentException>(error.suppressedExceptions.single())
+        assertEquals(1, factory.unbinds.size)
+        assertTrue(store.bindings.value.isEmpty())
+    }
+
+    @Test
+    fun `disconnect succeeds when the adapter unbind fails`() = runTest {
+        val service = service()
+        val binding = service.connect(TestEngine, sources.add(managedKey()).info.id)
+        factory.unbindFailure = IllegalStateException("unbind")
+
+        service.disconnect(binding.id)
+
+        assertTrue(store.bindings.value.isEmpty())
+        assertEquals(listOf(binding.id), factory.unbinds)
+    }
 }

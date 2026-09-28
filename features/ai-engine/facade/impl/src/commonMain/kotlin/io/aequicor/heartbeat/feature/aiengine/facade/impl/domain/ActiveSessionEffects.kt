@@ -22,6 +22,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlin.coroutines.cancellation.CancellationException
@@ -36,7 +38,8 @@ class ActiveSessionEffects(private val native: ActiveSession, commands: Coroutin
     private val log = Log.tag("ActiveSessionEffects")
 
     /** A failed command is reported to its awaiting effect only, never to the profile scope. */
-    private val handOffJob = SupervisorJob(commands.coroutineContext[Job])
+    private val profileJob = commands.coroutineContext[Job]
+    private val handOffJob = SupervisorJob(profileJob)
     private val handOffs = CoroutineScope(commands.coroutineContext + handOffJob)
     private val recheckSignals = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
@@ -105,18 +108,41 @@ class ActiveSessionEffects(private val native: ActiveSession, commands: Coroutin
     /**
      * Runs a native command in the profile scope. The failure is logged here, because nobody awaits the command
      * once its effect was cancelled; the awaiting effect rethrows it to onEffectFailure.
+     *
+     * Once the handoff scope ended (handle released or profile closed) the command is refused as a domain
+     * failure: the cancellation of that foreign scope must not escape from a still-running effect.
      */
-    private suspend fun <T> handOff(operation: String, block: suspend () -> T): T = handOffs.async {
-        try {
-            block()
+    private suspend fun <T> handOff(operation: String, block: suspend () -> T): T {
+        if (!handOffJob.isActive) fail(closedFailure(operation))
+        val command = handOffs.async { logged(operation, block) }
+        return try {
+            command.await()
         } catch (e: CancellationException) {
-            throw e
-        } catch (e: EngineException) {
-            log.w(e) { "native $operation failed failure=${e.failure.code}" }
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "native $operation crashed" }
-            throw e
+            // Our own cancellation (state left) propagates; only the handoff scope's cancellation is translated.
+            currentCoroutineContext().ensureActive()
+            if (handOffJob.isActive) throw e
+            log.w(e) { "native $operation dropped, handoff scope ended" }
+            fail(closedFailure(operation))
         }
-    }.await()
+    }
+
+    private suspend fun <T> logged(operation: String, block: suspend () -> T): T = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        log.w(e) { "native $operation failed failure=${e.failure.code}" }
+        throw e
+    } catch (e: Exception) {
+        log.e(e) { "native $operation crashed" }
+        throw e
+    }
+
+    private fun closedFailure(operation: String): EngineFailure {
+        val isProfileClosed = profileJob?.isActive == false
+        log.w { "native $operation refused, profileClosed=$isProfileClosed" }
+        return EngineFailure.Lifecycle(
+            if (isProfileClosed) LifecycleFailureReason.ProfileClosed else LifecycleFailureReason.SessionClosed,
+        )
+    }
 }

@@ -152,4 +152,24 @@ class RouteAndModelsTest {
         assertEquals(1, cached.models.size)
         assertTrue(cached.observation.isStale)
     }
+
+    @Test
+    fun `models of a removed binding are neither cached nor shown`() = runTest {
+        val fixture = RouteFixture(this)
+        val cache = FakeModelCache()
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        fixture.factory.models = listOf(ModelInfo(fixture.target, "Model 1"))
+        models.refresh(TestEngine, fixture.binding.id)
+        val observed = models.observe(TestEngine, fixture.binding.id)
+        observed.first { it.models.isNotEmpty() }
+
+        fixture.bindings.disconnect(fixture.binding.id)
+
+        assertEquals(emptyList(), observed.first { it.models.isEmpty() }.models)
+        val other = EngineBinding(EngineBindingId("b2"), TestEngine, fixture.source.info.id)
+        fixture.store.bindings.value = listOf(fixture.binding, other)
+        models.refresh(TestEngine, fixture.binding.id)
+        // The stale entry of the earlier removal was dropped on write; only the refreshed binding is cached.
+        assertEquals(listOf(fixture.binding.id), cache.entries.value.map { it.binding })
+    }
 }

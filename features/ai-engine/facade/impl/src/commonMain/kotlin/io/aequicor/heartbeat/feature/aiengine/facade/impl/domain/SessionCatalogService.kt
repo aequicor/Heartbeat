@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -59,7 +60,7 @@ class SessionCatalogService(
     override suspend fun get(ref: SessionRef): EngineSession {
         log.i { "open stored session engine=${ref.engine.value} source=${ref.source.value}" }
         val registration = registry.require(ref.engine)
-        if (ref.engine !in enabled.state.value) fail(EngineUnavailable)
+        if (ref.engine !in enabled.current()) fail(EngineUnavailable)
         val source = registry.source(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
         return openStored(registration, adapterCall(log, "get") { source.get(ref) })
     }
@@ -68,15 +69,19 @@ class SessionCatalogService(
         log.i { "refresh sessions" }
         val scoped = query.enabledOnly() ?: return@withLock SessionDiscoveryReport(emptyList())
         val targets = scoped.sources()
-        val generation = if (targets.any { it.second.discovery != null }) index.advanceRevision() else index.revision()
-        val report = targets.map { (registration, source) ->
-            val status = discover(registration, source, scoped, generation)
-            SourceDiscovery(source.source, status, Observation(context.clock.now(), isStale = false))
-                .also { index.saveCoverage(it) }
+        val discovers = targets.any { it.second.discovery != null }
+        val generation = if (discovers) index.advanceRevision() else index.revision()
+        try {
+            val report = targets.map { (registration, source) ->
+                val status = discover(registration, source, scoped, generation)
+                SourceDiscovery(source.source, status, Observation(context.clock.now(), isStale = false))
+                    .also { index.saveCoverage(it) }
+            }
+            SessionDiscoveryReport(report)
+        } finally {
+            // Pages read while discovery was reordering rows got the intermediate revision; retire it even on failure.
+            if (discovers) index.advanceRevision()
         }
-        // Pages read while discovery was reordering rows got the intermediate revision; retire it as well.
-        if (targets.any { it.second.discovery != null }) index.advanceRevision()
-        SessionDiscoveryReport(report)
     }
 
     /** Records a session created or resumed through Heartbeat, independently of native discovery. */
@@ -97,31 +102,43 @@ class SessionCatalogService(
         val discovery = source.discovery ?: return DiscoveryStatus.Unsupported
         val engine = registration.descriptor.id
         val sourceQuery = query.copy(engines = setOf(engine), sources = setOf(source.source.id))
-        return try {
-            var cursor: SessionCursor? = null
-            var pages = 0
-            do {
-                val page = withContext(context.io) { discovery.page(sourceQuery, PageRequest(cursor, DISCOVERY_PAGE)) }
-                val items = page.items.filter { it.ref.engine == engine && it.ref.source == source.source.id }
-                if (items.size != page.items.size) log.w { "dropped foreign entries source=${source.source.id.value}" }
-                val now = Observation(context.clock.now(), isStale = false)
-                index.upsertDiscovered(items.map { it.copy(observation = now) }, generation)
-                cursor = page.next
-                pages++
-            } while (cursor != null && pages < MAX_DISCOVERY_PAGES)
-            if (cursor == null && query.isComplete()) index.removeMissing(engine, source.source.id, generation)
-            log.i { "discovered source=${source.source.id.value} pages=$pages complete=${cursor == null}" }
-            if (cursor == null) DiscoveryStatus.Complete else DiscoveryStatus.InProgress
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: EngineException) {
-            log.w(e) { "discovery failed source=${source.source.id.value} failure=${e.failure.code}" }
-            DiscoveryStatus.Unavailable(e.failure)
-        } catch (e: Exception) {
-            log.e(e) { "discovery crashed source=${source.source.id.value}" }
-            DiscoveryStatus.Unavailable(EngineFailure.Unknown())
-        }
+        var cursor: SessionCursor? = null
+        var pages = 0
+        do {
+            val page = fetch(source, sourceQuery, cursor).getOrElse { e ->
+                log.w(e) { "discovery failed source=${source.source.id.value}" }
+                return e.unavailable()
+            }
+            val items = page.items.filter { it.ref.engine == engine && it.ref.source == source.source.id }
+            if (items.size != page.items.size) log.w { "dropped foreign entries source=${source.source.id.value}" }
+            val now = Observation(context.clock.now(), isStale = false)
+            // Index failures are not adapter failures: they propagate instead of turning into Unavailable.
+            index.upsertDiscovered(items.map { it.copy(observation = now) }, generation)
+            cursor = page.next
+            pages++
+        } while (cursor != null && pages < MAX_DISCOVERY_PAGES)
+        if (cursor == null && query.isComplete()) index.removeMissing(engine, source.source.id, generation)
+        log.i { "discovered source=${source.source.id.value} pages=$pages complete=${cursor == null}" }
+        return if (cursor == null) DiscoveryStatus.Complete else DiscoveryStatus.InProgress
     }
+
+    /** One adapter page; adapter failures (only these) become a failed [Result]. */
+    private suspend fun fetch(
+        source: EngineSessionSource,
+        query: SessionQuery,
+        cursor: SessionCursor?,
+    ): Result<SessionPage> = try {
+        val discovery = checkNotNull(source.discovery) { "source without discovery" }
+        Result.success(withContext(context.io) { discovery.page(query, PageRequest(cursor, DISCOVERY_PAGE)) })
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+
+    private fun Throwable.unavailable(): DiscoveryStatus = DiscoveryStatus.Unavailable(
+        (this as? EngineException)?.failure ?: EngineFailure.Unknown(),
+    )
 
     /** Cursor of this profile and query in the current snapshot; a reordered index invalidates it. */
     private suspend fun decode(cursor: SessionCursor, query: SessionQuery): DecodedCursor {
@@ -152,10 +169,14 @@ class SessionCatalogService(
             when {
                 source.discovery == null -> SourceDiscovery(source.source, DiscoveryStatus.Unsupported, Observation())
 
-                else -> stored.firstOrNull { it.source.id == source.source.id }?.copy(source = source.source)
+                else -> stored.firstOrNull { it.source.matches(source) }?.copy(source = source.source)
                     ?: SourceDiscovery(source.source, DiscoveryStatus.InProgress, Observation())
             }
         }
+
+    /** Coverage rows are keyed by engine and source id: equal ids of different engines are distinct stores. */
+    private fun SessionSource.matches(other: EngineSessionSource): Boolean =
+        engine == other.source.engine && id == other.source.id
 
     private companion object {
         const val DISCOVERY_PAGE = 200

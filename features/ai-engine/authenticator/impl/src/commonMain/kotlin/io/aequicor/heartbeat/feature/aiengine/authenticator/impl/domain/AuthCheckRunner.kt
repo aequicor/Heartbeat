@@ -21,6 +21,7 @@ import kotlin.time.Clock
  * [AuthChecks] over contributed authenticators. Requested ids are tried first, then [builtIns]; a CLI login is
  * never offered to a shared built-in. Observations are kept in memory per source and context: a check that
  * throws returns the previous verdict of the same revision marked stale, otherwise an explicit stale Unknown.
+ * A result is recorded only if the source still has the checked revision when the answer arrives.
  */
 class AuthCheckRunner(
     private val sources: AuthSources,
@@ -55,7 +56,7 @@ class AuthCheckRunner(
             authenticator == null -> observation(source, context, AuthVerdict.Unknown, resolved.info.revision)
             else -> verify(authenticator, resolved, context)
         }
-        return record(result)
+        return record(result, sources.get(source)?.info?.revision)
     }
 
     private suspend fun verify(authenticator: Authenticator, source: AuthSource, context: AuthContextKey): AuthCheck {
@@ -86,9 +87,18 @@ class AuthCheckRunner(
         revision: AuthRevision,
     ) = AuthCheck(source, context, verdict, AuthCheckBasis.Local, clock.now(), revision)
 
-    private fun record(check: AuthCheck): AuthCheck {
+    /** Keeps [check] only while it describes [current]; a late answer for an old revision never overwrites. */
+    private fun record(check: AuthCheck, current: AuthRevision?): AuthCheck {
         log.i { "verdict source=${check.source.value} verdict=${check.verdict} stale=${check.isStale}" }
-        observations.update { it + ((check.source to check.context) to check) }
+        val relevant = when (current) {
+            null -> check.verdict == AuthVerdict.SourceUnavailable
+            else -> check.revision == current
+        }
+        if (relevant) {
+            observations.update { it + ((check.source to check.context) to check) }
+        } else {
+            log.i { "verdict outdated by a revision change, not recorded source=${check.source.value}" }
+        }
         return check
     }
 }

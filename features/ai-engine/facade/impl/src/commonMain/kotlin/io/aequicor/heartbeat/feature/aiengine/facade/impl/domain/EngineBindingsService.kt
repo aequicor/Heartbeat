@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Persistent bindings of one profile. Failures propagate. */
 interface BindingStore {
@@ -60,9 +61,14 @@ class EngineGate(val registry: EngineRegistry, private val toggles: EngineToggle
 }
 
 /**
- * [EngineBindings] over [BindingStore]. Mutations are serialized. Ownership is checked through the registration
- * (CLI logins stay with their owner) and the adapter route is stored by [EngineFactory.bind] before a binding is saved;
- * removal calls [EngineFactory.unbind] after the binding is gone. Authentication itself is checked only on request.
+ * [EngineBindings] over [BindingStore]. Mutations and [requireBinding] reads are serialized by one mutex, so a route
+ * never observes a half-applied change. Ownership is checked through the registration (CLI logins stay with their
+ * owner) and the adapter route is stored by [EngineFactory.bind] before a binding is saved; if that save fails for a
+ * new binding, the route is compensated with [EngineFactory.unbind] and the save failure propagates.
+ * Removal calls [EngineFactory.unbind] after the binding is gone; a failing unbind is only logged — the binding is
+ * already removed and every later route resolution fails on it, so the stale adapter route is unreachable.
+ * A handle opened concurrently with [disconnect] is caught by the route recheck before each turn
+ * ([RouteResolver.recheck]). Authentication itself is checked only on request.
  */
 class EngineBindingsService(
     private val gate: EngineGate,
@@ -87,9 +93,10 @@ class EngineBindingsService(
             val existing = saved.firstOrNull { it.engine == engine && it.authSource == source }
             val id = existing?.id ?: EngineBindingId(context.token(BINDING_PREFIX))
             requireAccepted(registration, authSource, EngineContext(engine, id))
-            registration.factory.value.bind(id, authSource)
+            val factory = registration.factory.value
+            factory.bind(id, authSource)
             val binding = existing?.copy(priority = priority) ?: EngineBinding(id, engine, source, priority = priority)
-            store.save(if (existing == null) saved + binding else saved.map { if (it.id == id) binding else it })
+            saveBound(saved, binding, isNew = existing == null, factory)
             log.i { "binding saved binding=${id.value} new=${existing == null}" }
             binding
         }
@@ -108,8 +115,48 @@ class EngineBindingsService(
         val saved = store.load()
         val removed = saved.firstOrNull { it.id == binding } ?: return@withLock
         store.save(saved.filterNot { it.id == binding })
-        gate.registry.find(removed.engine)?.factory?.value?.unbind(binding)
-            ?: log.w { "no registration to unbind engine=${removed.engine.value} binding=${binding.value}" }
+        val factory = gate.registry.find(removed.engine)?.factory?.value
+        if (factory == null) {
+            log.w { "no registration to unbind engine=${removed.engine.value} binding=${binding.value}" }
+            return@withLock
+        }
+        try {
+            factory.unbind(binding)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "unbind failed after removal binding=${binding.value}" }
+        }
+    }
+
+    /** Saves [binding] whose adapter route is already bound; a failed save of a new binding unbinds it again. */
+    private suspend fun saveBound(
+        saved: List<EngineBinding>,
+        binding: EngineBinding,
+        isNew: Boolean,
+        factory: EngineFactory,
+    ) {
+        try {
+            store.save(if (isNew) saved + binding else saved.map { if (it.id == binding.id) binding else it })
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "binding save failed binding=${binding.id.value} new=$isNew" }
+            if (isNew) compensate(factory, binding.id, e)
+            throw e
+        }
+    }
+
+    /** Removes the adapter route of a binding whose save failed; a secondary failure is attached to [cause]. */
+    private suspend fun compensate(factory: EngineFactory, id: EngineBindingId, cause: Exception) {
+        try {
+            factory.unbind(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "compensating unbind failed binding=${id.value}" }
+            cause.addSuppressed(e)
+        }
     }
 
     override suspend fun check(target: EngineTarget, workspace: WorkspaceRef?): BindingCheck {
@@ -129,7 +176,10 @@ class EngineBindingsService(
 
     /** Saved binding [id] of [engine]; disabled bindings are returned too — callers decide. */
     suspend fun requireBinding(id: EngineBindingId, engine: EngineId): EngineBinding =
-        store.load().firstOrNull { it.id == id && it.engine == engine } ?: fail(OperationNotAllowed)
+        saved().firstOrNull { it.id == id && it.engine == engine } ?: fail(OperationNotAllowed)
+
+    /** Saved bindings, read consistently with in-flight mutations. */
+    suspend fun saved(): List<EngineBinding> = mutex.withLock { store.load() }
 
     /** Source [id] of this profile, or an authentication failure when it was forgotten. */
     suspend fun requireSource(id: AuthSourceId): AuthSource =

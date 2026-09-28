@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.impl.domain.ManagedK
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.builtins.ListSerializer
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Profile key-value store of source metadata; labels may contain PII, so values are not logged. */
 internal val AuthSourcesSpec = KeyValueSpec("aiengine_auth_sources")
@@ -47,7 +48,8 @@ class AuthSourceStorage(private val store: KeyValueStore) : AuthSourceStore {
 
 /**
  * [ManagedKeyVault] and [AuthCredentials] over the profile [SecretStore]. Each managed key has one value and one
- * usage slot, so the vault refuses removal while another consumer still references it.
+ * usage slot, so the vault refuses removal while another consumer still references it: [remove] then throws
+ * [ManagedKeyInUseException]. A failed [store] of a new value removes that value again.
  */
 class SecretStoreKeyVault(private val secrets: SecretStore) :
     ManagedKeyVault,
@@ -56,8 +58,28 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
 
     override suspend fun store(slot: AuthSecretId, key: Secret) {
         log.d { "store managed key id=${slot.value}" }
+        val existed = slot.key() in secrets.keys()
         secrets.write(slot.key(), key)
-        secrets.bind(slot.usage(), slot.key())
+        try {
+            secrets.bind(slot.usage(), slot.key())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "bind failed id=${slot.value}" }
+            if (!existed) rollbackWrite(slot, e)
+            throw e
+        }
+    }
+
+    private suspend fun rollbackWrite(slot: AuthSecretId, cause: Exception) {
+        try {
+            secrets.remove(slot.key())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "rollback of unbound managed key failed id=${slot.value}" }
+            cause.addSuppressed(e)
+        }
     }
 
     override suspend fun read(slot: AuthSecretId): Secret? {
@@ -76,7 +98,11 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
         secrets.bind(slot.usage(), null)
         when (val removal = secrets.remove(slot.key())) {
             SecretRemoval.Removed, SecretRemoval.Missing -> Unit
-            is SecretRemoval.InUse -> log.w { "managed key kept, still referenced usages=${removal.usages.size}" }
+
+            is SecretRemoval.InUse -> {
+                log.w { "managed key kept, still referenced usages=${removal.usages.size}" }
+                throw ManagedKeyInUseException(slot)
+            }
         }
     }
 
@@ -92,3 +118,7 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
         const val USAGE_SLOT = "key"
     }
 }
+
+/** A managed key is still referenced by another consumer, so its value was kept. */
+class ManagedKeyInUseException(slot: AuthSecretId) :
+    IllegalStateException("Managed key is still in use id=${slot.value}")
