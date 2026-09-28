@@ -39,5 +39,9 @@ class KoogReasoningTest {
         val thinking = assertIs<AnthropicThinking.Enabled>(anthropic.thinking)
         assertEquals(32_000, anthropic.maxTokens)
         assertTrue(thinking.budgetTokens < 32_000)
+        val small = assertIs<AnthropicParams>(KoogProvider.Anthropic.reasoningParams("high", 4_096))
+        assertEquals(4_096, small.maxTokens)
+        assertTrue(assertIs<AnthropicThinking.Enabled>(small.thinking).budgetTokens < 4_096)
+        assertEquals(LLMParams(), KoogProvider.Anthropic.reasoningParams("high", 1_500))
     }
 }

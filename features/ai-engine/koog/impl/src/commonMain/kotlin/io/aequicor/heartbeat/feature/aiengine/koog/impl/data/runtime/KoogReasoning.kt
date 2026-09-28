@@ -43,21 +43,24 @@ internal fun KoogProvider.reasoningParams(effort: String?, maxOutputTokens: Long
         KoogProvider.OpenAI, KoogProvider.AlibabaQwen, KoogProvider.OpenAICompatible ->
             OpenAIChatParams(reasoningEffort = openAIEffort(level))
 
-        KoogProvider.Anthropic, KoogProvider.AnthropicCompatible -> {
-            // Anthropic requires max_tokens above the thinking budget; the rest is left for the answer.
-            val limit = maxOutputTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
-            val budget = limit?.let {
-                anthropicBudget(
-                    level,
-                ).coerceAtMost(it - ANSWER_TOKENS).coerceAtLeast(MIN_BUDGET)
-            }
-                ?: anthropicBudget(level)
-            val maxTokens = limit?.coerceAtLeast(budget + MIN_BUDGET) ?: (budget + ANSWER_TOKENS)
-            AnthropicParams(maxTokens = maxTokens, thinking = AnthropicThinking.Enabled(budget))
-        }
+        KoogProvider.Anthropic, KoogProvider.AnthropicCompatible -> anthropicParams(level, maxOutputTokens)
 
         KoogProvider.Ollama -> OllamaParams(think = level == "on")
     }
+}
+
+/**
+ * Anthropic requires max_tokens above the thinking budget. With a known [maxOutputTokens] the request uses the whole
+ * limit and never exceeds it; a limit too small for the minimum budget sends no thinking.
+ */
+private fun anthropicParams(level: String, maxOutputTokens: Long?): LLMParams {
+    val limit = maxOutputTokens?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+        ?: return anthropicBudget(level).let {
+            AnthropicParams(maxTokens = it + ANSWER_TOKENS, thinking = AnthropicThinking.Enabled(it))
+        }
+    if (limit < 2 * MIN_BUDGET) return LLMParams()
+    val budget = anthropicBudget(level).coerceIn(MIN_BUDGET, limit - minOf(ANSWER_TOKENS, limit / 2))
+    return AnthropicParams(maxTokens = limit, thinking = AnthropicThinking.Enabled(budget))
 }
 
 private fun openAIEffort(level: String): ReasoningEffort = when (level) {
