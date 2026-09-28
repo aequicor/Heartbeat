@@ -104,5 +104,7 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
 internal fun initFrame(id: String) = """{"type":"system","subtype":"init","session_id":"$id","model":"claude-actual"}"""
 internal fun assistantFrame(id: String) = """{"type":"assistant","session_id":"$id",
         "message":{"model":"claude-actual","content":[{"type":"text","text":"Answer"}]}}"""
+internal fun errorResultFrame(id: String) = """{"type":"result","session_id":"$id",
+        "subtype":"error_during_execution","is_error":true}"""
 internal fun resultFrame(id: String) = """{"type":"result","session_id":"$id",
         "subtype":"success","is_error":false,"result":"Answer"}"""

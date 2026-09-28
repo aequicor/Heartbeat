@@ -14,6 +14,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
@@ -70,7 +72,8 @@ class ClaudeProcessTest {
                 }
             }
             val pid = helper.await()
-            task.cancelAndJoin()
+            // Real clock: without the tree kill the reader would block until the helper's own sleep ends.
+            withContext(Dispatchers.Default) { withTimeout(HELPER_CANCEL_TIMEOUT_MS) { task.cancelAndJoin() } }
             assertExited(pid)
         } finally {
             Files.deleteIfExists(program)
@@ -200,6 +203,7 @@ private fun assertExited(pid: Long) {
 }
 
 private const val EXIT_TIMEOUT_SECONDS = 10L
+private const val HELPER_CANCEL_TIMEOUT_MS = 20_000L
 
 private val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
 

@@ -102,14 +102,14 @@ internal class ClaudeSession(
         }
         val last = (current as? ActiveSessionState.Ready)?.lastTurn
             ?: (current as? ActiveSessionState.Unavailable)?.lastTurn
-        val started = unfinished?.takeIf { it.id != undelivered }
-        started?.takeIf { it.outcome == null }?.let { turn ->
-            history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
+        unfinished?.takeIf { it.outcome == null }?.let { turn ->
+            val outcome = displacedOutcome(turn)
+            history.publish { SessionEvent.TurnFinished(it, turn.id, outcome) }
         }
         update(
             ActiveSessionState.Unavailable(
                 failure,
-                lastTurn = last ?: started?.copy(outcome = started.outcome ?: TurnOutcome.Unknown),
+                lastTurn = last ?: unfinished?.copy(outcome = unfinished.outcome ?: displacedOutcome(unfinished)),
             ),
         )
         history.close()
@@ -165,10 +165,11 @@ internal class ClaudeSession(
             }
             log.i { "Claude prompt process ended exit=$exit" }
             hasNativeSession = hasNativeSession || observer.hasMatchingSession
-            if (observer.isFinished && exit == 0) {
+            // The CLI exits nonzero after an error result; only a success needs a clean exit to be trusted.
+            if (observer.isFinished && (exit == 0 || observer.turn.outcome is TurnOutcome.Failed)) {
                 observer.complete()
             } else if (observer.isFinished) {
-                log.w { "Claude CLI exited with an error after its result; outcome is unknown" }
+                log.w { "Claude CLI exited with an error after a successful result; outcome is unknown" }
                 observer.resultUnconfirmed()
             } else {
                 settle(submission, observer, accepted, EngineFailure.Engine(EngineFailureReason.Crashed))
@@ -188,8 +189,9 @@ internal class ClaudeSession(
             if (!observer.isFinished && !scope.isActive) {
                 update(
                     ActiveSessionState.Unavailable(
-                        EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed),
+                        environment.closeFailure(),
                         activeTurn = observer.turn,
+                        lastTurn = submission.previous,
                     ),
                 )
             }
@@ -211,7 +213,7 @@ internal class ClaudeSession(
             lost(submission.request, observer.turn, accepted)
             return
         }
-        if (failure == EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)) {
+        if (failure == LAUNCH_FAILURE) {
             log.w { "Claude CLI could not be started; the prompt was not delivered" }
             undelivered = observer.turn.id
         } else {
@@ -247,9 +249,11 @@ internal class ClaudeSession(
             return
         }
         if (turn != null && turn.id == undelivered) {
-            log.i { "Claude turn was never delivered; session is ready again" }
+            log.i { "Claude turn was never delivered; recorded as failed" }
+            val outcome = displacedOutcome(turn)
             undelivered = null
-            update(ActiveSessionState.Ready(last))
+            history.publish { SessionEvent.TurnFinished(it, turn.id, outcome) }
+            update(ActiveSessionState.Ready(turn.copy(outcome = outcome)))
             return
         }
         if (!hasNativeSession) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
@@ -261,6 +265,10 @@ internal class ClaudeSession(
         history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
         update(ActiveSessionState.Ready(turn.copy(outcome = TurnOutcome.Unknown)))
     }
+
+    /** A turn that never reached a CLI process failed locally; any other displaced turn has an unknown outcome. */
+    private fun displacedOutcome(turn: Turn): TurnOutcome =
+        if (turn.id == undelivered) TurnOutcome.Failed(LAUNCH_FAILURE) else TurnOutcome.Unknown
 
     /** Ready and Unavailable are published after the process ends; only the coroutine's tail may still run. */
     private suspend fun awaitSettled() {
@@ -280,7 +288,7 @@ internal class ClaudeSession(
     }
 
     private fun ensureOpen() {
-        if (!scope.isActive) throw EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        if (!scope.isActive) throw EngineException(environment.closeFailure())
     }
 
     private fun busy(): Nothing = throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
@@ -352,14 +360,18 @@ private fun promptText(request: PromptRequest): String {
 
 private const val MAX_PROMPT_CHARS = 1024 * 1024
 
+/** Reported by the transport only before a child process exists. */
+private val LAUNCH_FAILURE = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
+
 private data class Submission(val request: PromptRequest, val text: String, val turn: Turn, val previous: Turn?) {
     override fun toString(): String = "Submission(***)"
 }
 
-/** Dependencies shared by every session of one profile-owned runtime. */
+/** Dependencies shared by every session of one profile-owned runtime; [closeFailure] explains a stopped runtime. */
 internal data class ClaudeSessionEnvironment(
     val transport: ClaudeTransport,
     val account: ClaudeAccount,
     val toggles: FeatureToggles,
     val scope: CoroutineScope,
+    val closeFailure: () -> EngineFailure,
 )

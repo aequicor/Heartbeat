@@ -43,7 +43,7 @@ internal class ClaudeRuntime(
     private val log = Log.tag("ClaudeRuntime")
     private val owner = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + owner)
-    private val environment = ClaudeSessionEnvironment(transport, account, toggles, scope)
+    private val environment = ClaudeSessionEnvironment(transport, account, toggles, scope) { closeFailure }
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()
     val isClosed: Boolean get() = !owner.isActive

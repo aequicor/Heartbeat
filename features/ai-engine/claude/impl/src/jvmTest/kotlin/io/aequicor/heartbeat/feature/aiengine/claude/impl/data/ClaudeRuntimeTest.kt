@@ -194,7 +194,8 @@ class ClaudeRuntimeTest {
         assertEquals(missing, rejected.await().failure)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
         session.features.available(ReconcilesSession).synchronize()
-        assertEquals(null, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn)
+        val failed = assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome
+        assertEquals(TurnOutcome.Failed(missing), failed)
 
         fixture.transport.generation = generate
         val retried = async { session.features.available(SendsPrompts).send(prompt("retry")) }
@@ -203,7 +204,26 @@ class ClaudeRuntimeTest {
         assertTrue(fixture.transport.calls.last().any { it == "--session-id=${session.ref.nativeId}" })
         runtime.close()
         val finished = history.watch(checkpoint).toList().filterIsInstance<SessionEvent.TurnFinished>()
-        assertEquals(listOf(TurnOutcome.Completed), finished.map { it.outcome })
+        assertEquals(listOf(TurnOutcome.Failed(missing), TurnOutcome.Completed), finished.map { it.outcome })
+    }
+
+    @Test
+    fun `an error result keeps its failure although the CLI exits nonzero`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(errorResultFrame(id))
+            1
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val send = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        send.await()
+        val ready = assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertIs<TurnOutcome.Failed>(ready.lastTurn?.outcome)
+        runtime.close()
     }
 
     @Test
