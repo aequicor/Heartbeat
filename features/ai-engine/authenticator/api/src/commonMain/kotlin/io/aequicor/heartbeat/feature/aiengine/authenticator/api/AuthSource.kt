@@ -8,9 +8,23 @@ public data class AuthSourceInfo(val id: AuthSourceId, val label: String, val re
     override fun toString(): String = "AuthSourceInfo(id=$id)"
 }
 
-/** Provider and exact endpoint origin against which this source may be used. */
+/**
+ * Provider and exact endpoint origin against which this source may be used. [basePath] is an optional API prefix
+ * on the same origin chosen by the user (`/api/v1`); credentials stay bound to [origin], the path never widens it.
+ */
 @Serializable
-public data class AuthScope(val provider: ProviderId, val origin: EndpointOrigin)
+public data class AuthScope(val provider: ProviderId, val origin: EndpointOrigin, val basePath: String? = null) {
+    init {
+        require(basePath == null || isCanonicalBasePath(basePath)) { "Expected a canonical base path" }
+    }
+}
+
+/** Canonical base path: `/segment(/segment)*` of unreserved characters, no dot segments or trailing slash. */
+public fun isCanonicalBasePath(path: String): Boolean =
+    path.length <= MAX_BASE_PATH && path.matches(BASE_PATH) && path.split('/').none { it == "." || it == ".." }
+
+private val BASE_PATH = Regex("(/[A-Za-z0-9._~-]+)+")
+private const val MAX_BASE_PATH = 256
 
 /**
  * Credential provenance. The source alone owns its vault usage; bindings refer only to its id.

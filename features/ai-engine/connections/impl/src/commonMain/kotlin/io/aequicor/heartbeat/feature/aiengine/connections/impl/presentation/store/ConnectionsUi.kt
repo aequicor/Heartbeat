@@ -36,6 +36,7 @@ data class MethodRowUi(
     val kind: MethodKindUi,
     val origin: String,
     val isOriginEditable: Boolean,
+    val isPathEditable: Boolean,
     val credentialsPage: String?,
 )
 
@@ -67,6 +68,7 @@ internal fun ConnectionMethod.toRow(): MethodRowUi = MethodRowUi(
     },
     origin = origin.value,
     isOriginEditable = isOriginEditable,
+    isPathEditable = isPathEditable,
     credentialsPage = provider.credentialsPage,
 )
 
