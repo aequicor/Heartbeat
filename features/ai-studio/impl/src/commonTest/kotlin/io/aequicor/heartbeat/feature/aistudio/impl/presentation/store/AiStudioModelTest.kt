@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.data.InMemoryStudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import kotlinx.coroutines.CompletableDeferred
@@ -26,6 +27,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -142,6 +144,22 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `research availability follows its entry service across machine updates`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+        assertEquals(false, screen.states.value.isResearchEnabled)
+        fixture.isResearchEnabled.value = true
+        runCurrent()
+        assertTrue(screen.states.value.isResearchEnabled)
+        fixture.machine.state.value = ready.copy(panes = listOf(StudioPane(1)), focusedPaneId = 1)
+        runCurrent()
+        assertTrue(screen.states.value.isResearchEnabled)
+        fixture.isResearchEnabled.value = false
+        runCurrent()
+        assertEquals(false, screen.states.value.isResearchEnabled)
+    }
+
+    @Test
     fun `accepted navigation closes the drawer and closed panes forget drafts`() = runTest {
         val fixture = Fixture(this, ready.copy(panes = ready.panes + StudioPane(1)))
         val screen = fixture.subscribe()
@@ -156,6 +174,7 @@ class AiStudioModelTest {
 
     private class Fixture(private val scope: TestScope, initial: AiStudioState) {
         val machine = FakeMachine(initial)
+        val isResearchEnabled = MutableStateFlow(false)
         val model = AiStudioModel(
             machine = machine,
             backend = object : StudioBackend {
@@ -168,6 +187,11 @@ class AiStudioModelTest {
             clock = TestClock(scope),
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
+            entries = object : StudioEntries {
+                override val showsResearch = isResearchEnabled
+                override val showsConnections = flowOf(false)
+                override val showsProfileSettings = flowOf(false)
+            },
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

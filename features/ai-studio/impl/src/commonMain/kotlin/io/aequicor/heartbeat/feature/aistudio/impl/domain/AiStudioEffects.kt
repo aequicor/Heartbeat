@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Executes the demo workspace effects while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime]
@@ -37,13 +38,15 @@ class AiStudioEffects(
     private val clock: Clock,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("AiStudioEffects")
-    private val activeRuns = MutableStateFlow(emptySet<String>())
+    private val activeRuns = MutableStateFlow(emptyMap<String, Instant>())
     private val stopRequests = MutableStateFlow(emptySet<String>())
 
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.ObserveRuntime -> activeRuns.collect {
-                machine.send(AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it)))
+                machine.send(
+                    AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it.keys, runStartedAt = it)),
+                )
             }
 
             // The scripted agent never asks for permissions; a stray answer is a caller error, not a decision.
@@ -52,6 +55,10 @@ class AiStudioEffects(
             AiStudioEffect.ObserveModels -> repository.observeModels().collect { models ->
                 machine.send(AiStudioIntent.Internal.ModelsChanged(models.map { it.id }))
             }
+
+            AiStudioEffect.ObserveProjects -> machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(false))
+
+            is AiStudioEffect.ChooseProject -> error("Local folder selection is unavailable in the demo workspace")
 
             AiStudioEffect.Load -> machine.send(
                 AiStudioIntent.Internal.Loaded(
@@ -85,10 +92,11 @@ class AiStudioEffects(
 
     /** Registers the run before its first suspension, so a stop sent right after the submit finds it. */
     private suspend fun run(effect: AiStudioEffect.Run): RunOutcome {
-        val started = activeRuns.updateAndGet { it + effect.sessionId }
+        val startedAt = clock.now()
+        val started = activeRuns.updateAndGet { it + (effect.sessionId to startedAt) }
         log.d { "active runs: ${started.size - 1} -> ${started.size}" }
         try {
-            return execute(effect)
+            return execute(effect, startedAt)
         } finally {
             val remaining = activeRuns.updateAndGet { it - effect.sessionId }
             log.d { "active runs: ${remaining.size + 1} -> ${remaining.size}" }
@@ -96,8 +104,7 @@ class AiStudioEffects(
         }
     }
 
-    private suspend fun execute(effect: AiStudioEffect.Run): RunOutcome {
-        val startedAt = clock.now()
+    private suspend fun execute(effect: AiStudioEffect.Run, startedAt: Instant): RunOutcome {
         var reply: StudioMessage.Reply? = null
         val outcome = try {
             val history = repository.observeMessages(effect.sessionId).first()

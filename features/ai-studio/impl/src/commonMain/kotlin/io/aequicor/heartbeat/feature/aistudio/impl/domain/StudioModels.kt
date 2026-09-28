@@ -78,13 +78,18 @@ sealed interface StudioMessage {
 }
 
 /** A model offered by the studio composer. */
-data class StudioModel(val id: String, val name: String, val isResearchSupported: Boolean = false)
+data class StudioModel(
+    val id: String,
+    val name: String,
+    val isResearchSupported: Boolean = false,
+    val isLocalProjectSupported: Boolean = false,
+)
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */
 val StudioModels: List<StudioModel> = listOf(
-    StudioModel("pulse-pro", "Pulse Pro"),
-    StudioModel("pulse", "Pulse"),
-    StudioModel("pulse-mini", "Pulse Mini"),
+    StudioModel("pulse-pro", "Pulse Pro", isLocalProjectSupported = true),
+    StudioModel("pulse", "Pulse", isLocalProjectSupported = true),
+    StudioModel("pulse-mini", "Pulse Mini", isLocalProjectSupported = true),
 )
 
 /** Preferences of a fresh workspace. */

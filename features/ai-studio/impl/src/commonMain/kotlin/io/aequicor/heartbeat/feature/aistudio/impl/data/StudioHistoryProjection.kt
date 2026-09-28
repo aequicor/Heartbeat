@@ -9,9 +9,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 import kotlin.time.Instant
 
-/** Maps authoritative native snapshots without appending a second local copy of prompts. */
+/** Maps native snapshots to visible content; protocol-only items stay in native history without chat bubbles. */
 internal fun List<SessionItem>.toStudioMessages(time: Instant, isRunning: Boolean): List<StudioMessage> =
-    mapIndexed { index, item ->
+    mapIndexedNotNull { index, item ->
         val id = item.info.id.value
         when (item) {
             is SessionItem.Message -> if (item.role == MessageRole.User) {
@@ -54,7 +54,7 @@ internal fun List<SessionItem>.toStudioMessages(time: Instant, isRunning: Boolea
 
             is SessionItem.Notice -> StudioMessage.Reply(id, time, item.text)
 
-            is SessionItem.UnsupportedItem -> StudioMessage.Reply(id, time, "[${item.kind}]")
+            is SessionItem.UnsupportedItem -> null
         }
     }
 

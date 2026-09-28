@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
@@ -83,6 +84,11 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun engineRuntime(): FeatureToggle<*> = StudioEngineRuntime
+
+    /** Experimental local folders backed by real CLI workspaces. */
+    @Provides
+    @IntoSet
+    fun localProjects(): FeatureToggle<*> = StudioLocalProjects
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

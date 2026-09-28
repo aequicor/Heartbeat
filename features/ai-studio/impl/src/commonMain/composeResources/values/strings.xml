@@ -53,6 +53,9 @@
     <string name="new_hint">Describe a task: the agent plans it, runs commands and reports back.</string>
     <string name="no_project">No project</string>
     <string name="project_menu">Project</string>
+    <string name="project_add">Add folder…</string>
+    <string name="project_add_failed">Could not add this folder. Check that it exists and is accessible, then try again.</string>
+    <string name="project_model_hint">Choose a connected Codex or Pi model to work in this folder.</string>
     <string name="environment_local">Local</string>
     <string name="environment_cloud">Cloud</string>
 

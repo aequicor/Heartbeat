@@ -53,6 +53,9 @@
     <string name="new_hint">Опишите задачу: агент спланирует её, выполнит команды и отчитается.</string>
     <string name="no_project">Без проекта</string>
     <string name="project_menu">Проект</string>
+    <string name="project_add">Добавить папку…</string>
+    <string name="project_add_failed">Не удалось добавить папку. Проверьте, что она существует и доступна, и повторите попытку.</string>
+    <string name="project_model_hint">Выберите подключённую модель Codex или Pi для работы в этой папке.</string>
     <string name="environment_local">Локальный</string>
     <string name="environment_cloud">Облачный</string>
 

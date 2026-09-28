@@ -21,6 +21,9 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
 
     is AiStudioState.Ready -> copy(
         phase = StudioPhase.Ready,
+        isProjectAddingAvailable = machine.isProjectAddingAvailable,
+        addingProjectTo = machine.addingProjectTo,
+        projectErrorPane = machine.projectErrorPane,
         permissions = machine.permissions.map { request ->
             PermissionUi(
                 request.sessionId,
@@ -32,6 +35,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         panes = machine.panes.map { it.toUi() }.toImmutableList(),
         focusedPaneId = machine.focusedPaneId,
         running = machine.running.toImmutableSet(),
+        runStartedAt = machine.runStartedAt.toImmutableMap(),
         stopping = machine.stopping.toImmutableSet(),
         stopFailures = machine.stopFailures.toImmutableSet(),
         uncancellable = machine.uncancellable.toImmutableSet(),
@@ -67,7 +71,9 @@ internal fun AiStudioScreenState.afterNavigation(intent: AiStudioScreenIntent.Na
             failedPanes = (failedPanes - intent.paneId).toImmutableSet(),
         )
 
-        AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane -> this
+        AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane,
+        is AiStudioScreenIntent.AddProject,
+        -> this
     }
 
 internal fun AiStudioScreenState.startRename(sessionId: String, origin: String): AiStudioScreenState {

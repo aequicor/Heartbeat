@@ -55,7 +55,7 @@ class AiStudioModel(
     private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
-    private val entries: StudioEntries? = null,
+    private val entries: StudioEntries,
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
@@ -83,6 +83,7 @@ class AiStudioModel(
                                         it.id,
                                         it.name,
                                         it.isResearchSupported,
+                                        it.isLocalProjectSupported,
                                     )
                                 }.toImmutableList(),
                             )
@@ -102,7 +103,7 @@ class AiStudioModel(
     }
 
     private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
-        entries?.showsResearch?.collect { updateState { copy(isResearchEnabled = it) } }
+        entries.showsResearch.collect { updateState { copy(isResearchEnabled = it) } }
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
@@ -163,6 +164,8 @@ class AiStudioModel(
     private suspend fun navigate(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Navigation) = with(pipeline) {
         val command = when (intent) {
             AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
+
+            is AiStudioScreenIntent.AddProject -> AiStudioIntent.Public.AddProject(intent.paneId)
 
             is AiStudioScreenIntent.NewSession -> AiStudioIntent.Public.NewSession(intent.projectId)
 

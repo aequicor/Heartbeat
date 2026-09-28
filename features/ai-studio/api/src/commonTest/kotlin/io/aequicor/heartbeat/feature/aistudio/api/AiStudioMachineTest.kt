@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.time.Instant
 
 class AiStudioMachineTest {
     private val settings = RunSettings("pulse", ReasoningEffort.High, ApprovalMode.Ask)
@@ -40,6 +41,7 @@ class AiStudioMachineTest {
                 AiStudioEffect.ObserveAvailability,
                 AiStudioEffect.ObserveRuntime,
                 AiStudioEffect.ObserveModels,
+                AiStudioEffect.ObserveProjects,
             ),
         )
     }
@@ -106,12 +108,31 @@ class AiStudioMachineTest {
             from = session.copy(
                 running = setOf("s1"),
                 observedRunning = setOf("s1"),
+                runStartedAt = mapOf("s1" to Instant.fromEpochSeconds(100)),
                 stopping = setOf("s1"),
                 stopFailures = setOf("s1"),
                 permissions = listOf(permission),
                 answeredPermissions = setOf("other"),
             ),
             intent = AiStudioIntent.Internal.RuntimeLost,
+            to = session,
+        )
+    }
+
+    @Test
+    fun `runtime start times survive reopening and are cleared when the run finishes`() {
+        val starts = mapOf("s1" to Instant.fromEpochSeconds(100))
+        val running = session.copy(running = setOf("s1"), observedRunning = setOf("s1"), runStartedAt = starts)
+        AiStudioMachineSpec.assertTransition(
+            from = session,
+            intent = AiStudioIntent.Internal.RuntimeChanged(
+                StudioRuntimeState(running = setOf("s1"), runStartedAt = starts),
+            ),
+            to = running,
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = running,
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(runStartedAt = starts)),
             to = session,
         )
     }

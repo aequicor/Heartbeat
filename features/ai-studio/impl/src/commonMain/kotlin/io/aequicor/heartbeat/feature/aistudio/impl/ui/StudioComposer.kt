@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_cloud
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
@@ -72,7 +73,7 @@ internal fun StudioComposer(
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,
         enabled =
-            !pane.isCreating && !content.isStopping && session?.isContinuable != false &&
+            !pane.isCreating && !content.isPickingProject && !content.isStopping && session?.isContinuable != false &&
                 (session?.isRunning != true || content.isStoppable) &&
                 // A pending permission must be answered before another prompt can be sent.
                 (
@@ -81,7 +82,12 @@ internal fun StudioComposer(
                 ),
         leadingContent = { TemplatesMenu(draft) { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) } },
         trailingContent = {
-            ModelMenu(settings.modelId, content.models, onIntent, canSelect = session?.modelId == null)
+            ModelMenu(
+                settings.modelId,
+                content.models,
+                onIntent,
+                canSelect = session?.modelId == null || (content.project != null && !session.isRunning),
+            )
         },
     )
 }
@@ -94,12 +100,20 @@ internal fun ContextTray(
     projects: ImmutableList<ProjectUi>,
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
+    isProjectAddingAvailable: Boolean = false,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val noProject = stringResource(Res.string.no_project)
+    val add = if (isProjectAddingAvailable) {
+        listOf(
+            HbMenuItem(ADD_PROJECT, stringResource(Res.string.project_add), HbIcons.Plus, isGroupStart = true),
+        )
+    } else {
+        emptyList()
+    }
     val items = (
         projects.map { HbMenuItem(it.id, it.name, HbIcons.Folder, isChecked = it.id == project?.id) } +
-            HbMenuItem(NO_PROJECT, noProject, HbIcons.Chat, isChecked = project == null, isGroupStart = true)
+            HbMenuItem(NO_PROJECT, noProject, HbIcons.Chat, isChecked = project == null, isGroupStart = true) + add
     ).toImmutableList()
     HbFlowRow(modifier.testTag("context-tray-${pane.id}"), gap = HbTheme.spacing.xs) {
         Box {
@@ -115,26 +129,31 @@ internal fun ContextTray(
                 isExpanded = isOpen,
                 onDismiss = { isOpen = false },
                 onItem = { id ->
-                    onIntent(
-                        AiStudioScreenIntent.SelectProject(pane.id, id.takeIf { it != NO_PROJECT }),
-                    )
+                    if (id == ADD_PROJECT) {
+                        onIntent(AiStudioScreenIntent.AddProject(pane.id))
+                    } else {
+                        onIntent(AiStudioScreenIntent.SelectProject(pane.id, id.takeIf { it != NO_PROJECT }))
+                    }
                 },
                 label = stringResource(Res.string.project_menu),
             )
         }
-        if (project != null) {
-            HbChip(
-                label = stringResource(
-                    when (project.environment) {
-                        EnvironmentUi.Local -> Res.string.environment_local
-                        EnvironmentUi.Cloud -> Res.string.environment_cloud
-                    },
-                ),
-                icon = if (project.environment == EnvironmentUi.Local) HbIcons.Laptop else HbIcons.Cloud,
-            )
-            HbChip(label = project.branch, icon = HbIcons.Branch)
-        }
+        project?.let { ProjectDetails(it) }
     }
+}
+
+@Composable
+private fun ProjectDetails(project: ProjectUi) {
+    HbChip(
+        label = stringResource(
+            when (project.environment) {
+                EnvironmentUi.Local -> Res.string.environment_local
+                EnvironmentUi.Cloud -> Res.string.environment_cloud
+            },
+        ),
+        icon = if (project.environment == EnvironmentUi.Local) HbIcons.Laptop else HbIcons.Cloud,
+    )
+    if (project.branch.isNotBlank()) HbChip(label = project.branch, icon = HbIcons.Branch)
 }
 
 @Composable
@@ -189,3 +208,4 @@ private fun ModelMenu(
 private data class Template(val id: String, val label: StringResource, val prompt: StringResource)
 
 private const val NO_PROJECT = "no-project"
+private const val ADD_PROJECT = "add-project"

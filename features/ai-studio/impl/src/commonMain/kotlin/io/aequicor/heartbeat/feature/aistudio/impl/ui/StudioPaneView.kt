@@ -53,9 +53,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_unsupported
@@ -281,7 +284,20 @@ private fun PaneFooter(
             HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
         }
         if (content.pane.sessionId == null) {
-            ContextTray(content.pane, content.project, content.projects, onIntent, column)
+            ContextTray(
+                content.pane,
+                content.project,
+                content.projects,
+                onIntent,
+                column,
+                content.isProjectAddingAvailable,
+            )
+        }
+        if (content.isProjectFailed) {
+            HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
+        }
+        if (content.project != null && content.models.none { it.id == content.settings.modelId }) {
+            HbText(stringResource(Res.string.project_model_hint), column)
         }
         if (content.isResearchAvailable && onOpenResearch != null) {
             HbButton(
@@ -299,10 +315,10 @@ private fun RunStatus(isStopping: Boolean, elapsed: Duration?, modifier: Modifie
     HbRow(modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("run-status"), gap = HbTheme.spacing.s) {
         HbActivityIndicator()
         HbText(
-            text = if (isStopping || elapsed == null) {
-                stringResource(Res.string.stopping)
-            } else {
-                stringResource(Res.string.working_for, durationLabels().format(elapsed))
+            text = when {
+                isStopping -> stringResource(Res.string.stopping)
+                elapsed == null -> stringResource(Res.string.session_running)
+                else -> stringResource(Res.string.working_for, durationLabels().format(elapsed))
             },
             style = HbTheme.typography.caption,
             color = HbTheme.colors.textSecondary,
@@ -314,7 +330,12 @@ private fun RunStatus(isStopping: Boolean, elapsed: Duration?, modifier: Modifie
 @Composable
 private fun sectionTitle(project: ProjectUi?, session: SessionUi?): String {
     val general = stringResource(Res.string.pane_general)
-    return project?.let { "${it.name} · ${session?.branch ?: it.branch}" } ?: general
+    return project?.let {
+        listOf(
+            it.name,
+            session?.branch ?: it.branch,
+        ).filter(String::isNotBlank).joinToString(" · ")
+    } ?: general
 }
 
 /** Focuses the pane on any press inside it without consuming the gesture. */

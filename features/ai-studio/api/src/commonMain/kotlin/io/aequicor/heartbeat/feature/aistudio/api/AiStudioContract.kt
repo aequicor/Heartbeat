@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 /** AI studio workspace: projects, agent sessions and their conversations. Owned by the active profile. */
 @Serializable
@@ -23,6 +24,12 @@ public val StudioEngineRuntime: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.engine_runtime",
     description = "AI-студия: чаты профиля через подключённые движки",
     default = false,
+)
+
+/** Adds local folders for Codex/Pi; disabling stops new folder registration, while saved project chats still work. */
+public val StudioLocalProjects: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "ai_studio.local_projects",
+    description = "Локальные проекты: выбор папки и работа Codex/Pi в ней",
 )
 
 /** Studio workflow: workspace loading, open panes, model preferences and running agent sessions. */
@@ -45,6 +52,9 @@ public sealed interface AiStudioState : MachineState {
      * Archived sessions leave their panes for the new-session page of [defaultProjectId].
      * [observedRunning] is the latest profile runtime snapshot; [answeredPermissions] are request ids already
      * answered by the user and hidden until the engine withdraws them.
+     * [runStartedAt] contains known start times of current runs, including runs resumed by reopening the studio.
+     * [isProjectAddingAvailable] gates folder selection; [addingProjectTo] owns the single active picker.
+     * [projectErrorPane] identifies the pane whose last folder selection failed.
      */
     public data class Ready(
         val panes: List<StudioPane>,
@@ -58,6 +68,10 @@ public sealed interface AiStudioState : MachineState {
         val permissions: List<StudioPermission> = emptyList(),
         val observedRunning: Set<String> = emptySet(),
         val answeredPermissions: Set<String> = emptySet(),
+        val runStartedAt: Map<String, Instant> = emptyMap(),
+        val isProjectAddingAvailable: Boolean = false,
+        val addingProjectTo: Int? = null,
+        val projectErrorPane: Int? = null,
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -81,6 +95,9 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Changes the project a new session of [paneId] will belong to. */
         public data class SelectProject(val paneId: Int, val projectId: String?) : Public
+
+        /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
+        public data class AddProject(val paneId: Int) : Public
 
         /** Shows [sessionId] in [paneId] (the focused pane when `null`), or focuses the pane already showing it. */
         public data class OpenSession(val sessionId: String, val paneId: Int? = null) : Public
@@ -149,6 +166,15 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Route ids of the models currently offered, in display order. */
         public data class ModelsChanged(val modelIds: List<String>) : Internal
+
+        /** Local project feature and platform availability changed. */
+        public data class ProjectAvailabilityChanged(val isAvailable: Boolean) : Internal
+
+        /** The picker registered a stable project id, or returned null when cancelled. */
+        public data class ProjectChosen(val paneId: Int, val projectId: String?) : Internal
+
+        /** Folder selection or registration failed; the pane remains usable and can retry. */
+        public data class ProjectChoiceFailed(val paneId: Int) : Internal
     }
 }
 
@@ -165,6 +191,12 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Reports the offered models for as long as the workspace is ready. */
     public data object ObserveModels : AiStudioEffect
+
+    /** Observes whether local project selection is available. */
+    public data object ObserveProjects : AiStudioEffect
+
+    /** Picks and registers a local folder without logging or exposing its path to the machine. */
+    public data class ChooseProject(val paneId: Int) : AiStudioEffect
 
     /** Sends an explicit engine-offered decision. */
     public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) :

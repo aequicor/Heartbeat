@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -43,6 +44,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -51,8 +53,10 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -99,6 +103,7 @@ internal data class StudioChatRecord(
     val isUnread: Boolean = false,
     val isArchived: Boolean = false,
     val hasFailed: Boolean = false,
+    val projectId: String? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
@@ -113,6 +118,7 @@ internal class EngineStudioRepository(
     @ForScope(ProfileScope::class) stores: DataStores,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val clock: Clock,
+    private val workspaces: LocalWorkspaces,
 ) : StudioRepository,
     StudioRuntime {
     private val log = Log.tag("EngineStudio")
@@ -149,14 +155,15 @@ internal class EngineStudioRepository(
     override fun observeWorkspace(): Flow<StudioWorkspace> = combine(
         store.observe(ChatsKey),
         continuability,
-    ) { records, continuable ->
+        workspaces.observe(),
+    ) { records, continuable, projects ->
         log.d { "observeWorkspace count=${records.orEmpty().size}" }
         StudioWorkspace(
-            emptyList(),
+            projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
             records.orEmpty().map {
                 StudioSession(
                     it.id,
-                    null,
+                    it.projectId,
                     it.title,
                     it.updatedAt,
                     it.isPinned,
@@ -215,6 +222,7 @@ internal class EngineStudioRepository(
                     Json.encodeToString(EngineTarget.serializer(), target),
                     "${engine.descriptor.title} · ${model.value} · $label",
                     isResearchSupported = binding.engine == KoogEngineId,
+                    isLocalProjectSupported = engine.descriptor.isLocalWorkspaceSupported,
                 )
             }
         }
@@ -235,11 +243,13 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun createSession(projectId: String?, title: String): StudioSession {
-        require(projectId == null) { "No workspace has been configured" }
-        val record = StudioChatRecord(Uuid.random().toString(), title, clock.now())
+        if (projectId != null) {
+            requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
+        }
+        val record = StudioChatRecord(Uuid.random().toString(), title, clock.now(), projectId = projectId)
         lock.withLock { store.set(ChatsKey, store.get(ChatsKey).orEmpty() + record) }
         log.i { "Created studio conversation" }
-        return StudioSession(record.id, null, title, record.updatedAt)
+        return StudioSession(record.id, record.projectId, title, record.updatedAt)
     }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
@@ -247,7 +257,10 @@ internal class EngineStudioRepository(
         val job = lock.withLock {
             check(!profile.isClosed) { "Profile is closed" }
             check(sessionId !in state.value.running) { "Session is busy" }
-            mutableState.update { it.copy(running = it.running + sessionId) }
+            val startedAt = clock.now()
+            mutableState.update {
+                it.copy(running = it.running + sessionId, runStartedAt = it.runStartedAt + (sessionId to startedAt))
+            }
             profile.coroutineScope.async(start = CoroutineStart.LAZY) { execute(sessionId, prompt, settings) }.also {
                 it.start()
             }
@@ -270,6 +283,7 @@ internal class EngineStudioRepository(
                     mutableState.update {
                         it.copy(
                             running = it.running - id,
+                            runStartedAt = it.runStartedAt - id,
                             stopFailures = it.stopFailures - id,
                             uncancellable = it.uncancellable - id,
                             permissions = it.permissions.filterNot { request -> request.sessionId == id },
@@ -386,11 +400,25 @@ internal class EngineStudioRepository(
 
     private suspend fun open(id: String, target: EngineTarget): ActiveSession = withChatLock(id) {
         val record = record(id)
+        val workspace = record.projectId?.let { projectId ->
+            check(
+                facade.engines.state.value.any {
+                    it.descriptor.id == target.engine &&
+                        it.descriptor.isLocalWorkspaceSupported
+                },
+            ) {
+                "Choose a model with local project access"
+            }
+            val ref = WorkspaceRef(projectId)
+            checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
+            ref
+        }
         val current = handlesLock.withLock { handles[id] }
         if (current != null) {
             check(
                 current.route.engine == target.engine && current.route.binding == target.binding,
             ) { "Start a new conversation to change engine or connection" }
+            check(current.route.workspace == workspace) { "The conversation workspace cannot change" }
             if (record.target?.model != target.model) {
                 current.features.requireFeature(SwitchesModels).switchTo(target.model)
             }
@@ -399,13 +427,13 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(CreateSessionRequest(target))
+                .create(CreateSessionRequest(target, workspace))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(ResumeSessionRequest(target))
+                .resume(ResumeSessionRequest(target, workspace))
         }
         persistReference(id, target, active)
         handlesLock.withLock { handles[id] = active }

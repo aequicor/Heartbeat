@@ -14,6 +14,7 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -32,10 +33,15 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -129,6 +135,29 @@ class AiStudioUiTest {
         }
 
     @Test
+    fun `project menu offers the folder picker only when enabled`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        var addLabel = ""
+        var state by mutableStateOf(
+            workspace.copy(panes = persistentListOf(PaneUi(0)), isProjectAddingAvailable = true),
+        )
+        setContent {
+            addLabel = stringResource(Res.string.project_add)
+            HbTheme(darkTheme = false) { AiStudioContent(state, events::add, exits) }
+        }
+        onNodeWithTag("project-chip-0").performClick()
+        onNodeWithText(addLabel).performClick()
+        runOnIdle {
+            assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.AddProject(0)), events)
+            state = state.copy(isProjectAddingAvailable = false)
+        }
+        onNodeWithTag("project-chip-0").performClick()
+        onNodeWithText(addLabel).assertDoesNotExist()
+    }
+
+    @Test
     fun `pending permission offers its exact options`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
         val events = mutableListOf<AiStudioScreenIntent>()
         val state = workspace.copy(
@@ -151,6 +180,31 @@ class AiStudioUiTest {
     }
 
     @Test
+    fun `awaiting native history shows working and stopping requires an explicit stop`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        var workingLabel = ""
+        var stoppingLabel = ""
+        var state by mutableStateOf(
+            workspace.copy(
+                panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                running = persistentSetOf("s-facade"),
+                transcripts = transcriptsOf("s-facade"),
+                now = now,
+            ),
+        )
+        setContent {
+            workingLabel = stringResource(Res.string.session_running)
+            stoppingLabel = stringResource(Res.string.stopping)
+            HbTheme(darkTheme = false) { AiStudioContent(state, {}, exits) }
+        }
+        onNodeWithText(workingLabel).assertIsDisplayed()
+        onNodeWithText(stoppingLabel).assertDoesNotExist()
+        runOnIdle { state = state.copy(stopping = persistentSetOf("s-facade")) }
+        onNodeWithText(stoppingLabel).assertIsDisplayed()
+    }
+
+    @Test
     fun `split view shows a running session with its elapsed time`() = runSkikoComposeUiTest(size = Size(1440f, 900f)) {
         val running = messagesOf("s-handoff") + listOf(
             MessageUi.Prompt("p-run", now, "Добавь отчёт о переносе в сессию"),
@@ -168,6 +222,7 @@ class AiStudioUiTest {
             panes = persistentListOf(PaneUi(0, sessionId = "s-facade"), PaneUi(1, sessionId = "s-handoff")),
             focusedPaneId = 1,
             running = persistentSetOf("s-handoff"),
+            runStartedAt = persistentMapOf("s-handoff" to now),
             transcripts = persistentMapOf(
                 "s-facade" to messagesOf("s-facade"),
                 "s-handoff" to running.toImmutableList(),

@@ -36,7 +36,12 @@ enum class ApprovalUi { Ask, AutoApprove }
 
 /** A model offered by the composer. */
 @Immutable
-data class ModelUi(val id: String, val name: String, val isResearchSupported: Boolean = false)
+data class ModelUi(
+    val id: String,
+    val name: String,
+    val isResearchSupported: Boolean = false,
+    val isLocalProjectSupported: Boolean = false,
+)
 
 /** Composer preferences mirrored from the machine. */
 @Immutable
@@ -46,7 +51,9 @@ data class SettingsUi(val modelId: String, val effort: EffortUi, val approval: A
 }
 
 /** Models offered by the composer, from the most capable to the fastest. */
-val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map { ModelUi(it.id, it.name) }.toImmutableList()
+val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map {
+    ModelUi(it.id, it.name, isLocalProjectSupported = it.isLocalProjectSupported)
+}.toImmutableList()
 
 /** Progress of an agent tool call. */
 enum class ToolStatusUi { Running, Done, Failed }
