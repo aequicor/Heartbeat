@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
@@ -52,7 +53,16 @@ internal fun SandboxComposer(
             placeholder = hbString(HbString.ComposerPlaceholder),
             isStreaming = state.isStreaming,
             enabled = !state.isLoadingHistory,
-            leadingContent = { AddContextMenu(state, copy, menus, isCompact) },
+            leadingContent = {
+                AddContextMenu(state, copy, menus, isCompact)
+                var isResearch by remember { mutableStateOf(false) }
+                HbComposerToggle(
+                    label = hbString(HbString.ResearchMode),
+                    isChecked = isResearch,
+                    onCheckedChange = { isResearch = it },
+                    icon = HbIcons.Library,
+                )
+            },
             trailingContent = { ResponseMenus(state, menus, isCompact) },
         )
     }

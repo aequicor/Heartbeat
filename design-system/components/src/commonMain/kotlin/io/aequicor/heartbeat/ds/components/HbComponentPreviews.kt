@@ -86,7 +86,10 @@ private fun ComponentPreviewContent() {
             layout = HbComposerLayout.Panel,
             inputMaxHeight = HbTheme.studioDimensions.editorMaxHeight,
             placeholder = "Message the agent",
-            leadingContent = { HbComposerIconButton(HbIcons.Plus, "Prompt templates", {}) },
+            leadingContent = {
+                HbComposerIconButton(HbIcons.Plus, "Prompt templates", {})
+                HbComposerToggle("Research", isChecked = true, onCheckedChange = {}, icon = HbIcons.Library)
+            },
         )
     }
 }

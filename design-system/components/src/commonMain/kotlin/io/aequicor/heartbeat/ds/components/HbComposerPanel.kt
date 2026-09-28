@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -50,13 +51,15 @@ internal fun ComposerPanelLayout(
                     ComposerActionRow(trailingContent, action)
                 }
             } else {
+                // Context controls keep their natural width (scrolling past 60%); model and send take the rest.
+                val leadingMaxWidth = maxWidth * LEADING_MAX_FRACTION
                 HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
                     HbRow(
-                        Modifier.weight(1f).hbHorizontalScroll(rememberScrollState()),
+                        Modifier.widthIn(max = leadingMaxWidth).hbHorizontalScroll(rememberScrollState()),
                         gap = HbTheme.spacing.xs,
                         content = leadingContent,
                     )
-                    ComposerActionRow(trailingContent, action, Modifier.weight(2f))
+                    ComposerActionRow(trailingContent, action, Modifier.weight(1f))
                 }
             }
         }
@@ -80,3 +83,5 @@ private fun ComposerActionRow(
         action()
     }
 }
+
+private const val LEADING_MAX_FRACTION = 0.6f

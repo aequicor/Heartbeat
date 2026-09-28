@@ -108,6 +108,7 @@
     <string name="ru_layouts_symbol">≡</string>
     <string name="ru_chat_symbol">✦</string>
     <string name="ru_add_context">Добавить контекст</string>
+    <string name="ru_research_mode">Исследование</string>
     <string name="ru_insert_note">Заметка</string>
     <string name="ru_insert_note_hint">Начать мысль в редакторе</string>
     <string name="ru_markdown_demo">Пример Markdown</string>

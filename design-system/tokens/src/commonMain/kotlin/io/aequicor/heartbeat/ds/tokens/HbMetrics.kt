@@ -47,6 +47,8 @@ data class HbDimensions(
     val navigationPanelWidth: Dp = 256.dp,
     /** Upper bound of a navigation drawer on compact screens. */
     val drawerMaxWidth: Dp = 320.dp,
+    /** Side inspector next to a chat column, e.g. research questions and sources. */
+    val inspectorPanelWidth: Dp = 320.dp,
     /** Narrowest readable content pane; side-by-side panes need at least two. */
     val paneMinWidth: Dp = 360.dp,
     /** Small status dot, e.g. unread content in a navigation row. */

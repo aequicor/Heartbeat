@@ -134,6 +134,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.en_ready
 import io.aequicor.heartbeat.ds.resources.generated.en_rename
 import io.aequicor.heartbeat.ds.resources.generated.en_replay_intro
+import io.aequicor.heartbeat.ds.resources.generated.en_research_mode
 import io.aequicor.heartbeat.ds.resources.generated.en_reset
 import io.aequicor.heartbeat.ds.resources.generated.en_row_title
 import io.aequicor.heartbeat.ds.resources.generated.en_russian
@@ -305,6 +306,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_quiet_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_ready
 import io.aequicor.heartbeat.ds.resources.generated.ru_rename
 import io.aequicor.heartbeat.ds.resources.generated.ru_replay_intro
+import io.aequicor.heartbeat.ds.resources.generated.ru_research_mode
 import io.aequicor.heartbeat.ds.resources.generated.ru_reset
 import io.aequicor.heartbeat.ds.resources.generated.ru_row_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_russian
@@ -395,6 +397,7 @@ public enum class HbString(internal val english: StringResource, internal val ru
     MatchingIcons(Res.string.en_matching_icons, Res.string.ru_matching_icons),
     IconsDescription(Res.string.en_icons_description, Res.string.ru_icons_description),
     AddContext(Res.string.en_add_context, Res.string.ru_add_context),
+    ResearchMode(Res.string.en_research_mode, Res.string.ru_research_mode),
     InsertNote(Res.string.en_insert_note, Res.string.ru_insert_note),
     InsertNoteHint(Res.string.en_insert_note_hint, Res.string.ru_insert_note_hint),
     MarkdownDemo(Res.string.en_markdown_demo, Res.string.ru_markdown_demo),
