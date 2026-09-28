@@ -10,3 +10,12 @@ internal class SettingsUiComponent(private val component: SettingsComponent) : C
     @Composable
     override fun Content(modifier: Modifier) = SettingsScreen(component, modifier)
 }
+
+/**
+ * Placeholder of the section stack before a section is chosen. It must be a [ComposableComponent]: the wide window
+ * renders the stack at once, and the navigation host rejects components that cannot draw themselves.
+ */
+internal data object SettingsBlankUi : ComposableComponent {
+    @Composable
+    override fun Content(modifier: Modifier) = Unit
+}

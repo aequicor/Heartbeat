@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.settings.api.UnifiedSettings
 import io.aequicor.heartbeat.feature.settings.api.settingsSectionOf
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
 import io.aequicor.heartbeat.feature.settings.impl.presentation.component.SettingsComponent
+import io.aequicor.heartbeat.feature.settings.impl.ui.SettingsBlankUi
 import io.aequicor.heartbeat.feature.settings.impl.ui.SettingsUiComponent
 
 /** Feature graph retained by the settings window. */
@@ -70,7 +71,7 @@ internal class SettingsRouteEntry(
 ) : RouteEntry<SettingsRoute>(SettingsRoute::class, SettingsRoute.serializer()) {
     override fun create(route: SettingsRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, app, name = "settings") { graphs.createSettings(it) }
-            .factory.create(context, navigator, route).let { SettingsUiComponent(it) }
+            .factory.create(context, navigator, route, SettingsBlankUi).let { SettingsUiComponent(it) }
 }
 
 /** `heartbeat://settings` (also sent by ⌘, on desktop) opens the settings window above the current screen. */

@@ -49,6 +49,7 @@ class SettingsComponent(
     @Assisted context: ComponentContext,
     @Assisted private val navigator: Navigator,
     @Assisted route: SettingsRoute,
+    @Assisted blank: NavComponent,
     val model: SettingsModel,
     @ForScope(SettingsScope::class) scope: ScopeHandle,
     hosts: NavHostFactory,
@@ -61,7 +62,7 @@ class SettingsComponent(
         parent = navigator,
         name = "settings",
         initial = listOf(SettingsBlankRoute),
-        local = listOf(routeEntry<SettingsBlankRoute> { _, _, _ -> SettingsBlank }),
+        local = listOf(routeEntry<SettingsBlankRoute> { _, _, _ -> blank }),
         global = GlobalRoutes.Only(SECTION_ROUTES),
     )
 
@@ -122,8 +123,16 @@ class SettingsComponent(
     /** Metro factory for a lifecycle-owned settings window. */
     @AssistedFactory
     fun interface Factory {
-        /** Creates the window for [route], owned by the supplied component. */
-        fun create(context: ComponentContext, navigator: Navigator, route: SettingsRoute): SettingsComponent
+        /**
+         * Creates the window for [route], owned by the supplied component. [blank] is the renderable placeholder of
+         * the section stack before a section is chosen; the ui layer supplies it.
+         */
+        fun create(
+            context: ComponentContext,
+            navigator: Navigator,
+            route: SettingsRoute,
+            blank: NavComponent,
+        ): SettingsComponent
     }
 
     private companion object {
@@ -147,6 +156,3 @@ internal fun SettingsSection.route(): Route = when (this) {
 @Serializable
 @SerialName("settings_blank")
 internal data object SettingsBlankRoute : Route
-
-/** Marker component of [SettingsBlankRoute]; the window draws nothing for it. */
-internal data object SettingsBlank : NavComponent
