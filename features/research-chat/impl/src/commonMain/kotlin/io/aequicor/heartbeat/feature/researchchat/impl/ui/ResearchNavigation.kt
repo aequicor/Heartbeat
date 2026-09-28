@@ -47,7 +47,7 @@ internal fun ResearchSessions(
                         label = session.title.ifBlank { stringResource(Res.string.research_new_session) },
                         onClick = { onIntent(ResearchScreenIntent.SelectSession(session.id)) },
                         modifier = Modifier.testTag("research-session-${session.id}"),
-                        minHeight = HbTheme.studioDimensions.navigationRowHeight,
+                        minHeight = HbTheme.dimensions.navigationRowHeight,
                         isSelected = session.isSelected,
                     )
                 }
@@ -85,7 +85,7 @@ internal fun ResearchQuestions(
                         label = question.title.ifBlank { stringResource(Res.string.research_new_question) },
                         onClick = { onIntent(ResearchScreenIntent.SelectQuestion(question.id)) },
                         modifier = Modifier.testTag("research-question-${question.id}"),
-                        minHeight = HbTheme.studioDimensions.navigationRowHeight,
+                        minHeight = HbTheme.dimensions.navigationRowHeight,
                         isSelected = question.isSelected,
                         trailingContent = {
                             if (question.isRunning) HbActivityIndicator(size = HbTheme.dimensions.iconSmallSize)

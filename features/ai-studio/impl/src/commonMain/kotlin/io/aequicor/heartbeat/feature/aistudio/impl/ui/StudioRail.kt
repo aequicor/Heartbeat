@@ -86,6 +86,6 @@ private fun FooterAction(
         onClick = onClick,
         modifier = modifier.testTag(tag),
         isSelected = isSelected,
-        size = HbTheme.studioDimensions.navigationRowHeight,
+        size = HbTheme.dimensions.navigationRowHeight,
     )
 }

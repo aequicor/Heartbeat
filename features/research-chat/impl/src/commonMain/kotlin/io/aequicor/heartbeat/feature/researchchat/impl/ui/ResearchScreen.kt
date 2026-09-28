@@ -125,7 +125,7 @@ private fun ResearchPanelToggle(isOpen: Boolean, onToggle: () -> Unit) {
         onClick = onToggle,
         modifier = Modifier.testTag("research-toggle-panel"),
         isSelected = isOpen,
-        size = HbTheme.studioDimensions.composerActionSize,
+        size = HbTheme.dimensions.composerActionSize,
     )
 }
 
@@ -142,11 +142,11 @@ private fun ResearchSidePanel(
     HbRow(modifier.testTag("research-side-panel"), gap = HbTheme.spacing.none) {
         HbDivider(Modifier.fillMaxHeight().width(HbTheme.dimensions.borderWidth))
         HbColumn(
-            Modifier.weight(1f).fillMaxHeight().background(HbTheme.studioColors.sidebar),
+            Modifier.weight(1f).fillMaxHeight().background(HbTheme.surfaces.sidebar),
             gap = HbTheme.spacing.none,
         ) {
             HbRow(
-                Modifier.fillMaxWidth().heightIn(min = HbTheme.studioDimensions.headerHeight)
+                Modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.headerHeight)
                     .padding(horizontal = HbTheme.spacing.s),
                 gap = HbTheme.spacing.xxs,
             ) {
@@ -156,7 +156,7 @@ private fun ResearchSidePanel(
                     contentDescription = stringResource(Res.string.research_toggle_panel),
                     onClick = onHide,
                     modifier = Modifier.testTag("research-hide-panel"),
-                    size = HbTheme.studioDimensions.navigationRowHeight,
+                    size = HbTheme.dimensions.navigationRowHeight,
                 )
             }
             val content = Modifier.weight(1f).fillMaxWidth().padding(horizontal = HbTheme.spacing.xs)
@@ -184,7 +184,7 @@ private fun PaneTabs(
                 modifier = Modifier.weight(1f).testTag("research-tab-${pane.name}"),
                 isSelected = pane == selected,
                 role = Role.Tab,
-                minHeight = HbTheme.studioDimensions.navigationRowHeight,
+                minHeight = HbTheme.dimensions.navigationRowHeight,
             )
         }
     }

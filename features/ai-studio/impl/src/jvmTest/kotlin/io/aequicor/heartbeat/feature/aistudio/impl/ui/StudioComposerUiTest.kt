@@ -14,7 +14,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
@@ -91,13 +90,11 @@ class StudioComposerUiTest {
                 planLabel = stringResource(Res.string.template_plan)
                 planPrompt = stringResource(Res.string.template_plan_prompt)
                 HbTheme(darkTheme = false) {
-                    HbStudioTheme {
-                        Box(
-                            Modifier.fillMaxSize().padding(HbTheme.spacing.xl),
-                            contentAlignment = Alignment.BottomCenter,
-                        ) {
-                            StudioComposer(state.paneContent(pane), events::add, isCompact = false)
-                        }
+                    Box(
+                        Modifier.fillMaxSize().padding(HbTheme.spacing.xl),
+                        contentAlignment = Alignment.BottomCenter,
+                    ) {
+                        StudioComposer(state.paneContent(pane), events::add, isCompact = false)
                     }
                 }
             }
@@ -158,10 +155,8 @@ class StudioComposerUiTest {
 @Composable
 private fun NativeComposerFixture(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     HbTheme(darkTheme = false) {
-        HbStudioTheme {
-            Box(Modifier.fillMaxSize().padding(HbTheme.spacing.xl), contentAlignment = Alignment.BottomCenter) {
-                StudioComposer(content, onIntent, isCompact = false)
-            }
+        Box(Modifier.fillMaxSize().padding(HbTheme.spacing.xl), contentAlignment = Alignment.BottomCenter) {
+            StudioComposer(content, onIntent, isCompact = false)
         }
     }
 }

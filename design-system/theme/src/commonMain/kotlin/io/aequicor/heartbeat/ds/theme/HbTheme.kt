@@ -57,18 +57,6 @@ object HbTheme {
         @ReadOnlyComposable
         get() = LocalHbSurfaces.current
 
-    /** Migration alias of [dimensions]; removed once no module refers to it. */
-    val studioDimensions: HbDimensions
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalHbDimensions.current
-
-    /** Migration alias of [surfaces]; removed once no module refers to it. */
-    val studioColors: HbSurfaceColors
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalHbSurfaces.current
-
     val colors: HbColors
         @Composable
         @ReadOnlyComposable
@@ -120,12 +108,6 @@ object HbTheme {
         get() = LocalHbVisualStyle.current
 }
 
-/** Migration no-op: the studio style is the default style of [HbTheme]; removed once unused. */
-@Composable
-fun HbStudioTheme(content: @Composable () -> Unit) {
-    content()
-}
-
 /** Host typography preset with the native interface font; the font resolution is logged once. */
 @Composable
 fun rememberHostTypography(isDesktop: Boolean): HbTypography {
@@ -155,16 +137,15 @@ fun HbTheme(
     platformUi: PlatformUi = LocalPlatformUi.current,
     visualStyle: HbVisualStyle = HbVisualStyle.Glass,
     dimensions: HbDimensions = defaultHbDimensions(),
-    studioDimensions: HbDimensions = dimensions,
-    typography: HbTypography = rememberHostTypography(studioDimensions.isDesktop),
+    typography: HbTypography = rememberHostTypography(dimensions.isDesktop),
     spacing: HbSpacing = HbSpacing(),
-    shapes: HbShapes = if (studioDimensions.isDesktop) HbShapes.Desktop else HbShapes.Mobile,
+    shapes: HbShapes = if (dimensions.isDesktop) HbShapes.Desktop else HbShapes.Mobile,
     elevation: HbElevation = HbElevation(),
     motion: HbMotion = HbMotion(),
     shadows: HbShadows = if (darkTheme) HbShadows.Dark else HbShadows.Light,
     content: @Composable () -> Unit,
 ) {
-    val colors = HbColors.forHost(darkTheme, studioDimensions.isDesktop)
+    val colors = HbColors.forHost(darkTheme, dimensions.isDesktop)
     SideEffect(darkTheme, platformUi, visualStyle, motion.isReducedMotion) {
         log.i {
             "Theme configured: dark=$darkTheme kit=$platformUi style=$visualStyle reduced=${motion.isReducedMotion}"
@@ -177,8 +158,8 @@ fun HbTheme(
         LocalHbSpacing provides spacing,
         LocalHbShapes provides shapes,
         LocalHbElevation provides elevation,
-        LocalHbDimensions provides studioDimensions,
-        LocalHbSurfaces provides HbSurfaceColors.forHost(darkTheme, studioDimensions.isDesktop),
+        LocalHbDimensions provides dimensions,
+        LocalHbSurfaces provides HbSurfaceColors.forHost(darkTheme, dimensions.isDesktop),
         LocalHbMotion provides motion,
         LocalHbShadows provides shadows,
         LocalHbVisualStyle provides visualStyle,

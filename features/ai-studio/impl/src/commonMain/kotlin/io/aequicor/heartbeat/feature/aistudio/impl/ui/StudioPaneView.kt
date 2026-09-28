@@ -106,7 +106,7 @@ internal fun StudioPaneView(
     val bottomInset = with(density) { footerHeight.toDp() }
     Box(
         modifier.focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
-            .background(HbTheme.studioColors.assistant).testTag("pane-${pane.id}"),
+            .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val sessionId = pane.sessionId
         val transcript = content.transcript
@@ -115,7 +115,7 @@ internal fun StudioPaneView(
                 NewSessionHero(
                     content.project,
                     onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
-                    modifier = Modifier.align(BiasAlignment(0f, HbTheme.studioDimensions.emptyStateVerticalBias))
+                    modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
             }
@@ -134,7 +134,7 @@ internal fun StudioPaneView(
                     ),
                     overlapInsets = PaddingValues(top = topInset, bottom = bottomInset),
                     modifier = Modifier.align(Alignment.TopCenter)
-                        .widthIn(max = HbTheme.studioDimensions.messageMaxWidth + HbTheme.spacing.xl * 2)
+                        .widthIn(max = HbTheme.dimensions.messageMaxWidth + HbTheme.spacing.xl * 2)
                         .fillMaxSize(),
                 )
             }
@@ -166,7 +166,7 @@ internal fun StudioPaneView(
 @Composable
 private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     HbColumn(
-        Modifier.fillMaxWidth().background(HbTheme.studioColors.header, HbTheme.shapes.large)
+        Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
     ) {
@@ -216,7 +216,7 @@ private fun PaneHeader(
     isAtWindowLeadingEdge: Boolean,
 ) {
     val pane = content.pane
-    val studio = HbTheme.studioDimensions
+    val studio = HbTheme.dimensions
     val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
         studio.titlebarLeadingInset
     } else {
@@ -225,8 +225,8 @@ private fun PaneHeader(
     HbWindowDragArea(Modifier.fillMaxWidth()) {
         HbRow(
             Modifier.fillMaxWidth()
-                .heightIn(min = HbTheme.studioDimensions.headerHeight)
-                .background(HbTheme.studioColors.header)
+                .heightIn(min = HbTheme.dimensions.headerHeight)
+                .background(HbTheme.surfaces.header)
                 .padding(
                     start = leadingInset,
                     end = HbTheme.spacing.m,
@@ -263,7 +263,7 @@ private fun PaneHeader(
 /** Header of the chat area while another feature (research) fills it: sidebar toggle, window inset and title. */
 @Composable
 internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
-    val studio = HbTheme.studioDimensions
+    val studio = HbTheme.dimensions
     val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
         studio.titlebarLeadingInset
     } else {
@@ -273,7 +273,7 @@ internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: 
         HbRow(
             Modifier.fillMaxWidth()
                 .heightIn(min = studio.headerHeight)
-                .background(HbTheme.studioColors.header)
+                .background(HbTheme.surfaces.header)
                 .padding(
                     start = leadingInset,
                     end = HbTheme.spacing.m,
@@ -434,7 +434,7 @@ private fun PaneFooter(
         gap = HbTheme.spacing.s,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val column = Modifier.widthIn(max = HbTheme.studioDimensions.composerMaxWidth).fillMaxWidth()
+        val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
         ModelConnectionHint(content, column)
         if (content.session?.isRunning == true) RunStatus(content.isStopping, content.elapsed, column)
         if (content.isSubmitFailed) {

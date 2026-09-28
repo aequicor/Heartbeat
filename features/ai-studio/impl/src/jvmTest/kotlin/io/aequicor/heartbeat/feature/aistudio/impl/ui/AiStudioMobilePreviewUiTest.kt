@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.adaptive.PlatformUi
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.ds.tokens.HbStudioDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
@@ -41,8 +40,7 @@ class AiStudioMobilePreviewUiTest {
                         HbTheme(
                             darkTheme = isDark,
                             platformUi = PlatformUi.Material,
-                            dimensions = HbDimensions(),
-                            studioDimensions = HbStudioDimensions.Mobile,
+                            dimensions = HbDimensions.Mobile,
                         ) {
                             AiStudioContent(
                                 state,
