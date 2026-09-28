@@ -99,10 +99,12 @@ internal class KoogTestFixture(test: TestScope) {
         },
     )
     var searchResults = emptyList<SearchResult>()
+    var fetchedResource: ResourceContent? = null
     val search = object : SearchEngine {
         override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
             searchResults
-        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
+        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
+            fetchedResource ?: error("unavailable")
     }
     val adapter = DefaultKoogEngineAdapter(access, records, KoogSessionCache(profile), search, profile)
     val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)

@@ -5,6 +5,7 @@ import ai.koog.agents.core.tools.ToolParameterDescriptor
 import ai.koog.agents.core.tools.ToolParameterType
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import kotlinx.coroutines.CancellationException
@@ -30,38 +31,46 @@ internal val koogSearchTools = listOf(
     ),
 )
 
-internal data class KoogSearchResult(val text: String, val isFailed: Boolean)
+internal data class KoogSearchResult(
+    val text: String,
+    val isFailed: Boolean,
+    val resources: List<ResourceRef> = emptyList(),
+)
 
 private val searchLog = Log.tag("KoogSearchTool")
 
 internal suspend fun executeKoogSearch(search: SearchEngine, call: StreamFrame.ToolCallComplete): KoogSearchResult =
     try {
         val args = call.contentJson
-        val output = when (call.name) {
-            "web_search" -> JsonArray(
-                search.search(
+        when (call.name) {
+            "web_search" -> {
+                val results = search.search(
                     args.string("query"),
                     (args.integer("count") ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT),
-                ).map { result ->
-                    buildJsonObject {
-                        put("url", result.url)
-                        put("title", result.title)
-                        put("snippet", result.snippet)
-                    }
-                },
-            ).toString()
+                )
+                val output = JsonArray(
+                    results.map { result ->
+                        buildJsonObject {
+                            put("url", result.url)
+                            put("title", result.title)
+                            put("snippet", result.snippet)
+                        }
+                    },
+                ).toString()
+                KoogSearchResult(output, false, results.map { ResourceRef(it.url, "text/html") })
+            }
 
             "web_fetch" -> search.fetch(args.string("url")).let { result ->
-                buildJsonObject {
+                val output = buildJsonObject {
                     put("url", result.url)
                     put("title", result.title)
                     put("content", result.text)
-                }
-            }.toString()
+                }.toString()
+                KoogSearchResult(output, false, listOf(ResourceRef(result.url, "text/html")))
+            }
 
             else -> return KoogSearchResult("InvalidInput", true)
         }
-        KoogSearchResult(output, false)
     } catch (e: CancellationException) {
         throw e
     } catch (e: SearchException) {

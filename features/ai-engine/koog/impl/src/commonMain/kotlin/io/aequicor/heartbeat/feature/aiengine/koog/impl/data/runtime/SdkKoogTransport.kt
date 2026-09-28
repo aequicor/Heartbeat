@@ -42,7 +42,10 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
                         AnthropicClientSettings(baseUrl = origin)
                     } else {
                         AnthropicClientSettings(
-                            modelVersionsMap = mapOf(provider.textModel(model) to model),
+                            modelVersionsMap = mapOf(
+                                provider.textModel(model) to model,
+                                provider.textModel(model, attachments = true) to model,
+                            ),
                             baseUrl = origin,
                         )
                     },
