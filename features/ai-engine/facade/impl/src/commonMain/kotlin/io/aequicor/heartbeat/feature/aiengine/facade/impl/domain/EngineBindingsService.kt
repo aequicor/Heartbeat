@@ -88,6 +88,8 @@ class EngineBindingsService(
         log.i { "connect engine=${engine.value} source=${source.value} priority=$priority" }
         val registration = gate.requireEnabled(engine)
         var authSource = requireSource(source)
+        // Cheap scope check first, so a rejected connect never persists a refreshed source revision.
+        requireAccepted(registration, authSource, EngineContext(engine, PROVISIONAL_BINDING))
         val factory = registration.factory.value
         // The owner may be slow (a CLI probe); read it outside the lock so other binding edits are not blocked.
         val revision = adapterCall(log, "sourceRevision") { factory.sourceRevision(authSource) }
@@ -214,6 +216,9 @@ class EngineBindingsService(
 
     private companion object {
         const val BINDING_PREFIX = "bnd_"
+
+        /** Binding id of the pre-check, before the real id is known under the lock. */
+        val PROVISIONAL_BINDING = EngineBindingId("bnd_provisional")
     }
 }
 

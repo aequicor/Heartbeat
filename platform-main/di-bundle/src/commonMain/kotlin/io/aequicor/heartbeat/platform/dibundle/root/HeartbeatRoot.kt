@@ -34,11 +34,6 @@ data class RootStart(
     val guest: List<Route>,
     /** Inside a profile: profile or app routes. */
     val profile: List<Route>,
-    /**
-     * Start routes of a newly opened profile tree, resolved before it is shown (e.g. by a feature toggle);
-     * [profile] when it fails. A tree restored after process death keeps its saved stack.
-     */
-    val resolveProfile: suspend () -> List<Route> = { profile },
 )
 
 /**
@@ -60,7 +55,6 @@ class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph
     private val navigation = SlotNavigation<RootConfig>()
     private val scope = CoroutineScope(SupervisorJob() + graph.dispatchers.main)
     private var pendingLink: String? = stateKeeper.consume(PENDING_LINK_KEY, String.serializer())
-    private var profileStart: List<Route> = start.profile
 
     /** The shown tree; `child == null` while the persisted profile is being restored. */
     val slot: Value<ChildSlot<RootConfig, RootChild>> = childSlot(
@@ -93,19 +87,7 @@ class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph
         } catch (e: Exception) {
             log.e(e) { "root: profile restore failed, continuing as guest" }
         }
-        graph.profileSessions.active.collect { session ->
-            if (session != null) profileStart = resolveProfileStart()
-            show(session)
-        }
-    }
-
-    private suspend fun resolveProfileStart(): List<Route> = try {
-        start.resolveProfile()
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.e(e) { "root: profile start routes unavailable, using the default" }
-        start.profile
+        graph.profileSessions.active.collect(::show)
     }
 
     private fun show(session: ProfileSession?) {
@@ -130,7 +112,7 @@ class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph
         RootConfig.Guest -> RootChild.Guest(graph.guestNavigation.create(context, start.guest, name = GUEST_TREE))
 
         is RootConfig.Profile -> {
-            val child = RootChild.Profile(config.id, context, profileStart)
+            val child = RootChild.Profile(config.id, context, start.profile)
             graph.profileSessions.active.value?.let(child::attach)
             child
         }

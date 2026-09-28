@@ -127,8 +127,11 @@ internal class EngineStudioRepository(
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
 
-    /** One lock per conversation so a native session is created or resumed at most once. */
-    private val opening = mutableMapOf<String, Mutex>()
+    /**
+     * One lock per conversation so a native session is created, resumed or released at most once at a time.
+     * An entry lives only while someone holds or awaits it.
+     */
+    private val opening = mutableMapOf<String, ChatLock>()
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
@@ -379,43 +382,62 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun open(id: String, target: EngineTarget): ActiveSession =
-        handlesLock.withLock { opening.getOrPut(id) { Mutex() } }.withLock {
-            val record = record(id)
-            val current = handlesLock.withLock { handles[id] }
-            if (current != null) {
-                check(
-                    current.route.engine == target.engine && current.route.binding == target.binding,
-                ) { "Start a new conversation to change engine or connection" }
-                if (record.target?.model != target.model) {
-                    current.features.requireFeature(SwitchesModels).switchTo(target.model)
-                }
-                update(id) { copy(target = target) }
-                return@withLock current
+    private suspend fun open(id: String, target: EngineTarget): ActiveSession = withChatLock(id) {
+        val record = record(id)
+        val current = handlesLock.withLock { handles[id] }
+        if (current != null) {
+            check(
+                current.route.engine == target.engine && current.route.binding == target.binding,
+            ) { "Start a new conversation to change engine or connection" }
+            if (record.target?.model != target.model) {
+                current.features.requireFeature(SwitchesModels).switchTo(target.model)
             }
-            val active = if (record.ref == null) {
-                facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                    .create(CreateSessionRequest(target))
-            } else {
-                check(
-                    record.target?.engine == target.engine && record.target.binding == target.binding,
-                ) { "The stored session uses another connection" }
-                facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                    .resume(ResumeSessionRequest(target))
-            }
-            try {
-                update(id) { copy(ref = active.ref, target = target) }
-            } catch (e: CancellationException) {
-                closeOrphan(active)
-                throw e
-            } catch (e: Exception) {
-                log.e(e) { "Could not persist the native session reference; closing the session" }
-                closeOrphan(active)
-                throw e
-            }
-            handlesLock.withLock { handles[id] = active }
-            active
+            update(id) { copy(target = target) }
+            return@withChatLock current
         }
+        val active = if (record.ref == null) {
+            facade.engines.features(target.engine).requireFeature(CreatesSessions)
+                .create(CreateSessionRequest(target))
+        } else {
+            check(
+                record.target?.engine == target.engine && record.target.binding == target.binding,
+            ) { "The stored session uses another connection" }
+            facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
+                .resume(ResumeSessionRequest(target))
+        }
+        try {
+            update(id) { copy(ref = active.ref, target = target) }
+        } catch (e: CancellationException) {
+            closeOrphan(active)
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Could not persist the native session reference; closing the session" }
+            closeOrphan(active)
+            throw e
+        }
+        handlesLock.withLock { handles[id] = active }
+        active
+    }
+
+    /** Runs [block] under the lock of conversation [id]; the lock entry is dropped once nobody uses it. */
+    private suspend fun <T> withChatLock(id: String, block: suspend () -> T): T {
+        val entry = handlesLock.withLock { opening.getOrPut(id) { ChatLock() }.also { it.users++ } }
+        try {
+            return entry.mutex.withLock { block() }
+        } finally {
+            withContext(NonCancellable) {
+                handlesLock.withLock {
+                    entry.users--
+                    if (entry.users == 0 && opening[id] === entry) opening.remove(id)
+                }
+            }
+        }
+    }
+
+    private class ChatLock {
+        val mutex = Mutex()
+        var users = 0
+    }
 
     /** Closes a native session nobody can reach any more, so it is not leaked. */
     private suspend fun closeOrphan(active: ActiveSession) = withContext(NonCancellable) {
@@ -450,14 +472,24 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun respond(sessionId: String, requestId: String, optionId: String) {
-        val active = handlesLock.withLock { handles[sessionId] } ?: return
-        val pending = active.state.value as? ActiveSessionState.AwaitingUserAction ?: return
-        val request = pending.requests.firstOrNull { it.id.value == requestId } ?: return
-        val option = request.options.firstOrNull { it.id.value == optionId } ?: return
+        val active = handlesLock.withLock { handles[sessionId] }
+            ?: rejectPermission("no open native session", requestId, optionId)
+        val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
+            ?: rejectPermission("the session no longer awaits a decision", requestId, optionId)
+        val request = pending.requests.firstOrNull { it.id.value == requestId }
+            ?: rejectPermission("the request is no longer pending", requestId, optionId)
+        val option = request.options.firstOrNull { it.id.value == optionId }
+            ?: rejectPermission("the option is not offered", requestId, optionId)
         log.i { "Responding to pending engine permission" }
         active.features.requireFeature(
             RequestsPermissions,
         ).respond(PermissionDecision(request.turn, request.id, option.id))
+    }
+
+    /** Fails the answer so the machine shows the request again instead of hiding it forever. */
+    private fun rejectPermission(reason: String, requestId: String, optionId: String): Nothing {
+        log.w { "Permission answer rejected: $reason requestId=$requestId optionId=$optionId" }
+        error("Permission answer rejected: $reason")
     }
 
     private suspend fun updatePermissions(id: String, state: ActiveSessionState) {
@@ -497,10 +529,12 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun release(id: String) {
-        val handle = handlesLock.withLock { handles[id] } ?: return
+    /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
+    private suspend fun release(id: String) = withChatLock(id) {
+        val handle = handlesLock.withLock { handles[id] } ?: return@withChatLock
         handle.close()
         handlesLock.withLock { if (handles[id] === handle) handles.remove(id) }
+        log.i { "Released native session of an archived conversation" }
     }
 
     private suspend fun record(id: String): StudioChatRecord =

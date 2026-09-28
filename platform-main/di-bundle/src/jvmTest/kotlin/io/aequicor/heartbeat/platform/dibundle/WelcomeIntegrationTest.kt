@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.togglespanel.api.ToggleOperation
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelIntent
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
@@ -98,6 +99,8 @@ class WelcomeIntegrationTest {
         process.host.onBack()
         advanceUntilIdle()
         assertEquals(WelcomeState.Ready, process.welcome.state.value)
+        // The studio opens with one press also while the engine runtime is off (the default): no second welcome.
+        assertEquals(false, process.toggles.featureToggles.get(StudioEngineRuntime))
         process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Studio))
         advanceUntilIdle()
         assertIs<RootChild.Profile>(process.root.slot.value.child?.instance)

@@ -45,6 +45,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class StudioEngineIntegrationTest {
@@ -249,7 +250,8 @@ class StudioEngineIntegrationTest {
         val native = TestAdapter.runtimes.single().natives.single()
         native.requestPermission()
         val pending = runtime.state.first { it.permissions.isNotEmpty() }.permissions.single()
-        runtime.respond(chat.id, pending.requestId, "invented-choice")
+        // A rejected answer fails, so the machine shows the request again.
+        assertFailsWith<IllegalStateException> { runtime.respond(chat.id, pending.requestId, "invented-choice") }
         assertEquals(null, native.decision)
         runtime.respond(chat.id, pending.requestId, pending.options.single().id)
         assertEquals("allow-once", native.decision?.option?.value)

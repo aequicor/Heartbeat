@@ -141,6 +141,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The agent run of [sessionId] ended. */
         public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
 
+        /** Answering permission [requestId] failed; the request is shown again by the next runtime snapshot. */
+        public data class PermissionAnswerFailed(val requestId: String) : Internal
+
         /** The runtime observation failed; nothing is known to run any more. */
         public data object RuntimeLost : Internal
 

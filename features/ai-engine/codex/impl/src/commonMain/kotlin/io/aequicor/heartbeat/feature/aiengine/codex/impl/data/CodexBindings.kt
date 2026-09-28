@@ -5,6 +5,7 @@ import dev.zacsweers.metro.BindingContainer
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
@@ -36,6 +37,7 @@ public object CodexBindings {
      * and the transport read this same binding, so the advertised login location always matches.
      */
     @Provides
+    @SingleIn(ProfileScope::class)
     public fun configuration(): CodexLocalConfiguration = CodexLocalConfiguration()
 
     /** The engine factory is initialized only after facade ownership and toggle checks. */

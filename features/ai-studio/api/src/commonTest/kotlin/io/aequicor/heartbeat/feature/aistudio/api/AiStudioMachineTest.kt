@@ -358,6 +358,16 @@ class AiStudioMachineTest {
             intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"))),
             to = live.copy(permissions = emptyList()),
         )
+        AiStudioMachineSpec.assertTransition(
+            from = answered,
+            intent = AiStudioIntent.Internal.PermissionAnswerFailed("request"),
+            to = answered.copy(answeredPermissions = emptySet()),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = answered.copy(answeredPermissions = emptySet()),
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"), listOf(permission))),
+            to = live,
+        )
         AiStudioMachineSpec.assertIgnored(live, AiStudioIntent.Public.RespondPermission("s1", "request", "always"))
         AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.RespondPermission("s1", "request", "once"))
     }

@@ -35,6 +35,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | RuntimeChanged | | Ready (profile execution snapshot, answered permissions hidden) | |
  * | Ready | RuntimeLost | | Ready (nothing running, stopping or awaiting permission) | |
  * | Ready | RespondPermission | pending, not answered | Ready (permission answered) | RespondPermission |
+ * | Ready | PermissionAnswerFailed | | Ready (request no longer answered) | |
  * | Ready | ModelsChanged | no model chosen, models offered | Ready (first model chosen) | |
  * | Ready | CancelFailed | | Ready (stop can be retried) | |
  * | Ready | Edit | valid edit | Ready (archived session leaves panes) | Apply |
@@ -42,7 +43,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * Runs are effects of Ready and continue across every Ready update; several sessions may run at once.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
- * Cancel → CancelFailed, ObserveRuntime → RuntimeLost; failed Apply, RespondPermission, ObserveModels and
+ * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed; failed Apply,
+ * ObserveModels and
  * ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
  * process restores stored chats while the transient pane machine starts afresh.
  */
@@ -100,18 +102,12 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
         onEffectFailure { effect, _ ->
             when (effect) {
                 AiStudioEffect.Load -> AiStudioIntent.Internal.LoadFailed
-
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(effect.paneId, effect.prompt)
-
                 is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
-
                 is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
-
                 AiStudioEffect.ObserveRuntime -> AiStudioIntent.Internal.RuntimeLost
-
-                AiStudioEffect.ObserveModels, is AiStudioEffect.RespondPermission,
-                AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
-                -> null
+                is AiStudioEffect.RespondPermission -> AiStudioIntent.Internal.PermissionAnswerFailed(effect.requestId)
+                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply -> null
             }
         }
     }
@@ -280,6 +276,10 @@ private fun ReadyTransitions.runtime() {
             )
         }
         effect { AiStudioEffect.RespondPermission(intent.sessionId, intent.requestId, intent.optionId) }
+    }
+    // The request stays hidden until the next snapshot, which shows it again while the engine still waits.
+    on<AiStudioIntent.Internal.PermissionAnswerFailed> {
+        stay { state.copy(answeredPermissions = state.answeredPermissions - intent.requestId) }
     }
     on<AiStudioIntent.Internal.ModelsChanged>(
         guard = { state.settings.modelId.isBlank() && intent.modelIds.isNotEmpty() },
