@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.AppScope
-import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.logging.Log
@@ -22,16 +21,12 @@ import kotlin.concurrent.atomics.incrementAndFetch
 import kotlin.time.Clock
 
 /**
- * Process-lifetime studio storage seeded with the demo workspace. Owned by the application so sessions and
- * running transcripts survive leaving and reopening the studio. Logs entry types and sizes, never content
- * or conversation identifiers.
- *
- * This store holds only the demo workspace. Once the studio talks to a real agent from `core:ai`, real sessions
- * move to profile-scoped storage: `@ForScope(ProfileScope::class) DataStores` with the feature's own Room database.
+ * In-memory demo workspace, used while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime] is off
+ * and by isolated screen and agent tests. Engine-backed conversations are stored by [EngineStudioRepository].
+ * Logs entry types and sizes, never conversation content or identifiers.
  */
 @OptIn(ExperimentalAtomicApi::class)
 @SingleIn(AppScope::class)
-@ContributesBinding(AppScope::class)
 @Inject
 internal class InMemoryStudioRepository(private val clock: Clock) : StudioRepository {
     private val log = Log.tag("StudioRepository")
@@ -71,7 +66,7 @@ internal class InMemoryStudioRepository(private val clock: Clock) : StudioReposi
             val transcript = current.messages[sessionId].orEmpty() + message
             current.copy(sessions = sessions, messages = current.messages + (sessionId to transcript))
         }
-        log.d { "message appended id=${message.id} type=${message::class.simpleName}" }
+        log.d { "message appended id=${message.id} type=${message::class.simpleName.orEmpty()}" }
     }
 
     override suspend fun replace(sessionId: String, message: StudioMessage) {
@@ -86,7 +81,7 @@ internal class InMemoryStudioRepository(private val clock: Clock) : StudioReposi
         data.update { current ->
             current.copy(sessions = current.sessions.map { if (it.id == sessionId) it.edited(edit) else it })
         }
-        log.i { "conversation edited change=${edit::class.simpleName}" }
+        log.i { "conversation edited change=${edit::class.simpleName.orEmpty()}" }
     }
 
     override suspend fun setBranch(sessionId: String, branch: String) {

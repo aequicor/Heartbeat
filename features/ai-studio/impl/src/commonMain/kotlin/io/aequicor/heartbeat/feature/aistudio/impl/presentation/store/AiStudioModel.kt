@@ -15,7 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -48,7 +48,7 @@ private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudio
 @Inject
 class AiStudioModel(
     private val machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
-    private val repository: StudioRepository,
+    private val backend: StudioBackend,
     private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
@@ -65,13 +65,20 @@ class AiStudioModel(
             }
         }) { reflectMachine(it) }
         whileSubscribed(name = "workspace") {
+            val pipeline = this
             coroutineScope {
-                launch { observeWorkspace() }
-                launch { observeTranscripts() }
-                launch { tickWhileRunning() }
+                launch { observeWorkspace(pipeline) }
+                // Display only: the machine picks a default model from the same offer.
+                launch {
+                    backend.repository().observeModels().collect { models ->
+                        updateState { copy(models = models.map { ModelUi(it.id, it.name) }.toImmutableList()) }
+                    }
+                }
+                launch { observeTranscripts(pipeline) }
+                launch { tickWhileRunning(pipeline) }
             }
         }
-        reduce { intent -> handle(intent) }
+        reduce { intent -> handle(this, intent) }
     }
 
     init {
@@ -79,32 +86,38 @@ class AiStudioModel(
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
 
-    private suspend fun StudioPipeline.observeWorkspace() {
-        repository.observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
+    private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
+        backend.repository().observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
     }
 
-    private suspend fun StudioPipeline.observeTranscripts() {
+    private suspend fun observeTranscripts(pipeline: StudioPipeline) = with(pipeline) {
         machine.state
-            .map { state -> (state as? AiStudioState.Ready)?.panes?.mapNotNull { it.sessionId }?.distinct().orEmpty() }
+            .map { state ->
+                (state as? AiStudioState.Ready)?.panes?.asSequence()?.mapNotNull {
+                    it.sessionId
+                }?.distinct()?.toList().orEmpty()
+            }
             .distinctUntilChanged()
             .flatMapLatest { ids -> transcriptsOf(ids) }
             .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
     }
 
-    private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {
-        flowOf(emptyMap())
-    } else {
-        combine(
-            ids.map { id ->
-                repository.observeMessages(
-                    id,
-                ).map { messages -> id to messages.map { it.toUi() }.toImmutableList() }
-            },
-        ) { it.toMap() }
-    }
+    private suspend fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> =
+        if (ids.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            val repository = backend.repository()
+            combine(
+                ids.map { id ->
+                    repository.observeMessages(id).map { messages ->
+                        id to messages.map { it.toUi() }.toImmutableList()
+                    }
+                },
+            ) { it.toMap() }
+        }
 
     /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
-    private suspend fun StudioPipeline.tickWhileRunning() {
+    private suspend fun tickWhileRunning(pipeline: StudioPipeline) = with(pipeline) {
         machine.state
             .map { (it as? AiStudioState.Ready)?.running?.isNotEmpty() == true }
             .distinctUntilChanged()
@@ -116,16 +129,16 @@ class AiStudioModel(
             }
     }
 
-    private suspend fun StudioPipeline.handle(intent: AiStudioScreenIntent) {
+    private suspend fun handle(pipeline: StudioPipeline, intent: AiStudioScreenIntent) = with(pipeline) {
         when (intent) {
-            is AiStudioScreenIntent.Navigation -> navigate(intent)
-            is AiStudioScreenIntent.Composer -> compose(intent)
-            is AiStudioScreenIntent.SessionAction -> act(intent)
+            is AiStudioScreenIntent.Navigation -> navigate(pipeline, intent)
+            is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
+            is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
         }
     }
 
-    private suspend fun StudioPipeline.navigate(intent: AiStudioScreenIntent.Navigation) {
+    private suspend fun navigate(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Navigation) = with(pipeline) {
         val command = when (intent) {
             AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
 
@@ -148,8 +161,13 @@ class AiStudioModel(
         if (result == SendResult.Accepted) updateState { afterNavigation(intent) }
     }
 
-    private suspend fun StudioPipeline.compose(intent: AiStudioScreenIntent.Composer) {
+    private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
         when (intent) {
+            is AiStudioScreenIntent.RespondPermission -> sendTo(
+                machine,
+                AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
+            )
+
             is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
 
             is AiStudioScreenIntent.Submit -> withState {
@@ -162,21 +180,35 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
 
-            is AiStudioScreenIntent.SelectModel -> updateSettings { copy(modelId = intent.modelId) }
+            is AiStudioScreenIntent.SelectModel -> updateSettings(pipeline) { copy(modelId = intent.modelId) }
 
-            is AiStudioScreenIntent.SelectEffort -> updateSettings { copy(effort = intent.effort.toDomain()) }
+            is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
 
-            is AiStudioScreenIntent.SelectApproval -> updateSettings { copy(approval = intent.approval.toDomain()) }
+            is AiStudioScreenIntent.SelectApproval -> updateSettings(
+                pipeline,
+            ) { copy(approval = intent.approval.toDomain()) }
         }
     }
 
-    private suspend fun StudioPipeline.act(intent: AiStudioScreenIntent.SessionAction) {
+    private suspend fun act(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SessionAction) = with(pipeline) {
         when (intent) {
-            is AiStudioScreenIntent.SetPinned -> edit(intent.sessionId, SessionEdit.SetPinned(intent.isPinned))
+            is AiStudioScreenIntent.SetPinned -> edit(
+                pipeline,
+                intent.sessionId,
+                SessionEdit.SetPinned(intent.isPinned),
+            )
 
-            is AiStudioScreenIntent.SetUnread -> edit(intent.sessionId, SessionEdit.SetUnread(intent.isUnread))
+            is AiStudioScreenIntent.SetUnread -> edit(
+                pipeline,
+                intent.sessionId,
+                SessionEdit.SetUnread(intent.isUnread),
+            )
 
-            is AiStudioScreenIntent.SetArchived -> edit(intent.sessionId, SessionEdit.SetArchived(intent.isArchived))
+            is AiStudioScreenIntent.SetArchived -> edit(
+                pipeline,
+                intent.sessionId,
+                SessionEdit.SetArchived(intent.isArchived),
+            )
 
             is AiStudioScreenIntent.StartRename -> updateState { startRename(intent.sessionId, intent.origin) }
 
@@ -190,18 +222,22 @@ class AiStudioModel(
                 val renaming = sidebar.renaming
                 updateState { copy(sidebar = sidebar.copy(renaming = null)) }
                 if (renaming != null && renaming.title.trim() != session(renaming.sessionId)?.title) {
-                    edit(renaming.sessionId, SessionEdit.Rename(renaming.title))
+                    edit(pipeline, renaming.sessionId, SessionEdit.Rename(renaming.title))
                 }
             }
         }
     }
 
-    private suspend fun StudioPipeline.edit(sessionId: String, edit: SessionEdit) {
+    private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {
         sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))
     }
 
-    private suspend fun StudioPipeline.updateSettings(change: RunSettings.() -> RunSettings) = withState {
-        val current = RunSettings(settings.modelId, settings.effort.toDomain(), settings.approval.toDomain())
-        sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
+    private suspend fun updateSettings(pipeline: StudioPipeline, change: RunSettings.() -> RunSettings) = with(
+        pipeline,
+    ) {
+        withState {
+            val current = RunSettings(settings.modelId, settings.effort.toDomain(), settings.approval.toDomain())
+            sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
+        }
     }
 }

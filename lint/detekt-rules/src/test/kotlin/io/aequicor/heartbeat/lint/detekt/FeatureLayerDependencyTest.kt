@@ -54,6 +54,15 @@ class FeatureLayerDependencyTest {
     }
 
     @Test
+    fun `credential SPI is visible only to ai-engine modules and the bundle`() {
+        val prefix = "io.aequicor.heartbeat.feature.aiengine"
+        val spi = "$prefix.authenticator.api.spi.AuthCredentials"
+        assertEquals(1, rule.lint("package io.aequicor.heartbeat.feature.chat.impl.data\nimport $spi").size)
+        assertEquals(0, rule.lint("package $prefix.codex.impl.data\nimport $spi").size)
+        assertEquals(0, rule.lint("package io.aequicor.heartbeat.platform.dibundle\nimport $spi").size)
+    }
+
+    @Test
     fun `fully qualified references survive whitespace and escaped package names`() {
         assertEquals(
             2,

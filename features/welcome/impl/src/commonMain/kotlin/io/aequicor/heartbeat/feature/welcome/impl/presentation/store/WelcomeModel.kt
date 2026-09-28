@@ -71,6 +71,6 @@ private fun WelcomeScreenState.reflectState(state: WelcomeState): WelcomeScreenS
         WelcomeState.Idle, WelcomeState.Checking -> WelcomePhase.Preparing
         WelcomeState.Intro -> WelcomePhase.Intro
         WelcomeState.Ready -> WelcomePhase.Ready
-        is WelcomeState.Opening, WelcomeState.Away -> WelcomePhase.Leaving
+        is WelcomeState.Opening, WelcomeState.OpeningProfile, WelcomeState.Away -> WelcomePhase.Leaving
     },
 )

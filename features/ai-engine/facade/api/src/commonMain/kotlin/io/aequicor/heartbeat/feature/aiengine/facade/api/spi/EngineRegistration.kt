@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthenticatorId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.isVisibleTo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
@@ -42,6 +43,9 @@ public class EngineRegistration(
         require(
             sessionSources.map { it.source.id }.distinct().size == sessionSources.size,
         ) { "Duplicate session source" }
+        require(
+            descriptor.connectionMethods.filterIsInstance<ConnectionMethod.CliLogin>().all { it.owner == authOwner },
+        ) { "CLI login method of a foreign owner" }
     }
 
     /** Ownership is checked first, so a factory can narrow compatibility but never share a foreign CLI login. */
@@ -51,6 +55,12 @@ public class EngineRegistration(
 
 /** Adapter factory. Facade applies ownership/toggle gates before delegating. No method silently changes sources. */
 public interface EngineFactory {
+    /**
+     * Current revision of [source] as the owner sees it, read before [bind] when a binding is connected.
+     * A CLI login reports its account revision without importing credentials; by default the stored one.
+     */
+    public suspend fun sourceRevision(source: AuthSource): AuthRevision = source.info.revision
+
     /** Explicit installation probe. */
     public suspend fun checkRequirements(): EngineAvailability
 
@@ -62,9 +72,9 @@ public interface EngineFactory {
 
     /**
      * Stores the adapter-side route of [binding] to [source]. Intended caller is the facade's `EngineBindings`
-     * implementation, after [EngineRegistration.accepts] and toggle gates passed; that runtime does not exist yet,
-     * so no production code calls this today. Replacing a binding's source retires runtimes of the previous source
-     * that no other binding uses.
+     * implementation, after [EngineRegistration.accepts] and toggle gates passed, before the binding is saved;
+     * it is also repeated when an existing binding is reconnected, so it must be idempotent.
+     * Replacing a binding's source retires runtimes of the previous source that no other binding uses.
      * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
      * Abstract on purpose: an adapter without route state (for example a CLI login) states that explicitly.
      */

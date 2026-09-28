@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
+import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,7 +23,9 @@ import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 /**
- * Executes studio effects. A run records the prompt, streams the agent reply into the repository and
+ * Executes the demo workspace effects while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime]
+ * is off. With the toggle on the studio uses [EngineStudioEffects].
+ * A run records the prompt, streams the agent reply into the repository and
  * finishes when the agent completes, fails or receives a stop request for its session. A stop is sticky: it is
  * kept until its run ends, so a request arriving before the stream starts is not lost. Leaving the studio
  * cancels runs; their replies are closed so no transcript stays "streaming".
@@ -39,6 +42,17 @@ class AiStudioEffects(
 
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
+            AiStudioEffect.ObserveRuntime -> activeRuns.collect {
+                machine.send(AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it)))
+            }
+
+            // The scripted agent never asks for permissions; a stray answer is a caller error, not a decision.
+            is AiStudioEffect.RespondPermission -> log.w { "Permission answer ignored: the demo agent asks none" }
+
+            AiStudioEffect.ObserveModels -> repository.observeModels().collect { models ->
+                machine.send(AiStudioIntent.Internal.ModelsChanged(models.map { it.id }))
+            }
+
             AiStudioEffect.Load -> machine.send(
                 AiStudioIntent.Internal.Loaded(
                     isEnabled = availability.isEnabled(),
@@ -52,7 +66,9 @@ class AiStudioEffects(
 
             is AiStudioEffect.CreateSession -> {
                 val session = repository.createSession(effect.projectId, titleOf(effect.prompt))
-                machine.send(AiStudioIntent.Internal.SessionCreated(effect.paneId, session.id, effect.prompt))
+                machine.send(
+                    AiStudioIntent.Internal.SessionCreated(effect.paneId, session.id, effect.prompt, effect.settings),
+                )
             }
 
             is AiStudioEffect.Run -> machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, run(effect)))
@@ -106,13 +122,15 @@ class AiStudioEffects(
                 },
             ).first()
         } catch (e: CancellationException) {
-            reply?.let { withContext(NonCancellable) { repository.replace(effect.sessionId, it.closed()) } }
             throw e
         } catch (e: Exception) {
             log.e(e) { "agent run failed" }
             RunOutcome.Failed
+        } finally {
+            withContext(NonCancellable) {
+                reply?.let { repository.replace(effect.sessionId, it.closed()) }
+            }
         }
-        reply?.let { repository.replace(effect.sessionId, it.closed()) }
         when (outcome) {
             RunOutcome.Completed -> Unit
 
@@ -126,7 +144,7 @@ class AiStudioEffects(
                 StudioMessage.Failed(repository.newMessageId(), clock.now()),
             )
         }
-        log.i { "run ended outcome=$outcome tools=${reply?.tools?.size} length=${reply?.text?.length}" }
+        log.i { "run ended outcome=$outcome tools=${reply?.tools?.size ?: 0} length=${reply?.text?.length ?: 0}" }
         return outcome
     }
 }

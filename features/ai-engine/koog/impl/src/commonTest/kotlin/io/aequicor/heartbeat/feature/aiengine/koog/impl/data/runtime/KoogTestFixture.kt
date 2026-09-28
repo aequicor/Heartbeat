@@ -108,7 +108,11 @@ internal class KoogTestFixture(test: TestScope) {
 
 internal class FakeConnections(val values: MutableList<KoogConnection>) : KoogConnections {
     override suspend fun list(): List<KoogConnection> = values.toList()
+    var puts = 0
+    var rejection: IllegalArgumentException? = null
     override suspend fun put(connection: KoogConnection) {
+        rejection?.let { throw it }
+        puts++
         values.removeAll { it.binding.id == connection.binding.id }
         values += connection
     }

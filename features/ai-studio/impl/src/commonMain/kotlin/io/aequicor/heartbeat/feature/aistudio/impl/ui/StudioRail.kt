@@ -25,10 +25,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_show
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_toggles
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_connections
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Studio destinations: sessions, search, archive and feature toggles, plus leaving the studio.
+ * Studio destinations: sessions, search, archive, feature toggles and, when enabled, engine connections,
+ * plus leaving the studio.
  * A vertical rail beside the sidebar on wide windows; a row at the top of the drawer on compact ones.
  */
 @Composable
@@ -73,6 +75,14 @@ internal fun StudioRail(
             onClick = exits.onOpenProfileSettings,
             modifier = Modifier.testTag("rail-profile-settings"),
         )
+        exits.onOpenConnections?.let { openConnections ->
+            HbIconButton(
+                icon = HbIcons.Link,
+                contentDescription = stringResource(Res.string.studio_connections),
+                onClick = openConnections,
+                modifier = Modifier.testTag("rail-connections"),
+            )
+        }
     }
     val exit: @Composable () -> Unit = {
         HbIconButton(

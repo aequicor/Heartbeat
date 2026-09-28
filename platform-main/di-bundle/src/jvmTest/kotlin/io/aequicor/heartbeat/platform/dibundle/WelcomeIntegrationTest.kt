@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.togglespanel.api.ToggleOperation
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelIntent
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
@@ -52,9 +53,13 @@ class WelcomeIntegrationTest {
         val root = HeartbeatRoot(
             DefaultComponentContext(lifecycle, stateKeeper = keeper),
             graph,
-            RootStart(listOf(ProductionWelcomeRoute), listOf(ProductionWelcomeRoute)),
+            RootStart(listOf(ProductionWelcomeRoute), listOf(AiStudioRoute)),
         )
-        val host: RootHost get() = assertIs<RootChild.Guest>(root.slot.value.child?.instance).host
+        val host: RootHost get() = when (val child = root.slot.value.child?.instance) {
+            is RootChild.Guest -> child.host
+            is RootChild.Profile -> checkNotNull(child.host.value)
+            else -> error("root host not ready")
+        }
         val welcome get() = checkNotNull(graph.machines.find(WelcomeMachineKey))
         val toggles get() = graph as TestToggleAccessors
 
@@ -83,26 +88,24 @@ class WelcomeIntegrationTest {
     }
 
     @Test
-    fun `cold start opens both destinations once and returning keeps welcome ready`() = runTest {
+    fun `guest toggles return to welcome and studio opens a local profile`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val process = Process(PersistedProfile())
         advanceUntilIdle()
-        process.welcome.state.first { it == WelcomeState.Intro }
         process.welcome.send(WelcomeIntent.Public.Skip)
-        for ((destination, route) in listOf(
-            WelcomeDestination.Studio to AiStudioRoute,
-            WelcomeDestination.Toggles to TogglesPanelRoute,
-        )) {
-            process.welcome.send(WelcomeIntent.Public.Open(destination))
-            process.welcome.send(WelcomeIntent.Public.Open(destination))
-            advanceUntilIdle()
-            assertEquals(listOf(ProductionWelcomeRoute, route), process.host.routes)
-            assertEquals(WelcomeState.Away, process.welcome.state.value)
-            process.host.onBack()
-            advanceUntilIdle()
-            assertEquals(listOf<Route>(ProductionWelcomeRoute), process.host.routes)
-            assertEquals(WelcomeState.Ready, process.welcome.state.value)
-        }
+        process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
+        advanceUntilIdle()
+        assertEquals(listOf(ProductionWelcomeRoute, TogglesPanelRoute), process.host.routes)
+        process.host.onBack()
+        advanceUntilIdle()
+        assertEquals(WelcomeState.Ready, process.welcome.state.value)
+        // The studio opens with one press also while the engine runtime is off (the default): no second welcome.
+        assertEquals(false, process.toggles.featureToggles.get(StudioEngineRuntime))
+        process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Studio))
+        advanceUntilIdle()
+        assertIs<RootChild.Profile>(process.root.slot.value.child?.instance)
+        assertEquals(listOf<Route>(AiStudioRoute), process.host.routes)
+        assertEquals("local", process.graph.profileSessions.active.value?.id?.value)
         process.close()
     }
 
@@ -126,7 +129,7 @@ class WelcomeIntegrationTest {
     }
 
     @Test
-    fun `restored stack retains the studio and back opens a ready welcome`() = runTest {
+    fun `restored profile opens the studio in its profile host`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val disk = PersistedProfile()
         val before = Process(disk)
@@ -138,10 +141,8 @@ class WelcomeIntegrationTest {
         before.close()
         val restored = Process(disk, saved)
         advanceUntilIdle()
-        assertEquals(listOf(ProductionWelcomeRoute, AiStudioRoute), restored.host.routes)
-        restored.host.onBack()
-        advanceUntilIdle()
-        assertEquals(WelcomeState.Ready, restored.welcome.state.value)
+        assertIs<RootChild.Profile>(restored.root.slot.value.child?.instance)
+        assertEquals(listOf<Route>(AiStudioRoute), restored.host.routes)
         restored.close()
     }
 

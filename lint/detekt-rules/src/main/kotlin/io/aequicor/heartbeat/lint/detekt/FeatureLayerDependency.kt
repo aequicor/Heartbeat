@@ -53,7 +53,7 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
     }
 
     private fun checkReference(element: KtElement, reference: String) {
-        val reason = if (reference.isInPackage("io.aequicor.heartbeat.feature.aiengine.facade.api.spi") &&
+        val reason = if (ENGINE_SPI_PACKAGES.any(reference::isInPackage) &&
             !sourcePackage.isInPackage("io.aequicor.heartbeat.feature.aiengine") &&
             !sourcePackage.isInPackage("io.aequicor.heartbeat.platform.dibundle")
         ) {
@@ -79,5 +79,13 @@ class FeatureLayerDependency(config: Config) : Rule(config, "Feature dependencie
         }
 
         else -> null
+    }
+
+    private companion object {
+        /** Adapter SPIs: engine registration/runtime and credential access for trusted adapters. */
+        val ENGINE_SPI_PACKAGES = listOf(
+            "io.aequicor.heartbeat.feature.aiengine.facade.api.spi",
+            "io.aequicor.heartbeat.feature.aiengine.authenticator.api.spi",
+        )
     }
 }

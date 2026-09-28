@@ -97,14 +97,14 @@ internal class DefaultKoogEngineAdapter(
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("koog.provider")
 
-    /** No adapter-side route state: keys are read from the source on runtime creation. */
+    /** Stores the provider route of [binding]; credentials stay in the profile vault. */
     override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
-        log.d { "bind ignored: no route state" }
+        if (access.configure(binding, source)) log.i { "Bound Koog route" }
     }
 
-    /** No adapter-side route state, see [bind]. */
+    /** Forgets the provider route of [binding]; unknown bindings are ignored. */
     override suspend fun unbind(binding: EngineBindingId) {
-        log.d { "unbind ignored: no route state" }
+        if (access.remove(binding)) log.i { "Unbound Koog route" }
     }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> = onMain {

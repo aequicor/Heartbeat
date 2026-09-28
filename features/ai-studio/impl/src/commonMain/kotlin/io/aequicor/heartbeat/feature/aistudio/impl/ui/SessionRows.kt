@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +64,7 @@ internal class SessionRows(
     private val renaming: RenameUi?,
     private val openMenu: String?,
     private val onMenu: (String?) -> Unit,
-    private val canOpenBeside: Boolean,
+    private val isOpenBesideAllowed: Boolean,
     private val onIntent: (AiStudioScreenIntent) -> Unit,
 ) {
     /** A session row of [section], or its title field while it is being renamed from this row. */
@@ -91,7 +91,7 @@ internal class SessionRows(
                 HbMenuButton(
                     icon = HbIcons.More,
                     contentDescription = stringResource(Res.string.session_actions),
-                    items = sessionMenu(session, canOpenBeside),
+                    items = sessionMenu(session, isOpenBesideAllowed),
                     isExpanded = isMenuOpen,
                     onExpandedChange = { onMenu(if (it) rowKey else null) },
                     onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
@@ -130,7 +130,7 @@ private fun sessionStatus(session: SessionUi): String = listOfNotNull(
 ).joinToString(", ")
 
 @Composable
-internal fun sessionMenu(session: SessionUi, canOpenBeside: Boolean): ImmutableList<HbMenuItem> = listOfNotNull(
+internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): ImmutableList<HbMenuItem> = listOfNotNull(
     HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit),
     if (session.isArchived) {
         null
@@ -144,7 +144,7 @@ internal fun sessionMenu(session: SessionUi, canOpenBeside: Boolean): ImmutableL
         label = stringResource(if (session.isUnread) Res.string.action_mark_read else Res.string.action_mark_unread),
         icon = HbIcons.Mail,
     ),
-    HbMenuItem(MENU_BESIDE, stringResource(Res.string.action_open_beside), HbIcons.Grid).takeIf { canOpenBeside },
+    HbMenuItem(MENU_BESIDE, stringResource(Res.string.action_open_beside), HbIcons.Grid).takeIf { isOpenBesideAllowed },
     if (session.isArchived) {
         HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_restore), HbIcons.Undo, startsGroup = true)
     } else {
@@ -167,16 +167,16 @@ private val log = Log.tag("StudioSessionRows")
 @Composable
 internal fun RenameField(title: String, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
     val focus = remember { FocusRequester() }
-    var hadFocus by remember { mutableStateOf(false) }
-    LaunchedEffect(focus) { focus.requestFocus() }
+    var hasHadFocus by remember { mutableStateOf(false) }
+    SideEffect(focus) { focus.requestFocus() }
     HbTextField(
         value = title,
         onValueChange = { onIntent(AiStudioScreenIntent.RenameChanged(it)) },
         modifier = modifier.fillMaxWidth().focusRequester(focus)
             .onFocusChanged { state ->
                 if (state.isFocused) {
-                    hadFocus = true
-                } else if (hadFocus) {
+                    hasHadFocus = true
+                } else if (hasHadFocus) {
                     onIntent(AiStudioScreenIntent.CommitRename)
                 }
             }

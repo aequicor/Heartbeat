@@ -13,7 +13,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
  * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | enabled | Ready (one new-session pane) | ObserveAvailability |
+ * | Loading | Loaded | enabled | Ready (one new-session pane) | ObserveAvailability, ObserveRuntime, ObserveModels |
  * | Loading | Loaded | disabled | Disabled | ObserveAvailability |
  * | Loading | LoadFailed | | LoadError | |
  * | LoadError | Retry | | Loading | Load |
@@ -31,14 +31,22 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
- * | Ready | RunFinished | | Ready (not running) | Apply(SetUnread(true)) when not shown |
+ * | Ready | RunFinished | | Ready (idle unless the latest snapshot runs it) | Apply(SetUnread(true)) if hidden |
+ * | Ready | RuntimeChanged | | Ready (profile execution snapshot, answered permissions hidden) | |
+ * | Ready | RuntimeLost | | Ready (nothing running, stopping or awaiting permission) | |
+ * | Ready | RespondPermission | pending, not answered | Ready (permission answered) | RespondPermission |
+ * | Ready | PermissionAnswerFailed | | Ready (request no longer answered) | |
+ * | Ready | ModelsChanged | no model chosen, models offered | Ready (first model chosen) | |
+ * | Ready | CancelFailed | | Ready (stop can be retried) | |
  * | Ready | Edit | valid edit | Ready (archived session leaves panes) | Apply |
  *
  * Runs are effects of Ready and continue across every Ready update; several sessions may run at once.
- * Switching the workspace toggle off leaves Ready, which cancels the runs.
- * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed); failed
- * Cancel, Apply and ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
- * process opens a fresh workspace, so the machine is not persisted.
+ * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
+ * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
+ * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed; failed Apply,
+ * ObserveModels and
+ * ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
+ * process restores stored chats while the transient pane machine starts afresh.
  */
 public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStudioEffect, AiStudioOutput> =
     machineSpec(AiStudioMachineKey, AiStudioState.Idle) {
@@ -52,6 +60,8 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             on<AiStudioIntent.Internal.Loaded>(guard = { intent.isEnabled }) {
                 goto<AiStudioState.Ready> { initialWorkspace(intent.defaults) }
                 effect { AiStudioEffect.ObserveAvailability }
+                effect { AiStudioEffect.ObserveRuntime }
+                effect { AiStudioEffect.ObserveModels }
             }
             on<AiStudioIntent.Internal.Loaded>(guard = { !intent.isEnabled }) {
                 goto<AiStudioState.Disabled> { AiStudioState.Disabled }
@@ -74,8 +84,10 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { !intent.isEnabled })
         }
         state<AiStudioState.Ready> {
+            runtime()
             navigation()
             conversations()
+            executions()
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { !intent.isEnabled }) {
                 goto<AiStudioState.Disabled> { AiStudioState.Disabled }
                 effect { AiStudioEffect.ObserveAvailability }
@@ -92,7 +104,10 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 AiStudioEffect.Load -> AiStudioIntent.Internal.LoadFailed
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(effect.paneId, effect.prompt)
                 is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
-                AiStudioEffect.ObserveAvailability, is AiStudioEffect.Cancel, is AiStudioEffect.Apply -> null
+                is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
+                AiStudioEffect.ObserveRuntime -> AiStudioIntent.Internal.RuntimeLost
+                is AiStudioEffect.RespondPermission -> AiStudioIntent.Internal.PermissionAnswerFailed(effect.requestId)
+                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply -> null
             }
         }
     }
@@ -143,7 +158,12 @@ private fun ReadyTransitions.conversations() {
     ) {
         stay { state.replacePane(intent.paneId) { it.copy(isCreating = true) } }
         effect {
-            AiStudioEffect.CreateSession(intent.paneId, state.pane(intent.paneId)?.projectId, intent.prompt.trim())
+            AiStudioEffect.CreateSession(
+                intent.paneId,
+                state.pane(intent.paneId)?.projectId,
+                intent.prompt.trim(),
+                state.settings,
+            )
         }
     }
     on<AiStudioIntent.Public.Submit>(
@@ -165,25 +185,111 @@ private fun ReadyTransitions.conversations() {
                 running = state.running + intent.sessionId,
             )
         }
-        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, state.settings) }
+        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, intent.settings) }
     }
     on<AiStudioIntent.Internal.CreateFailed> {
         stay { state.updatePane(intent.paneId) { it.copy(isCreating = false) } }
         output { AiStudioOutput.SubmitFailed(intent.paneId, intent.prompt) }
     }
+}
+
+private fun ReadyTransitions.executions() {
     on<AiStudioIntent.Public.Stop>(
-        guard = { intent.sessionId in state.running && intent.sessionId !in state.stopping },
+        guard = {
+            intent.sessionId in state.running && intent.sessionId !in state.stopping &&
+                intent.sessionId !in state.uncancellable
+        },
     ) {
-        stay { state.copy(stopping = state.stopping + intent.sessionId) }
+        stay {
+            state.copy(
+                stopping = state.stopping + intent.sessionId,
+                stopFailures = state.stopFailures - intent.sessionId,
+            )
+        }
         effect { AiStudioEffect.Cancel(intent.sessionId) }
     }
+    on<AiStudioIntent.Internal.CancelFailed> {
+        stay {
+            state.copy(
+                stopping = state.stopping - intent.sessionId,
+                stopFailures = state.stopFailures + intent.sessionId,
+            )
+        }
+    }
     on<AiStudioIntent.Internal.RunFinished> {
-        stay { state.copy(running = state.running - intent.sessionId, stopping = state.stopping - intent.sessionId) }
+        // The latest runtime snapshot wins: an older effect result must not clear a newer native run.
+        stay {
+            if (intent.sessionId in state.observedRunning) {
+                state
+            } else {
+                state.copy(
+                    running = state.running - intent.sessionId,
+                    stopping = state.stopping - intent.sessionId,
+                )
+            }
+        }
         effect {
             val isShown = state.panes.any { it.sessionId == intent.sessionId }
             if (isShown) null else AiStudioEffect.Apply(intent.sessionId, SessionEdit.SetUnread(true))
         }
     }
+}
+
+private fun ReadyTransitions.runtime() {
+    on<AiStudioIntent.Internal.RuntimeChanged> {
+        stay {
+            val snapshot = intent.snapshot
+            val answered = state.answeredPermissions.intersect(snapshot.permissions.map { it.requestId }.toSet())
+            state.copy(
+                running = snapshot.running,
+                observedRunning = snapshot.running,
+                stopping = state.stopping.intersect(snapshot.running) - snapshot.stopFailures,
+                permissions = snapshot.permissions.filterNot { it.requestId in answered },
+                answeredPermissions = answered,
+                uncancellable = snapshot.uncancellable,
+                stopFailures = (state.stopFailures + snapshot.stopFailures).intersect(snapshot.running),
+            )
+        }
+    }
+    on<AiStudioIntent.Internal.RuntimeLost> {
+        stay {
+            state.copy(
+                running = emptySet(),
+                observedRunning = emptySet(),
+                stopping = emptySet(),
+                stopFailures = emptySet(),
+                permissions = emptyList(),
+                answeredPermissions = emptySet(),
+            )
+        }
+    }
+    on<AiStudioIntent.Public.RespondPermission>(guard = {
+        intent.requestId !in state.answeredPermissions && state.permissions.any {
+            it.sessionId == intent.sessionId && it.requestId == intent.requestId &&
+                it.options.any { option -> option.id == intent.optionId }
+        }
+    }) {
+        stay {
+            state.copy(
+                permissions = state.permissions.filterNot { it.requestId == intent.requestId },
+                answeredPermissions = state.answeredPermissions + intent.requestId,
+            )
+        }
+        effect { AiStudioEffect.RespondPermission(intent.sessionId, intent.requestId, intent.optionId) }
+    }
+    // The request stays hidden until the next snapshot, which shows it again while the engine still waits.
+    on<AiStudioIntent.Internal.PermissionAnswerFailed> {
+        stay { state.copy(answeredPermissions = state.answeredPermissions - intent.requestId) }
+    }
+    on<AiStudioIntent.Internal.ModelsChanged>(
+        guard = { state.settings.modelId.isBlank() && intent.modelIds.isNotEmpty() },
+    ) {
+        stay { state.copy(settings = state.settings.copy(modelId = intent.modelIds.first())) }
+    }
+    // A chosen model stays chosen; an empty offer changes nothing.
+    on<AiStudioIntent.Internal.ModelsChanged>(
+        guard = { state.settings.modelId.isNotBlank() || intent.modelIds.isEmpty() },
+    )
 }
 
 private fun initialWorkspace(defaults: StudioDefaults): AiStudioState.Ready = AiStudioState.Ready(

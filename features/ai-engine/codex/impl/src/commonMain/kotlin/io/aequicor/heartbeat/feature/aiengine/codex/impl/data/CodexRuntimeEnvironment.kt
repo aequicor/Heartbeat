@@ -13,7 +13,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 @Inject
 internal data class CodexRuntimeEnvironment(
-    val config: CodexLocalConfiguration = CodexLocalConfiguration(),
+    val config: CodexLocalConfiguration,
     val toggles: FeatureToggles,
     val dispatchers: DispatcherProvider,
     val launcher: MachineLauncher,

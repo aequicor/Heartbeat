@@ -18,24 +18,16 @@ import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
-import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_high
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_medium
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_very_high
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_cloud
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
@@ -48,7 +40,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review_pro
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -80,11 +71,17 @@ internal fun StudioComposer(
         },
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,
-        enabled = !pane.isCreating && !content.isStopping,
+        enabled =
+            !pane.isCreating && !content.isStopping && session?.isContinuable != false &&
+                (session?.isRunning != true || content.isStoppable) &&
+                // A pending permission must be answered before another prompt can be sent.
+                (
+                    session?.isRunning == true ||
+                        (content.permissions.isEmpty() && content.models.any { it.id == settings.modelId })
+                ),
         leadingContent = { TemplatesMenu(draft) { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) } },
         trailingContent = {
-            ApprovalMenu(settings.approval, onIntent)
-            ModelMenu(settings.modelId, settings.effort, onIntent, isCompact)
+            ModelMenu(settings.modelId, content.models, onIntent, canSelect = session?.modelId == null)
         },
     )
 }
@@ -164,82 +161,31 @@ private fun TemplatesMenu(draft: String, onDraft: (String) -> Unit) {
 }
 
 @Composable
-private fun ApprovalMenu(approval: ApprovalUi, onIntent: (AiStudioScreenIntent) -> Unit) {
-    var isOpen by remember { mutableStateOf(false) }
-    val ask = stringResource(Res.string.approval_ask)
-    val auto = stringResource(Res.string.approval_auto)
-    Box {
-        HbChip(
-            label = if (approval == ApprovalUi.AutoApprove) auto else ask,
-            icon = if (approval == ApprovalUi.AutoApprove) HbIcons.Success else HbIcons.Help,
-            onClick = { isOpen = !isOpen },
-            modifier = Modifier.testTag("approval-chip"),
-        )
-        HbMenu(
-            items = persistentListOf(
-                HbMenuItem(ApprovalUi.Ask.name, ask, isChecked = approval == ApprovalUi.Ask),
-                HbMenuItem(ApprovalUi.AutoApprove.name, auto, isChecked = approval == ApprovalUi.AutoApprove),
-            ),
-            isExpanded = isOpen,
-            onDismiss = { isOpen = false },
-            onItem = { onIntent(AiStudioScreenIntent.SelectApproval(ApprovalUi.valueOf(it))) },
-            label = stringResource(Res.string.approval_menu),
-        )
-    }
-}
-
-@Composable
 private fun ModelMenu(
     modelId: String,
-    effort: EffortUi,
+    models: ImmutableList<ModelUi>,
     onIntent: (AiStudioScreenIntent) -> Unit,
-    isCompact: Boolean,
+    canSelect: Boolean,
 ) {
     var isOpen by remember { mutableStateOf(false) }
-    val model = StudioModelOptions.firstOrNull { it.id == modelId } ?: StudioModelOptions.first()
-    val efforts = EffortUi.entries.map { it to effortLabel(it) }
-    val items = (
-        StudioModelOptions.map { HbMenuItem(MODEL_PREFIX + it.id, it.name, isChecked = it.id == model.id) } +
-            efforts.mapIndexed { index, (value, label) ->
-                HbMenuItem(EFFORT_PREFIX + value.name, label, isChecked = value == effort, startsGroup = index == 0)
-            }
-    ).toImmutableList()
+    val model = models.firstOrNull { it.id == modelId }
     Box {
         HbChip(
-            label = if (isCompact) model.name else "${model.name} · ${effortLabel(effort)}",
+            label = model?.name ?: stringResource(Res.string.connect_model_hint),
             icon = HbIcons.Sparkles,
-            onClick = { isOpen = !isOpen },
+            onClick = if (canSelect) ({ isOpen = !isOpen }) else null,
             modifier = Modifier.testTag("model-chip"),
         )
         HbMenu(
-            items = items,
+            items = models.map { HbMenuItem(it.id, it.name, isChecked = it.id == modelId) }.toImmutableList(),
             isExpanded = isOpen,
             onDismiss = { isOpen = false },
-            onItem = { id ->
-                val intent = if (id.startsWith(MODEL_PREFIX)) {
-                    AiStudioScreenIntent.SelectModel(id.removePrefix(MODEL_PREFIX))
-                } else {
-                    AiStudioScreenIntent.SelectEffort(EffortUi.valueOf(id.removePrefix(EFFORT_PREFIX)))
-                }
-                onIntent(intent)
-            },
+            onItem = { onIntent(AiStudioScreenIntent.SelectModel(it)) },
             label = stringResource(Res.string.model_menu),
         )
     }
 }
 
-@Composable
-private fun effortLabel(effort: EffortUi): String = stringResource(
-    when (effort) {
-        EffortUi.Low -> Res.string.effort_low
-        EffortUi.Medium -> Res.string.effort_medium
-        EffortUi.High -> Res.string.effort_high
-        EffortUi.VeryHigh -> Res.string.effort_very_high
-    },
-)
-
-private class Template(val id: String, val label: StringResource, val prompt: StringResource)
+private data class Template(val id: String, val label: StringResource, val prompt: StringResource)
 
 private const val NO_PROJECT = "no-project"
-private const val MODEL_PREFIX = "model:"
-private const val EFFORT_PREFIX = "effort:"

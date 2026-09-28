@@ -20,11 +20,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class LocalCodexTransport(
-    private val config: CodexLocalConfiguration = CodexLocalConfiguration(),
+    private val config: CodexLocalConfiguration,
     private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : CodexTransport {
@@ -61,8 +62,11 @@ internal class LocalCodexTransport(
             config.homeDirectory?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
             require(!config.executable.endsWith(".cmd", true) && !config.executable.endsWith(".bat", true))
             val process = builder.start()
-            val cleanup = profile.onClose { process.destroyForcibly() }
-            ProcessCodexWire(process, dispatchers) { cleanup.dispose() }
+            var cleanup: (() -> Unit)? = null
+            val wire = ProcessCodexWire(process, dispatchers) { cleanup?.invoke() }
+            val handle = profile.onClose { wire.close() }
+            cleanup = { handle.dispose() }
+            wire
         } catch (e: IOException) {
             throw e.sanitized()
         }
@@ -74,6 +78,8 @@ internal class ProcessCodexWire(
     private val dispatchers: DispatcherProvider,
     private val release: () -> Unit,
 ) : CodexWire {
+    private val log = Log.tag("ProcessCodexWire")
+    private val isClosed = AtomicBoolean(false)
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
     private val writes = Mutex()
     override val messages = flow {
@@ -94,22 +100,62 @@ internal class ProcessCodexWire(
     }
 
     override suspend fun write(message: JsonObject) {
-        writes.withLock {
-            withContext(dispatchers.io) {
-                try {
-                    writer.write(message.toString())
-                    writer.newLine()
-                    writer.flush()
-                } catch (e: IOException) {
-                    throw e.sanitized()
+        try {
+            writes.withLock {
+                withContext(dispatchers.io) {
+                    try {
+                        writer.write(message.toString())
+                        writer.newLine()
+                        writer.flush()
+                    } catch (e: IOException) {
+                        throw e.sanitized()
+                    }
                 }
             }
+        } finally {
+            // A close that raced this write could not take the lock; the write releases stdin once it is done.
+            if (isClosed.get()) closeStdin()
         }
     }
 
     override fun close() {
+        if (!isClosed.compareAndSet(false, true)) return
+        log.i { "Stopping local Codex app-server" }
+        // Destroy first: blocked pipe IO must unblock before stdin can be closed.
+        destroyDescendants()
         process.destroyForcibly()
+        closeStdin()
         release()
+    }
+
+    /**
+     * Wrapper launchers leave the real app-server as a child that inherits our pipes, so descendants alive at close
+     * are stopped before the parent. Failure to enumerate them must not prevent stopping the parent.
+     */
+    private fun destroyDescendants() {
+        try {
+            process.descendants().toList().forEach { it.destroyForcibly() }
+        } catch (e: SecurityException) {
+            log.w(e) { "Codex app-server descendants unavailable" }
+        } catch (e: UnsupportedOperationException) {
+            log.w(e) { "Codex app-server descendants unsupported" }
+        }
+    }
+
+    /**
+     * Closing flushes under the writer lock. Process death does not release the pipe while a descendant still holds
+     * it, so when an in-flight write holds the lock, that write closes stdin after releasing it: [isClosed] is set
+     * before this lock attempt, and [write] re-checks it after unlocking, so one of them always closes the writer.
+     */
+    private fun closeStdin() {
+        if (!writes.tryLock()) return
+        try {
+            writer.close()
+        } catch (e: IOException) {
+            log.w(e) { "Codex app-server stdin close failed" }
+        } finally {
+            writes.unlock()
+        }
     }
 }
 

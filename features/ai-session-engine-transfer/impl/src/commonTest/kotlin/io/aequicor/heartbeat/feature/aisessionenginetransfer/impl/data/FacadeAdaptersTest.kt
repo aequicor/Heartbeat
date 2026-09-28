@@ -121,6 +121,24 @@ class FacadeAdaptersTest {
         assertEquals(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability), failure.failure)
     }
 
+    @Test
+    fun `created sessions that cannot accept prompts are released, not orphaned`() = runTest {
+        val active = FakeActiveSession(TargetRef, FakeFeatures(emptyMap()))
+        val creates = object : CreatesSessions {
+            override suspend fun create(request: CreateSessionRequest) = active
+        }
+        val facade = FakeEngineFacade(
+            engineFeatures = mapOf(
+                Target.engine to FakeFeatures(mapOf(CreatesSessions to FeatureAccess.Available(creates))),
+            ),
+        )
+
+        val failure = assertFailsWith<EngineException> { FacadeEngineSessions(facade).create(Target, null) }
+
+        assertEquals(EngineFailure.Engine(EngineFailureReason.UnsupportedCapability), failure.failure)
+        assertEquals(1, active.closes)
+    }
+
     private fun historyFacade(access: FeatureAccess<SessionHistory>) =
         FakeEngineFacade(storedSessions = mapOf(SourceRef to FakeFeatures(mapOf(SessionHistory to access))))
 

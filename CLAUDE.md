@@ -27,13 +27,18 @@ lint/            detekt-rules — собственный набор правил
 
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
 > Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
-> AI-движки: общие контракты `features:ai-engine:facade:api` и `authenticator:api`.
+> AI-движки: контракты `features:ai-engine:{facade,authenticator}:api`; `authenticator:impl` — источники авторизации профиля и проверки;
+> `facade:impl` — каталог движков и привязок, выбор движка по умолчанию, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине.
 > Адаптер `koog:{api,impl}` (OpenAI, Anthropic, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
 > подключён в DI, включение — тогл `ai.koog` (по умолчанию false).
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
-> Общий runtime фасада, хранилища каталога и UI подключения пока не реализованы.
+> Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
+> «движок × подключение × модель», тогл `ai.engine_connections`) поверх `EngineFacade` и `AuthSources`; экраны показывают
+> движки, объявившие `connectionMethods` (Pi, Koog, Codex, Claude); адаптеры узнают источники привязок через SPI `bind`/`unbind`.
+> `ai-studio` использует профильный фасад, сохраняет идентичность и историю чатов; принятые ходы принадлежат профилю
+> и переживают закрытие экрана (тогл `ai_studio.engine_runtime`, по умолчанию false — демо-пространство и старт профиля с welcome).
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
@@ -49,7 +54,7 @@ lint/            detekt-rules — собственный набор правил
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
-> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root.
+> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
 

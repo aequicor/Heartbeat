@@ -218,7 +218,7 @@ private fun ConnectionKeyEditor(operation: SearchOperation, hasKey: Boolean, onI
         { keyInput = it },
         Modifier.fillMaxWidth(),
         placeholder = stringResource(Res.string.api_key),
-        obscured = true,
+        isSecret = true,
     )
     HbButton(stringResource(Res.string.save_key), {
         onIntent(SearchSettingsIntent.SaveKey(operation, Secret(keyInput.toCharArray())))

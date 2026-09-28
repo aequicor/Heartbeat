@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.core.navigation.AppRouteBinding
 import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeIntent
@@ -53,7 +54,8 @@ interface WelcomeGraph {
 object WelcomeBindings {
     /** Wires the domain handler without coupling domain to Metro. */
     @Provides
-    fun effects(settings: WelcomeSettings): WelcomeEffects = WelcomeEffects(settings)
+    fun effects(settings: WelcomeSettings, profiles: ProfileSessions): WelcomeEffects =
+        WelcomeEffects(settings, profiles)
 
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides

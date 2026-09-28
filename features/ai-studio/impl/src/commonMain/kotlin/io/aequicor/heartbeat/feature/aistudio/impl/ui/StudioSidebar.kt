@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,7 +58,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun StudioSidebar(
     input: SidebarInput,
     onIntent: (AiStudioScreenIntent) -> Unit,
-    canOpenBeside: Boolean,
+    isOpenBesideAllowed: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val sidebar = input.sidebar
@@ -71,7 +71,7 @@ internal fun StudioSidebar(
         renaming = sidebar.renaming,
         openMenu = openMenu,
         onMenu = { openMenu = it },
-        canOpenBeside = canOpenBeside,
+        isOpenBesideAllowed = isOpenBesideAllowed,
         onIntent = onIntent,
     )
     HbColumn(modifier.testTag("studio-sidebar"), gap = HbTheme.spacing.none) {
@@ -107,7 +107,7 @@ internal fun StudioSidebar(
 @Composable
 private fun SearchField(query: String, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
     val focus = remember { FocusRequester() }
-    LaunchedEffect(focus) { focus.requestFocus() }
+    SideEffect(focus) { focus.requestFocus() }
     HbTextField(
         value = query,
         onValueChange = { onIntent(AiStudioScreenIntent.SearchChanged(it)) },
