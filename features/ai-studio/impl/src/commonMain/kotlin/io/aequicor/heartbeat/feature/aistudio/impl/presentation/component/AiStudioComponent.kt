@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
+import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.SerialName
@@ -59,8 +60,17 @@ class AiStudioComponent(
     /** Whether the profile search settings are offered. */
     val showsProfileSettings: Flow<Boolean> = entries.showsProfileSettings
 
+    /** Whether the one settings entry replaces the separate settings actions. */
+    val showsUnifiedSettings: Flow<Boolean> = entries.showsUnifiedSettings
+
     /** Closes this navigation entry. */
     fun close() = navigator.close()
+
+    /** Opens the settings window above the studio; the studio keeps its state underneath. */
+    fun openSettings() {
+        log.i { "open settings" }
+        navigator.navigate(SettingsRoute(), NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+    }
 
     /** Opens the feature toggles panel above the studio; the studio keeps its state underneath. */
     fun openToggles() = navigator.navigate(

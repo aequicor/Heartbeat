@@ -10,6 +10,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.searchEngine.api)
+            implementation(projects.features.settings.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.secrets.api)
             implementation(projects.core.network.api)

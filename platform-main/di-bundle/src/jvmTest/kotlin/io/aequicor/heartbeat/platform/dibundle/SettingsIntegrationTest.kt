@@ -12,17 +12,20 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelMachineKey
+import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.dibundle.root.RootChild
 import io.aequicor.heartbeat.platform.dibundle.root.RootStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -104,5 +107,29 @@ class SettingsIntegrationTest {
         // Feature flags are the only section of the guest tree, so they open without a profile.
         assertNotNull(process.graph.machines.find(TogglesPanelMachineKey))
         process.close()
+    }
+
+    @Test
+    fun `the legacy flag panel route opens the settings section`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val process = Process()
+        advanceUntilIdle()
+        process.host.navigator.navigate(TogglesPanelRoute())
+        // The redirect reads the toggle from storage off the test dispatcher.
+        repeat(REDIRECT_ATTEMPTS) {
+            advanceUntilIdle()
+            if (process.host.routes.last() is SettingsRoute) return@repeat
+            withContext(Dispatchers.Default) { delay(REDIRECT_POLL_MILLIS) }
+        }
+        assertEquals(
+            listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)),
+            process.host.routes,
+        )
+        process.close()
+    }
+
+    private companion object {
+        const val REDIRECT_ATTEMPTS = 100
+        const val REDIRECT_POLL_MILLIS = 20L
     }
 }

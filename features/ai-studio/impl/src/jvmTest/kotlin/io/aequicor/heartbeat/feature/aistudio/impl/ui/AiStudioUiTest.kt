@@ -72,6 +72,26 @@ class AiStudioUiTest {
     }
 
     @Test
+    fun `one settings button replaces the separate settings actions`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        var opened = 0
+        val actions = StudioExits(
+            onBack = {},
+            onOpenToggles = {},
+            onOpenProfileSettings = {},
+            onOpenConnections = {},
+            onOpenSettings = { opened++ },
+        )
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, actions) } }
+        onNodeWithTag("rail-toggles").assertDoesNotExist()
+        onNodeWithTag("rail-profile-settings").assertDoesNotExist()
+        onNodeWithTag("rail-connections").assertDoesNotExist()
+        onNodeWithTag("rail-settings").performClick()
+        runOnIdle { assertEquals(1, opened) }
+    }
+
+    @Test
     fun `rail hides profile settings while search tools are off`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
         setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, exits) } }
         onNodeWithTag("rail-profile-settings").assertDoesNotExist()
