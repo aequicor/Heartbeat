@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineSpec
@@ -39,6 +40,15 @@ object EffortConfigurationBindings {
         EffortConfigurationEffects(store) { toggles.get(EffortConfiguration) },
     ).also { machine ->
         scope.coroutineScope.launch { machine.send(EffortConfigurationIntent.Public.Start) }
+    }
+
+    /** The only binding other features inject: state without the ability to send internal intents. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun view(
+        machine: Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput>,
+    ): EffortChoicesView = object : EffortChoicesView {
+        override val state = machine.state
     }
 }
 

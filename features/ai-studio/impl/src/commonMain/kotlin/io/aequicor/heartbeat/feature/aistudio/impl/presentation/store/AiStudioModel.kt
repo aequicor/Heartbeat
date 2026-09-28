@@ -4,8 +4,10 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
@@ -19,8 +21,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationOutput
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentMapOf
@@ -65,8 +68,11 @@ class AiStudioModel(
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
     private val entries: StudioEntries,
-    private val efforts: Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput>,
+    private val efforts: EffortChoicesView,
+    private val machines: MachineRegistry,
 ) {
+    private val log = Log.tag("AiStudioModel")
+
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
         initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
@@ -78,12 +84,12 @@ class AiStudioModel(
                 is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output.paneId, output.prompt) }
             }
         }) { reflectMachine(it) }
-        reflect(efforts) { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) }
         whileSubscribed(name = "workspace") {
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
                 launch { observeResearch(pipeline) }
+                launch { observeEfforts(pipeline) }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
@@ -104,6 +110,12 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeEfforts(pipeline: StudioPipeline) {
+        with(pipeline) {
+            efforts.state.collect { updateState { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) } }
+        }
     }
 
     private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
@@ -262,7 +274,9 @@ class AiStudioModel(
     private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
         with(pipeline) {
             val target = studioModelTarget(intent.modelId) ?: return@with
-            sendTo(efforts, EffortConfigurationIntent.Public.Select(target, intent.effort))
+            val select = EffortConfigurationIntent.Public.Select(target, intent.effort)
+            val result = machines.send(EffortConfigurationMachineKey, select)
+            if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }
         }
 
     private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {

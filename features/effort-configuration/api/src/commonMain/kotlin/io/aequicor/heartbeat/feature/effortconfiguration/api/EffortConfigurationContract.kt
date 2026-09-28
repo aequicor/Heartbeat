@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 
 /** A user-selected native effort identifier for one model route. */
@@ -75,7 +76,10 @@ public sealed interface EffortConfigurationOutput : MachineOutput {
     public data object SaveFailed : EffortConfigurationOutput
 }
 
-/** Profile-scoped effort machine, created with the profile graph's first consumer. */
+/**
+ * Profile-scoped effort machine. It is created by the first injection of [EffortChoicesView] in the profile;
+ * until then `MachineRegistry.send` reports `NotRunning`.
+ */
 public object EffortConfigurationMachineKey :
     MachineKey<
         EffortConfigurationState,
@@ -87,7 +91,20 @@ public object EffortConfigurationMachineKey :
     override val name: String = "effort-configuration"
 }
 
-/** Persists effort choices in the profile; while off, choices live only until the profile closes. */
+/**
+ * Read-only view of the profile's effort choices for other features. Injecting it starts the machine;
+ * choices are changed only with `MachineRegistry.send(EffortConfigurationMachineKey, Public.Select(...))`.
+ */
+public interface EffortChoicesView {
+    /** Current machine state; null effort (native default) until [EffortConfigurationState.Ready]. */
+    public val state: StateFlow<EffortConfigurationState>
+}
+
+/**
+ * Persists effort choices in the profile; while off, choices live only until the profile closes. Read when the
+ * profile loads and on every save: turning it on in a running profile saves current choices on the next change,
+ * previously stored ones are read after the profile restarts.
+ */
 public val EffortConfiguration: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.effort_configuration",
     "Настройка уровня effort моделей",
