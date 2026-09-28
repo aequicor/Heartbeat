@@ -69,6 +69,7 @@ class SecretStoreKeyVaultTest {
 
         assertTrue(vault.contains(slot))
         assertEquals("v", secrets.values[SecretKey(slot.value)])
+        assertEquals("v", vault.read(slot)?.use { secret -> secret.reveal { it.concatToString() } })
     }
 
     @Test

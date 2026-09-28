@@ -19,7 +19,10 @@ interface AuthSourceStore {
 
 /** Profile vault slots of Heartbeat-owned keys. Values are never logged or cached. */
 interface ManagedKeyVault {
-    /** Creates or replaces the value; the caller keeps ownership of [key]. On failure no new value is left behind. */
+    /**
+     * Creates or replaces the value; the caller keeps ownership of [key]. On failure a new value is not left behind;
+     * a replaced value is not restored.
+     */
     suspend fun store(slot: AuthSecretId, key: Secret)
 
     /** A newly owned value, or null; the caller closes it. */

@@ -17,7 +17,8 @@ import kotlin.coroutines.cancellation.CancellationException
  * retires the old runtime before its replacement starts, so two credential rotators never run at once; while
  * [hasActiveTurn] reports an accepted turn on the old runtime, the new route is refused as Busy instead.
  * Idle handles still open on the old runtime are closed through [retireHandles] before it stops, so no handle
- * outlives its runtime. After [closeAll] the pool refuses new runtimes with ProfileClosed.
+ * outlives its runtime. Retirement and creation are serialized per engine and source, so a hanging close of one
+ * source never blocks runtimes of others. After [closeAll] the pool refuses new runtimes with ProfileClosed.
  */
 class RuntimePool(
     private val context: FacadeContext,
@@ -27,18 +28,27 @@ class RuntimePool(
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, EngineRuntime>()
+    private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
     private var isClosed = false
 
     /** Runtime of the checked [resolved] route, created on first use. */
-    suspend fun runtime(resolved: ResolvedRoute): EngineRuntime = mutex.withLock {
-        if (isClosed) {
-            log.w { "runtime requested after profile shutdown engine=${resolved.identity.engine.value}" }
-            fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
-        }
+    suspend fun runtime(resolved: ResolvedRoute): EngineRuntime {
         val identity = resolved.identity
         val key = identity.engine to identity.source
-        val current = runtimes[key]
-        if (current != null && current.identity == identity) return@withLock current
+        val keyLock = mutex.withLock {
+            ensureOpen(identity.engine)
+            keyLocks.getOrPut(key) { Mutex() }
+        }
+        return keyLock.withLock { replace(resolved, key) }
+    }
+
+    private suspend fun replace(resolved: ResolvedRoute, key: Pair<EngineId, AuthSourceId>): EngineRuntime {
+        val identity = resolved.identity
+        val current = mutex.withLock {
+            ensureOpen(identity.engine)
+            runtimes[key]
+        }
+        if (current != null && current.identity == identity) return current
         if (current != null) {
             if (hasActiveTurn(identity.engine, identity.source)) {
                 log.w { "runtime busy, not retired engine=${identity.engine.value} source=${identity.source.value}" }
@@ -46,7 +56,7 @@ class RuntimePool(
             }
             log.i { "retire runtime engine=${identity.engine.value} source=${identity.source.value}" }
             retireHandles(identity.engine, identity.source)
-            runtimes.remove(key)
+            mutex.withLock { runtimes.remove(key) }
             closeQuietly(current)
         }
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
@@ -58,8 +68,20 @@ class RuntimePool(
             closeQuietly(created)
             fail(EngineFailure.Unknown())
         }
-        runtimes[key] = created
-        created
+        val stored = mutex.withLock { if (isClosed) false else true.also { runtimes[key] = created } }
+        if (!stored) {
+            log.w { "runtime started during profile shutdown engine=${identity.engine.value}" }
+            closeQuietly(created)
+            fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        }
+        return created
+    }
+
+    private fun ensureOpen(engine: EngineId) {
+        if (isClosed) {
+            log.w { "runtime requested after profile shutdown engine=${engine.value}" }
+            fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        }
     }
 
     /** Closes every runtime at profile shutdown; later [runtime] calls fail with ProfileClosed. */

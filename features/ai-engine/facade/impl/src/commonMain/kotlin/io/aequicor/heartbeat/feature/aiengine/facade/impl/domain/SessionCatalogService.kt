@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -71,16 +72,29 @@ class SessionCatalogService(
         val targets = scoped.sources()
         val discovers = targets.any { it.second.discovery != null }
         val generation = if (discovers) index.advanceRevision() else index.revision()
+        var failed = true
         try {
             val report = targets.map { (registration, source) ->
                 val status = discover(registration, source, scoped, generation)
                 SourceDiscovery(source.source, status, Observation(context.clock.now(), isStale = false))
                     .also { index.saveCoverage(it) }
             }
-            SessionDiscoveryReport(report)
+            SessionDiscoveryReport(report).also { failed = false }
         } finally {
-            // Pages read while discovery was reordering rows got the intermediate revision; retire it even on failure.
-            if (discovers) index.advanceRevision()
+            // Pages read while discovery was reordering rows got the intermediate revision; retire it even on failure
+            // or cancellation, without masking the original error.
+            if (discovers) withContext(NonCancellable) { retireRevision(keepOriginal = failed) }
+        }
+    }
+
+    private suspend fun retireRevision(keepOriginal: Boolean) {
+        try {
+            index.advanceRevision()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!keepOriginal) throw e
+            log.w(e) { "revision advance failed after a failed refresh" }
         }
     }
 
