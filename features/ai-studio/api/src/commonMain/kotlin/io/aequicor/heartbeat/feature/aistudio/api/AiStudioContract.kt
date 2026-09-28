@@ -173,7 +173,7 @@ public sealed interface AiStudioIntent : MachineIntent {
         public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
 
         /** Answering permission [requestId] failed; the request is shown again by the next runtime snapshot. */
-        public data class PermissionAnswerFailed(val requestId: String) : Internal
+        public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : Internal
 
         /** The runtime observation failed; nothing is known to run any more. */
         public data object RuntimeLost : Internal
@@ -242,6 +242,12 @@ public sealed interface AiStudioEffect : MachineEffect {
 public sealed interface AiStudioOutput : MachineOutput {
     /** The prompt of [paneId] was not sent; the composer can restore it. */
     public data class SubmitFailed(val paneId: Int, val prompt: String) : AiStudioOutput
+
+    /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
+    public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput
+
+    /** A run of [sessionId] started by the studio ended with [outcome]. */
+    public data class RunEnded(val sessionId: String, val outcome: RunOutcome) : AiStudioOutput
 }
 
 /** Address of the studio machine. */

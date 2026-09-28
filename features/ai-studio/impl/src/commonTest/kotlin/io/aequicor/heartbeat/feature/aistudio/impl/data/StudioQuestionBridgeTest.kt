@@ -130,6 +130,45 @@ class StudioQuestionBridgeTest {
     }
 
     @Test
+    fun `an accepted answer that fails to reach the engine reopens its question`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Withdraw(question.id), fixture.queue.sent.last())
+
+        fixture.studio.outputs.emit(AiStudioOutput.PermissionAnswerFailed("s1", "r1"))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+
+        // The reopened question can be answered again.
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(false)))
+        runCurrent()
+        assertEquals(AiStudioIntent.Public.RespondPermission("s1", "r1", "deny", null), fixture.studio.sent.last())
+    }
+
+    @Test
+    fun `a failed follow-up run reopens its question and a finished one does not`() = runTest {
+        val fixture = Fixture(this)
+        runCurrent()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        fixture.studio.outputs.emit(AiStudioOutput.RunEnded("s1", RunOutcome.Failed))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        fixture.studio.outputs.emit(AiStudioOutput.RunEnded("s1", RunOutcome.Completed))
+        runCurrent()
+        // A later unrelated failure of the session reopens nothing.
+        fixture.studio.outputs.emit(AiStudioOutput.RunEnded("s1", RunOutcome.Failed))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Withdraw(question.id), fixture.queue.sent.last())
+    }
+
+    @Test
     fun `permissions without options are not asked`() = runTest {
         val fixture = Fixture(this)
         fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission.copy(options = emptyList())))

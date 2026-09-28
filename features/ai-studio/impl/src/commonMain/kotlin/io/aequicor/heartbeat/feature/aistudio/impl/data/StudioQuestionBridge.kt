@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
+import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.decision
@@ -47,7 +49,9 @@ import kotlinx.coroutines.sync.withLock
  * Pending permissions are asked as questions of their session. Answers go to the studio machine
  * (`AiStudioMachineKey`): a live request is answered with `RespondPermission`, a question restored after a restart
  * whose native request is gone is answered with a `FollowUp` message (a skipped one is just withdrawn).
- * A delivered answer withdraws its question; an undeliverable one reopens it. Failures are logged and never stop
+ * An accepted answer withdraws its question; an undeliverable one reopens it, and so does an accepted one whose
+ * delivery fails later (`PermissionAnswerFailed`, a follow-up run ending `Failed`). Answers reach the studio machine
+ * only while the studio screen runs it; otherwise their questions reopen. Failures are logged and never stop
  * the bridge. Started with the profile ([StudioQuestionStartup]).
  */
 @SingleIn(ProfileScope::class)
@@ -63,6 +67,9 @@ internal class StudioQuestionBridge(
     // Permissions seen pending during live observation and the ones already answered; guarded by [lock].
     private val live = mutableMapOf<QuestionnaireId, StudioPermission>()
     private val answered = mutableSetOf<QuestionnaireId>()
+
+    // Restored questions answered by a follow-up run of their session that has not ended yet; guarded by [lock].
+    private val followUps = mutableMapOf<String, Questionnaire>()
 
     /** Sessions with open questions while the questionnaire is enabled. */
     @OptIn(ExperimentalCoroutinesApi::class)
@@ -87,6 +94,7 @@ internal class StudioQuestionBridge(
                 .collect { permissions -> guarded("sync permissions") { sync(permissions) } }
         }
         launch { deliverAnswers() }
+        launch { watchDeliveries() }
     }
 
     private suspend fun sync(permissions: List<StudioPermission>) {
@@ -141,6 +149,35 @@ internal class StudioQuestionBridge(
         }
     }
 
+    /** Reopens questions whose accepted answer failed to reach the engine. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun watchDeliveries() {
+        machines.observe(AiStudioMachineKey)
+            .flatMapLatest { it?.outputs ?: emptyFlow() }
+            .collect { output -> guarded("watch a delivery") { onDelivery(output) } }
+    }
+
+    private suspend fun onDelivery(output: AiStudioOutput) {
+        val failed = lock.withLock {
+            when (output) {
+                is AiStudioOutput.PermissionAnswerFailed ->
+                    live.values
+                        .firstOrNull { it.sessionId == output.sessionId && it.requestId == output.requestId }
+                        ?.takeIf { answered.remove(it.questionnaireId()) }
+                        ?.toQuestionnaire()
+
+                is AiStudioOutput.RunEnded ->
+                    followUps.remove(output.sessionId)?.takeIf { output.outcome == RunOutcome.Failed }
+
+                is AiStudioOutput.SubmitFailed -> null
+            }
+        }
+        if (failed != null) {
+            log.w { "Answer was not delivered, reopen its question" }
+            reopen(failed)
+        }
+    }
+
     /** Answers the pending native request through the studio machine; false when the answer does not fit it. */
     private suspend fun respondNatively(permission: StudioPermission, answer: Answer): Boolean {
         val decision = permission.decision(answer)
@@ -169,10 +206,17 @@ internal class StudioQuestionBridge(
     /** Sends the answer as the next user message of the session; false while the studio cannot run it. */
     private suspend fun followUp(questionnaire: Questionnaire, answer: Answer): Boolean {
         log.i { "Deliver answer as a follow-up message kind=${answer::class.simpleName.orEmpty()}" }
-        val result = machines.send(
-            AiStudioMachineKey,
-            AiStudioIntent.Public.FollowUp(questionnaire.source, questionnaire.followUpText(answer)),
-        )
+        // Registered before sending: the run may end before [send] returns.
+        lock.withLock { followUps[questionnaire.source] = questionnaire }
+        var result: SendResult? = null
+        try {
+            result = machines.send(
+                AiStudioMachineKey,
+                AiStudioIntent.Public.FollowUp(questionnaire.source, questionnaire.followUpText(answer)),
+            )
+        } finally {
+            if (result != SendResult.Accepted) lock.withLock { followUps.remove(questionnaire.source) }
+        }
         if (result != SendResult.Accepted) log.w { "Follow-up answer was not accepted: $result" }
         return result == SendResult.Accepted
     }
@@ -211,6 +255,14 @@ internal class StudioQuestionStartup(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
     override fun start() {
-        profile.coroutineScope.launch { bridge.value.run() }
+        profile.coroutineScope.launch {
+            try {
+                bridge.value.run()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.tag("StudioQuestions").e(e) { "Question bridge stopped" }
+            }
+        }
     }
 }

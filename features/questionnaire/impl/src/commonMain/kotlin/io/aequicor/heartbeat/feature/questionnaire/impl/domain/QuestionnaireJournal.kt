@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 
@@ -24,9 +23,10 @@ interface QuestionnaireStorage {
 
 /**
  * Keeps open questions across screens and app restarts (the profile machine itself is not persisted). Started
- * only while the questionnaire is enabled, it asks the saved questions again, waits until the queue holds all of
- * them and only then saves the queue on every change, so a lagging queue never overwrites the saved questions.
- * Answers in flight are not saved; their questions reopen. Storage failures are logged and never stop the journal.
+ * only while the questionnaire is enabled, it asks the saved questions again and only then saves the queue on every
+ * change: [Machine.send] returns after the transition, so the mirrored queue already holds every restored question.
+ * Answers in flight (`submitting`) are not saved, so an answered question is never asked twice after a restart.
+ * Storage failures are logged and never stop the journal.
  */
 class QuestionnaireJournal(private val storage: QuestionnaireStorage) {
     private val log = Log.tag("QuestionnaireJournal")
@@ -39,12 +39,13 @@ class QuestionnaireJournal(private val storage: QuestionnaireStorage) {
             val result = machine.send(QuestionnaireIntent.Public.Ask(question))
             if (result != SendResult.Accepted) log.w { "Saved question was not asked again: $result" }
         }
-        val savedIds = saved.map { it.id }.toSet()
         var stored = saved
         machine.state
-            .map { (it as? QuestionnaireState.Asking)?.pending.orEmpty() }
+            .map { state ->
+                val asking = state as? QuestionnaireState.Asking
+                asking?.pending.orEmpty().filterNot { it.id in asking?.submitting.orEmpty() }
+            }
             .distinctUntilChanged()
-            .dropWhile { pending -> !pending.map { it.id }.containsAll(savedIds) }
             // Writes only real changes: opening a profile with nothing new to save touches no storage.
             .filter { it != stored }
             .collect { pending ->

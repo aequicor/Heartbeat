@@ -335,6 +335,7 @@ class AiStudioMachineTest {
             intent = AiStudioIntent.Internal.RunFinished("s3", RunOutcome.Completed),
             to = home,
             effects = listOf(AiStudioEffect.Apply("s3", SessionEdit.SetUnread(true))),
+            outputs = listOf(AiStudioOutput.RunEnded("s3", RunOutcome.Completed)),
         )
     }
 
@@ -398,8 +399,9 @@ class AiStudioMachineTest {
         )
         AiStudioMachineSpec.assertTransition(
             from = answered,
-            intent = AiStudioIntent.Internal.PermissionAnswerFailed("request"),
+            intent = AiStudioIntent.Internal.PermissionAnswerFailed("s1", "request"),
             to = answered.copy(answeredPermissions = emptySet()),
+            outputs = listOf(AiStudioOutput.PermissionAnswerFailed("s1", "request")),
         )
         AiStudioMachineSpec.assertTransition(
             from = answered.copy(answeredPermissions = emptySet()),
@@ -451,6 +453,7 @@ class AiStudioMachineTest {
             from = observed,
             intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Completed),
             to = observed,
+            outputs = listOf(AiStudioOutput.RunEnded("s1", RunOutcome.Completed)),
         )
     }
 
@@ -460,6 +463,7 @@ class AiStudioMachineTest {
             from = session.copy(running = setOf("s1"), stopping = setOf("s1")),
             intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Stopped),
             to = session,
+            outputs = listOf(AiStudioOutput.RunEnded("s1", RunOutcome.Stopped)),
         )
     }
 
