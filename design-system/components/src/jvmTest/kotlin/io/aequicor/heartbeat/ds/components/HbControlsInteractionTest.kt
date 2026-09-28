@@ -198,7 +198,7 @@ class HbControlsInteractionTest {
         setContent { InteractionHost(onClick = {}, isDark = true, style = style) }
         onNodeWithTag("action").performSemanticsAction(SemanticsActions.RequestFocus)
         mainClock.autoAdvance = false
-        listOf(HbButtonStyle.Quiet, HbButtonStyle.Primary, HbButtonStyle.Secondary, HbButtonStyle.Primary).forEach {
+        listOf(HbButtonStyle.Ghost, HbButtonStyle.Primary, HbButtonStyle.Secondary, HbButtonStyle.Primary).forEach {
             runOnIdle { style = it }
             mainClock.advanceTimeByFrame()
             onNodeWithTag("action").assertIsFocused()
@@ -209,7 +209,7 @@ class HbControlsInteractionTest {
             val foreground = if (it == HbButtonStyle.Primary) colors.onPrimary else colors.textPrimary
             val expectedFill = when (it) {
                 HbButtonStyle.Primary -> colors.primary
-                HbButtonStyle.Quiet -> colors.background
+                HbButtonStyle.Ghost -> colors.background
                 else -> colors.buttonFill
             }
             assertEquals(expectedFill.toArgb(), pixel.toArgb(), "First style frame must use its matching fill")

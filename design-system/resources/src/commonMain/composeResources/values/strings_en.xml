@@ -163,8 +163,6 @@
     <string name="en_illustration_upload">Add your files</string>
     <string name="en_illustration_upload_hint">A place to import documents and attachments.</string>
     <string name="en_matching_icons">Matching icons</string>
-    <string name="en_cinematic_welcome">Cinematic welcome</string>
-    <string name="en_replay_intro">Replay introduction</string>
     <string name="en_navigation_menus">Navigation and menus</string>
     <string name="en_projects">Projects</string>
     <string name="en_new_session">New session</string>
@@ -172,4 +170,19 @@
     <string name="en_rename">Rename</string>
     <string name="en_pin">Pin</string>
     <string name="en_archive">Archive</string>
+    <string name="en_settings_catalog">Settings rows and dialogs</string>
+    <string name="en_setting_prefer_engine">Prefer the engine’s own tools when the model supports native search and page reading</string>
+    <string name="en_setting_prefer_engine_hint">Otherwise the profile providers below are used.</string>
+    <string name="en_setting_provider">Search provider</string>
+    <string name="en_setting_provider_hint">Key saved</string>
+    <string name="en_danger_action">Delete</string>
+    <string name="en_open_dialog">Open dialog</string>
+    <string name="en_dialog_title">Disconnect the connection?</string>
+    <string name="en_dialog_body">Models of this connection disappear from pickers. The key is removed from the profile.</string>
+    <string name="en_cancel_action">Cancel</string>
+    <string name="en_error_banner">Could not save the change. The previous value was kept.</string>
+    <string name="en_retry_action">Retry</string>
+    <string name="en_empty_title">Nothing found</string>
+    <string name="en_empty_hint">Change the search query</string>
+    <string name="en_loading_label">Loading…</string>
 </resources>

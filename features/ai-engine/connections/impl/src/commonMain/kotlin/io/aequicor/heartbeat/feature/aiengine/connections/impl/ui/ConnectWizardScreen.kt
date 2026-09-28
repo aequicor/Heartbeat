@@ -324,7 +324,7 @@ private fun MethodForm(
                     HbButton(
                         stringResource(Res.string.wizard_get_key),
                         { openCredentialsPage(uriHandler, page) },
-                        style = HbButtonStyle.Quiet,
+                        style = HbButtonStyle.Ghost,
                     )
                 }
             }
@@ -389,7 +389,7 @@ private fun ModelsStep(
                 HbButton(
                     stringResource(Res.string.wizard_finish_without_models),
                     { onIntent(ConnectWizardScreenIntent.Finish) },
-                    style = HbButtonStyle.Quiet,
+                    style = HbButtonStyle.Ghost,
                 )
             }
         }
@@ -444,7 +444,7 @@ private fun ModelToolbar(
         HbButton(
             stringResource(Res.string.conn_models_none),
             { onIntent(ConnectWizardScreenIntent.SelectAllModels(false)) },
-            style = HbButtonStyle.Quiet,
+            style = HbButtonStyle.Ghost,
             enabled = enabled,
         )
         HbText(stringResource(Res.string.conn_models_selected, selected), color = HbTheme.colors.textSecondary)
@@ -494,7 +494,7 @@ private fun WizardFooter(
             stringResource(Res.string.conn_cancel),
             { onIntent(ConnectWizardScreenIntent.Cancel) },
             Modifier.testTag("wizard-cancel"),
-            style = HbButtonStyle.Quiet,
+            style = HbButtonStyle.Ghost,
             enabled = state.isCancelAllowed,
         )
         if (state.step == WizardStep.Method) {

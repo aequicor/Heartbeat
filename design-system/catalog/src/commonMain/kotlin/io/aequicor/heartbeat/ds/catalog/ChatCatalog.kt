@@ -102,15 +102,15 @@ private fun ChatToolbar(state: DemoChatState, copy: ChatDemoCopy, isCompact: Boo
                 text = hbString(HbString.LoadEarlier),
                 onClick = { state.loadEarlier(copy) },
                 enabled = !state.isLoadingHistory,
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
             )
         }
         HbButton(
             text = hbString(HbString.MessageStyle),
             onClick = state::toggleControls,
-            style = HbButtonStyle.Quiet,
+            style = HbButtonStyle.Ghost,
         )
-        HbButton(hbString(HbString.Reset), { state.reset(copy) }, style = HbButtonStyle.Quiet)
+        HbButton(hbString(HbString.Reset), { state.reset(copy) }, style = HbButtonStyle.Ghost)
     }
 }
 

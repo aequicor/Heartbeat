@@ -99,7 +99,7 @@ private fun ResourceFormActions(state: ResearchScreenState, onIntent: (ResearchS
         HbButton(
             stringResource(Res.string.research_cancel),
             { onIntent(ResearchScreenIntent.ShowResourceDialog(false)) },
-            style = HbButtonStyle.Quiet,
+            style = HbButtonStyle.Ghost,
         )
         HbButton(
             stringResource(Res.string.research_add),

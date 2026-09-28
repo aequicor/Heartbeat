@@ -163,8 +163,6 @@
     <string name="ru_illustration_upload">Добавьте файлы</string>
     <string name="ru_illustration_upload_hint">Место для импорта документов и вложений.</string>
     <string name="ru_matching_icons">Найдено иконок</string>
-    <string name="ru_cinematic_welcome">Кинематографичное приветствие</string>
-    <string name="ru_replay_intro">Повторить вступление</string>
     <string name="ru_navigation_menus">Навигация и меню</string>
     <string name="ru_projects">Проекты</string>
     <string name="ru_new_session">Новая сессия</string>
@@ -172,4 +170,19 @@
     <string name="ru_rename">Переименовать</string>
     <string name="ru_pin">Закрепить</string>
     <string name="ru_archive">Архивировать</string>
+    <string name="ru_settings_catalog">Строки настроек и диалоги</string>
+    <string name="ru_setting_prefer_engine">Предпочитать собственные инструменты движка, когда модель поддерживает нативный поиск и чтение страниц</string>
+    <string name="ru_setting_prefer_engine_hint">Иначе используются провайдеры профиля ниже.</string>
+    <string name="ru_setting_provider">Провайдер поиска</string>
+    <string name="ru_setting_provider_hint">Ключ сохранён</string>
+    <string name="ru_danger_action">Удалить</string>
+    <string name="ru_open_dialog">Открыть диалог</string>
+    <string name="ru_dialog_title">Отключить подключение?</string>
+    <string name="ru_dialog_body">Модели этого подключения исчезнут из выбора. Ключ будет удалён из профиля.</string>
+    <string name="ru_cancel_action">Отмена</string>
+    <string name="ru_error_banner">Не удалось сохранить изменение. Предыдущее значение сохранено.</string>
+    <string name="ru_retry_action">Повторить</string>
+    <string name="ru_empty_title">Ничего не найдено</string>
+    <string name="ru_empty_hint">Измените запрос поиска</string>
+    <string name="ru_loading_label">Загрузка…</string>
 </resources>

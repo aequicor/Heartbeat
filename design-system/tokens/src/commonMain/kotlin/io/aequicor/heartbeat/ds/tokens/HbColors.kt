@@ -58,8 +58,12 @@ data class HbColors(
     val successContainer: Color = success.copy(alpha = 0.12f).compositeOver(surface)
     val warningContainer: Color = warning.copy(alpha = 0.12f).compositeOver(surface)
     val infoContainer: Color = dataCyan.copy(alpha = 0.12f).compositeOver(surface)
-    val buttonFill: Color = surface
-    val inputFill: Color = surface
+
+    /** Quiet fill of secondary buttons: a tint of the text color, never an outline. */
+    val buttonFill: Color = textPrimary.copy(alpha = 0.06f).compositeOver(surface)
+
+    /** Flat input fill; fields have no border or inner shadow, focus is shown by the ring. */
+    val inputFill: Color = textPrimary.copy(alpha = 0.04f).compositeOver(surface)
 
     /** Neutral selection remains distinct from hover without adding an outline. */
     val selectedContainer: Color = onSurface.copy(alpha = 0.10f).compositeOver(surface)

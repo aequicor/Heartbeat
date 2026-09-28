@@ -99,7 +99,7 @@ private fun TogglesHeader(
     modifier: Modifier = Modifier,
 ) {
     HbColumn(modifier) {
-        HbButton(stringResource(Res.string.flags_back), onBack, Modifier.testTag("flags-back"), HbButtonStyle.Quiet)
+        HbButton(stringResource(Res.string.flags_back), onBack, Modifier.testTag("flags-back"), HbButtonStyle.Ghost)
         HbText(stringResource(Res.string.flags_title), style = HbTheme.typography.display)
         HbText(stringResource(Res.string.flags_description), color = HbTheme.colors.textSecondary)
         HbTextField(
@@ -158,7 +158,7 @@ private fun PanelError(
                     HbButton(
                         stringResource(Res.string.flags_dismiss),
                         { event(TogglesPanelScreenIntent.DismissError) },
-                        style = HbButtonStyle.Quiet,
+                        style = HbButtonStyle.Ghost,
                     )
                 }
             }
@@ -193,7 +193,7 @@ private fun ToggleRow(
                     stringResource(Res.string.flags_reset),
                     { onApply(TogglesPanelScreenIntent.Reset(row.key)) },
                     Modifier.testTag("reset:${row.key}"),
-                    style = HbButtonStyle.Quiet,
+                    style = HbButtonStyle.Ghost,
                     enabled = enabled && row.isOverridden,
                 )
             }

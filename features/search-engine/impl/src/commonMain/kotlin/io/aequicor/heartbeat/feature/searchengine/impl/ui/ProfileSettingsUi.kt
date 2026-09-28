@@ -139,7 +139,7 @@ private fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: () -> Unit
         HbLazyColumn(Modifier.fillMaxSize().safeDrawingPadding()) {
             item {
                 HbColumn {
-                    HbButton(stringResource(Res.string.settings_back), onBack, style = HbButtonStyle.Quiet)
+                    HbButton(stringResource(Res.string.settings_back), onBack, style = HbButtonStyle.Ghost)
                     HbText(stringResource(Res.string.settings_title), style = HbTheme.typography.display)
                     HbText(
                         stringResource(
@@ -254,7 +254,7 @@ private fun ConnectionKeyEditor(operation: SearchOperation, hasKey: Boolean, onI
         HbButton(
             stringResource(Res.string.remove_key),
             { onIntent(SearchSettingsIntent.SaveKey(operation, null)) },
-            style = HbButtonStyle.Quiet,
+            style = HbButtonStyle.Ghost,
         )
     }
 }

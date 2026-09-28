@@ -130,7 +130,7 @@ internal fun EngineConnectionsContent(
 @Composable
 private fun SettingsHeader(onAddEngine: () -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
     HbColumn(modifier, gap = HbTheme.spacing.xs) {
-        HbButton(stringResource(Res.string.conn_back), onBack, Modifier.testTag("settings-back"), HbButtonStyle.Quiet)
+        HbButton(stringResource(Res.string.conn_back), onBack, Modifier.testTag("settings-back"), HbButtonStyle.Ghost)
         HbText(stringResource(Res.string.settings_title), style = HbTheme.typography.display)
         HbText(stringResource(Res.string.settings_description), color = HbTheme.colors.textSecondary)
         HbButton(stringResource(Res.string.settings_add_engine), onAddEngine, Modifier.testTag("settings-add-engine"))
@@ -155,7 +155,7 @@ private fun SettingsStatus(
             HbButton(
                 stringResource(Res.string.settings_dismiss),
                 { onIntent(EngineConnectionsScreenIntent.DismissError) },
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
             )
         }
 
@@ -337,7 +337,7 @@ private fun ConnectionHeader(
                 stringResource(Res.string.settings_disconnect),
                 { onIntent(EngineConnectionsScreenIntent.RequestDisconnect(connection.id)) },
                 Modifier.testTag("settings-disconnect"),
-                HbButtonStyle.Quiet,
+                HbButtonStyle.Ghost,
                 isEnabled,
             )
         }
@@ -367,7 +367,7 @@ private fun DisconnectConfirmation(
                 HbButton(
                     stringResource(Res.string.conn_cancel),
                     { onIntent(EngineConnectionsScreenIntent.DismissDisconnect) },
-                    style = HbButtonStyle.Quiet,
+                    style = HbButtonStyle.Ghost,
                 )
             }
         }
@@ -400,7 +400,7 @@ private fun ModelsList(
             HbButton(
                 stringResource(Res.string.conn_models_none),
                 { onIntent(EngineConnectionsScreenIntent.SetAllModels(false)) },
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
                 enabled = enabled && pane.models.any { it.isEnabled },
             )
         }
@@ -435,7 +435,7 @@ private fun ModelsList(
                             stringResource(Res.string.settings_make_default),
                             { onIntent(EngineConnectionsScreenIntent.SetDefaultModel(model.id)) },
                             Modifier.testTag("settings-default:${model.id}"),
-                            HbButtonStyle.Quiet,
+                            HbButtonStyle.Ghost,
                             enabled,
                         )
                     }

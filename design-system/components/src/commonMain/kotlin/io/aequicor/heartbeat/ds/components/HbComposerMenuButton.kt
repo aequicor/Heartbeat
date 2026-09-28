@@ -141,6 +141,6 @@ private fun ComposerMenuTrigger(
             tooltipText = null,
         )
     } else {
-        HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Quiet, enabled = enabled)
+        HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Ghost, enabled = enabled)
     }
 }

@@ -158,7 +158,7 @@ private fun ThemeControl(state: SandboxState, modifier: Modifier = Modifier) {
             state.selectTheme(next)
         },
         modifier = modifier,
-        style = HbButtonStyle.Quiet,
+        style = HbButtonStyle.Ghost,
     )
 }
 
@@ -170,7 +170,7 @@ private fun LanguageControls(state: SandboxState, isCompact: Boolean, modifier: 
             HbButton(
                 text = hbString(if (nextLocale == HbLocale.English) HbString.English else HbString.Russian),
                 onClick = { state.selectLocale(nextLocale) },
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
             )
         } else {
             LanguageButton(state = state, locale = HbLocale.English, title = HbString.English)
@@ -185,7 +185,7 @@ private fun LanguageButton(state: SandboxState, locale: HbLocale, title: HbStrin
         text = hbString(title),
         onClick = { state.selectLocale(locale) },
         modifier = modifier.semantics { selected = state.locale == locale },
-        style = HbButtonStyle.Quiet,
+        style = HbButtonStyle.Ghost,
     )
 }
 
@@ -198,7 +198,7 @@ private fun VisualStyleControl(state: SandboxState, modifier: Modifier = Modifie
             state.selectVisualStyle(if (isSoft) HbVisualStyle.Platform else HbVisualStyle.Flat)
         },
         modifier = modifier,
-        style = HbButtonStyle.Quiet,
+        style = HbButtonStyle.Ghost,
     )
 }
 
@@ -212,7 +212,7 @@ private fun PlatformControl(state: SandboxState, modifier: Modifier = Modifier) 
             state.selectPlatform(next)
         },
         modifier = modifier,
-        style = HbButtonStyle.Quiet,
+        style = HbButtonStyle.Ghost,
     )
 }
 
@@ -327,7 +327,7 @@ internal fun ChoiceButton(text: String, selected: Boolean, onClick: () -> Unit, 
         text = text,
         onClick = onClick,
         modifier = modifier.semantics { this.selected = selected },
-        style = if (selected) HbButtonStyle.Primary else HbButtonStyle.Quiet,
+        style = if (selected) HbButtonStyle.Primary else HbButtonStyle.Ghost,
     )
 }
 

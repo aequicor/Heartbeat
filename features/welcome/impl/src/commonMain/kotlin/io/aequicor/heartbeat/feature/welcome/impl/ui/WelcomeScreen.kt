@@ -105,7 +105,7 @@ internal fun WelcomeContent(
                         stringResource(Res.string.welcome_skip),
                         { onIntent(WelcomeScreenIntent.Skip) },
                         Modifier.focusRequester(skipFocus).testTag("welcome-skip"),
-                        style = HbButtonStyle.Quiet,
+                        style = HbButtonStyle.Ghost,
                     )
                 }
             }
@@ -234,7 +234,7 @@ private fun WelcomeActions(
                 stringResource(Res.string.welcome_toggles),
                 { onIntent(WelcomeScreenIntent.OpenToggles) },
                 Modifier.testTag("welcome-toggles"),
-                style = HbButtonStyle.Quiet,
+                style = HbButtonStyle.Ghost,
                 enabled = enabled,
             )
         }
