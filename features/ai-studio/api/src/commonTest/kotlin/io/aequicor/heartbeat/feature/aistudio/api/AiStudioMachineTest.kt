@@ -36,7 +36,11 @@ class AiStudioMachineTest {
             from = AiStudioState.Loading,
             intent = AiStudioIntent.Internal.Loaded(isEnabled = true, defaults = defaults),
             to = home,
-            effects = listOf(AiStudioEffect.ObserveAvailability, AiStudioEffect.ObserveRuntime),
+            effects = listOf(
+                AiStudioEffect.ObserveAvailability,
+                AiStudioEffect.ObserveRuntime,
+                AiStudioEffect.ObserveModels,
+            ),
         )
     }
 
@@ -88,6 +92,47 @@ class AiStudioMachineTest {
         assertEquals(
             null,
             AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Apply("s1", SessionEdit.SetPinned(true)), error),
+        )
+        assertEquals(
+            AiStudioIntent.Internal.RuntimeLost,
+            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.ObserveRuntime, error),
+        )
+    }
+
+    @Test
+    fun `lost runtime observation clears every run, stop and permission`() {
+        val permission = StudioPermission("s1", "request", "Allow", listOf(StudioPermissionOption("once", "Once")))
+        AiStudioMachineSpec.assertTransition(
+            from = session.copy(
+                running = setOf("s1"),
+                observedRunning = setOf("s1"),
+                stopping = setOf("s1"),
+                stopFailures = setOf("s1"),
+                permissions = listOf(permission),
+                answeredPermissions = setOf("other"),
+            ),
+            intent = AiStudioIntent.Internal.RuntimeLost,
+            to = session,
+        )
+    }
+
+    @Test
+    fun `offered models fill only an empty model choice`() {
+        val unset = home.copy(settings = settings.copy(modelId = ""))
+        AiStudioMachineSpec.assertTransition(
+            from = unset,
+            intent = AiStudioIntent.Internal.ModelsChanged(listOf("route-a", "route-b")),
+            to = unset.copy(settings = settings.copy(modelId = "route-a")),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = home,
+            intent = AiStudioIntent.Internal.ModelsChanged(listOf("route-a")),
+            to = home,
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = unset,
+            intent = AiStudioIntent.Internal.ModelsChanged(emptyList()),
+            to = unset,
         )
     }
 
@@ -250,7 +295,7 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = home.copy(running = setOf("s3")),
             intent = AiStudioIntent.Internal.RunFinished("s3", RunOutcome.Completed),
-            to = home.copy(running = setOf("s3")),
+            to = home,
             effects = listOf(AiStudioEffect.Apply("s3", SessionEdit.SetUnread(true))),
         )
     }
@@ -285,7 +330,8 @@ class AiStudioMachineTest {
             "Allow action",
             listOf(StudioPermissionOption("once", "Once")),
         )
-        val live = session.copy(running = setOf("s1"), permissions = listOf(permission))
+        val live = session.copy(running = setOf("s1"), observedRunning = setOf("s1"), permissions = listOf(permission))
+        val answered = live.copy(permissions = emptyList(), answeredPermissions = setOf("request"))
         AiStudioMachineSpec.assertTransition(
             from = session,
             intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"), listOf(permission))),
@@ -294,8 +340,23 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = live,
             intent = AiStudioIntent.Public.RespondPermission("s1", "request", "once"),
-            to = live,
+            to = answered,
             effects = listOf(AiStudioEffect.RespondPermission("s1", "request", "once")),
+        )
+        AiStudioMachineSpec.assertIgnored(answered, AiStudioIntent.Public.RespondPermission("s1", "request", "once"))
+        AiStudioMachineSpec.assertIgnored(
+            answered.copy(permissions = listOf(permission)),
+            AiStudioIntent.Public.RespondPermission("s1", "request", "once"),
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = answered,
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"), listOf(permission))),
+            to = answered,
+        )
+        AiStudioMachineSpec.assertTransition(
+            from = answered,
+            intent = AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(setOf("s1"))),
+            to = live.copy(permissions = emptyList()),
         )
         AiStudioMachineSpec.assertIgnored(live, AiStudioIntent.Public.RespondPermission("s1", "request", "always"))
         AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.RespondPermission("s1", "request", "once"))
@@ -303,10 +364,20 @@ class AiStudioMachineTest {
 
     @Test
     fun `late run completion never clears a newer native run`() {
+        val observed = session.copy(running = setOf("s1"), observedRunning = setOf("s1"))
         AiStudioMachineSpec.assertTransition(
-            from = session.copy(running = setOf("s1")),
+            from = observed,
             intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Completed),
-            to = session.copy(running = setOf("s1")),
+            to = observed,
+        )
+    }
+
+    @Test
+    fun `run completion clears a run the runtime no longer reports`() {
+        AiStudioMachineSpec.assertTransition(
+            from = session.copy(running = setOf("s1"), stopping = setOf("s1")),
+            intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Stopped),
+            to = session,
         )
     }
 
@@ -318,7 +389,7 @@ class AiStudioMachineTest {
             intent = AiStudioIntent.Internal.RuntimeChanged(
                 StudioRuntimeState(running = setOf("s1"), stopFailures = setOf("s1")),
             ),
-            to = running.copy(stopping = emptySet(), stopFailures = setOf("s1")),
+            to = running.copy(stopping = emptySet(), stopFailures = setOf("s1"), observedRunning = setOf("s1")),
         )
     }
 

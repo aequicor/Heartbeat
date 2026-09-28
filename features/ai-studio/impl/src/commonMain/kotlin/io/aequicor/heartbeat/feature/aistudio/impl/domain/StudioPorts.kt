@@ -1,13 +1,17 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /** Storage of studio projects, sessions and transcripts. Every write is visible to observers immediately. */
 interface StudioRepository {
     /** Enabled engine, connection and model choices; ids identify the complete route. */
-    fun observeModels(): Flow<List<StudioModel>> = kotlinx.coroutines.flow.flowOf(StudioModels)
+    fun observeModels(): Flow<List<StudioModel>> = flowOf(StudioModels)
 
     /** Projects and sessions, including archived ones. */
     fun observeWorkspace(): Flow<StudioWorkspace>
@@ -77,4 +81,13 @@ interface StudioAvailability {
 
     /** The effective toggle value now and after every change. */
     fun observe(): Flow<Boolean>
+}
+
+/** The workspace backend chosen once for the feature scope: engine-backed profile chats or the demo workspace. */
+interface StudioBackend {
+    /** Storage the screen observes. */
+    suspend fun repository(): StudioRepository
+
+    /** Handler of the studio machine effects. */
+    suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>
 }

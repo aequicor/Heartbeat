@@ -112,21 +112,29 @@ internal fun StudioPaneView(
                 HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
             }
             content.permissions.forEach { request ->
-                HbColumn(Modifier.padding(HbTheme.spacing.m), gap = HbTheme.spacing.s) {
-                    HbText(request.title)
-                    request.options.forEach { option ->
-                        HbButton(
-                            text = option.title,
-                            onClick = {
-                                onIntent(
-                                    AiStudioScreenIntent.RespondPermission(
-                                        request.sessionId,
-                                        request.requestId,
-                                        option.id,
-                                    ),
-                                )
-                            },
-                        )
+                key(request.requestId) {
+                    HbColumn(
+                        Modifier.padding(HbTheme.spacing.m)
+                            .semantics { liveRegion = LiveRegionMode.Polite }
+                            .testTag("permission-${request.requestId}"),
+                        gap = HbTheme.spacing.s,
+                    ) {
+                        HbText(request.title)
+                        request.options.forEach { option ->
+                            HbButton(
+                                text = option.title,
+                                onClick = {
+                                    onIntent(
+                                        AiStudioScreenIntent.RespondPermission(
+                                            request.sessionId,
+                                            request.requestId,
+                                            option.id,
+                                        ),
+                                    )
+                                },
+                                modifier = Modifier.testTag("permission-${request.requestId}-${option.id}"),
+                            )
+                        }
                     }
                 }
             }

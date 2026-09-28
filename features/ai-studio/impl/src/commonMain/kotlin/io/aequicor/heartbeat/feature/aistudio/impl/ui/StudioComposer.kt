@@ -74,7 +74,11 @@ internal fun StudioComposer(
         enabled =
             !pane.isCreating && !content.isStopping && session?.isContinuable != false &&
                 (session?.isRunning != true || content.isStoppable) &&
-                (session?.isRunning == true || content.models.any { it.id == settings.modelId }),
+                // A pending permission must be answered before another prompt can be sent.
+                (
+                    session?.isRunning == true ||
+                        (content.permissions.isEmpty() && content.models.any { it.id == settings.modelId })
+                ),
         leadingContent = { TemplatesMenu(draft) { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) } },
         trailingContent = {
             ModelMenu(settings.modelId, content.models, onIntent, canSelect = session?.modelId == null)

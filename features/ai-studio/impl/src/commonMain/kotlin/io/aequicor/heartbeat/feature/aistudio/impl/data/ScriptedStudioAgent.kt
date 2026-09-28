@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.flow
 
 /**
- * Offline fixture for isolated studio tests. Streams a deterministic plan
+ * Offline demo agent used while the engine runtime toggle is off and by isolated studio tests.
+ * Streams a deterministic plan
  * with tool calls shaped by the request: faster models answer sooner, higher effort explores more, and
  * [ApprovalMode.AutoApprove] lets the agent edit files and push a branch. Content is demo Russian copy.
  */

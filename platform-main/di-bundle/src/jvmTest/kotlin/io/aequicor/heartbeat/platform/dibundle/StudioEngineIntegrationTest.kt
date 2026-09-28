@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -70,6 +71,7 @@ class StudioEngineIntegrationTest {
         toggles.toggleControl.setOverride(AiEngines, true)
         toggles.toggleControl.setOverride(TestAdapter.toggle, true)
         toggles.toggleControl.setOverride(EngineConnectionsEnabled, true)
+        toggles.toggleControl.setOverride(StudioEngineRuntime, true)
         val session = app.profileSessions.open(ProfileId("studio"))
         val services = session.graph as AiEngineTestAccessors
         val context = DefaultComponentContext(LifecycleRegistry().apply { resume() })
@@ -256,5 +258,19 @@ class StudioEngineIntegrationTest {
         assertEquals(1, native.cancellations)
         assertTrue(runtime.state.value.running.isEmpty())
         assertTrue(runtime.state.value.permissions.isEmpty())
+    }
+
+    @Test
+    fun stopRequestedWhileIdleDoesNotCancelTheNextRun() = runTest {
+        val services = configured()
+        val runtime = services.studioRuntime
+        val chat = services.studioRepository.createSession(null, "Idle stop")
+        runtime.cancel(chat.id)
+        val run = async { runtime.run(chat.id, "Run after an idle stop", runtime.defaults()) }
+        services.studioRepository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val native = TestAdapter.runtimes.single().natives.single()
+        native.finish()
+        assertEquals(RunOutcome.Completed, run.await())
+        assertEquals(0, native.cancellations)
     }
 }

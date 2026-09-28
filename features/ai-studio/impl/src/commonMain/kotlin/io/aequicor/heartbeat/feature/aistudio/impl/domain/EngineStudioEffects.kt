@@ -1,17 +1,25 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
-/** UI effects only wait for profile work; their cancellation never claims native cancellation. */
+/**
+ * UI effects only wait for profile work; their cancellation never claims native cancellation.
+ * User decisions (stop, permission answers) are logged with request/option ids only, never content.
+ */
 class EngineStudioEffects(
     private val repository: StudioRepository,
     private val runtime: StudioRuntime,
     private val availability: StudioAvailability,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
+    private val log = Log.tag("EngineStudioEffects")
+
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.Load -> machine.send(
@@ -30,6 +38,11 @@ class EngineStudioEffects(
                 )
             }
 
+            AiStudioEffect.ObserveModels -> repository.observeModels()
+                .map { models -> models.map { it.id } }
+                .distinctUntilChanged()
+                .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
+
             is AiStudioEffect.CreateSession -> {
                 val session = repository.createSession(effect.projectId, titleOf(effect.prompt))
                 machine.send(
@@ -44,9 +57,15 @@ class EngineStudioEffects(
                 ),
             )
 
-            is AiStudioEffect.Cancel -> runtime.cancel(effect.sessionId)
+            is AiStudioEffect.Cancel -> {
+                log.i { "User requested stop" }
+                runtime.cancel(effect.sessionId)
+            }
 
-            is AiStudioEffect.RespondPermission -> runtime.respond(effect.sessionId, effect.requestId, effect.optionId)
+            is AiStudioEffect.RespondPermission -> {
+                log.i { "User answered permission request=${effect.requestId} option=${effect.optionId}" }
+                runtime.respond(effect.sessionId, effect.requestId, effect.optionId)
+            }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
         }

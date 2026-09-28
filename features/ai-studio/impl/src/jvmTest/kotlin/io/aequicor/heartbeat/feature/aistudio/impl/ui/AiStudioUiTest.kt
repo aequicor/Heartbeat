@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
@@ -105,6 +107,28 @@ class AiStudioUiTest {
             onNodeWithTag("model-chip").assertIsDisplayed()
             save("studio-new-session", captureToImage().toAwtImage())
         }
+
+    @Test
+    fun `pending permission offers its exact options`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val state = workspace.copy(
+            panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+            running = persistentSetOf("s-facade"),
+            transcripts = transcriptsOf("s-facade"),
+            permissions = persistentListOf(
+                PermissionUi("s-facade", "request", "Run tests", persistentListOf(PermissionOptionUi("once", "Once"))),
+            ),
+        )
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(state, events::add, exits) } }
+        onNodeWithTag("permission-request").assertIsDisplayed()
+        onNodeWithTag("permission-request-once").performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RespondPermission("s-facade", "request", "once")),
+                events,
+            )
+        }
+    }
 
     @Test
     fun `split view shows a running session with its elapsed time`() = runSkikoComposeUiTest(size = Size(1440f, 900f)) {

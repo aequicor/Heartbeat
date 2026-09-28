@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -28,12 +29,10 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineSpec
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioWorkspaceToggle
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.ui.AiStudioUiComponent
 
@@ -57,23 +56,18 @@ interface AiStudioGraph {
 @ContributesTo(AiStudioScope::class)
 @BindingContainer
 object AiStudioBindings {
-    /** Wires the domain handler without coupling domain to Metro. */
-    @Provides
-    @SingleIn(AiStudioScope::class)
-    fun effects(
-        repository: StudioRepository,
-        runtime: StudioRuntime,
-        availability: StudioAvailability,
-    ): EngineStudioEffects = EngineStudioEffects(repository, runtime, availability)
-
     /** Launches the machine for the lifetime of this feature scope. */
     @Provides
     @SingleIn(AiStudioScope::class)
     fun machine(
         launcher: MachineLauncher,
         @ForScope(AiStudioScope::class) scope: ScopeHandle,
-        effects: EngineStudioEffects,
-    ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(AiStudioMachineSpec, scope, effects)
+        backend: StudioBackend,
+    ): Machine<AiStudioState, AiStudioIntent, AiStudioOutput> = launcher.launch(
+        AiStudioMachineSpec,
+        scope,
+        EffectHandler { effect, machine -> backend.effects().handle(effect, machine) },
+    )
 }
 
 /** Registers the studio toggles in the app-wide toggle catalog. */
@@ -84,6 +78,11 @@ object AiStudioToggleBindings {
     @Provides
     @IntoSet
     fun workspace(): FeatureToggle<*> = StudioWorkspaceToggle
+
+    /** Engine-backed chats instead of the demo workspace. */
+    @Provides
+    @IntoSet
+    fun engineRuntime(): FeatureToggle<*> = StudioEngineRuntime
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

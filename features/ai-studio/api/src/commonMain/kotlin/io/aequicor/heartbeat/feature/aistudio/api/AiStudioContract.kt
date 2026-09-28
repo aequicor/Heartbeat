@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.api
 
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
@@ -13,6 +14,16 @@ import kotlinx.serialization.Serializable
 @Serializable
 @SerialName("ai_studio")
 public data object AiStudioRoute : Route
+
+/**
+ * Profile chats executed through the engine facade and the studio as the start screen of a profile.
+ * Off (default): the in-memory demo workspace with the scripted agent and the welcome screen as the profile start.
+ */
+public val StudioEngineRuntime: FeatureToggle.Flag = FeatureToggle.Flag(
+    key = "ai_studio.engine_runtime",
+    description = "AI-студия: чаты профиля через подключённые движки",
+    default = false,
+)
 
 /** Studio workflow: workspace loading, open panes, model preferences and running agent sessions. */
 public sealed interface AiStudioState : MachineState {
@@ -32,6 +43,8 @@ public sealed interface AiStudioState : MachineState {
      * The workspace is usable. [panes] are shown side by side (one on compact screens: the focused one).
      * [running] sessions have an active agent run; [stopping] ones were asked to stop and await its end.
      * Archived sessions leave their panes for the new-session page of [defaultProjectId].
+     * [observedRunning] is the latest profile runtime snapshot; [answeredPermissions] are request ids already
+     * answered by the user and hidden until the engine withdraws them.
      */
     public data class Ready(
         val panes: List<StudioPane>,
@@ -43,6 +56,8 @@ public sealed interface AiStudioState : MachineState {
         val stopFailures: Set<String> = emptySet(),
         val uncancellable: Set<String> = emptySet(),
         val permissions: List<StudioPermission> = emptyList(),
+        val observedRunning: Set<String> = emptySet(),
+        val answeredPermissions: Set<String> = emptySet(),
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -125,6 +140,12 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** The agent run of [sessionId] ended. */
         public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
+
+        /** The runtime observation failed; nothing is known to run any more. */
+        public data object RuntimeLost : Internal
+
+        /** Route ids of the models currently offered, in display order. */
+        public data class ModelsChanged(val modelIds: List<String>) : Internal
     }
 }
 
@@ -138,6 +159,9 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Observes profile-owned execution and pending permissions. */
     public data object ObserveRuntime : AiStudioEffect
+
+    /** Reports the offered models for as long as the workspace is ready. */
+    public data object ObserveModels : AiStudioEffect
 
     /** Sends an explicit engine-offered decision. */
     public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) :

@@ -15,7 +15,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -48,7 +48,7 @@ private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudio
 @Inject
 class AiStudioModel(
     private val machine: Machine<AiStudioState, AiStudioIntent, AiStudioOutput>,
-    private val repository: StudioRepository,
+    private val backend: StudioBackend,
     private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
@@ -68,20 +68,10 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                // Display only: the machine picks a default model from the same offer.
                 launch {
-                    repository.observeModels().collect { models ->
+                    backend.repository().observeModels().collect { models ->
                         updateState { copy(models = models.map { ModelUi(it.id, it.name) }.toImmutableList()) }
-                        val current = machine.state.value as? AiStudioState.Ready
-                        if (current != null && models.isNotEmpty() &&
-                            current.settings.modelId.isBlank()
-                        ) {
-                            sendTo(
-                                machine,
-                                AiStudioIntent.Public.UpdateSettings(
-                                    current.settings.copy(modelId = models.first().id),
-                                ),
-                            )
-                        }
                     }
                 }
                 launch { observeTranscripts(pipeline) }
@@ -97,7 +87,7 @@ class AiStudioModel(
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
-        repository.observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
+        backend.repository().observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
     }
 
     private suspend fun observeTranscripts(pipeline: StudioPipeline) = with(pipeline) {
@@ -112,17 +102,19 @@ class AiStudioModel(
             .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
     }
 
-    private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {
-        flowOf(emptyMap())
-    } else {
-        combine(
-            ids.map { id ->
-                repository.observeMessages(
-                    id,
-                ).map { messages -> id to messages.map { it.toUi() }.toImmutableList() }
-            },
-        ) { it.toMap() }
-    }
+    private suspend fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> =
+        if (ids.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            val repository = backend.repository()
+            combine(
+                ids.map { id ->
+                    repository.observeMessages(id).map { messages ->
+                        id to messages.map { it.toUi() }.toImmutableList()
+                    }
+                },
+            ) { it.toMap() }
+        }
 
     /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
     private suspend fun tickWhileRunning(pipeline: StudioPipeline) = with(pipeline) {

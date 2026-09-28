@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.navigation.RootNavHostFactory
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 
@@ -22,6 +23,9 @@ interface HeartbeatGraph {
 
     /** Host OS: the entry point chooses the UI kit by it. */
     val platformInfo: PlatformInfo
+
+    /** Toggle values: the platform entry chooses start routes by them. */
+    val featureToggles: FeatureToggles
 
     /** Profile sessions: the platform root restores the active profile on cold start and renders by it. */
     val profileSessions: ProfileSessions

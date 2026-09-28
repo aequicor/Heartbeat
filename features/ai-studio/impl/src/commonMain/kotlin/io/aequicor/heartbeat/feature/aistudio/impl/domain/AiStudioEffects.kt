@@ -23,7 +23,8 @@ import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 /**
- * Executes demo effects in isolated tests. Production uses [EngineStudioEffects].
+ * Executes the demo workspace effects while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime]
+ * is off. With the toggle on the studio uses [EngineStudioEffects].
  * A run records the prompt, streams the agent reply into the repository and
  * finishes when the agent completes, fails or receives a stop request for its session. A stop is sticky: it is
  * kept until its run ends, so a request arriving before the stream starts is not lost. Leaving the studio
@@ -45,7 +46,12 @@ class AiStudioEffects(
                 machine.send(AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it)))
             }
 
-            is AiStudioEffect.RespondPermission -> Unit
+            // The scripted agent never asks for permissions; a stray answer is a caller error, not a decision.
+            is AiStudioEffect.RespondPermission -> log.w { "Permission answer ignored: the demo agent asks none" }
+
+            AiStudioEffect.ObserveModels -> repository.observeModels().collect { models ->
+                machine.send(AiStudioIntent.Internal.ModelsChanged(models.map { it.id }))
+            }
 
             AiStudioEffect.Load -> machine.send(
                 AiStudioIntent.Internal.Loaded(

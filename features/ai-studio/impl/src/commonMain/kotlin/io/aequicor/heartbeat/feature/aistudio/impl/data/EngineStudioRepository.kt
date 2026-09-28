@@ -58,6 +58,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
@@ -65,12 +66,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -114,20 +118,35 @@ internal class EngineStudioRepository(
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
     private val historyMirror = StudioHistoryMirror(
-        read = { id -> store.get(ChatsKey).orEmpty().first { it.id == id }.items },
+        read = { id -> record(id).items },
         update = { id, change -> update(id, change) },
     )
+
+    /** Guards [handles], [stopRequests] and [opening]; never held across native or storage calls. */
+    private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
+
+    /** One lock per conversation so a native session is created or resumed at most once. */
+    private val opening = mutableMapOf<String, Mutex>()
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
+    /** Recomputed only when stored refs, engines or running chats change; storage writes per event do not. */
+    private val continuability: Flow<Map<String, Boolean>> = combine(
+        store.observe(ChatsKey).map { records -> records.orEmpty().map { it.id to it.ref } }.distinctUntilChanged(),
+        facade.engines.state,
+        state.map { it.running }.distinctUntilChanged(),
+    ) { refs, _, _ ->
+        log.d { "Recompute conversation continuability count=${refs.size}" }
+        refs.associate { (id, ref) -> id to isContinuable(id, ref) }
+    }
+
     override fun observeWorkspace(): Flow<StudioWorkspace> = combine(
         store.observe(ChatsKey),
-        facade.engines.state,
-        state,
-    ) { records, _, _ ->
-        log.d { "Observe workspace projection" }
+        continuability,
+    ) { records, continuable ->
+        log.d { "observeWorkspace count=${records.orEmpty().size}" }
         StudioWorkspace(
             emptyList(),
             records.orEmpty().map {
@@ -140,21 +159,21 @@ internal class EngineStudioRepository(
                     it.isUnread,
                     it.isArchived,
                     modelId = it.target?.let { target -> Json.encodeToString(EngineTarget.serializer(), target) },
-                    isContinuable = isContinuable(it),
+                    isContinuable = continuable[it.id] ?: true,
                 )
             },
         )
     }
 
-    private suspend fun isContinuable(record: StudioChatRecord): Boolean {
-        if (record.ref == null) return true
-        val current = handles[record.id]
+    private suspend fun isContinuable(id: String, ref: SessionRef?): Boolean {
+        if (ref == null) return true
+        val current = handlesLock.withLock { handles[id] }
         if (current != null) {
             return current.state.value !is ActiveSessionState.Closing &&
                 current.state.value != ActiveSessionState.Closed
         }
         return try {
-            facade.sessions.get(record.ref).features.resolve(ResumesSessions) is FeatureAccess.Available
+            facade.sessions.get(ref).features.resolve(ResumesSessions) is FeatureAccess.Available
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -239,14 +258,19 @@ internal class EngineStudioRepository(
             return result
         } finally {
             log.i { "Profile execution ended; clear local run state" }
-            stopRequests.remove(id)
-            mutableState.update {
-                it.copy(
-                    running = it.running - id,
-                    stopFailures = it.stopFailures - id,
-                    uncancellable = it.uncancellable - id,
-                    permissions = it.permissions.filterNot { request -> request.sessionId == id },
-                )
+            // Atomic with cancel(): a stop is recorded only while the chat still counts as running.
+            withContext(NonCancellable) {
+                handlesLock.withLock {
+                    stopRequests.remove(id)
+                    mutableState.update {
+                        it.copy(
+                            running = it.running - id,
+                            stopFailures = it.stopFailures - id,
+                            uncancellable = it.uncancellable - id,
+                            permissions = it.permissions.filterNot { request -> request.sessionId == id },
+                        )
+                    }
+                }
             }
         }
     }
@@ -265,7 +289,7 @@ internal class EngineStudioRepository(
                 try {
                     log.i { "Submitting prompt length=${prompt.length}" }
                     val turn = submit(active, prompt)
-                    if (id in stopRequests) requestStop(id, active, turn)
+                    if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
                         (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
                             (it is ActiveSessionState.Unavailable && it.activeTurn == null && it.lastTurn?.id == turn)
@@ -292,13 +316,9 @@ internal class EngineStudioRepository(
 
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
         val selected = selections.observe().first()
-        val stored = store.get(ChatsKey).orEmpty().first { it.id == id }.target
-        val requested = if (settings.modelId.isBlank()) {
-            selected.defaultTarget
-        } else {
-            Json.decodeFromString(EngineTarget.serializer(), settings.modelId)
+        val target = requireNotNull(turnTarget(settings.modelId, record(id).target, selected.defaultTarget)) {
+            "Select a connected model in settings"
         }
-        val target = requireNotNull(stored ?: requested) { "Select a connected model in settings" }
         check(selected.isEnabled(target)) { "The selected route is no longer enabled" }
         return target
     }
@@ -359,41 +379,67 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun open(id: String, target: EngineTarget): ActiveSession {
-        val record = store.get(ChatsKey).orEmpty().first { it.id == id }
-        val current = handles[id]
-        if (current != null) {
-            check(
-                current.route.engine == target.engine && current.route.binding == target.binding,
-            ) { "Start a new conversation to change engine or connection" }
-            if (record.target?.model != target.model) {
-                current.features.requireFeature(
-                    SwitchesModels,
-                ).switchTo(target.model)
+    private suspend fun open(id: String, target: EngineTarget): ActiveSession =
+        handlesLock.withLock { opening.getOrPut(id) { Mutex() } }.withLock {
+            val record = record(id)
+            val current = handlesLock.withLock { handles[id] }
+            if (current != null) {
+                check(
+                    current.route.engine == target.engine && current.route.binding == target.binding,
+                ) { "Start a new conversation to change engine or connection" }
+                if (record.target?.model != target.model) {
+                    current.features.requireFeature(SwitchesModels).switchTo(target.model)
+                }
+                update(id) { copy(target = target) }
+                return@withLock current
             }
-            update(id) { copy(target = target) }
-            return current
+            val active = if (record.ref == null) {
+                facade.engines.features(target.engine).requireFeature(CreatesSessions)
+                    .create(CreateSessionRequest(target))
+            } else {
+                check(
+                    record.target?.engine == target.engine && record.target.binding == target.binding,
+                ) { "The stored session uses another connection" }
+                facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
+                    .resume(ResumeSessionRequest(target))
+            }
+            try {
+                update(id) { copy(ref = active.ref, target = target) }
+            } catch (e: CancellationException) {
+                closeOrphan(active)
+                throw e
+            } catch (e: Exception) {
+                log.e(e) { "Could not persist the native session reference; closing the session" }
+                closeOrphan(active)
+                throw e
+            }
+            handlesLock.withLock { handles[id] = active }
+            active
         }
-        val active = if (record.ref == null) {
-            facade.engines.features(target.engine).requireFeature(CreatesSessions).create(CreateSessionRequest(target))
-        } else {
-            check(
-                record.target?.engine == target.engine && record.target.binding == target.binding,
-            ) { "The stored session uses another connection" }
-            facade.sessions.get(
-                record.ref,
-            ).features.requireFeature(ResumesSessions).resume(ResumeSessionRequest(target))
+
+    /** Closes a native session nobody can reach any more, so it is not leaked. */
+    private suspend fun closeOrphan(active: ActiveSession) = withContext(NonCancellable) {
+        try {
+            active.close()
+            log.i { "Closed unreferenced native session" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Could not close unreferenced native session" }
         }
-        handles[id] = active
-        update(id) { copy(ref = active.ref, target = target) }
-        return active
     }
 
     override suspend fun cancel(sessionId: String) {
-        log.i { "Explicit stop requested" }
-        mutableState.update { it.copy(stopFailures = it.stopFailures - sessionId) }
-        stopRequests += sessionId
-        val active = handles[sessionId] ?: return
+        val active = handlesLock.withLock {
+            if (sessionId !in state.value.running) {
+                log.i { "Stop ignored: the conversation is idle" }
+                return
+            }
+            log.i { "Explicit stop requested" }
+            mutableState.update { it.copy(stopFailures = it.stopFailures - sessionId) }
+            stopRequests += sessionId
+            handles[sessionId]
+        } ?: return
         if (active.state.value is ActiveSessionState.Unavailable) {
             active.features.requireFeature(
                 ReconcilesSession,
@@ -404,7 +450,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun respond(sessionId: String, requestId: String, optionId: String) {
-        val active = handles[sessionId] ?: return
+        val active = handlesLock.withLock { handles[sessionId] } ?: return
         val pending = active.state.value as? ActiveSessionState.AwaitingUserAction ?: return
         val request = pending.requests.firstOrNull { it.id.value == requestId } ?: return
         val option = request.options.firstOrNull { it.id.value == optionId } ?: return
@@ -414,7 +460,7 @@ internal class EngineStudioRepository(
         ).respond(PermissionDecision(request.turn, request.id, option.id))
     }
 
-    private fun updatePermissions(id: String, state: ActiveSessionState) {
+    private suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.d { "Update pending permission projection" }
         val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { request ->
             StudioPermission(
@@ -424,8 +470,9 @@ internal class EngineStudioRepository(
                 request.options.map { StudioPermissionOption(it.id.value, it.title) },
             )
         }
-        val isStopSupported = handles[id]?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
-        val isStopFailed = id in stopRequests && state is ActiveSessionState.Unavailable && state.activeTurn != null
+        val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
+        val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
+        val isStopFailed = isStopRequested && state is ActiveSessionState.Unavailable && state.activeTurn != null
         mutableState.update {
             it.copy(
                 permissions = it.permissions.filterNot { request -> request.sessionId == id } + pending,
@@ -451,9 +498,13 @@ internal class EngineStudioRepository(
     }
 
     private suspend fun release(id: String) {
-        handles[id]?.close()
-        handles.remove(id)
+        val handle = handlesLock.withLock { handles[id] } ?: return
+        handle.close()
+        handlesLock.withLock { if (handles[id] === handle) handles.remove(id) }
     }
+
+    private suspend fun record(id: String): StudioChatRecord =
+        store.get(ChatsKey).orEmpty().firstOrNull { it.id == id } ?: error("Unknown studio conversation")
 
     private suspend fun releaseArchived(id: String) {
         try {
@@ -488,6 +539,15 @@ internal class EngineStudioRepository(
         error("Native tools own branch metadata")
     }
 }
+
+/** The model chosen for this turn wins; a chat keeps its stored route only when none was chosen. */
+internal fun turnTarget(modelId: String, stored: EngineTarget?, default: EngineTarget?): EngineTarget? =
+    modelId.takeIf { it.isNotBlank() }?.let {
+        Json.decodeFromString(
+            EngineTarget.serializer(),
+            it,
+        )
+    } ?: stored ?: default
 
 internal fun <F : EngineFeature> EngineFeatures.requireFeature(key: EngineFeatureKey<F>): F =
     when (val access = resolve(key)) {

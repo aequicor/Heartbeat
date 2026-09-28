@@ -21,8 +21,8 @@ import kotlin.concurrent.atomics.incrementAndFetch
 import kotlin.time.Clock
 
 /**
- * In-memory demo workspace used by isolated screen and agent tests.
- * Production conversations are stored by [EngineStudioRepository] in the profile.
+ * In-memory demo workspace, used while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime] is off
+ * and by isolated screen and agent tests. Engine-backed conversations are stored by [EngineStudioRepository].
  * Logs entry types and sizes, never conversation content or identifiers.
  */
 @OptIn(ExperimentalAtomicApi::class)
