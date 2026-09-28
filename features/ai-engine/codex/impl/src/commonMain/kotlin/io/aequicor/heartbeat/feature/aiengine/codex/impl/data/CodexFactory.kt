@@ -91,28 +91,28 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
         return owner.models(context.binding)
     }
 
-    private var searchToolsChangeLogged = false
+    private var isSearchToolsChangeLogged = false
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = withContext(dispatchers.main) {
         lock.withLock {
             gate(identity)
-            val searchTools = toggles.get(SearchEngineTools)
+            val isSearchToolsEnabled = toggles.get(SearchEngineTools)
             // The toggle never closes a live runtime: its value is captured at creation and applies to later ones.
             runtime?.takeIf { !it.isClosed && it.identity == identity }?.let { live ->
-                if (live.searchTools != searchTools && !searchToolsChangeLogged) {
-                    searchToolsChangeLogged = true
+                if (live.isSearchToolsEnabled != isSearchToolsEnabled && !isSearchToolsChangeLogged) {
+                    isSearchToolsChangeLogged = true
                     log.i { "Search tools toggle changed; applies after runtime restart" }
                 }
                 return@withLock live
             }
-            searchToolsChangeLogged = false
+            isSearchToolsChangeLogged = false
             runtime?.close()
             runtime = null
             val rpc = CodexRpc(transport.open(), profile.coroutineScope)
             val startup = profile.onClose(rpc::close)
             try {
-                rpc.initialize(experimentalApi = searchTools)
-                val owner = CodexRuntime(identity, rpc, environment, searchTools)
+                rpc.initialize(experimentalApi = isSearchToolsEnabled)
+                val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled)
                 owner.checkAccount()
                 runtime = owner
                 log.i { "Codex runtime ready" }

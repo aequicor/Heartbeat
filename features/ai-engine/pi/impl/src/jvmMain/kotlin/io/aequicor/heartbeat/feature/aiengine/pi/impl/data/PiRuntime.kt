@@ -15,7 +15,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
@@ -37,6 +39,7 @@ internal class PiRuntime(
     private val processes: PiProcessLauncher,
     private val environment: PiSessionEnvironment,
     private val toggles: FeatureToggles,
+    private val workspaces: LocalWorkspaces,
 ) : EngineRuntime,
     CreatesSessions {
     override val identity get() = credentials.identity
@@ -91,11 +94,7 @@ internal class PiRuntime(
         if (!request.target.model.value.startsWith(source.scope.provider.value + "/")) {
             piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
         }
-        val directory = request.workspace?.let {
-            configuration.workspaces[it.value] ?: piFailure(
-                EngineFailure.Request(RequestFailureReason.Invalid),
-            )
-        }
+        val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
         withContext(dispatchers.main) {
             PiSession(
                 request,
@@ -118,6 +117,15 @@ internal class PiRuntime(
         sessions.toList().forEach { it.shutdown() }
         sessions.clear()
     }
+}
+
+/** Resolves a native process working directory, retaining explicitly configured legacy routes. */
+internal suspend fun resolvePiWorkspace(
+    ref: WorkspaceRef?,
+    workspaces: LocalWorkspaces,
+    configured: Map<String, String>,
+): String? = ref?.let {
+    workspaces.resolve(it) ?: configured[it.value] ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
 }
 
 internal class PiFeatures(private val entries: List<Pair<EngineFeatureKey<*>, EngineFeature>>) : EngineFeatures {

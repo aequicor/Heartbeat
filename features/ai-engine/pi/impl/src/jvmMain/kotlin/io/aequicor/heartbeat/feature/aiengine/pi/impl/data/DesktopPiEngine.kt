@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -55,6 +56,7 @@ internal class DesktopPiEngine(
     private val toggles: FeatureToggles,
     private val environment: PiSessionEnvironment,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val workspaces: LocalWorkspaces,
 ) : PiAdapter {
     private val log = Log.tag("DesktopPiEngine")
     private val mutex = Mutex()
@@ -170,6 +172,7 @@ internal class DesktopPiEngine(
             processes,
             environment,
             toggles,
+            workspaces,
         ).also { runtimes[identity.source] = it }
     }
 

@@ -64,10 +64,10 @@ class RuntimePool(
             fail(EngineFailure.Unknown())
         }
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
-        val stored = withContext(NonCancellable) {
+        val isStored = withContext(NonCancellable) {
             mutex.withLock { if (isClosed) false else true.also { runtimes[key] = created } }
         }
-        if (!stored) {
+        if (!isStored) {
             log.w { "runtime started during profile shutdown engine=${identity.engine.value}" }
             withContext(NonCancellable) { closeQuietly(created) }
             fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
@@ -108,10 +108,10 @@ class RuntimePool(
         log.i { "retire runtime engine=${engine.value} source=${source.value}" }
         retireHandles(engine, source)
         // Only the caller that unregisters the runtime closes it, so a concurrent closeAll never closes it twice.
-        val owned = withContext(NonCancellable) {
+        val isOwned = withContext(NonCancellable) {
             mutex.withLock { (runtimes[key] === current).also { if (it) runtimes.remove(key) } }
         }
-        if (owned) withContext(NonCancellable) { closeQuietly(current) }
+        if (isOwned) withContext(NonCancellable) { closeQuietly(current) }
     }
 
     private fun ensureOpen(engine: EngineId) {

@@ -356,7 +356,7 @@ internal class CodexSession(
             rpc.respond(id, toolFailureResult("Disabled"))
             return
         }
-        accept(checkNotNull(turn))
+        accept(turn)
         val tool = params.text("tool").orEmpty()
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }

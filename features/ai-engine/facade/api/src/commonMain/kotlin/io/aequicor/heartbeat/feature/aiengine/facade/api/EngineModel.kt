@@ -36,6 +36,8 @@ public data class EngineDescriptor(
     val isDefault: Boolean = false,
     /** Ways the connection UI may offer to authenticate this engine; empty when it cannot be connected by users. */
     val connectionMethods: List<ConnectionMethod> = emptyList(),
+    /** The adapter resolves [LocalWorkspaces] and uses the project directory for native sessions. */
+    val isLocalWorkspaceSupported: Boolean = false,
 ) {
     init {
         require(connectionMethods.map { it.id }.distinct().size == connectionMethods.size) { "Duplicate method id" }

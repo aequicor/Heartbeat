@@ -79,20 +79,20 @@ class SessionCatalogService(
         log.i { "refresh sessions" }
         val scoped = query.enabledOnly() ?: return@withLock SessionDiscoveryReport(emptyList())
         val targets = scoped.sources()
-        val discovers = targets.any { it.second.discovery != null }
-        val generation = if (discovers) index.advanceRevision() else index.revision()
-        var failed = true
+        val hasDiscovery = targets.any { it.second.discovery != null }
+        val generation = if (hasDiscovery) index.advanceRevision() else index.revision()
+        var hasFailed = true
         try {
             val report = targets.map { (registration, source) ->
                 val status = discover(registration, source, scoped, generation)
                 SourceDiscovery(source.source, status, Observation(context.clock.now(), isStale = false))
                     .also { index.saveCoverage(it) }
             }
-            SessionDiscoveryReport(report).also { failed = false }
+            SessionDiscoveryReport(report).also { hasFailed = false }
         } finally {
             // Pages read while discovery was reordering rows got the intermediate revision; retire it even on failure
             // or cancellation, without masking the original error.
-            if (discovers) withContext(NonCancellable) { retireRevision(keepOriginal = failed) }
+            if (hasDiscovery) withContext(NonCancellable) { retireRevision(keepOriginal = hasFailed) }
         }
     }
 
@@ -122,7 +122,7 @@ class SessionCatalogService(
         query: SessionQuery,
         generation: Long,
     ): DiscoveryStatus {
-        val discovery = source.discovery ?: return DiscoveryStatus.Unsupported
+        if (source.discovery == null) return DiscoveryStatus.Unsupported
         val engine = registration.descriptor.id
         val sourceQuery = query.copy(engines = setOf(engine), sources = setOf(source.source.id))
         var cursor: SessionCursor? = null

@@ -51,7 +51,12 @@ internal class LocalCodexTransport(
     override suspend fun open(): CodexWire = withContext(dispatchers.io) {
         log.i { "Starting local Codex app-server" }
         try {
-            val command = listOf(config.executable, "app-server", "-c", "model_provider=\"openai\"")
+            val command = listOf(
+                resolveCodexExecutable(config.executable),
+                "app-server",
+                "-c",
+                "model_provider=\"openai\"",
+            )
             val builder = ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD)
             builder.environment().apply {
                 remove("OPENAI_API_KEY")

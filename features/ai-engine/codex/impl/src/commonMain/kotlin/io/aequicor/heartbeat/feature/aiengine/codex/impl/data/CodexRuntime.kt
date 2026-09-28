@@ -49,7 +49,7 @@ internal class CodexRuntime(
      * `search.engine_tools` at creation). A later toggle change never restarts it; turning the toggle off still
      * stops dynamic tools for new threads and refuses tool calls.
      */
-    val searchTools: Boolean = false,
+    val isSearchToolsEnabled: Boolean = false,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -184,8 +184,8 @@ internal class CodexRuntime(
         }
 
     private suspend fun openNative(nativeId: String?, target: EngineTarget, route: ExecutionRoute): ActiveSession {
-        val tools = searchTools && toggles.get(SearchEngineTools)
-        val params = threadParams(nativeId, target, route.workspace, tools)
+        val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
+        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled)
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = response.obj("thread")
         val id = thread.text("id") ?: protocolFailure()
@@ -221,14 +221,15 @@ internal class CodexRuntime(
         }
     }
 
-    private fun threadParams(
+    private suspend fun threadParams(
         nativeId: String?,
         target: EngineTarget,
         workspace: WorkspaceRef?,
         tools: Boolean,
     ): JsonObject {
         val path = workspace?.let {
-            config.workspaces[it] ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
+            host.workspaces.resolve(it) ?: config.workspaces[it]
+                ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
         return buildJsonObject {
             put("model", target.model.value)

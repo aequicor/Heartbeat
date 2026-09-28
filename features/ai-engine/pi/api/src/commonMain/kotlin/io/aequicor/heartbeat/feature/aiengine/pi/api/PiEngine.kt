@@ -67,6 +67,7 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
         ),
     ),
     isDefault = true,
+    isLocalWorkspaceSupported = true,
 )
 
 /**
