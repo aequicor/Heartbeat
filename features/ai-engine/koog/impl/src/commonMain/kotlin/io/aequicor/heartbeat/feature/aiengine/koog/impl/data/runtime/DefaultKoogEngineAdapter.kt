@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ArchiveFilter
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DiscoveryStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -93,6 +94,16 @@ internal class DefaultKoogEngineAdapter(
         context.engine == KoogEngineId && koogProvider(source) != null
 
     override fun authContext(context: EngineContext): AuthContextKey = AuthContextKey("koog.provider")
+
+    /** No adapter-side route state: keys are read from the source on runtime creation. */
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        log.d { "bind ignored: no route state" }
+    }
+
+    /** No adapter-side route state, see [bind]. */
+    override suspend fun unbind(binding: EngineBindingId) {
+        log.d { "unbind ignored: no route state" }
+    }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> = onMain {
         withProfile {

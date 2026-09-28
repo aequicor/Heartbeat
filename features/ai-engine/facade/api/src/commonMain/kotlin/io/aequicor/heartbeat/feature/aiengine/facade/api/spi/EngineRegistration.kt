@@ -61,23 +61,20 @@ public interface EngineFactory {
     public fun authContext(context: EngineContext): AuthContextKey
 
     /**
-     * Stores the adapter-side route of [binding] to [source]. Called only by the facade's `EngineBindings`
-     * implementation after [EngineRegistration.accepts] and toggle gates passed. Replacing a binding's source
-     * retires runtimes of the previous source that no other binding uses.
+     * Stores the adapter-side route of [binding] to [source]. Intended caller is the facade's `EngineBindings`
+     * implementation, after [EngineRegistration.accepts] and toggle gates passed; that runtime does not exist yet,
+     * so no production code calls this today. Replacing a binding's source retires runtimes of the previous source
+     * that no other binding uses.
      * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
-     * Adapters that resolve routes without their own state (for example CLI logins) keep the default no-op.
+     * Abstract on purpose: an adapter without route state (for example a CLI login) states that explicitly.
      */
-    public suspend fun bind(binding: EngineBindingId, source: AuthSource) {
-        // No adapter-side route state by default.
-    }
+    public suspend fun bind(binding: EngineBindingId, source: AuthSource)
 
     /**
-     * Forgets the adapter-side route of [binding]; unknown bindings are ignored. Called only by the facade's
-     * `EngineBindings` implementation. Retires runtimes of the removed source that no other binding uses.
+     * Forgets the adapter-side route of [binding]; unknown bindings are ignored. Same caller as [bind].
+     * Retires runtimes of the removed source that no other binding uses.
      */
-    public suspend fun unbind(binding: EngineBindingId) {
-        // No adapter-side route state by default.
-    }
+    public suspend fun unbind(binding: EngineBindingId)
 
     /** Lists models visible through the exact source/context; source material is resolved inside trusted adapters. */
     public suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo>

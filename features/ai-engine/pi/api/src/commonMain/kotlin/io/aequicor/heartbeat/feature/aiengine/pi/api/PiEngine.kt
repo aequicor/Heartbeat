@@ -50,7 +50,8 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
 /**
  * Pi-specific configuration of the current profile, beside the engine-neutral facade.
  * Credential routes are connected only through the facade's `EngineBindings`; this contract never
- * accepts credentials, starts Pi or exposes its adapter.
+ * accepts credentials, starts Pi or exposes its adapter. Until the facade runtime implements `EngineBindings`,
+ * Pi has no route in the running app and sessions fail with missing credentials.
  */
 public interface PiEngine {
     /**
