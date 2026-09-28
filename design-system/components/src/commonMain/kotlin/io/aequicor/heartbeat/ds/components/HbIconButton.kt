@@ -9,7 +9,9 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -44,6 +46,7 @@ public fun HbIconButton(
     enabled: Boolean = true,
     isSelected: Boolean = false,
     size: Dp = HbTheme.dimensions.touchTarget,
+    tooltipText: String? = contentDescription,
 ) {
     val interactions = remember { MutableInteractionSource() }
     val isPressed by interactions.collectIsPressedAsState()
@@ -51,8 +54,8 @@ public fun HbIconButton(
     val isFocused by interactions.collectIsFocusedAsState()
     val colors = HbTheme.colors
     val motion = HbTheme.motion
-    val shape = HbTheme.shapes.medium
-    val base = if (isSelected) colors.primaryContainer else Color.Transparent
+    val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
+    val base = if (isSelected) colors.selectedContainer else Color.Transparent
     val target = when {
         !enabled -> base
         isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -73,20 +76,24 @@ public fun HbIconButton(
     }
     Box(
         modifier = modifier
-            .size(size)
+            .size(controlTargetSize(size))
             .semantics {
                 this.contentDescription = contentDescription
                 if (isSelected) selected = true
             }
+            .hbFocusOutline(isFocused, shape)
             .clickable(interactions, indication = null, enabled = enabled, role = Role.Button) {
                 log.i { "icon button pressed selected=$isSelected" }
                 onClick()
             }
-            .hbControlSurface(background, shape, isPressed = isPressed, isQuiet = true, isEnabled = enabled)
-            .hbFocusOutline(isFocused, shape),
+            .hbControlSurface(background, shape),
         contentAlignment = Alignment.Center,
     ) {
-        HbIcon(icon, contentDescription = null, tint = tint)
+        HbTooltip(tooltipText.orEmpty(), Modifier.fillMaxSize(), isEnabled = tooltipText != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                HbIcon(icon, contentDescription = null, tint = tint)
+            }
+        }
     }
 }
 

@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.unit.DpOffset
+import io.aequicor.heartbeat.ds.adaptive.adaptiveFocusOutline
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.theme.HbVisualStyle
 
@@ -101,11 +102,13 @@ internal fun Modifier.hbSoftSurface(
         .clip(shape)
 }
 
-/** An explicit outline keeps keyboard focus distinguishable from soft decorative shadows. */
+/** Keyboard-only outer focus ring; fields pass [isTextInput] to expose pointer focus as well. */
 @Composable
-@ReadOnlyComposable
-internal fun Modifier.hbFocusOutline(isFocused: Boolean, shape: Shape): Modifier = border(
-    HbTheme.dimensions.borderWidth,
-    HbTheme.colors.outline.copy(alpha = if (isFocused) 1f else 0f),
-    shape,
-)
+internal fun Modifier.hbFocusOutline(isFocused: Boolean, shape: Shape, isTextInput: Boolean = false): Modifier =
+    adaptiveFocusOutline(
+        isFocused,
+        shape,
+        HbTheme.colors,
+        HbTheme.dimensions,
+        isTextInput,
+    )

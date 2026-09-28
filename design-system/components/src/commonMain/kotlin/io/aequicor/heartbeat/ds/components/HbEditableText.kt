@@ -2,8 +2,10 @@ package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicSecureTextField
@@ -64,6 +66,8 @@ internal fun HbEditableText(
     singleLine: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(),
     isSecret: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
@@ -79,12 +83,18 @@ internal fun HbEditableText(
         bridge.restoreIfUnanswered(state, currentValue)
     }
     val inputTransformation = InputTransformation { bridge.observeInput(this, onValueChange) }
-    val decorator = placeholderDecorator(placeholder, isEmpty = editingText.isEmpty(), singleLine || isSecret)
+    val decorator = placeholderDecorator(
+        placeholder,
+        editingText.isEmpty(),
+        singleLine || isSecret,
+        contentPadding,
+        EditorAdornments(leadingContent, trailingContent),
+    )
     if (isSecret) {
         val hiddenText = AnnotatedString("•".repeat(editingText.length))
         BasicSecureTextField(
             state = state,
-            modifier = modifier.padding(contentPadding).semantics {
+            modifier = modifier.semantics {
                 editableText = hiddenText
                 inputText = hiddenText
             },
@@ -102,7 +112,6 @@ internal fun HbEditableText(
             state,
             enabled,
             singleLine,
-            contentPadding,
             inputTransformation,
             interactionSource,
             decorator,
@@ -116,20 +125,52 @@ internal fun HbEditableText(
 private fun rememberEditorState(value: String, isSecret: Boolean): TextFieldState =
     if (isSecret) remember { TextFieldState(value) } else rememberTextFieldState(value)
 
-private fun placeholderDecorator(placeholder: String, isEmpty: Boolean, isSingleLine: Boolean) =
-    TextFieldDecorator { innerTextField ->
-        Box(contentAlignment = if (isSingleLine) Alignment.CenterStart else Alignment.TopStart) {
-            if (isEmpty) HbText(placeholder, color = HbTheme.colors.textSecondary)
-            innerTextField()
+private data class EditorAdornments(
+    val leadingContent: (@Composable () -> Unit)?,
+    val trailingContent: (@Composable () -> Unit)?,
+)
+
+private fun placeholderDecorator(
+    placeholder: String,
+    isEmpty: Boolean,
+    isSingleLine: Boolean,
+    contentPadding: PaddingValues,
+    adornments: EditorAdornments,
+) = TextFieldDecorator { innerTextField ->
+    if (adornments.leadingContent == null && adornments.trailingContent == null) {
+        PlaceholderContent(placeholder, isEmpty, isSingleLine, innerTextField, Modifier.padding(contentPadding))
+    } else {
+        Row(
+            modifier = Modifier.padding(contentPadding),
+            horizontalArrangement = Arrangement.spacedBy(HbTheme.spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            adornments.leadingContent?.invoke()
+            PlaceholderContent(placeholder, isEmpty, isSingleLine, innerTextField, Modifier.weight(1f))
+            adornments.trailingContent?.invoke()
         }
     }
+}
+
+@Composable
+private fun PlaceholderContent(
+    placeholder: String,
+    isEmpty: Boolean,
+    isSingleLine: Boolean,
+    innerTextField: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier, contentAlignment = if (isSingleLine) Alignment.CenterStart else Alignment.TopStart) {
+        if (isEmpty) HbText(placeholder, color = HbTheme.colors.textSecondary)
+        innerTextField()
+    }
+}
 
 @Composable
 private fun PlainEditor(
     state: TextFieldState,
     enabled: Boolean,
     singleLine: Boolean,
-    contentPadding: PaddingValues,
     inputTransformation: InputTransformation,
     interactionSource: MutableInteractionSource,
     decorator: TextFieldDecorator,
@@ -141,7 +182,7 @@ private fun PlainEditor(
         modifier = modifier.hbScrollbars(
             scrollState,
             orientation = if (singleLine) Orientation.Horizontal else Orientation.Vertical,
-        ).padding(contentPadding),
+        ),
         enabled = enabled,
         inputTransformation = inputTransformation,
         lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,

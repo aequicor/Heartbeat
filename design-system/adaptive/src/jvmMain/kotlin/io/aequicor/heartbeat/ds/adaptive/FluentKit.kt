@@ -1,10 +1,16 @@
 package io.aequicor.heartbeat.ds.adaptive
 
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.compositeOver
 import io.aequicor.heartbeat.ds.tokens.HbColors
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.github.composefluent.FluentTheme
 import io.github.composefluent.Typography
@@ -42,21 +48,48 @@ internal object FluentKit : PlatformKit {
     }
 
     @Composable
-    override fun Button(text: String, onClick: () -> Unit, modifier: Modifier, enabled: Boolean, primary: Boolean) {
+    override fun Button(
+        text: String,
+        onClick: () -> Unit,
+        modifier: Modifier,
+        enabled: Boolean,
+        primary: Boolean,
+        dimensions: HbDimensions,
+    ) {
+        val interaction = remember { MutableInteractionSource() }
+        val isFocused by interaction.collectIsFocusedAsState()
         val colors = LocalAdaptiveColors.current
+        val focusModifier = modifier.adaptiveFocusOutline(
+            isFocused,
+            RoundedCornerShape(dimensions.controlCornerRadius),
+            colors,
+            dimensions,
+        )
         val base = fluentButtonColor(colors, primary)
-        val hovered = if (primary) base else base.copy(fillColor = colors.surfaceElevated)
+        val hovered = base.copy(fillColor = colors.interactionHoverOverlay.compositeOver(base.fillColor))
         val buttonColors = ButtonDefaults.buttonColors(
             default = base,
             hovered = hovered,
-            pressed = hovered.copy(borderBrush = SolidColor(colors.outline)),
+            pressed = base.copy(fillColor = colors.pressedOverlay.compositeOver(base.fillColor)),
         )
         if (primary) {
-            AccentButton(onClick = onClick, modifier = modifier, disabled = !enabled, buttonColors = buttonColors) {
+            AccentButton(
+                onClick = onClick,
+                modifier = focusModifier,
+                disabled = !enabled,
+                buttonColors = buttonColors,
+                interaction = interaction,
+            ) {
                 Text(text)
             }
         } else {
-            Button(onClick = onClick, modifier = modifier, disabled = !enabled, buttonColors = buttonColors) {
+            Button(
+                onClick = onClick,
+                modifier = focusModifier,
+                disabled = !enabled,
+                buttonColors = buttonColors,
+                interaction = interaction,
+            ) {
                 Text(text)
             }
         }
@@ -84,7 +117,7 @@ internal object FluentKit : PlatformKit {
             colors = TextFieldDefaults.defaultTextFieldColors(
                 default = base,
                 hovered = base.copy(fillColor = colors.surfaceElevated),
-                focused = base.copy(bottomLineFillColor = colors.brand),
+                focused = base.copy(bottomLineFillColor = colors.focusAccent),
                 pressed = base,
             ),
         )
@@ -94,7 +127,7 @@ internal object FluentKit : PlatformKit {
 internal fun fluentButtonColor(colors: HbColors, primary: Boolean): ButtonColor = ButtonColor(
     fillColor = if (primary) colors.brand else colors.surface,
     contentColor = if (primary) colors.onBrand else colors.textPrimary,
-    borderBrush = SolidColor(if (primary) colors.brand else colors.outline),
+    borderBrush = SolidColor(if (primary) colors.brand else colors.outlineSubtle),
 )
 
 internal fun fluentTextFieldColor(colors: HbColors): TextFieldColor = TextFieldColor(

@@ -3,7 +3,10 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -35,7 +39,7 @@ private val log = Log.tag("DS/Controls")
 /** Emphasis of an accessible action, independent of its selected visual implementation. */
 public enum class HbButtonStyle { Primary, Secondary, Quiet }
 
-/** Neumorphic or platform-native action with content-free interaction logging. */
+/** Flat or platform-native action with content-free interaction logging. */
 @Composable
 public fun HbButton(
     text: String,
@@ -55,14 +59,15 @@ public fun HbButton(
             modifier = modifier.heightIn(min = HbTheme.dimensions.touchTarget),
             enabled = enabled,
             primary = style == HbButtonStyle.Primary,
+            dimensions = HbTheme.dimensions,
         )
     } else {
-        SoftButton(text, loggedClick, modifier, style, enabled)
+        FlatButton(text, loggedClick, modifier, style, enabled)
     }
 }
 
 @Composable
-private fun SoftButton(
+private fun FlatButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -74,10 +79,10 @@ private fun SoftButton(
     val isFocused by interactionSource.collectIsFocusedAsState()
     val isHovered by interactionSource.collectIsHoveredAsState()
     val colors = HbTheme.colors
-    val shape = HbTheme.shapes.medium
+    val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
     val base = when {
         style == HbButtonStyle.Primary && enabled -> colors.primary
-        style == HbButtonStyle.Quiet && HbTheme.visualStyle == HbVisualStyle.Glass -> Color.Transparent
+        style == HbButtonStyle.Quiet -> Color.Transparent
         else -> colors.buttonFill
     }
     val targetBackground = when {
@@ -104,15 +109,9 @@ private fun SoftButton(
         modifier = modifier
             .heightIn(min = HbTheme.dimensions.touchTarget)
             .widthIn(min = HbTheme.dimensions.touchTarget)
-            .clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
-            .hbControlSurface(
-                background,
-                shape,
-                isPressed = isPressed,
-                isQuiet = style == HbButtonStyle.Quiet,
-                isEnabled = enabled,
-            )
             .hbFocusOutline(isFocused, shape)
+            .clickable(interactionSource, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
+            .hbControlSurface(background, shape)
             .padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs),
         contentAlignment = Alignment.Center,
     ) {
@@ -136,13 +135,15 @@ public fun HbTextField(
     singleLine: Boolean = true,
     accessibleLabel: String = placeholder,
     isSecret: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
         onValueChange(it)
     }
     // The legacy native kit editors hide their scroll state. All styles share this observable editor.
-    SoftTextField(
+    FlatTextField(
         value,
         loggedChange,
         modifier.semantics {
@@ -153,11 +154,13 @@ public fun HbTextField(
         enabled,
         singleLine || isSecret,
         isSecret,
+        leadingContent,
+        trailingContent,
     )
 }
 
 @Composable
-private fun SoftTextField(
+private fun FlatTextField(
     value: String,
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -165,23 +168,42 @@ private fun SoftTextField(
     enabled: Boolean = true,
     singleLine: Boolean = true,
     isSecret: Boolean = false,
+    leadingContent: (@Composable () -> Unit)? = null,
+    trailingContent: (@Composable () -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val colors = HbTheme.colors
-    val shape = HbTheme.shapes.medium
+    val isHovered by interactionSource.collectIsHoveredAsState()
+    val shape = RoundedCornerShape(HbTheme.dimensions.fieldCornerRadius)
+    val fill = if (isHovered && enabled) {
+        colors.interactionHoverOverlay.compositeOver(colors.inputFill)
+    } else {
+        colors.inputFill
+    }
     HbEditableText(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
             .heightIn(min = HbTheme.dimensions.touchTarget)
-            .hbSurface(colors.inputFill, shape, isInset = true)
-            .hbFocusOutline(isFocused, shape),
+            .hbFocusOutline(isFocused, shape, isTextInput = true)
+            .background(fill, shape)
+            .border(HbTheme.dimensions.borderWidth, colors.outlineSubtle, shape)
+            .hoverable(interactionSource, enabled),
         enabled = enabled,
         singleLine = singleLine,
         interactionSource = interactionSource,
         placeholder = placeholder,
-        contentPadding = PaddingValues(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs),
+        contentPadding = PaddingValues(
+            horizontal = HbTheme.spacing.m,
+            vertical = if (leadingContent == null && trailingContent == null) {
+                HbTheme.spacing.xs
+            } else {
+                HbTheme.spacing.none
+            },
+        ),
         isSecret = isSecret,
+        leadingContent = leadingContent,
+        trailingContent = trailingContent,
     )
 }

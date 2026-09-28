@@ -10,6 +10,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.ds.tokens.HbColors
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbTypography
 
 internal val LocalAdaptiveColors = staticCompositionLocalOf { HbColors.Light }
@@ -44,8 +45,9 @@ fun AdaptiveButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     primary: Boolean = true,
+    dimensions: HbDimensions = HbDimensions(),
 ) {
-    platformKit(LocalPlatformUi.current).Button(text, onClick, modifier, enabled, primary)
+    platformKit(LocalPlatformUi.current).Button(text, onClick, modifier, enabled, primary, dimensions)
 }
 
 /** Stateless text input, including multiline chat composition, in the selected native kit. */
@@ -68,7 +70,14 @@ internal interface PlatformKit {
     fun Theme(colors: HbColors, typography: HbTypography, content: @Composable () -> Unit)
 
     @Composable
-    fun Button(text: String, onClick: () -> Unit, modifier: Modifier, enabled: Boolean, primary: Boolean)
+    fun Button(
+        text: String,
+        onClick: () -> Unit,
+        modifier: Modifier,
+        enabled: Boolean,
+        primary: Boolean,
+        dimensions: HbDimensions,
+    )
 
     @Composable
     fun TextField(

@@ -2,8 +2,10 @@ package io.aequicor.heartbeat.ds.adaptive
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -23,6 +25,7 @@ import dev.nucleusframework.macoscompose.theme.defaultComponentStyling
 import dev.nucleusframework.macoscompose.theme.lightColorScheme
 import dev.nucleusframework.macoscompose.theme.macosTween
 import io.aequicor.heartbeat.ds.tokens.HbColors
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.ds.tokens.accessibleContentColor
 
@@ -49,7 +52,7 @@ internal object MacOsKit : PlatformKit {
                 cardForeground = colors.textPrimary,
                 inputBackground = colors.surface,
                 inputFocusBackground = colors.surfaceElevated,
-                inputFocusBorder = colors.brand,
+                inputFocusBorder = colors.focusAccent,
             )
         }
         val componentStyling = remember(scheme, colors) {
@@ -63,7 +66,7 @@ internal object MacOsKit : PlatformKit {
                         text = colors.textPrimary,
                         placeholder = colors.textSecondary,
                         cursor = colors.textPrimary,
-                        border = colors.outline,
+                        border = colors.outlineSubtle,
                     ),
                 ),
             )
@@ -90,9 +93,23 @@ internal object MacOsKit : PlatformKit {
     }
 
     @Composable
-    override fun Button(text: String, onClick: () -> Unit, modifier: Modifier, enabled: Boolean, primary: Boolean) {
+    override fun Button(
+        text: String,
+        onClick: () -> Unit,
+        modifier: Modifier,
+        enabled: Boolean,
+        primary: Boolean,
+        dimensions: HbDimensions,
+    ) {
         val colors = LocalAdaptiveColors.current
         val interaction = remember { MutableInteractionSource() }
+        val isFocused by interaction.collectIsFocusedAsState()
+        val focusModifier = modifier.adaptiveFocusOutline(
+            isFocused,
+            RoundedCornerShape(dimensions.controlCornerRadius),
+            colors,
+            dimensions,
+        )
         val isHovered by interaction.collectIsHoveredAsState()
         val isPressed by interaction.collectIsPressedAsState()
         // The kit hardcodes white labels; track its overlay animation to preserve AA throughout transitions.
@@ -107,7 +124,7 @@ internal object MacOsKit : PlatformKit {
         val foreground = if (primary) macOsAccentContentColor(colors, overlay) else colors.textPrimary
         PushButton(
             onClick = onClick,
-            modifier = modifier,
+            modifier = focusModifier,
             enabled = enabled,
             style = if (primary) PushButtonStyle.Default else PushButtonStyle.Neutral,
             interactionSource = interaction,

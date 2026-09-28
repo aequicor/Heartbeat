@@ -73,11 +73,11 @@ public fun HbChip(
     }
     HbRow(
         modifier = modifier
-            .heightIn(min = HbTheme.dimensions.controlHeight)
+            .heightIn(min = if (onClick == null) HbTheme.dimensions.controlHeight else HbTheme.dimensions.touchTarget)
             .semantics(mergeDescendants = true) { contentDescription = accessibleLabel }
+            .hbFocusOutline(isFocused, shape)
             .then(action)
             .background(background, shape)
-            .hbFocusOutline(isFocused, shape)
             .padding(horizontal = HbTheme.spacing.s, vertical = HbTheme.spacing.xxs),
         gap = HbTheme.spacing.xs,
     ) {
