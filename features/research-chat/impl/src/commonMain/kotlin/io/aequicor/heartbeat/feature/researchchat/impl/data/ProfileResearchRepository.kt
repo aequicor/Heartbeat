@@ -341,24 +341,29 @@ internal class ProfileResearchRepository(
             val turn = submit(active, request)
             accepted.complete(true)
             applyPendingStop(question.id, active, turn)
-            val hasSucceeded = awaitTurn(active, turn)
+            val isExpectedEnd = awaitTurn(question.id, active, turn)
             observation.cancelAndJoin()
             mirror.refresh(history)
-            finishSegment(session.id, question.id, isFailed = !hasSucceeded)
-            hasSucceeded
+            finishSegment(session.id, question.id, isFailed = !isExpectedEnd)
+            isExpectedEnd
         } finally {
             observation.cancel()
         }
     }
 
-    private suspend fun awaitTurn(active: ActiveSession, turn: TurnId): Boolean {
+    /** Local stop may end the stream without a known remote outcome; only an unsolicited interruption is an error. */
+    private suspend fun awaitTurn(questionId: String, active: ActiveSession, turn: TurnId): Boolean {
         val terminal = active.state.first {
             (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
                 (it is ActiveSessionState.Unavailable && it.activeTurn == null && it.lastTurn?.id == turn)
         }
         val finished = (terminal as? ActiveSessionState.Ready)?.lastTurn
             ?: (terminal as? ActiveSessionState.Unavailable)?.lastTurn
-        return finished?.outcome == TurnOutcome.Completed || finished?.outcome == TurnOutcome.Cancelled
+        return when (finished?.outcome) {
+            TurnOutcome.Completed, TurnOutcome.Cancelled -> true
+            TurnOutcome.Unknown -> executionLock.withLock { questionId in stops }
+            is TurnOutcome.Failed, null -> false
+        }
     }
 
     private suspend fun finishSegment(sessionId: String, questionId: String, isFailed: Boolean) {

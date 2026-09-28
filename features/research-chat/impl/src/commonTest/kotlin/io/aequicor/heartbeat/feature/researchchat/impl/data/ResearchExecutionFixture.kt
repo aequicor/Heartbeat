@@ -129,6 +129,7 @@ internal class ExecutionSession(
         private set
     var isClosed = false
         private set
+    var cancellationOutcome: TurnOutcome = TurnOutcome.Cancelled
     private var items = emptyList<SessionItem>()
     private val events = MutableSharedFlow<SessionEvent>(replay = 16)
     private val history = object : SessionHistory {
@@ -153,7 +154,7 @@ internal class ExecutionSession(
         override suspend fun cancel(turn: TurnId) {
             val current = state.value as ActiveSessionState.Running
             assertEquals(current.turn.id, turn)
-            state.value = ActiveSessionState.Ready(current.turn.copy(outcome = TurnOutcome.Cancelled))
+            finish(cancellationOutcome)
         }
     }
     override val features: EngineFeatures = ExecutionFeatures(
@@ -163,7 +164,6 @@ internal class ExecutionSession(
     )
 
     suspend fun complete(url: String, body: String) {
-        val current = state.value as ActiveSessionState.Running
         val call = ToolCallId("fetch-${ref.nativeId}")
         val source = buildJsonObject {
             put("url", url)
@@ -177,7 +177,12 @@ internal class ExecutionSession(
         )
         items += output
         output.forEach { events.emit(SessionEvent.ItemUpserted(HistoryCheckpoint("checkpoint"), it)) }
-        state.value = ActiveSessionState.Ready(current.turn.copy(outcome = TurnOutcome.Completed))
+        finish(TurnOutcome.Completed)
+    }
+
+    fun finish(outcome: TurnOutcome) {
+        val current = state.value as ActiveSessionState.Running
+        state.value = ActiveSessionState.Ready(current.turn.copy(outcome = outcome))
     }
 
     override suspend fun close() {

@@ -26,7 +26,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *
  * Unknown selections, overlapping source mutations and duplicate submissions are ignored. Turning the
  * flag off leaves saved research readable and allows explicit stop, but blocks all new work. Profile
- * execution is never cancelled by selection changes or by leaving the screen.
+ * execution is never cancelled by selection changes or by leaving the screen. A turn explicitly stopped by the
+ * user settles without a generic error; unsolicited interruptions and native failures remain visible.
  *
  * ```mermaid
  * stateDiagram-v2

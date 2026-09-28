@@ -2,10 +2,13 @@ package io.aequicor.heartbeat.feature.researchchat.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -22,6 +25,56 @@ import kotlin.test.assertTrue
 
 class ProfileResearchExecutionTest {
     private val target = EngineTarget(KoogEngineId, EngineBindingId("connection"), ModelId("model"))
+
+    @Test
+    fun `explicit stop settles without error for confirmed cancellation or unknown local termination`() = runTest {
+        for (outcome in listOf(TurnOutcome.Cancelled, TurnOutcome.Unknown)) {
+            val fixture = ResearchExecutionFixture(backgroundScope)
+            val repository = fixture.repository
+            val session = repository.createSession(target)
+            val question = session.questions.single()
+            val run = repository.run(session.id, question.id, "Long answer")
+            assertTrue(run.accepted.await())
+            fixture.native.single().cancellationOutcome = outcome
+            repository.stop(question.id)
+            assertTrue(run.completion.await())
+            val saved = fixture.storage.read().single().questions.single()
+            assertFalse(saved.hasFailed)
+            assertNull(saved.pendingSegmentStart)
+            assertTrue(repository.observe().first().running.isEmpty())
+
+            val followup = repository.run(session.id, question.id, "Continue")
+            assertTrue(followup.accepted.await())
+            fixture.native.last().complete("https://source.example", "Evidence")
+            assertTrue(followup.completion.await())
+        }
+    }
+
+    @Test
+    fun `unknown terminal outcome without a user stop remains a visible interruption`() = runTest {
+        val fixture = ResearchExecutionFixture(backgroundScope)
+        val session = fixture.repository.createSession(target)
+        val question = session.questions.single()
+        val run = fixture.repository.run(session.id, question.id, "Answer")
+        assertTrue(run.accepted.await())
+        fixture.native.single().finish(TurnOutcome.Unknown)
+        assertFalse(run.completion.await())
+        assertTrue(fixture.storage.read().single().questions.single().hasFailed)
+    }
+
+    @Test
+    fun `requesting stop does not hide an explicit native failure`() = runTest {
+        val fixture = ResearchExecutionFixture(backgroundScope)
+        val session = fixture.repository.createSession(target)
+        val question = session.questions.single()
+        val run = fixture.repository.run(session.id, question.id, "Answer")
+        assertTrue(run.accepted.await())
+        fixture.native.single().cancellationOutcome =
+            TurnOutcome.Failed(EngineFailure.Transport(TransportFailureReason.NetworkUnavailable))
+        fixture.repository.stop(question.id)
+        assertFalse(run.completion.await())
+        assertTrue(fixture.storage.read().single().questions.single().hasFailed)
+    }
 
     @Test
     fun `accepted generation outlives its waiter and persists first question discoveries as shared`() = runTest {

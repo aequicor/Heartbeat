@@ -21,7 +21,11 @@ internal interface ResearchRepository {
     suspend fun stop(questionId: String)
 }
 
-/** Awaiting either acknowledgement never owns or cancels the profile job. */
+/**
+ * Awaiting either acknowledgement never owns or cancels the profile job. [completion] is true when no error needs
+ * reporting: the turn completed, cancellation was confirmed, or the user explicitly stopped the local stream.
+ * A locally stopped stream does not imply that the remote service confirmed cancellation.
+ */
 internal data class ResearchRun(val accepted: Deferred<Boolean>, val completion: Deferred<Boolean>)
 
 /** Serialized profile storage; source and transcript values never appear in diagnostics. */

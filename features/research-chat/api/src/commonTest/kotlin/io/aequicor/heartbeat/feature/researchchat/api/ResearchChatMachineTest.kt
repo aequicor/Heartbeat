@@ -77,6 +77,11 @@ class ResearchChatMachineTest {
             ResearchChatIntent.Internal.RunFinished(question.id, true),
             ready.copy(hasError = true),
         )
+        ResearchChatMachineSpec.assertTransition(
+            submitting,
+            ResearchChatIntent.Internal.RunFinished(question.id, false),
+            ready,
+        )
     }
 
     @Test
