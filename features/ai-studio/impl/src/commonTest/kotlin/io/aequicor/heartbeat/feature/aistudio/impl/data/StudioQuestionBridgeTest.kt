@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -181,6 +182,22 @@ class StudioQuestionBridgeTest {
     }
 
     @Test
+    fun `a question reopened before the send returns is not withdrawn`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
+        fixture.studio.onSend = {
+            fixture.studio.outputs.emit(AiStudioOutput.PermissionAnswerFailed("s1", "r1"))
+            // Lets the bridge reopen the question before the send returns.
+            repeat(REOPEN_YIELDS) { yield() }
+            assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+        }
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        assertTrue(fixture.queue.sent.none { it is QuestionnaireIntent.Public.Withdraw })
+    }
+
+    @Test
     fun `a second follow-up of a running session never drops the first one`() = runTest {
         val fixture = Fixture(this)
         runCurrent()
@@ -292,3 +309,5 @@ private fun registry(queue: FakeQueue, studio: FakeStudio) = object : MachineReg
         intent: P,
     ): SendResult = find(key).send(intent)
 }
+
+private const val REOPEN_YIELDS = 10

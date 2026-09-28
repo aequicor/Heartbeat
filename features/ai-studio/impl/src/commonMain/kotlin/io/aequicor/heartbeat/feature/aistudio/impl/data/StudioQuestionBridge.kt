@@ -73,6 +73,11 @@ internal class StudioQuestionBridge(
     // Restored questions answered by a follow-up run of their session that has not ended yet; guarded by [lock].
     private val followUps = mutableMapOf<String, Questionnaire>()
 
+    // Answers being delivered and the ones among them reopened by a failure before [deliver] finished; guarded by
+    // [lock]. A reopened question must not be withdrawn once its send returns.
+    private val delivering = mutableSetOf<QuestionnaireId>()
+    private val reopenedEarly = mutableSetOf<QuestionnaireId>()
+
     /** Sessions with open questions while the questionnaire is enabled. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val sources: Flow<Set<String>> = combine(
@@ -133,6 +138,8 @@ internal class StudioQuestionBridge(
     }
 
     private suspend fun deliver(questionnaire: Questionnaire, answer: Answer) {
+        lock.withLock { delivering += questionnaire.id }
+        var isReopened = false
         val isDelivered = try {
             val permission = lock.withLock { live[questionnaire.id]?.takeIf { questionnaire.id !in answered } }
             when {
@@ -145,6 +152,18 @@ internal class StudioQuestionBridge(
         } catch (e: Exception) {
             log.e(e) { "Failed to deliver an answer" }
             false
+        } finally {
+            // Released even when the bridge stops mid-send, so a later failure never marks a stale delivery.
+            isReopened = withContext(NonCancellable) {
+                lock.withLock {
+                    delivering -= questionnaire.id
+                    reopenedEarly.remove(questionnaire.id)
+                }
+            }
+        }
+        if (isReopened) {
+            log.i { "Question was reopened while its answer was sent" }
+            return
         }
         guarded(if (isDelivered) "withdraw a question" else "reopen a question") {
             if (isDelivered) withdraw(questionnaire.id) else reopen(questionnaire)
@@ -176,7 +195,7 @@ internal class StudioQuestionBridge(
                     followUps.remove(output.sessionId)?.takeIf { output.outcome == RunOutcome.Failed }
 
                 is AiStudioOutput.SubmitFailed -> null
-            }
+            }?.also { if (it.id in delivering) reopenedEarly += it.id }
         }
         if (failed != null) {
             log.w { "Answer was not delivered, reopen its question" }
