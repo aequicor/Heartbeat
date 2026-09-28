@@ -1,5 +1,6 @@
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -60,9 +61,46 @@ compose.desktop {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            // DataStore's protobuf implementation accesses sun.misc.Unsafe at runtime.
+            modules("jdk.unsupported")
             packageName = "io.aequicor"
             packageVersion = "1.0.0"
             preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
+        }
+    }
+}
+
+// The default Compose build is development; release tasks retain the protected MainKt entry point.
+// Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
+afterEvaluate {
+    tasks.withType<AbstractJPackageTask>().configureEach {
+        if (!name.contains("Release")) {
+            launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+        }
+    }
+    tasks.withType<JavaExec>().configureEach {
+        if (name == "run") mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+    }
+}
+
+// Compose copies app resources without their executable bits. Repair the app image before installers consume it.
+// Keep the installation read-only at runtime: changing a bundled executable after installation is unnecessary.
+if (piTarget != null && piOs != "windows") {
+    tasks.withType<AbstractJPackageTask>().configureEach {
+        if (targetFormat == TargetFormat.AppImage) {
+            val isMacBundle = piOs == "darwin"
+            doLast {
+                val imageTask = this as AbstractJPackageTask
+                val resources = if (isMacBundle) {
+                    "${imageTask.packageName.get()}.app/Contents/app/resources"
+                } else {
+                    "${imageTask.packageName.get()}/lib/app/resources"
+                }
+                val executable = imageTask.destinationDir.get().file("$resources/pi/pi").asFile
+                check(executable.isFile && executable.setExecutable(true, false)) {
+                    "Cannot mark packaged Pi executable: $executable"
+                }
+            }
         }
     }
 }

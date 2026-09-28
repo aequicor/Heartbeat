@@ -39,6 +39,7 @@
     <string name="wizard_field_key">API-ключ</string>
     <string name="wizard_key_placeholder">Вставьте ключ</string>
     <string name="wizard_key_hint">Ключ хранится в защищённом хранилище профиля.</string>
+    <string name="wizard_key_hint_development">Сборка для разработки: ключи сохраняются локально без системной защиты, отдельно от ключей релизной версии.</string>
     <string name="wizard_get_key">Получить API-ключ</string>
     <string name="wizard_field_host">Адрес API</string>
     <string name="wizard_host_fixed">Адрес фиксирован для этого провайдера.</string>

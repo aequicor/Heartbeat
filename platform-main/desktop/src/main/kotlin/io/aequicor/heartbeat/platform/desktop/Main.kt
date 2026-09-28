@@ -16,9 +16,16 @@ import java.util.concurrent.FutureTask
 import javax.swing.SwingUtilities
 
 fun main() {
-    Log.init(isDebug = true)
+    launchHeartbeat(isDevelopment = false)
+}
+
+/** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
+internal fun launchHeartbeat(isDevelopment: Boolean) {
+    Log.init(isDebug = isDevelopment)
     val lifecycle = LifecycleRegistry()
-    val root = runOnUiThread { createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph()) }
+    val root = runOnUiThread {
+        createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
+    }
     val dimensions = HbDimensions()
     application {
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)

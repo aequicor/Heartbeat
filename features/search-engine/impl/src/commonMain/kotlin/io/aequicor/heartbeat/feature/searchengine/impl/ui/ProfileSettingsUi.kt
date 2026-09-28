@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbGlassScene
@@ -69,6 +70,8 @@ import io.aequicor.heartbeat.feature.searchengine.impl.resources.check_unavailab
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.contents_provider
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_configured
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_missing
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_storage_development
+import io.aequicor.heartbeat.feature.searchengine.impl.resources.key_storage_protected
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.prefer_native
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.provider_querit
 import io.aequicor.heartbeat.feature.searchengine.impl.resources.remove_key
@@ -94,10 +97,11 @@ internal class ProfileSettingsComponent(
     @Assisted screen: ScopeHandle,
     configuration: SearchConfiguration,
     factory: HeartbeatStoreFactory,
+    storage: SecretStorageInfo,
 ) : ComponentContext by context,
     ComposableComponent {
     private val model = instanceKeeper.getOrCreate(MODEL_KEY) {
-        RetainedModel(SearchSettingsModel(configuration, factory, screen.coroutineScope))
+        RetainedModel(SearchSettingsModel(configuration, factory, screen.coroutineScope, storage.protection))
     }.model
 
     @Composable override fun Content(modifier: Modifier) = ProfileSettingsScreen(model, navigator::close, modifier)
@@ -136,6 +140,16 @@ private fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: () -> Unit
                 HbColumn {
                     HbButton(stringResource(Res.string.settings_back), onBack, style = HbButtonStyle.Quiet)
                     HbText(stringResource(Res.string.settings_title), style = HbTheme.typography.display)
+                    HbText(
+                        stringResource(
+                            if (state.isKeyStorageProtected) {
+                                Res.string.key_storage_protected
+                            } else {
+                                Res.string.key_storage_development
+                            },
+                        ),
+                        style = HbTheme.typography.caption,
+                    )
                 }
             }
             val settings = state.settings

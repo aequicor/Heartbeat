@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
+import io.aequicor.heartbeat.core.secrets.SecretStorageProtection
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
@@ -66,6 +68,7 @@ data class ConnectWizardScreenState(
     val modelQuery: String = "",
     val isBusy: Boolean = true,
     val isCancelAllowed: Boolean = true,
+    val isKeyStorageProtected: Boolean = true,
     val failure: FailureUi? = null,
 ) : MVIState
 
@@ -133,13 +136,15 @@ class ConnectWizardModel(
     route: ConnectEngineRoute,
     @ForScope(ConnectWizardScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    storage: SecretStorageInfo,
 ) {
     private val log = Log.tag("ConnectWizardModel")
     private val sentKeys = mutableListOf<Secret>()
 
     val store = factory.create<ConnectWizardScreenState, ConnectWizardScreenIntent, ConnectWizardScreenAction>(
         "ConnectWizard",
-        ConnectWizardScreenState().reflect(machine.state.value),
+        ConnectWizardScreenState(isKeyStorageProtected = storage.protection == SecretStorageProtection.System)
+            .reflect(machine.state.value),
         onError = { copy(isBusy = false, failure = FailureUi.Unknown) },
     ) {
         init {

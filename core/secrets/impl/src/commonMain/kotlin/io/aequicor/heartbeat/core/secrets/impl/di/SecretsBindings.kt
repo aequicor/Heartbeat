@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.secrets.impl.data.ProfileSecretRepository
 import io.aequicor.heartbeat.core.secrets.impl.data.ProtectedVault
@@ -21,6 +22,13 @@ import io.aequicor.heartbeat.core.secrets.impl.domain.ProfileSecretStore
 @Inject
 internal class SecretsRuntime(backend: ProtectedVault, dispatchers: DispatcherProvider) {
     val registry = VaultRegistry(backend, dispatchers)
+}
+
+@SingleIn(AppScope::class)
+@ContributesBinding(AppScope::class)
+@Inject
+internal class SecretsMetadata(backend: ProtectedVault) : SecretStorageInfo {
+    override val protection = backend.protection
 }
 
 @ContributesBinding(ProfileScope::class)
