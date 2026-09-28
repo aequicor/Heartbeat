@@ -58,7 +58,8 @@ import kotlin.uuid.Uuid
 /**
  * Profile-owned native session. Only its leases have screen lifetime; one mutex serializes submissions.
  * History observation belongs to the profile: a watch outlives the lease that started it.
- * Without leases and a running turn it reports [onIdle] so the runtime can forget it; main dispatcher only.
+ * Without leases, a running turn or an operation holding its lock it reports [onIdle] so the runtime can forget it;
+ * main dispatcher only.
  */
 internal class KoogNativeSession(
     initial: KoogRecord,
@@ -171,11 +172,11 @@ internal class KoogNativeSession(
             records.save(record.copy(items = history.items + user, lastTurn = turn))
             isSaved = true
         } finally {
-            if (!isSaved) client.close()
+            if (!isSaved) closeClient(client)
         }
         if (isClosed) {
             // Durable acceptance already exists and is recovered as Unknown, so a plain refusal would be false.
-            client.close()
+            closeClient(client)
             throw unknownOutcome(request)
         }
         record = record.copy(items = history.items + user, lastTurn = turn)
@@ -304,15 +305,22 @@ internal class KoogNativeSession(
     }
 
     private suspend fun interrupt(turn: TurnId) {
-        val interrupted = mutex.withLock {
-            checkOpen()
-            val running = current as? ActiveSessionState.Running
-                ?: fail(EngineFailure.Session(SessionFailureReason.Changed))
-            if (running.turn.id != turn) fail(EngineFailure.Session(SessionFailureReason.Changed))
-            publish(ActiveSessionState.Interrupting(running.turn))
-            job?.also { it.cancel() }
+        val interrupted = try {
+            mutex.withLock { stop(turn) }
+        } finally {
+            // The lock may have been handed over from a failed submission whose lease is gone.
+            releaseIfIdle()
         }
         interrupted?.join()
+    }
+
+    private fun stop(turn: TurnId): Job? {
+        checkOpen()
+        val running = current as? ActiveSessionState.Running
+            ?: fail(EngineFailure.Session(SessionFailureReason.Changed))
+        if (running.turn.id != turn) fail(EngineFailure.Session(SessionFailureReason.Changed))
+        publish(ActiveSessionState.Interrupting(running.turn))
+        return job?.also { it.cancel() }
     }
 
     fun dispose() {

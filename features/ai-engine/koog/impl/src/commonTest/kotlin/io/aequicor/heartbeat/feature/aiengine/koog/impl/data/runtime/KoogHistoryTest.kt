@@ -84,6 +84,19 @@ class KoogHistoryTest {
     }
 
     @Test
+    fun `reading a transcript keeps it among the recently used`() = runTest {
+        val cache = KoogSessionCache(FakeProfile(backgroundScope))
+        val records = (0..8).map { record(it.toString()) }
+        records.take(8).forEach { cache.get(it) }
+        cache.history(records[0].summary.ref) { error("Cached transcript was reloaded") }
+        cache.get(records[8])
+        var loads = 0
+        cache.history(records[0].summary.ref) { records[0].also { loads++ } }
+        cache.history(records[1].summary.ref) { records[1].also { loads++ } }
+        assertEquals(1, loads)
+    }
+
+    @Test
     fun `observed transcript is not evicted`() = runTest {
         val cache = KoogSessionCache(FakeProfile(backgroundScope))
         val records = (0..9).map { record(it.toString()) }

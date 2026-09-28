@@ -94,6 +94,20 @@ class KoogStorageTest {
     }
 
     @Test
+    fun `elements differing only in unknown fields stay separate`() = runTest {
+        records.save(record("one"))
+        val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
+        val element = store.raw("sessions").removePrefix("[").removeSuffix("]")
+        val first = element.replaceFirst("{", """{"future":1,""")
+        val second = element.replaceFirst("{", """{"future":2,""")
+        store.values.value = mapOf("sessions" to "[$first,$second]")
+
+        records.save(record("two"))
+        assertContains(store.raw("sessions"), """"future":1""")
+        assertContains(store.raw("sessions"), """"future":2""")
+    }
+
+    @Test
     fun `corrupt value is never overwritten`() = runTest {
         val store = stores.keyValue(KeyValueSpec("ai_koog_sessions")) as FakeKeyValueStore
         store.values.value = mapOf("sessions" to "not json")
