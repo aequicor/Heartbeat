@@ -31,6 +31,8 @@ lint/            detekt-rules — собственный набор правил
 > Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
 > «движок × подключение × модель», тогл `ai.engine_connections`); общего runtime фасада и реестра `AuthSources` пока нет —
 > до их появления экраны показывают пустой каталог.
+> ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
+> stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
 > логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
