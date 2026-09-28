@@ -1,0 +1,53 @@
+package io.aequicor.heartbeat.feature.effortconfiguration.impl.di
+
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.BindingContainer
+import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.IntoSet
+import dev.zacsweers.metro.Provides
+import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineLauncher
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineSpec
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationOutput
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.effortconfiguration.impl.domain.EffortChoices
+import io.aequicor.heartbeat.feature.effortconfiguration.impl.domain.EffortConfigurationEffects
+import kotlinx.coroutines.launch
+
+/** The effort machine belongs to the profile; it is created and started on first injection. */
+@ContributesTo(ProfileScope::class)
+@BindingContainer
+object EffortConfigurationBindings {
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun machine(
+        launcher: MachineLauncher,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+        store: EffortChoices,
+        toggles: FeatureToggles,
+    ): Machine<EffortConfigurationState, EffortConfigurationIntent, EffortConfigurationOutput> = launcher.launch(
+        EffortConfigurationMachineSpec,
+        scope,
+        EffortConfigurationEffects(store) { toggles.get(EffortConfiguration) },
+    ).also { machine ->
+        scope.coroutineScope.launch { machine.send(EffortConfigurationIntent.Public.Start) }
+    }
+}
+
+/** Registers the effort toggle in the toggles panel. */
+@ContributesTo(AppScope::class)
+@BindingContainer
+object EffortConfigurationToggleBindings {
+    /** The type must be exactly `FeatureToggle<*>` to join the registry set. */
+    @Provides
+    @IntoSet
+    fun effortConfiguration(): FeatureToggle<*> = EffortConfiguration
+}
