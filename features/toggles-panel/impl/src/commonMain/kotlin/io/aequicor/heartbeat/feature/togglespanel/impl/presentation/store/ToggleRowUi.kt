@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
-/** Immutable values required to render a flag row. */
+/** Immutable values required to render a flag row; [default] is the declared value the row returns to on reset. */
 @Immutable
 data class ToggleRowUi(
     val key: String,
@@ -16,7 +16,18 @@ data class ToggleRowUi(
     val description: String,
     val isOverridden: Boolean,
     val control: ToggleControlUi,
+    val default: ToggleDefaultUi = ToggleDefaultUi.Flag(false),
 )
+
+/** Declared default value of a toggle, rendered next to the current one. */
+@Immutable
+sealed interface ToggleDefaultUi {
+    /** Default of a boolean flag. */
+    data class Flag(val isEnabled: Boolean) : ToggleDefaultUi
+
+    /** Default option of a choice. */
+    data class Choice(val value: String) : ToggleDefaultUi
+}
 
 /** Presentation-only choice of row control. */
 @Immutable
@@ -36,6 +47,10 @@ internal fun ToggleState<*>.toUi(): ToggleRowUi = ToggleRowUi(
     control = when (val definition = toggle) {
         is FeatureToggle.Flag -> ToggleControlUi.Flag(value == true)
         is FeatureToggle.Choice -> ToggleControlUi.Choice(value as String, definition.options.toImmutableList())
+    },
+    default = when (val definition = toggle) {
+        is FeatureToggle.Flag -> ToggleDefaultUi.Flag(definition.default)
+        is FeatureToggle.Choice -> ToggleDefaultUi.Choice(definition.default)
     },
 )
 

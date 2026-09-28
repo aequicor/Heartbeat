@@ -5,8 +5,7 @@
     <string name="flags_search">Поиск по ключу или описанию</string>
     <string name="flags_reset">Сбросить</string>
     <string name="flags_reset_all">Сбросить все</string>
-    <string name="flags_default">По умолчанию</string>
-    <string name="flags_override">Переопределено локально</string>
+    <string name="flags_override">Переопределено локально · по умолчанию: %1$s</string>
     <string name="flags_loading">Загрузка флагов…</string>
     <string name="flags_saving">Сохранение…</string>
     <string name="flags_empty">Флаги не найдены</string>
@@ -17,4 +16,6 @@
     <string name="flags_on">Включено</string>
     <string name="flags_off">Выключено</string>
     <string name="flags_intro_description">Шестисекундное вступление при новом запуске. Изменение применяется при следующем запуске интро.</string>
+    <string name="flags_default_value">По умолчанию: %1$s</string>
+    <string name="flags_search_clear">Очистить поиск</string>
 </resources>
