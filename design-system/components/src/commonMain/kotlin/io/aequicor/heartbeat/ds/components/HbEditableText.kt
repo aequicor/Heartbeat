@@ -29,6 +29,10 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.editableText
+import androidx.compose.ui.semantics.inputText
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import io.aequicor.heartbeat.core.logging.Log
@@ -47,6 +51,7 @@ private const val REJECTION_GRACE_FRAMES = 2
  *
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
+ * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
  */
 @Composable
 internal fun HbEditableText(
@@ -76,9 +81,13 @@ internal fun HbEditableText(
     val inputTransformation = InputTransformation { bridge.observeInput(this, onValueChange) }
     val decorator = placeholderDecorator(placeholder, isEmpty = editingText.isEmpty(), singleLine || isSecret)
     if (isSecret) {
+        val hiddenText = AnnotatedString("•".repeat(editingText.length))
         BasicSecureTextField(
             state = state,
-            modifier = modifier.padding(contentPadding),
+            modifier = modifier.padding(contentPadding).semantics {
+                editableText = hiddenText
+                inputText = hiddenText
+            },
             enabled = enabled,
             inputTransformation = inputTransformation,
             textStyle = editorTextStyle(),

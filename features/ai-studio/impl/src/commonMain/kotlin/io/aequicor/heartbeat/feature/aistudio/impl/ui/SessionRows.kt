@@ -131,7 +131,7 @@ private fun sessionStatus(session: SessionUi): String = listOfNotNull(
 
 @Composable
 internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): ImmutableList<HbMenuItem> = listOfNotNull(
-    HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit),
+    HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit, isFocusRestoredOnSelect = false),
     if (session.isArchived) {
         null
     } else if (session.isPinned) {
@@ -146,9 +146,9 @@ internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): Immu
     ),
     HbMenuItem(MENU_BESIDE, stringResource(Res.string.action_open_beside), HbIcons.Grid).takeIf { isOpenBesideAllowed },
     if (session.isArchived) {
-        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_restore), HbIcons.Undo, startsGroup = true)
+        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_restore), HbIcons.Undo, isGroupStart = true)
     } else {
-        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_archive), HbIcons.Archive, startsGroup = true)
+        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_archive), HbIcons.Archive, isGroupStart = true)
     },
 ).toImmutableList()
 

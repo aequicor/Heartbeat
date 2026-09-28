@@ -211,10 +211,10 @@ class HbEditableTextUiTest {
         }
         val editor = onNodeWithTag("editor")
         editor.performTextInput("draft")
-        editor.performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) } }
+        editor.performUndo()
         editor.assertEditorText("")
         runOnIdle { assertEquals("", value) }
-        editor.performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Y) } }
+        editor.performRedo()
         editor.assertEditorText("draft")
         editor.assertEditorSelection(TextRange(5))
         runOnIdle { assertEquals(listOf("draft", "", "draft"), proposals) }
@@ -234,7 +234,7 @@ class HbEditableTextUiTest {
         editor.performTextInput("draft")
         editor.performSemanticsAction(SemanticsActions.SetSelection) { it(4, 1, true) }
         editor.assertEditorSelection(TextRange(4, 1))
-        editor.performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Z) } }
+        editor.performUndo()
         editor.assertEditorText("draft")
         editor.assertEditorSelection(TextRange(4, 1))
         editor.assertIsFocused()
@@ -365,4 +365,19 @@ private fun saveEditorPreview(name: String, image: BufferedImage) {
     val directory = File("build/previews")
     check(directory.isDirectory || directory.mkdirs()) { "Cannot create preview directory" }
     check(ImageIO.write(image, "png", File(directory, "editor-$name.png"))) { "PNG encoder is unavailable" }
+}
+
+// Compose uses the host platform's editor shortcuts, including Command+Shift+Z on macOS.
+private fun SemanticsNodeInteraction.performUndo() = performKeyInput {
+    withKeyDown(if (System.getProperty("os.name").startsWith("Mac")) Key.MetaLeft else Key.CtrlLeft) {
+        pressKey(Key.Z)
+    }
+}
+
+private fun SemanticsNodeInteraction.performRedo() = performKeyInput {
+    if (System.getProperty("os.name").startsWith("Mac")) {
+        withKeyDown(Key.MetaLeft) { withKeyDown(Key.ShiftLeft) { pressKey(Key.Z) } }
+    } else {
+        withKeyDown(Key.CtrlLeft) { pressKey(Key.Y) }
+    }
 }

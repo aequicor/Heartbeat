@@ -3,10 +3,15 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.testTag
@@ -18,9 +23,11 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -38,7 +45,7 @@ class HbNavigationUiTest {
     private val items = persistentListOf(
         HbMenuItem("rename", "Rename", HbIcons.Edit, shortcut = "Ctrl+R"),
         HbMenuItem("pin", "Pin", HbIcons.Pin, isEnabled = false),
-        HbMenuItem("archive", "Archive", HbIcons.Archive, startsGroup = true),
+        HbMenuItem("archive", "Archive", HbIcons.Archive, isGroupStart = true),
     )
 
     @Test
@@ -143,7 +150,54 @@ class HbNavigationUiTest {
             onNodeWithText("Rename").performKeyInput { pressKey(Key.Escape) }
             runOnIdle { assertFalse(isExpanded) }
             onNodeWithText("Rename").assertDoesNotExist()
+            onNodeWithContentDescription("More actions").assertIsFocused()
         }
+
+    @Test
+    fun `menu command can leave focus in the editor it opens`() = runSkikoComposeUiTest(size = Size(480f, 400f)) {
+        var expanded by mutableStateOf(false)
+        var editing by mutableStateOf(false)
+        var title by mutableStateOf("")
+        var commits = 0
+        setContent {
+            HbTheme {
+                Column {
+                    if (editing) {
+                        val focus = remember { FocusRequester() }
+                        var hadFocus by remember { mutableStateOf(false) }
+                        SideEffect(focus) { focus.requestFocus() }
+                        HbTextField(
+                            title,
+                            { title = it },
+                            Modifier.testTag("editor").focusRequester(focus).onFocusChanged {
+                                if (it.isFocused) {
+                                    hadFocus = true
+                                } else if (hadFocus) {
+                                    commits++
+                                    editing = false
+                                }
+                            },
+                        )
+                    }
+                    HbMenuButton(
+                        icon = HbIcons.More,
+                        contentDescription = "Actions",
+                        items = persistentListOf(HbMenuItem("rename", "Rename", isFocusRestoredOnSelect = false)),
+                        isExpanded = expanded,
+                        onExpandedChange = { expanded = it },
+                        onItem = { editing = true },
+                    )
+                }
+            }
+        }
+        onNodeWithContentDescription("Actions").performClick()
+        onNodeWithText("Rename").performClick()
+        onNodeWithTag("editor").assertIsFocused().performTextInput("Renamed")
+        runOnIdle {
+            assertEquals("Renamed", title)
+            assertEquals(0, commits)
+        }
+    }
 
     @Test
     fun `activity indicator stays static under reduced motion`() = runSkikoComposeUiTest(size = Size(64f, 64f)) {

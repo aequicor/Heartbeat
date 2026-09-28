@@ -30,7 +30,7 @@ fun HbSwitch(
     enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val isFocused by interaction.collectIsFocusedAsState()
     val colors = HbTheme.colors
     val alpha = if (enabled) 1f else 0.45f
     val track = (if (checked) colors.primary else colors.outlineSubtle).copy(alpha = alpha)
@@ -41,7 +41,7 @@ fun HbSwitch(
             .toggleable(checked, interaction, indication = null, enabled, Role.Switch) {
                 Log.tag("DS/Controls").i { "switch pressed" }
                 onCheckedChange(it)
-            }.hbFocusOutline(focused, HbTheme.shapes.small),
+            }.hbFocusOutline(isFocused, HbTheme.shapes.small),
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(HbTheme.dimensions.switchWidth, HbTheme.dimensions.switchHeight)) {

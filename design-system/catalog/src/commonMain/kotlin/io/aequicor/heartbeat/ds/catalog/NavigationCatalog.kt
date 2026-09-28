@@ -66,7 +66,7 @@ internal fun NavigationExample(modifier: Modifier = Modifier) {
                             items = persistentListOf(
                                 HbMenuItem("rename", hbString(HbString.Rename), HbIcons.Edit),
                                 HbMenuItem("pin", hbString(HbString.Pin), HbIcons.Pin),
-                                HbMenuItem("archive", hbString(HbString.Archive), HbIcons.Archive, startsGroup = true),
+                                HbMenuItem("archive", hbString(HbString.Archive), HbIcons.Archive, isGroupStart = true),
                             ),
                             isExpanded = isMenuOpen,
                             onExpandedChange = { isMenuOpen = it },

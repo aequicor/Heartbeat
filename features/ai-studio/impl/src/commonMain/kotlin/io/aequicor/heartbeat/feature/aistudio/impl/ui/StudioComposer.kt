@@ -99,7 +99,7 @@ internal fun ContextTray(
     val noProject = stringResource(Res.string.no_project)
     val items = (
         projects.map { HbMenuItem(it.id, it.name, HbIcons.Folder, isChecked = it.id == project?.id) } +
-            HbMenuItem(NO_PROJECT, noProject, HbIcons.Chat, isChecked = project == null, startsGroup = true)
+            HbMenuItem(NO_PROJECT, noProject, HbIcons.Chat, isChecked = project == null, isGroupStart = true)
     ).toImmutableList()
     HbFlowRow(modifier.testTag("context-tray-${pane.id}"), gap = HbTheme.spacing.xs) {
         Box {

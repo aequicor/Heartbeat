@@ -10,8 +10,10 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -33,10 +35,26 @@ class HbSecretFieldUiTest {
         runOnIdle { assertEquals("sk-123", value) }
         val config = field.fetchSemanticsNode().config
         assertTrue(SemanticsProperties.Password in config)
-        // Semantics keep the real text behind the Password flag; what is drawn is obfuscated.
+        assertEquals("••••••", config[SemanticsProperties.EditableText].text)
+        assertEquals("••••••", config[SemanticsProperties.InputText].text)
         val layouts = mutableListOf<TextLayoutResult>()
         config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)
         assertEquals("••••••", layouts.single().layoutInput.text.text)
+    }
+
+    @Test
+    fun `masked accessibility text does not replace the underlying secret during edits`() = runSkikoComposeUiTest {
+        var value by mutableStateOf("sk-123")
+        setContent {
+            HbTheme {
+                HbTextField(value, { value = it }, Modifier.testTag("secret"), isSecret = true)
+            }
+        }
+        val field = onNodeWithTag("secret")
+        field.performTextInputSelection(TextRange(3, 6))
+        field.performTextInput("4567")
+        runOnIdle { assertEquals("sk-4567", value) }
+        assertEquals("•••••••", field.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
     }
 
     @Test
