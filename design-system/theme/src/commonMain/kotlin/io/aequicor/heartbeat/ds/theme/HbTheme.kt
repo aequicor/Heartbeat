@@ -19,9 +19,7 @@ import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.ds.tokens.HbShadows
 import io.aequicor.heartbeat.ds.tokens.HbShapes
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
-import io.aequicor.heartbeat.ds.tokens.HbStudioColors
-import io.aequicor.heartbeat.ds.tokens.HbStudioDimensions
-import io.aequicor.heartbeat.ds.tokens.HbStudioStyle
+import io.aequicor.heartbeat.ds.tokens.HbSurfaceColors
 import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.ds.tokens.HbWelcome
 
@@ -32,12 +30,12 @@ private val LocalHbSpacing = staticCompositionLocalOf { HbSpacing() }
 private val LocalHbShapes = staticCompositionLocalOf { HbShapes() }
 private val LocalHbElevation = staticCompositionLocalOf { HbElevation() }
 private val LocalHbDimensions = staticCompositionLocalOf { defaultHbDimensions() }
-private val LocalHbStudioDimensions = staticCompositionLocalOf { defaultHbStudioDimensions() }
+private val LocalHbSurfaces = staticCompositionLocalOf { HbSurfaceColors.Light }
 private val LocalHbMotion = staticCompositionLocalOf { HbMotion() }
 private val LocalHbShadows = staticCompositionLocalOf { HbShadows.Light }
 private val LocalHbVisualStyle = staticCompositionLocalOf { HbVisualStyle.Glass }
 private val log = Log.tag("HbTheme")
-private val fontLog = Log.tag("HbStudioFont")
+private val fontLog = Log.tag("HbHostFont")
 
 /** A soft shared visual language or the operating system's native component family. */
 enum class HbVisualStyle {
@@ -46,23 +44,30 @@ enum class HbVisualStyle {
     Platform,
 }
 
-/** Pastel token access shared by components and layouts, independent of native UI kits. */
+/**
+ * Token access shared by components and layouts, independent of native UI kits. Every value belongs to one set
+ * of tokens whose host presets (touch or dense desktop) the [HbTheme] function selects.
+ */
 object HbTheme {
     val welcome: HbWelcome = HbWelcome()
-    val studioDimensions: HbStudioDimensions
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalHbStudioDimensions.current
 
-    val studioColors: HbStudioColors
+    /** Opaque window surfaces (sidebar, headers, conversation) matching [colors]. */
+    val surfaces: HbSurfaceColors
         @Composable
         @ReadOnlyComposable
-        get() = when {
-            studioDimensions.isDesktop && colors.isDark -> HbStudioColors.DesktopDark
-            studioDimensions.isDesktop -> HbStudioColors.DesktopLight
-            colors.isDark -> HbStudioColors.Dark
-            else -> HbStudioColors.Light
-        }
+        get() = LocalHbSurfaces.current
+
+    /** Migration alias of [dimensions]; removed once no module refers to it. */
+    val studioDimensions: HbDimensions
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalHbDimensions.current
+
+    /** Migration alias of [surfaces]; removed once no module refers to it. */
+    val studioColors: HbSurfaceColors
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalHbSurfaces.current
 
     val colors: HbColors
         @Composable
@@ -115,61 +120,51 @@ object HbTheme {
         get() = LocalHbVisualStyle.current
 }
 
-/** Applies the studio's pearl palette, system typography and rounded surfaces, retaining theme preferences. */
+/** Migration no-op: the studio style is the default style of [HbTheme]; removed once unused. */
 @Composable
 fun HbStudioTheme(content: @Composable () -> Unit) {
-    val isDesktop = HbTheme.studioDimensions.isDesktop
-    val colors = studioColors(HbTheme.colors.isDark, isDesktop)
-    val font = remember { studioFontResolution() }
-    val typography = remember(font.family, isDesktop) { HbStudioStyle.typography(font.family, isDesktop) }
+    content()
+}
+
+/** Host typography preset with the native interface font; the font resolution is logged once. */
+@Composable
+fun rememberHostTypography(isDesktop: Boolean): HbTypography {
+    val font = remember { hostFontResolution() }
     SideEffect(font) {
         if (font.isFallback) {
             fontLog.w {
-                "Studio font fallback: requested=${font.requestedFamily.orEmpty()} " +
-                    "actual=${font.actualFamily.orEmpty()}"
+                "Host font fallback: requested=${font.requestedFamily.orEmpty()} actual=${font.actualFamily.orEmpty()}"
             }
         } else if (font.actualFamily != null) {
-            fontLog.i {
-                "Studio system font: requested=${font.requestedFamily.orEmpty()} " +
-                    "actual=${font.actualFamily}"
-            }
+            fontLog.i { "Host system font: requested=${font.requestedFamily.orEmpty()} actual=${font.actualFamily}" }
         }
     }
-    CompositionLocalProvider(
-        LocalHbColors provides colors,
-        LocalHbTypography provides typography,
-        LocalHbShapes provides if (isDesktop) HbStudioStyle.desktopShapes else HbStudioStyle.shapes,
-        content = content,
-    )
-}
-
-private fun studioColors(isDark: Boolean, isDesktop: Boolean): HbColors = when {
-    isDesktop && isDark -> HbStudioStyle.desktopDarkColors
-    isDesktop -> HbStudioStyle.desktopLightColors
-    isDark -> HbStudioStyle.darkColors
-    else -> HbStudioStyle.lightColors
+    return remember(font.family, isDesktop) {
+        (if (isDesktop) HbTypography.Desktop else HbTypography.Mobile).withFamily(font.family)
+    }
 }
 
 /**
- * Provides pastel tokens, paired shadows and an optional native kit. Preferences remain owned by the caller.
- * System light/dark and the current operating system are used by default.
+ * Provides the single token set of the flat studio style and an optional native kit. [dimensions] chooses the host
+ * preset (touch or dense desktop); colors, surfaces, typography and shapes follow it. Preferences remain owned by
+ * the caller. System light/dark and the current operating system are used by default.
  */
 @Composable
 fun HbTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     platformUi: PlatformUi = LocalPlatformUi.current,
     visualStyle: HbVisualStyle = HbVisualStyle.Glass,
-    typography: HbTypography = HbTypography(),
-    spacing: HbSpacing = HbSpacing(),
-    shapes: HbShapes = HbShapes(),
-    elevation: HbElevation = HbElevation(),
     dimensions: HbDimensions = defaultHbDimensions(),
-    studioDimensions: HbStudioDimensions = defaultHbStudioDimensions(),
+    studioDimensions: HbDimensions = dimensions,
+    typography: HbTypography = rememberHostTypography(studioDimensions.isDesktop),
+    spacing: HbSpacing = HbSpacing(),
+    shapes: HbShapes = if (studioDimensions.isDesktop) HbShapes.Desktop else HbShapes.Mobile,
+    elevation: HbElevation = HbElevation(),
     motion: HbMotion = HbMotion(),
     shadows: HbShadows = if (darkTheme) HbShadows.Dark else HbShadows.Light,
     content: @Composable () -> Unit,
 ) {
-    val colors = if (darkTheme) HbColors.Dark else HbColors.Light
+    val colors = HbColors.forHost(darkTheme, studioDimensions.isDesktop)
     SideEffect(darkTheme, platformUi, visualStyle, motion.isReducedMotion) {
         log.i {
             "Theme configured: dark=$darkTheme kit=$platformUi style=$visualStyle reduced=${motion.isReducedMotion}"
@@ -182,8 +177,8 @@ fun HbTheme(
         LocalHbSpacing provides spacing,
         LocalHbShapes provides shapes,
         LocalHbElevation provides elevation,
-        LocalHbDimensions provides dimensions,
-        LocalHbStudioDimensions provides studioDimensions,
+        LocalHbDimensions provides studioDimensions,
+        LocalHbSurfaces provides HbSurfaceColors.forHost(darkTheme, studioDimensions.isDesktop),
         LocalHbMotion provides motion,
         LocalHbShadows provides shadows,
         LocalHbVisualStyle provides visualStyle,

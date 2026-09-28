@@ -122,7 +122,7 @@ class HbStickyHeaderVisualTest {
         }
         val image = captureToImage().toAwtImage()
         saveStickyHeaderPreview(if (isDark) "dark" else "light", image)
-        val background = (if (isDark) HbColors.Dark else HbColors.Light).background.toArgb()
+        val background = (if (isDark) HbColors.DesktopDark else HbColors.DesktopLight).background.toArgb()
         assertShadowMatchesReference(image, bounds, background)
         assertRoundedEdgeMatchesReference(image, bounds)
     }

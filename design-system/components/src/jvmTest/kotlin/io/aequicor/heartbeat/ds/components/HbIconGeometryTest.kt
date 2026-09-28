@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
@@ -33,7 +34,7 @@ import kotlin.test.assertTrue
 class HbIconGeometryTest {
     @Test
     fun `every icon leaves room for its stroke inside the viewport`() = runSkikoComposeUiTest(
-        size = Size(1120f, 1200f),
+        size = Size(1120f, 1600f),
     ) {
         val previewBackground = mutableStateOf(true)
         setContent {
@@ -44,7 +45,7 @@ class HbIconGeometryTest {
                     ),
                 ) {
                     HbIcons.All.chunked(10).forEach { row ->
-                        Row {
+                        Row(Modifier.padding(bottom = HbTheme.spacing.m)) {
                             row.forEach { icon ->
                                 Column(
                                     modifier = Modifier.width(HbTheme.dimensions.iconTileWidth),

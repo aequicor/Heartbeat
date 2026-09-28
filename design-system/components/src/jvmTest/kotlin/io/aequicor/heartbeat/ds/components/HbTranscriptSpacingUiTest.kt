@@ -71,7 +71,7 @@ class HbTranscriptSpacingUiTest {
             assertClose(12f, finalItemBottom - last.bottom, "Final bubble has no extra inter-message gap")
         }
         val image = captureToImage().toAwtImage()
-        val readingSurface = HbColors.Light.assistantSurface.toArgb()
+        val readingSurface = HbColors.DesktopLight.assistantSurface.toArgb()
         // This strip is inside the bubble's left padding and crosses the boundary between its lazy chunks.
         for (y in first.bottom.roundToInt() - 1..last.top.roundToInt() + 1) {
             assertEquals(readingSurface, image.getRGB(18, y), "Assistant surface must remain continuous at y=$y")

@@ -183,7 +183,7 @@ class HbControlsInteractionTest {
             val bounds = onNodeWithTag("action").fetchSemanticsNode().boundsInRoot
             val image = captureToImage().toAwtImage()
             val pixel = Color(image.getRGB(bounds.center.x.toInt(), (bounds.top + bounds.height / 4f).toInt()))
-            val colors = if (nextTheme) HbColors.Dark else HbColors.Light
+            val colors = if (nextTheme) HbColors.DesktopDark else HbColors.DesktopLight
             assertEquals(colors.buttonFill.toArgb(), pixel.toArgb(), "First theme frame must use the new fill")
             assertTrue(contrastRatio(colors.textPrimary, pixel) >= 4.5f, "Theme transition must preserve text contrast")
             saveInteractionPreview("theme-${if (nextTheme) "dark" else "light"}-first-frame", image)
@@ -205,9 +205,13 @@ class HbControlsInteractionTest {
             val bounds = onNodeWithTag("action").fetchSemanticsNode().boundsInRoot
             val image = captureToImage().toAwtImage()
             val pixel = Color(image.getRGB(bounds.center.x.toInt(), (bounds.top + bounds.height / 4f).toInt()))
-            val colors = HbColors.Dark
+            val colors = HbColors.DesktopDark
             val foreground = if (it == HbButtonStyle.Primary) colors.onPrimary else colors.textPrimary
-            val expectedFill = if (it == HbButtonStyle.Primary) colors.primary else colors.buttonFill
+            val expectedFill = when (it) {
+                HbButtonStyle.Primary -> colors.primary
+                HbButtonStyle.Quiet -> colors.background
+                else -> colors.buttonFill
+            }
             assertEquals(expectedFill.toArgb(), pixel.toArgb(), "First style frame must use its matching fill")
             assertTrue(contrastRatio(foreground, pixel) >= 4.5f, "Style transition must preserve text contrast")
             saveInteractionPreview("style-${it.name.lowercase()}-first-frame", image)

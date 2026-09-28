@@ -59,7 +59,7 @@ class HbOverlayFadeUiTest {
             assertTrue(state.canScrollBackward && state.canScrollForward)
             assertEquals(420, state.layoutInfo.viewportSize.height, "Fades must preserve the full viewport")
         }
-        val colors = if (isDark) HbColors.Dark else HbColors.Light
+        val colors = if (isDark) HbColors.DesktopDark else HbColors.DesktopLight
         val actionBounds = onNodeWithTag("overlay-action").fetchSemanticsNode().boundsInRoot
         val actionX = (actionBounds.left + 6f).roundToInt()
         val actionY = actionBounds.center.y.roundToInt()

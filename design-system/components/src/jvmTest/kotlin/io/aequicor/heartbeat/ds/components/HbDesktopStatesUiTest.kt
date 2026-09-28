@@ -130,7 +130,7 @@ class HbDesktopStatesUiTest {
 }
 
 private data class FocusCase(val platform: PlatformUi, val isDark: Boolean, val style: HbVisualStyle) {
-    val colors: HbColors get() = if (isDark) HbColors.Dark else HbColors.Light
+    val colors: HbColors get() = if (isDark) HbColors.DesktopDark else HbColors.DesktopLight
 }
 
 private fun focusCases(): List<FocusCase> = PlatformUi.entries.flatMap { platform ->

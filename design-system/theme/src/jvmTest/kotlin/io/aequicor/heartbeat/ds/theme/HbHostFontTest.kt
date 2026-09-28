@@ -4,7 +4,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.createFontFamilyResolver
 import androidx.compose.ui.text.platform.FontLoadResult
-import io.aequicor.heartbeat.ds.tokens.HbStudioStyle
+import io.aequicor.heartbeat.ds.tokens.HbTypography
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -12,7 +12,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
-class HbStudioFontTest {
+class HbHostFontTest {
     @Test
     fun `studio conversation roles resolve the native interface family with Cyrillic glyphs`() {
         val system = System.getProperty("os.name").orEmpty()
@@ -21,10 +21,10 @@ class HbStudioFontTest {
             system.startsWith("Windows", ignoreCase = true) -> "Segoe UI"
             else -> null
         }
-        val font = studioFontResolution()
+        val font = hostFontResolution()
         assertFalse(font.isFallback)
         if (expectedFamily != null) assertEquals(expectedFamily, font.actualFamily)
-        val typography = HbStudioStyle.typography(font.family, isDesktop = true)
+        val typography = HbTypography.Desktop.withFamily(font.family)
         val resolver = createFontFamilyResolver()
         val roles = listOf(
             typography.display,
@@ -48,7 +48,7 @@ class HbStudioFontTest {
 
     @Test
     fun `unknown system family is reported honestly and keeps readable native fallback glyphs`() {
-        val resolution = resolveStudioFont("HeartbeatMissingFontForFallbackTest")
+        val resolution = resolveHostFont("HeartbeatMissingFontForFallbackTest")
         assertTrue(resolution.isFallback)
         assertEquals(FontFamily.SansSerif, resolution.family)
         assertNotNull(resolution.actualFamily)

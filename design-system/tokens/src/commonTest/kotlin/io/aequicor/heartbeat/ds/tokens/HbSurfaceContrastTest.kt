@@ -5,19 +5,18 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class HbStudioContrastTest {
+class HbSurfaceContrastTest {
     @Test
-    fun `frosted studio surfaces preserve readable text over ambient light in both themes`() {
+    fun `opaque window surfaces keep readable text in every host preset`() {
         val palettes = listOf(
-            HbStudioColors.Light to HbStudioStyle.lightColors,
-            HbStudioColors.Dark to HbStudioStyle.darkColors,
-            HbStudioColors.DesktopLight to HbStudioStyle.desktopLightColors,
-            HbStudioColors.DesktopDark to HbStudioStyle.desktopDarkColors,
+            HbSurfaceColors.Light to HbColors.Light,
+            HbSurfaceColors.Dark to HbColors.Dark,
+            HbSurfaceColors.DesktopLight to HbColors.DesktopLight,
+            HbSurfaceColors.DesktopDark to HbColors.DesktopDark,
         )
         palettes.forEach { (studio, colors) ->
-            val ambient = listOf(studio.ambientLavender, studio.ambientBlue, studio.ambientPeach)
-            val backdrops = listOf(studio.backdrop) + ambient.map { it.compositeOver(studio.backdrop) } +
-                ambient.fold(studio.backdrop) { backdrop, light -> light.compositeOver(backdrop) }
+            assertEquals(1f, studio.sidebar.alpha, "Window surfaces are opaque")
+            val backdrops = listOf(studio.backdrop)
             val surfaces = mapOf(
                 "rail" to studio.rail,
                 "sidebar" to studio.sidebar,
@@ -55,10 +54,10 @@ class HbStudioContrastTest {
     @Test
     fun `agent reading surfaces are opaque and tool statuses and composer controls pass AA`() {
         val palettes = listOf(
-            HbStudioColors.Light,
-            HbStudioColors.Dark,
-            HbStudioColors.DesktopLight,
-            HbStudioColors.DesktopDark,
+            HbSurfaceColors.Light,
+            HbSurfaceColors.Dark,
+            HbSurfaceColors.DesktopLight,
+            HbSurfaceColors.DesktopDark,
         )
         palettes.forEach { studio ->
             assertEquals(1f, studio.assistant.alpha, "Agent reading surface must stay opaque")
@@ -74,8 +73,8 @@ class HbStudioContrastTest {
     @Test
     fun `desktop focus rings remain visible against neutral controls and selected navigation`() {
         val palettes = listOf(
-            HbStudioColors.DesktopLight to HbStudioStyle.desktopLightColors,
-            HbStudioColors.DesktopDark to HbStudioStyle.desktopDarkColors,
+            HbSurfaceColors.DesktopLight to HbColors.DesktopLight,
+            HbSurfaceColors.DesktopDark to HbColors.DesktopDark,
         )
         palettes.forEach { (studio, colors) ->
             listOf(studio.sidebar, studio.selected, studio.composer, colors.inputFill).forEach { surface ->

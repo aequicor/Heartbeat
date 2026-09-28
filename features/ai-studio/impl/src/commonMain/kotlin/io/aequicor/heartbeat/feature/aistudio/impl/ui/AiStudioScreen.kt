@@ -33,7 +33,6 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
-import io.aequicor.heartbeat.ds.components.HbStudioBackdrop
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -79,7 +78,7 @@ internal fun AiStudioContent(
 ) {
     HbStudioTheme {
         HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
-            HbStudioBackdrop(Modifier.fillMaxSize(), isAmbient = true) {
+            Box(Modifier.fillMaxSize().background(HbTheme.studioColors.backdrop)) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     when (state.phase) {
                         StudioPhase.Loading -> StudioLoading(Modifier.align(Alignment.Center))
