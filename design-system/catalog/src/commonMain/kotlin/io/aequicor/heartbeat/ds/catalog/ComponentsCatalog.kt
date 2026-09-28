@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -17,9 +18,11 @@ import io.aequicor.heartbeat.ds.components.HbMessageAppearance
 import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
@@ -29,9 +32,10 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 
 @Composable
 internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifier) {
-    HbLazyColumn(modifier = modifier) {
+    HbLazyColumn(modifier = modifier.testTag("components-catalog")) {
         item { CatalogHeading(HbString.ComponentsTitle, HbString.ComponentsDescription) }
         item { CinematicExample() }
+        item { StudioExample() }
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
         item {
             HbCard(modifier = Modifier.fillMaxWidth()) {
@@ -59,9 +63,19 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 HbTextField(
                     value = state.input,
                     onValueChange = state::updateInput,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("catalog-input"),
                     placeholder = hbString(HbString.InputPlaceholder),
                 )
+                HbSearchField(
+                    value = state.input,
+                    onValueChange = state::updateInput,
+                    placeholder = hbString(HbString.SearchIcons),
+                    clearLabel = hbString(HbString.Reset),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                HbTooltip(hbString(HbString.InputHint)) {
+                    HbText(hbString(HbString.InputHint), style = HbTheme.typography.caption)
+                }
                 HbText(
                     hbString(HbString.InputHint),
                     style = HbTheme.typography.caption,
