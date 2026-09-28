@@ -75,4 +75,6 @@
     <string name="settings_models_never">Models have not been synced yet.</string>
     <string name="settings_saving">Saving…</string>
     <string name="settings_dismiss">Dismiss</string>
+    <string name="conn_models_search_clear">Clear search</string>
+    <string name="settings_disconnect_title">Disconnect this connection?</string>
 </resources>

@@ -2,16 +2,12 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -19,21 +15,25 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbDialog
+import io.aequicor.heartbeat.ds.components.HbDivider
+import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.components.HbLoadingState
+import io.aequicor.heartbeat.ds.components.HbSearchField
+import io.aequicor.heartbeat.ds.components.HbSettingsRow
+import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.components.HbTone
-import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
-import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
-import io.aequicor.heartbeat.ds.layouts.HbLazyRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
+import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectionRowUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.EngineConnectionsModel
@@ -43,7 +43,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ModelsPaneUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.matches
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_back
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_cancel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_connections_count
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_loading
@@ -51,6 +50,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_mo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_empty
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_none
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search_clear
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_add_connection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_add_engine
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_connection_active
@@ -60,6 +60,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.setting
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_description
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect_confirm
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_disconnect_title
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_dismiss
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_enabled_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.settings_engines
@@ -81,7 +82,7 @@ import pro.respawn.flowmvi.dsl.collect
 internal fun EngineConnectionsScreen(
     model: EngineConnectionsModel,
     onAddConnection: (engine: String?) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val state by produceState(EngineConnectionsScreenState(), model) {
@@ -90,49 +91,52 @@ internal fun EngineConnectionsScreen(
     EngineConnectionsContent(state, model.store::intent, onAddConnection, onBack, modifier)
 }
 
+/**
+ * "Engine × connection × model" as one settings column: engines, then the connections of the selected engine,
+ * then the models of the selected connection, each level as settings rows. Disconnecting asks in [HbDialog].
+ * Inside the settings host [onBack] is null and only this content is drawn.
+ */
 @Composable
 internal fun EngineConnectionsContent(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onAddConnection: (engine: String?) -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().testTag("engine-connections").background(HbTheme.colors.background)) {
-        HbColumn(Modifier.fillMaxSize().safeDrawingPadding().padding(HbTheme.spacing.xl)) {
-            SettingsHeader(onAddEngine = { onAddConnection(null) }, onBack = onBack)
-            SettingsStatus(state, onIntent)
-            HbBoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                if (maxWidth >= HbTheme.dimensions.compactBreakpoint) {
-                    HbRow(Modifier.fillMaxSize(), verticalAlignment = Alignment.Top) {
-                        EnginesPane(state, onIntent, isHorizontal = false, Modifier.weight(1f).fillMaxHeight())
-                        ConnectionsPane(
-                            state,
-                            onIntent,
-                            onAddConnection,
-                            isHorizontal = false,
-                            Modifier.weight(1f).fillMaxHeight(),
-                        )
-                        ModelsPane(state, onIntent, Modifier.weight(2f).fillMaxHeight())
-                    }
-                } else {
-                    HbColumn(Modifier.fillMaxSize()) {
-                        EnginesPane(state, onIntent, isHorizontal = true)
-                        ConnectionsPane(state, onIntent, onAddConnection, isHorizontal = true)
-                        ModelsPane(state, onIntent, Modifier.weight(1f))
-                    }
-                }
+    HbColumn(
+        modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("engine-connections"),
+        gap = HbTheme.spacing.none,
+    ) {
+        if (onBack != null) StandaloneHeader(stringResource(Res.string.settings_title), onBack)
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            HbColumn(
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
+                    .hbVerticalScroll(rememberScrollState())
+                    .padding(HbTheme.spacing.xl),
+                gap = HbTheme.spacing.xxl,
+            ) {
+                ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
+                SettingsStatus(state, onIntent)
+                EnginesSection(state, onIntent)
+                ConnectionsSection(state, onIntent, onAddConnection)
+                ModelsSection(state, onIntent)
             }
         }
     }
+    val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
+    if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
 }
 
 @Composable
-private fun SettingsHeader(onAddEngine: () -> Unit, onBack: () -> Unit, modifier: Modifier = Modifier) {
-    HbColumn(modifier, gap = HbTheme.spacing.xs) {
-        HbButton(stringResource(Res.string.conn_back), onBack, Modifier.testTag("settings-back"), HbButtonStyle.Ghost)
-        HbText(stringResource(Res.string.settings_title), style = HbTheme.typography.display)
-        HbText(stringResource(Res.string.settings_description), color = HbTheme.colors.textSecondary)
+private fun ConnectionsToolbar(onAddEngine: () -> Unit, modifier: Modifier = Modifier) {
+    HbRow(modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+        HbText(
+            stringResource(Res.string.settings_description),
+            Modifier.weight(1f),
+            style = HbTheme.typography.caption,
+            color = HbTheme.colors.textSecondary,
+        )
         HbButton(stringResource(Res.string.settings_add_engine), onAddEngine, Modifier.testTag("settings-add-engine"))
     }
 }
@@ -156,106 +160,103 @@ private fun SettingsStatus(
                 stringResource(Res.string.settings_dismiss),
                 { onIntent(EngineConnectionsScreenIntent.DismissError) },
                 style = HbButtonStyle.Ghost,
+                size = HbButtonSize.Small,
             )
         }
 
-        state.isLoading -> HbText(
-            stringResource(Res.string.conn_loading),
-            modifier,
-            color = HbTheme.colors.textSecondary,
-        )
+        state.isLoading -> HbLoadingState(stringResource(Res.string.conn_loading), modifier)
 
-        state.isSaving -> HbText(
-            stringResource(Res.string.settings_saving),
-            modifier,
-            color = HbTheme.colors.textSecondary,
-        )
+        state.isSaving -> HbLoadingState(stringResource(Res.string.settings_saving), modifier)
     }
 }
 
 @Composable
-private fun EnginesPane(
+private fun EnginesSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
-    isHorizontal: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Pane(stringResource(Res.string.settings_engines), modifier) {
+    HbSettingsSection(
+        stringResource(Res.string.settings_engines),
+        modifier,
+        trailingContent = {
+            if (state.selectedEngine != null) {
+                HbButton(
+                    stringResource(Res.string.settings_probe),
+                    { onIntent(EngineConnectionsScreenIntent.ProbeEngine) },
+                    Modifier.testTag("settings-probe"),
+                    HbButtonStyle.Ghost,
+                    enabled = !state.isSaving,
+                    size = HbButtonSize.Small,
+                )
+            }
+        },
+    ) {
         if (!state.isLoading && state.engines.isEmpty()) {
-            HbText(stringResource(Res.string.wizard_engines_empty), color = HbTheme.colors.textSecondary)
+            HbEmptyState(stringResource(Res.string.wizard_engines_empty))
         }
-        val entryWidth = if (isHorizontal) HbTheme.dimensions.sidebarWidth else null
-        SelectionList(isHorizontal, Modifier.weight(1f, fill = false).testTag("settings-engines")) {
-            items(state.engines, key = { it.id }) { engine ->
+        HbColumn(Modifier.fillMaxWidth().selectableGroup().testTag("settings-engines"), gap = HbTheme.spacing.none) {
+            state.engines.forEachIndexed { index, engine ->
+                if (index > 0) HbDivider()
                 EngineEntry(
                     engine,
                     isSelected = engine.id == state.selectedEngine,
                     onClick = { onIntent(EngineConnectionsScreenIntent.SelectEngine(engine.id)) },
-                    modifier = Modifier.entryWidth(entryWidth),
                 )
             }
-        }
-        if (state.selectedEngine != null) {
-            HbButton(
-                stringResource(Res.string.settings_probe),
-                { onIntent(EngineConnectionsScreenIntent.ProbeEngine) },
-                Modifier.testTag("settings-probe"),
-                HbButtonStyle.Secondary,
-                enabled = !state.isSaving,
-            )
         }
     }
 }
 
 @Composable
 private fun EngineEntry(engine: EngineRowUi, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    SelectableRow(
-        isSelected = isSelected,
+    HbSettingsRow(
+        engine.title,
+        modifier.selectionSemantics(isSelected).testTag("settings-engine:${engine.id}"),
+        description = stringResource(Res.string.conn_connections_count, engine.connections),
         onClick = onClick,
-        modifier = modifier.testTag("settings-engine:${engine.id}"),
+        isSelected = isSelected,
     ) {
-        HbText(engine.title, style = HbTheme.typography.label)
         AvailabilityBadge(engine.availability)
-        HbText(
-            stringResource(Res.string.conn_connections_count, engine.connections),
-            style = HbTheme.typography.caption,
-            color = HbTheme.colors.textSecondary,
-        )
     }
 }
 
 @Composable
-private fun ConnectionsPane(
+private fun ConnectionsSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     onAddConnection: (engine: String?) -> Unit,
-    isHorizontal: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val engine = state.engines.firstOrNull { it.id == state.selectedEngine }
-    Pane(stringResource(Res.string.settings_connections), modifier) {
-        if (engine != null && state.connections.isEmpty()) {
-            HbText(stringResource(Res.string.settings_no_connections), color = HbTheme.colors.textSecondary)
-        }
-        val entryWidth = if (isHorizontal) HbTheme.dimensions.sidebarWidth else null
-        SelectionList(isHorizontal, Modifier.weight(1f, fill = false).testTag("settings-connections")) {
-            items(state.connections, key = { it.id }) { connection ->
-                ConnectionEntry(
-                    connection,
-                    isSelected = connection.id == state.selectedConnection,
-                    onClick = { onIntent(EngineConnectionsScreenIntent.SelectConnection(connection.id)) },
-                    modifier = Modifier.entryWidth(entryWidth),
-                )
-            }
-        }
-        if (engine != null) {
+    val engine = state.engines.firstOrNull { it.id == state.selectedEngine } ?: return
+    HbSettingsSection(
+        stringResource(Res.string.settings_connections),
+        modifier,
+        description = engine.title,
+        trailingContent = {
             HbButton(
                 stringResource(Res.string.settings_add_connection),
                 { onAddConnection(engine.id) },
                 Modifier.testTag("settings-add-connection"),
                 HbButtonStyle.Secondary,
                 enabled = engine.isConnectable,
+                size = HbButtonSize.Small,
             )
+        },
+    ) {
+        if (state.connections.isEmpty()) HbEmptyState(stringResource(Res.string.settings_no_connections))
+        HbColumn(
+            Modifier.fillMaxWidth().selectableGroup().testTag("settings-connections"),
+            gap = HbTheme.spacing.none,
+        ) {
+            state.connections.forEachIndexed { index, connection ->
+                if (index > 0) HbDivider()
+                ConnectionEntry(
+                    connection,
+                    isSelected = connection.id == state.selectedConnection,
+                    onClick = { onIntent(EngineConnectionsScreenIntent.SelectConnection(connection.id)) },
+                )
+            }
         }
     }
 }
@@ -267,110 +268,98 @@ private fun ConnectionEntry(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SelectableRow(
-        isSelected = isSelected,
+    val details = listOfNotNull(
+        connection.provider,
+        connection.kind?.let { methodKindLabel(it) },
+        stringResource(Res.string.settings_enabled_models, connection.enabledModels),
+    ).joinToString(" · ")
+    HbSettingsRow(
+        connection.label,
+        modifier.selectionSemantics(isSelected).testTag("settings-connection:${connection.id}"),
+        description = details,
         onClick = onClick,
-        modifier = modifier.testTag("settings-connection:${connection.id}"),
+        isSelected = isSelected,
     ) {
-        HbText(connection.label, style = HbTheme.typography.label, maxLines = 1)
-        HbText(
-            listOfNotNull(connection.provider, connection.kind?.let { methodKindLabel(it) }).joinToString(" · "),
-            style = HbTheme.typography.caption,
-            color = HbTheme.colors.textSecondary,
-        )
-        HbFlowRow {
-            if (!connection.isEnabled) HbBadge(stringResource(Res.string.settings_connection_off))
-            HbText(
-                stringResource(Res.string.settings_enabled_models, connection.enabledModels),
-                style = HbTheme.typography.caption,
-                color = HbTheme.colors.textSecondary,
-            )
-        }
+        if (!connection.isEnabled) HbBadge(stringResource(Res.string.settings_connection_off))
     }
 }
 
 @Composable
-private fun ModelsPane(
+private fun ModelsSection(
     state: EngineConnectionsScreenState,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val connection = state.connections.firstOrNull { it.id == state.selectedConnection }
     val pane = state.models
-    Pane(stringResource(Res.string.settings_models), modifier) {
+    if (state.selectedEngine == null) return
+    HbSettingsSection(stringResource(Res.string.settings_models), modifier, description = connection?.label) {
         if (connection == null || pane == null) {
-            HbText(stringResource(Res.string.settings_select_connection), color = HbTheme.colors.textSecondary)
-            return@Pane
+            HbEmptyState(stringResource(Res.string.settings_select_connection))
+            return@HbSettingsSection
         }
-        ConnectionHeader(connection, state, onIntent)
-        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent, Modifier.weight(1f))
+        ConnectionControls(connection, isEnabled = !state.isSaving, onIntent)
+        HbDivider()
+        ModelsList(pane, state.modelQuery, !state.isSaving, onIntent)
     }
 }
 
 @Composable
-private fun ConnectionHeader(
+private fun ConnectionControls(
     connection: ConnectionRowUi,
-    state: EngineConnectionsScreenState,
-    onIntent: (EngineConnectionsScreenIntent) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val isEnabled = !state.isSaving
-    HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
-        HbText(connection.label, style = HbTheme.typography.title)
-        HbText(connection.origin, style = HbTheme.typography.code, color = HbTheme.colors.textSecondary)
-        HbFlowRow {
-            HbSwitch(
-                connection.isEnabled,
-                { onIntent(EngineConnectionsScreenIntent.SetConnectionEnabled(connection.id, it)) },
-                stringResource(Res.string.settings_connection_active),
-                Modifier.testTag("settings-connection-enabled"),
-                isEnabled,
-            )
-            HbButton(
-                stringResource(Res.string.settings_refresh_models),
-                { onIntent(EngineConnectionsScreenIntent.RefreshModels) },
-                Modifier.testTag("settings-refresh-models"),
-                HbButtonStyle.Secondary,
-                isEnabled,
-            )
-            HbButton(
-                stringResource(Res.string.settings_disconnect),
-                { onIntent(EngineConnectionsScreenIntent.RequestDisconnect(connection.id)) },
-                Modifier.testTag("settings-disconnect"),
-                HbButtonStyle.Ghost,
-                isEnabled,
-            )
-        }
-        if (state.confirmDisconnect == connection.id) {
-            DisconnectConfirmation(connection.label, isEnabled = !state.isSaving, onIntent)
-        }
-    }
-}
-
-@Composable
-private fun DisconnectConfirmation(
-    label: String,
     isEnabled: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbPanel(modifier.fillMaxWidth(), background = HbTheme.colors.warningContainer) {
-        HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.s) {
-            HbText(stringResource(Res.string.settings_disconnect_confirm, label))
-            HbFlowRow {
-                HbButton(
-                    stringResource(Res.string.settings_disconnect),
-                    { onIntent(EngineConnectionsScreenIntent.ConfirmDisconnect) },
-                    Modifier.testTag("settings-disconnect-confirm"),
-                    enabled = isEnabled,
-                )
-                HbButton(
-                    stringResource(Res.string.conn_cancel),
-                    { onIntent(EngineConnectionsScreenIntent.DismissDisconnect) },
-                    style = HbButtonStyle.Ghost,
-                )
-            }
-        }
+    val active = stringResource(Res.string.settings_connection_active)
+    HbSettingsRow(active, modifier, description = connection.origin) {
+        HbButton(
+            stringResource(Res.string.settings_refresh_models),
+            { onIntent(EngineConnectionsScreenIntent.RefreshModels) },
+            Modifier.testTag("settings-refresh-models"),
+            HbButtonStyle.Ghost,
+            isEnabled,
+            HbButtonSize.Small,
+        )
+        HbButton(
+            stringResource(Res.string.settings_disconnect),
+            { onIntent(EngineConnectionsScreenIntent.RequestDisconnect(connection.id)) },
+            Modifier.testTag("settings-disconnect"),
+            HbButtonStyle.Ghost,
+            isEnabled,
+            HbButtonSize.Small,
+        )
+        HbSwitch(
+            connection.isEnabled,
+            { onIntent(EngineConnectionsScreenIntent.SetConnectionEnabled(connection.id, it)) },
+            active,
+            Modifier.testTag("settings-connection-enabled"),
+            isEnabled,
+        )
+    }
+}
+
+@Composable
+private fun DisconnectDialog(label: String, isEnabled: Boolean, onIntent: (EngineConnectionsScreenIntent) -> Unit) {
+    HbDialog(
+        stringResource(Res.string.settings_disconnect_title),
+        onDismissRequest = { onIntent(EngineConnectionsScreenIntent.DismissDisconnect) },
+        actions = {
+            HbButton(
+                stringResource(Res.string.conn_cancel),
+                { onIntent(EngineConnectionsScreenIntent.DismissDisconnect) },
+                style = HbButtonStyle.Ghost,
+            )
+            HbButton(
+                stringResource(Res.string.settings_disconnect),
+                { onIntent(EngineConnectionsScreenIntent.ConfirmDisconnect) },
+                Modifier.testTag("settings-disconnect-confirm"),
+                style = HbButtonStyle.Danger,
+                enabled = isEnabled,
+            )
+        },
+    ) {
+        HbText(stringResource(Res.string.settings_disconnect_confirm, label), color = HbTheme.colors.textSecondary)
     }
 }
 
@@ -384,24 +373,27 @@ private fun ModelsList(
 ) {
     val visible = remember(pane.models, query) { pane.models.filter { matches(query, it.title, it.id) } }
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
-        HbFlowRow(Modifier.fillMaxWidth()) {
-            HbTextField(
+        HbRow(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.s), gap = HbTheme.spacing.s) {
+            HbSearchField(
                 query,
                 { onIntent(EngineConnectionsScreenIntent.SearchModels(it)) },
-                Modifier.width(HbTheme.dimensions.composerMenuMinWidth).testTag("settings-model-search"),
                 placeholder = stringResource(Res.string.conn_models_search),
+                clearLabel = stringResource(Res.string.conn_models_search_clear),
+                modifier = Modifier.weight(1f).testTag("settings-model-search"),
             )
             HbButton(
                 stringResource(Res.string.conn_models_all),
                 { onIntent(EngineConnectionsScreenIntent.SetAllModels(true)) },
-                style = HbButtonStyle.Secondary,
+                style = HbButtonStyle.Ghost,
                 enabled = enabled && pane.models.isNotEmpty(),
+                size = HbButtonSize.Small,
             )
             HbButton(
                 stringResource(Res.string.conn_models_none),
                 { onIntent(EngineConnectionsScreenIntent.SetAllModels(false)) },
                 style = HbButtonStyle.Ghost,
                 enabled = enabled && pane.models.any { it.isEnabled },
+                size = HbButtonSize.Small,
             )
         }
         val note = when {
@@ -411,18 +403,10 @@ private fun ModelsList(
             else -> null
         }
         note?.let {
-            HbText(
-                stringResource(it),
-                style = HbTheme.typography.caption,
-                color = HbTheme.colors.textSecondary,
-            )
+            HbText(stringResource(it), style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
         }
-        HbLazyColumn(
-            Modifier.weight(1f).fillMaxWidth().testTag("settings-models"),
-            gap = HbTheme.spacing.xs,
-            contentPadding = PaddingValues(HbTheme.spacing.none),
-        ) {
-            items(visible, key = { it.id }) { model ->
+        HbColumn(Modifier.fillMaxWidth().testTag("settings-models"), gap = HbTheme.spacing.none) {
+            visible.forEach { model ->
                 ModelRow(
                     model,
                     enabled = enabled,
@@ -437,6 +421,7 @@ private fun ModelsList(
                             Modifier.testTag("settings-default:${model.id}"),
                             HbButtonStyle.Ghost,
                             enabled,
+                            HbButtonSize.Small,
                         )
                     }
                 }
@@ -445,26 +430,7 @@ private fun ModelsList(
     }
 }
 
-/** Titled glass column of the settings space. */
-@Composable
-private fun Pane(title: String, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    HbPanel(modifier.fillMaxWidth()) {
-        HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.m) {
-            HbText(title, style = HbTheme.typography.title)
-            content()
-        }
-    }
+/** Exposes a row as one option of a single-choice list. */
+private fun Modifier.selectionSemantics(isSelected: Boolean): Modifier = semantics {
+    selected = isSelected
 }
-
-/** Lazy list that runs vertically in wide layouts and horizontally in compact ones. */
-@Composable
-private fun SelectionList(isHorizontal: Boolean, modifier: Modifier = Modifier, content: LazyListScope.() -> Unit) {
-    val padding = PaddingValues(HbTheme.spacing.none)
-    if (isHorizontal) {
-        HbLazyRow(modifier.fillMaxWidth(), gap = HbTheme.spacing.s, contentPadding = padding, content = content)
-    } else {
-        HbLazyColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs, contentPadding = padding, content = content)
-    }
-}
-
-private fun Modifier.entryWidth(width: Dp?): Modifier = if (width != null) width(width) else this
