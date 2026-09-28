@@ -58,11 +58,20 @@ data class HbColors(
     val infoContainer: Color = dataCyan.copy(alpha = 0.12f).compositeOver(surface)
     val buttonFill: Color = surface
     val inputFill: Color = surface
+
+    /** Neutral selection remains distinct from hover without adding an outline. */
+    val selectedContainer: Color = onSurface.copy(alpha = 0.10f).compositeOver(surface)
+
+    /** Saturated semantic accent keeps keyboard focus legible against light and dark surfaces. */
+    val focusAccent: Color = if (isDark) Color(0xFFC2B4EE) else Color(0xFF6947A3)
+    val focusRing: Color = focusAccent.copy(alpha = 0.80f)
+    val focusOuter: Color = Color.Black
+    val focusInner: Color = Color.White
     val accentMuted: Color = brand.copy(alpha = 0.22f).compositeOver(surface)
     val onAccentMuted: Color = textPrimary
     val hoverOverlay: Color = Color.White.copy(alpha = 0.10f)
-    val interactionHoverOverlay: Color = brand.copy(alpha = 0.16f)
-    val pressedOverlay: Color = Color.Black.copy(alpha = 0.08f)
+    val interactionHoverOverlay: Color = onSurface.copy(alpha = 0.05f)
+    val pressedOverlay: Color = onSurface.copy(alpha = 0.09f)
 
     /** Dims content behind a modal drawer or sheet. */
     val scrim: Color = shadowDark.copy(alpha = if (isDark) 0.72f else 0.56f)

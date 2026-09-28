@@ -35,6 +35,7 @@ data class HbElevation(val none: Dp = 0.dp, val low: Dp = 1.dp, val medium: Dp =
 data class HbDimensions(
     val touchTarget: Dp = 48.dp,
     val controlHeight: Dp = 32.dp,
+    val compactControlHeight: Dp = 28.dp,
     val switchWidth: Dp = 36.dp,
     val switchHeight: Dp = 20.dp,
     val contentMaxWidth: Dp = 1200.dp,
@@ -56,6 +57,15 @@ data class HbDimensions(
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,
     val borderWidth: Dp = 1.dp,
+    /** Interactive geometry is independent of decorative panel and message shapes. */
+    val controlCornerRadius: Dp = 6.dp,
+    val fieldCornerRadius: Dp = 8.dp,
+    val focusOutset: Dp = 2.dp,
+    val macFocusWidth: Dp = 3.dp,
+    val fluentFocusOuterWidth: Dp = 2.dp,
+    val fluentFocusInnerWidth: Dp = 1.dp,
+    val fieldFocusWidth: Dp = 2.dp,
+    val tooltipMaxWidth: Dp = 320.dp,
     val chatAvatarSize: Dp = 32.dp,
     val composerMinHeight: Dp = 56.dp,
     val composerMaxHeight: Dp = 120.dp,
@@ -97,4 +107,5 @@ data class HbMotion(
     val isReducedMotion: Boolean = false,
     val scrollbarHideDelayMillis: Int = 700,
     val scrollbarFadeMillis: Int = 180,
+    val tooltipDelayMillis: Int = 600,
 )

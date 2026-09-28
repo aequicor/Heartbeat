@@ -9,5 +9,9 @@ kotlin {
             api(projects.designSystem.adaptive)
             implementation(projects.core.logging)
         }
+        jvmTest.dependencies {
+            implementation(libs.compose.uiTest)
+            implementation(compose.desktop.currentOs)
+        }
     }
 }

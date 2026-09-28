@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.adaptive.AdaptiveTheme
@@ -18,6 +19,9 @@ import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.ds.tokens.HbShadows
 import io.aequicor.heartbeat.ds.tokens.HbShapes
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
+import io.aequicor.heartbeat.ds.tokens.HbStudioColors
+import io.aequicor.heartbeat.ds.tokens.HbStudioDimensions
+import io.aequicor.heartbeat.ds.tokens.HbStudioStyle
 import io.aequicor.heartbeat.ds.tokens.HbTypography
 import io.aequicor.heartbeat.ds.tokens.HbWelcome
 
@@ -28,10 +32,12 @@ private val LocalHbSpacing = staticCompositionLocalOf { HbSpacing() }
 private val LocalHbShapes = staticCompositionLocalOf { HbShapes() }
 private val LocalHbElevation = staticCompositionLocalOf { HbElevation() }
 private val LocalHbDimensions = staticCompositionLocalOf { defaultHbDimensions() }
+private val LocalHbStudioDimensions = staticCompositionLocalOf { defaultHbStudioDimensions() }
 private val LocalHbMotion = staticCompositionLocalOf { HbMotion() }
 private val LocalHbShadows = staticCompositionLocalOf { HbShadows.Light }
 private val LocalHbVisualStyle = staticCompositionLocalOf { HbVisualStyle.Glass }
 private val log = Log.tag("HbTheme")
+private val fontLog = Log.tag("HbStudioFont")
 
 /** A soft shared visual language or the operating system's native component family. */
 enum class HbVisualStyle {
@@ -43,6 +49,20 @@ enum class HbVisualStyle {
 /** Pastel token access shared by components and layouts, independent of native UI kits. */
 object HbTheme {
     val welcome: HbWelcome = HbWelcome()
+    val studioDimensions: HbStudioDimensions
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalHbStudioDimensions.current
+
+    val studioColors: HbStudioColors
+        @Composable
+        @ReadOnlyComposable
+        get() = when {
+            studioDimensions.isDesktop && colors.isDark -> HbStudioColors.DesktopDark
+            studioDimensions.isDesktop -> HbStudioColors.DesktopLight
+            colors.isDark -> HbStudioColors.Dark
+            else -> HbStudioColors.Light
+        }
 
     val colors: HbColors
         @Composable
@@ -95,6 +115,41 @@ object HbTheme {
         get() = LocalHbVisualStyle.current
 }
 
+/** Applies the studio's pearl palette, system typography and rounded surfaces, retaining theme preferences. */
+@Composable
+fun HbStudioTheme(content: @Composable () -> Unit) {
+    val isDesktop = HbTheme.studioDimensions.isDesktop
+    val colors = studioColors(HbTheme.colors.isDark, isDesktop)
+    val font = remember { studioFontResolution() }
+    val typography = remember(font.family, isDesktop) { HbStudioStyle.typography(font.family, isDesktop) }
+    SideEffect(font) {
+        if (font.isFallback) {
+            fontLog.w {
+                "Studio font fallback: requested=${font.requestedFamily.orEmpty()} " +
+                    "actual=${font.actualFamily.orEmpty()}"
+            }
+        } else if (font.actualFamily != null) {
+            fontLog.i {
+                "Studio system font: requested=${font.requestedFamily.orEmpty()} " +
+                    "actual=${font.actualFamily}"
+            }
+        }
+    }
+    CompositionLocalProvider(
+        LocalHbColors provides colors,
+        LocalHbTypography provides typography,
+        LocalHbShapes provides if (isDesktop) HbStudioStyle.desktopShapes else HbStudioStyle.shapes,
+        content = content,
+    )
+}
+
+private fun studioColors(isDark: Boolean, isDesktop: Boolean): HbColors = when {
+    isDesktop && isDark -> HbStudioStyle.desktopDarkColors
+    isDesktop -> HbStudioStyle.desktopLightColors
+    isDark -> HbStudioStyle.darkColors
+    else -> HbStudioStyle.lightColors
+}
+
 /**
  * Provides pastel tokens, paired shadows and an optional native kit. Preferences remain owned by the caller.
  * System light/dark and the current operating system are used by default.
@@ -109,6 +164,7 @@ fun HbTheme(
     shapes: HbShapes = HbShapes(),
     elevation: HbElevation = HbElevation(),
     dimensions: HbDimensions = defaultHbDimensions(),
+    studioDimensions: HbStudioDimensions = defaultHbStudioDimensions(),
     motion: HbMotion = HbMotion(),
     shadows: HbShadows = if (darkTheme) HbShadows.Dark else HbShadows.Light,
     content: @Composable () -> Unit,
@@ -127,6 +183,7 @@ fun HbTheme(
         LocalHbShapes provides shapes,
         LocalHbElevation provides elevation,
         LocalHbDimensions provides dimensions,
+        LocalHbStudioDimensions provides studioDimensions,
         LocalHbMotion provides motion,
         LocalHbShadows provides shadows,
         LocalHbVisualStyle provides visualStyle,
