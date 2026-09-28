@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -8,6 +9,7 @@ import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.ds.components.HbWindowDragProvider
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.shared.App
@@ -38,7 +40,13 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
             },
             title = "Heartbeat",
             state = windowState,
-        ) { App(root) }
+        ) {
+            DisposableEffect(window) {
+                configureDesktopChrome(window.rootPane)
+                onDispose { }
+            }
+            HbWindowDragProvider { App(root) }
+        }
     }
 }
 

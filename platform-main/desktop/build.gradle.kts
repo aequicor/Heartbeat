@@ -1,6 +1,7 @@
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
+import org.jetbrains.compose.reload.gradle.ComposeHotRun
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -12,6 +13,7 @@ plugins {
 dependencies {
     implementation(projects.platformMain.shared)
     implementation(projects.designSystem.tokens)
+    implementation(projects.designSystem.components)
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.compose.uiToolingPreview)
@@ -68,6 +70,11 @@ compose.desktop {
             preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
         }
     }
+}
+
+// Compose bundles Hot Reload; keep its launchers on the same development-only entry point as run.
+tasks.withType<ComposeHotRun>().configureEach {
+    mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
 }
 
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
