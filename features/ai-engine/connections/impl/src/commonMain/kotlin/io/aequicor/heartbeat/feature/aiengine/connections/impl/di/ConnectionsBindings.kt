@@ -10,8 +10,6 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.UnbundledAuthSources
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.data.UnbundledEngineFacade
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 
@@ -19,17 +17,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object ConnectionsBindings {
-    /**
-     * Engine services of the profile. Both parameters are optional dependencies: until the bundle binds a facade
-     * runtime and a source registry, stand-ins show an empty catalog and reject writes. The real bindings must be
-     * visible from ProfileScope (contributed to it or to AppScope); a narrower scope is not seen here.
-     */
+    /** Engine services of the profile: the facade runtime and the source registry, both bound in ProfileScope. */
     @Provides
     @SingleIn(ProfileScope::class)
-    fun services(
-        facade: EngineFacade = UnbundledEngineFacade(),
-        sources: AuthSources = UnbundledAuthSources(),
-    ): EngineServices = EngineServices(facade, sources)
+    fun services(facade: EngineFacade, sources: AuthSources): EngineServices = EngineServices(facade, sources)
 }
 
 /** Registers the feature toggle in the app-wide catalog. */

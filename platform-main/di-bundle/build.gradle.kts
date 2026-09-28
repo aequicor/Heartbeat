@@ -9,13 +9,23 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.features.aiEngine.koog.api)
+            implementation(projects.features.aiEngine.koog.impl)
+            api(projects.features.aiEngine.claude.api)
+            implementation(projects.features.aiEngine.claude.impl)
             api(projects.core.common)
+            api(projects.features.aiEngine.facade.api)
+            implementation(projects.features.aiEngine.facade.impl)
+            api(projects.features.aiEngine.pi.api)
+            implementation(projects.features.aiEngine.pi.impl)
             implementation(projects.features.aiEngine.acpInterface.impl)
             implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.aiEngine.authenticator.impl)
+            implementation(projects.features.aiEngine.facade.impl)
             implementation(projects.features.aiEngine.connections.impl)
             implementation(projects.features.aiSessionEngineTransfer.impl)
             api(projects.core.di.api)
@@ -45,6 +55,8 @@ kotlin {
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.aiSessionEngineTransfer.api)
             implementation(projects.core.di.ext)
+            implementation(projects.features.aiEngine.authenticator.api)
+            implementation(projects.features.aiEngine.facade.api)
             implementation(libs.kotlinx.serialization.json)
         }
     }

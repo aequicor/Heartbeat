@@ -17,12 +17,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.newSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
-/** Engine-side services of the connection screens; stand-ins are used while the bundle provides no runtime. */
+/** Engine-side services of the connection screens. */
 data class EngineServices(val facade: EngineFacade, val sources: AuthSources)
 
 /** Executes wizard effects. Typed keys are closed after use whatever the outcome. */
@@ -72,7 +72,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         availability.failure()?.let { throw EngineException(it) }
         val credential = effect.credential
         val key = (credential as? CredentialInput.ApiKey)?.key
-        val source = services.sources.create(effect.method.newSource(credential.label, credential.origin, key))
+        val source = services.sources.create(effect.method, credential.label, credential.origin, key)
         val binding = bindOrForget(effect, source.info.id)
         log.i { "connected engine=${effect.engine.value}" }
         return NewConnection(binding.id, source.info.id)
@@ -109,7 +109,7 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
 
     /**
      * Removes the binding, then its source, then its model choice. Each step runs even if a later one fails;
-     * the source is kept only while the binding still exists, because a referenced source cannot be forgotten.
+     * the source is kept only while the binding still exists, so a binding never points at a missing source.
      */
     private suspend fun rollback(connection: NewConnection) {
         log.i { "roll back abandoned connection" }

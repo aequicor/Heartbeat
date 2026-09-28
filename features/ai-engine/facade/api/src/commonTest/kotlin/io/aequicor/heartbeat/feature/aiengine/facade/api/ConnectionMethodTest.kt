@@ -3,11 +3,20 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceDraft
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.NewAuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -39,14 +48,18 @@ class ConnectionMethodTest {
     }
 
     @Test
-    fun `each method builds its own source kind`() {
+    fun `each method creates its own source kind`() = runTest {
+        val sources = RecordingSources()
         Secret("sk".toCharArray()).use { key ->
-            assertIs<NewAuthSource.ManagedKey>(apiKey.newSource("Work", key = key))
-            assertFailsWith<IllegalArgumentException> { local.newSource("Local", key = key) }
+            assertIs<AuthSource.ManagedKey>(sources.create(apiKey, "Work", key = key))
+            assertFailsWith<IllegalArgumentException> { sources.create(local, "Local", key = key) }
         }
-        assertFailsWith<IllegalArgumentException> { apiKey.newSource("Work") }
-        assertIs<NewAuthSource.CliLogin>(cli.newSource("CLI"))
-        assertIs<NewAuthSource.NoAuth>(local.newSource("Local"))
+        assertFailsWith<IllegalArgumentException> { sources.create(apiKey, "Work") }
+        sources.create(cli, "CLI")
+        sources.create(local, "Local")
+        assertIs<AuthSourceDraft.CliLogin>(sources.drafts[0])
+        assertIs<AuthSourceDraft.NoAuth>(sources.drafts[1])
+        assertEquals(2, sources.drafts.size)
     }
 
     @Test
@@ -68,4 +81,26 @@ class ConnectionMethodTest {
         AiEngines,
         connectionMethods = methods,
     )
+}
+
+private class RecordingSources : AuthSources {
+    val drafts = mutableListOf<AuthSourceDraft>()
+    override val state: StateFlow<List<AuthSource>> = MutableStateFlow(emptyList())
+    private val info = AuthSourceInfo(AuthSourceId("s"), "label", AuthRevision.Unknown)
+
+    override suspend fun get(id: AuthSourceId): AuthSource? = null
+
+    override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey =
+        AuthSource.ManagedKey(info, scope, AuthSecretId("secret"))
+
+    override suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): AuthSource.ManagedKey = error("unused")
+
+    override suspend fun register(draft: AuthSourceDraft): AuthSource {
+        drafts += draft
+        return AuthSource.NoAuth(info, draft.scope)
+    }
+
+    override suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): AuthSource = error("unused")
+
+    override suspend fun forget(id: AuthSourceId): Unit = error("unused")
 }

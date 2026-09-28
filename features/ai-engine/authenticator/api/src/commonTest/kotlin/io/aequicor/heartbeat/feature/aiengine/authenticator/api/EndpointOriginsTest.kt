@@ -1,12 +1,10 @@
 package io.aequicor.heartbeat.feature.aiengine.authenticator.api
 
-import io.aequicor.heartbeat.core.secrets.Secret
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 
-class AuthSourcesTest {
+class EndpointOriginsTest {
     @Test
     fun `user input is canonicalized to an origin`() {
         assertEquals(EndpointOrigin("https://open.cherryin.net"), canonicalOrigin(" HTTPS://Open.CherryIN.net/ "))
@@ -28,21 +26,5 @@ class AuthSourcesTest {
             "http://localhost:70000",
             "",
         ).forEach { assertNull(canonicalOrigin(it), it) }
-    }
-
-    @Test
-    fun `requests never reveal labels or keys`() {
-        val scope = AuthScope(ProviderId("openai"), EndpointOrigin("https://api.openai.com"))
-        Secret("sk-secret".toCharArray()).use { key ->
-            val requests = listOf(
-                NewAuthSource.ManagedKey("private label", scope, key),
-                NewAuthSource.CliLogin("private label", scope, AuthOwnerId("codex"), AuthLocationId("codex.local")),
-                NewAuthSource.NoAuth("private label", scope),
-            )
-            requests.forEach {
-                assertFalse(it.toString().contains("private label"))
-                assertFalse(it.toString().contains("sk-secret"))
-            }
-        }
     }
 }

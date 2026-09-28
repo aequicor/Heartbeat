@@ -78,11 +78,16 @@ include(":lint:detekt-rules")
 
 include(":core:secrets:api", ":core:secrets:impl")
 
-include(":features:ai-engine:authenticator:api")
-include(":features:ai-engine:facade:api")
+include(":features:ai-engine:authenticator:api", ":features:ai-engine:authenticator:impl")
+include(":features:ai-engine:facade:api", ":features:ai-engine:facade:impl")
+include(":features:ai-engine:pi:api")
+include(":features:ai-engine:pi:impl")
 
+include(":features:ai-engine:koog:api", ":features:ai-engine:koog:impl")
 include(":features:ai-engine:connections:api", ":features:ai-engine:connections:impl")
 include(":features:ai-engine:acp-interface:api", ":features:ai-engine:acp-interface:impl")
+include(":features:ai-engine:claude:api")
+include(":features:ai-engine:claude:impl")
 include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
 
 include(":features:ai-engine:codex:api")

@@ -4,8 +4,10 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthLocationId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceDraft
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.NewAuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 
 /** Stable method identity within one engine descriptor. Never contains credentials or account names. */
@@ -81,19 +83,23 @@ public fun ConnectionMethod.scopeFor(origin: EndpointOrigin = this.origin): Auth
 }
 
 /**
- * Builds the registry request for this method. [key] is required exactly for [ConnectionMethod.ApiKey];
- * the caller keeps owning it. Pure: validates the origin policy and performs no IO.
+ * Creates a source for [method] in this registry. [key] is required exactly for [ConnectionMethod.ApiKey];
+ * the caller keeps owning it. The origin policy is validated before the registry is touched.
  */
-public fun ConnectionMethod.newSource(
+public suspend fun AuthSources.create(
+    method: ConnectionMethod,
     label: String,
-    origin: EndpointOrigin = this.origin,
+    origin: EndpointOrigin = method.origin,
     key: Secret? = null,
-): NewAuthSource {
-    val scope = scopeFor(origin)
-    require((this is ConnectionMethod.ApiKey) == (key != null)) { "A key belongs exactly to the API key method" }
-    return when (this) {
-        is ConnectionMethod.ApiKey -> NewAuthSource.ManagedKey(label, scope, requireNotNull(key))
-        is ConnectionMethod.CliLogin -> NewAuthSource.CliLogin(label, scope, owner, location)
-        is ConnectionMethod.NoAuth -> NewAuthSource.NoAuth(label, scope)
+): AuthSource {
+    val scope = method.scopeFor(origin)
+    require((method is ConnectionMethod.ApiKey) == (key != null)) { "A key belongs exactly to the API key method" }
+    return when (method) {
+        is ConnectionMethod.ApiKey -> addManagedKey(label, scope, requireNotNull(key))
+
+        is ConnectionMethod.CliLogin ->
+            register(AuthSourceDraft.CliLogin(label, scope, method.owner, method.location))
+
+        is ConnectionMethod.NoAuth -> register(AuthSourceDraft.NoAuth(label, scope))
     }
 }

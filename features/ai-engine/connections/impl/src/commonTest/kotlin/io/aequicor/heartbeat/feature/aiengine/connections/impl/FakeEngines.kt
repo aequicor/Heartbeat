@@ -1,16 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl
 
+import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSecretId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceDraft
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
-import io.aequicor.heartbeat.feature.aiengine.authenticator.api.NewAuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
@@ -141,28 +143,39 @@ internal class FakeAuthSources : AuthSources {
     override val state = MutableStateFlow(emptyList<AuthSource>())
     val forgotten = mutableListOf<AuthSourceId>()
 
-    override suspend fun create(request: NewAuthSource): AuthSource {
-        val info = AuthSourceInfo(AuthSourceId("source-${state.value.size + 1}"), request.label, AuthRevision.Unknown)
-        val source = when (request) {
-            is NewAuthSource.ManagedKey -> {
-                request.key.reveal { check(it.isNotEmpty()) }
-                AuthSource.ManagedKey(info, request.scope, AuthSecretId("secret-${info.id.value}"))
-            }
+    override suspend fun get(id: AuthSourceId): AuthSource? = state.value.firstOrNull { it.info.id == id }
 
-            is NewAuthSource.CliLogin -> AuthSource.CliLogin(info, request.scope, request.owner, request.location)
-
-            is NewAuthSource.NoAuth -> AuthSource.NoAuth(info, request.scope)
-        }
-        state.update { it + source }
-        return source
+    override suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey {
+        key.reveal { check(it.isNotEmpty()) }
+        val info = nextInfo(label)
+        return AuthSource.ManagedKey(info, scope, AuthSecretId("secret-${info.id.value}")).also(::add)
     }
+
+    override suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): AuthSource.ManagedKey = error("unused")
+
+    override suspend fun register(draft: AuthSourceDraft): AuthSource {
+        val info = nextInfo(draft.label)
+        val source = when (draft) {
+            is AuthSourceDraft.CliLogin -> AuthSource.CliLogin(info, draft.scope, draft.owner, draft.location)
+            is AuthSourceDraft.NoAuth -> AuthSource.NoAuth(info, draft.scope)
+            else -> error("unused draft")
+        }
+        return source.also(::add)
+    }
+
+    override suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): AuthSource = error("unused")
+
+    private fun nextInfo(label: String) =
+        AuthSourceInfo(AuthSourceId("source-${state.value.size + 1}"), label, AuthRevision.Unknown)
+
+    private fun add(source: AuthSource) = state.update { it + source }
 
     var forgetFailure: Exception? = null
 
-    override suspend fun forget(source: AuthSourceId) {
+    override suspend fun forget(id: AuthSourceId) {
         forgetFailure?.let { throw it }
-        forgotten += source
-        state.update { all -> all.filterNot { it.info.id == source } }
+        forgotten += id
+        state.update { all -> all.filterNot { it.info.id == id } }
     }
 }
 

@@ -4,82 +4,89 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Profile registry of credential sources and the only writer of their metadata and managed vault entries.
- * Suspend operations are main-safe, propagate CancellationException and never log labels or credential values.
- * Reads never discover external credentials or execute helpers.
+ * Description of a source whose credentials live outside Heartbeat. Registration stores only this reference:
+ * it never reads the referenced values, runs a helper or contacts a service.
  */
-public interface AuthSources {
-    /** Saved sources of the active profile, without credential values. */
-    public val state: StateFlow<List<AuthSource>>
-
-    /**
-     * Creates an independent source with a fresh id; an equal existing source is never reused implicitly.
-     * A managed key is copied into the profile vault; the caller still owns and closes the supplied Secret.
-     */
-    public suspend fun create(request: NewAuthSource): AuthSource
-
-    /**
-     * Forgets the source. A managed key is removed from the vault, external credentials and CLI logins remain intact.
-     * Callers disconnect engine bindings first; a still referenced source is rejected with IllegalStateException.
-     */
-    public suspend fun forget(source: AuthSourceId)
-}
-
-/** Request of [AuthSources.create]; [label] is user-visible text that may contain PII and is never logged. */
-public sealed interface NewAuthSource {
-    /** User-visible name of the source. */
+public sealed interface AuthSourceDraft {
+    /** User-visible label; may contain PII and is never logged. */
     public val label: String
 
-    /** Provider and exact origin the source may be used against. */
+    /** Provider and origin the source may be used with. */
     public val scope: AuthScope
 
-    /** A key typed by the user; Heartbeat stores it in the profile vault and owns it from then on. */
-    public data class ManagedKey(
+    /** Read-only external key reference. */
+    public data class ExternalKey(
         override val label: String,
         override val scope: AuthScope,
-        /** Caller-owned value; the registry copies it and never retains this instance. */
-        public val key: Secret,
-    ) : NewAuthSource {
-        override fun toString(): String = "NewAuthSource.ManagedKey(scope=$scope)"
-    }
+        val location: AuthLocationId,
+        val revision: AuthRevision = AuthRevision.Unknown,
+    ) : AuthSourceDraft
 
-    /** An existing login of the CLI [owner] at [location]; tokens stay owned by that CLI. */
+    /** Login owned by one CLI; [revision] is the owner-provided account fingerprint, if observable. */
     public data class CliLogin(
         override val label: String,
         override val scope: AuthScope,
-        /** The only engine namespace allowed to consume this source. */
-        public val owner: AuthOwnerId,
-        /** Opaque reference to the CLI profile or configuration directory. */
-        public val location: AuthLocationId,
-    ) : NewAuthSource {
-        override fun toString(): String = "NewAuthSource.CliLogin(scope=$scope, owner=$owner)"
-    }
+        val owner: AuthOwnerId,
+        val location: AuthLocationId,
+        val revision: AuthRevision = AuthRevision.Unknown,
+    ) : AuthSourceDraft
 
-    /** An endpoint without credentials, such as a local model server. */
-    public data class NoAuth(override val label: String, override val scope: AuthScope) : NewAuthSource {
-        override fun toString(): String = "NewAuthSource.NoAuth(scope=$scope)"
-    }
+    /** Helper command reference; running it still requires explicit user approval. */
+    public data class CredentialHelper(
+        override val label: String,
+        override val scope: AuthScope,
+        val location: AuthLocationId,
+    ) : AuthSourceDraft
+
+    /** Endpoint without credentials. */
+    public data class NoAuth(override val label: String, override val scope: AuthScope) : AuthSourceDraft
 }
 
 /**
- * Canonicalizes a user-entered HTTP(S) address into an [EndpointOrigin]: lower-cases scheme and host, drops a trailing
- * slash and a default port. Returns null for anything else — userinfo, paths, queries, fragments or other schemes —
- * rather than silently discarding parts the user typed.
+ * Profile-owned registry of authentication sources. Persists only non-secret metadata; reads never execute
+ * helpers, inspect external credentials or contact services. Suspend functions are main-safe, throw
+ * [AuthException] for domain failures and propagate CancellationException unchanged.
+ * Forgetting a source does not remove engine bindings that refer to it: they fail with SourceUnavailable.
  */
-public fun canonicalOrigin(input: String): EndpointOrigin? {
-    val match = ORIGIN_INPUT.matchEntire(input.trim()) ?: return null
-    val scheme = match.groupValues[1].lowercase()
-    val host = match.groupValues[2].lowercase()
-    val portText = match.groupValues[3]
-    val port = portText.toIntOrNull()
-    val isPortValid = portText.isEmpty() || (!portText.startsWith("0") && port != null && port <= MAX_PORT_NUMBER)
-    if (!isPortValid) return null
-    val defaultPort = if (scheme == "https") HTTPS_PORT else HTTP_PORT
-    val authority = if (port == null || port == defaultPort) host else "$host:$port"
-    return EndpointOrigin("$scheme://$authority")
+public interface AuthSources {
+    /** Current sources in creation order. */
+    public val state: StateFlow<List<AuthSource>>
+
+    /** One source, or null when it is unknown in this profile. */
+    public suspend fun get(id: AuthSourceId): AuthSource?
+
+    /** Stores a new Heartbeat-owned key in the profile vault. [key] stays owned by the caller. */
+    public suspend fun addManagedKey(label: String, scope: AuthScope, key: Secret): AuthSource.ManagedKey
+
+    /** Replaces the value of a managed key; the source keeps its id and receives a new revision. */
+    public suspend fun replaceManagedKey(id: AuthSourceId, key: Secret): AuthSource.ManagedKey
+
+    /** Registers an independent reference to credentials owned elsewhere. */
+    public suspend fun register(draft: AuthSourceDraft): AuthSource
+
+    /** Records a new owner-provided revision of an external source; managed keys change only by replacement. */
+    public suspend fun updateRevision(id: AuthSourceId, revision: AuthRevision): AuthSource
+
+    /** Forgets the source. A managed value is removed from the vault; external credentials remain intact. */
+    public suspend fun forget(id: AuthSourceId)
 }
 
-private val ORIGIN_INPUT = Regex("(?i)(https?)://([a-z0-9.-]+|\\[[a-f0-9:]+])(?::([0-9]{1,5}))?/?")
-private const val HTTPS_PORT = 443
-private const val HTTP_PORT = 80
-private const val MAX_PORT_NUMBER = 65535
+/**
+ * Authentication verification entry point. A check runs the first authenticator that supports the source,
+ * preferring [check]'s requested ids over the shared built-in ones. A failed check never logs the user out:
+ * the previous verdict is returned marked stale.
+ */
+public interface AuthChecks {
+    /** Last observation for this source and context; reading never starts a check. */
+    public fun last(source: AuthSourceId, context: AuthContextKey): AuthCheck?
+
+    /** Explicit verification in [context] with the engine's [authenticators]; main-safe. */
+    public suspend fun check(
+        source: AuthSourceId,
+        context: AuthContextKey,
+        authenticators: Set<AuthenticatorId> = emptySet(),
+    ): AuthCheck
+}
+
+/** Expected authentication failure; messages carry only the stable reason, never credential or account data. */
+public class AuthException(public val failure: AuthFailure) : Exception("auth.${failure.reason.name}")
