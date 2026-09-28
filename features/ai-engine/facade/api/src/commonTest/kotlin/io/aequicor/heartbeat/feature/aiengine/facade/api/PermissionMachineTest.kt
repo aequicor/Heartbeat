@@ -69,4 +69,52 @@ class PermissionMachineTest {
             waiting.copy(turn = TestTurn.copy(resolvedPermissions = setOf(second.id))),
         )
     }
+
+    @Test
+    fun `structured answers must fit the requested input`() {
+        val choice = TestPermission.copy(
+            input = PermissionInput.SingleChoice(listOf(PermissionChoice("a", "A"), PermissionChoice("b", "B"))),
+        )
+        val asking = waiting.copy(requests = listOf(choice))
+        val answered = decision.copy(answer = PermissionAnswer.Selected(listOf("b")))
+        spec.assertTransition(
+            asking,
+            ActiveSessionIntent.Public.Decide(answered),
+            asking.copy(responding = setOf(choice.id)),
+            effects = listOf(ActiveSessionEffect.Decide(answered)),
+        )
+        spec.assertTransition(
+            asking,
+            ActiveSessionIntent.Public.Decide(decision),
+            asking.copy(responding = setOf(choice.id)),
+            effects = listOf(ActiveSessionEffect.Decide(decision)),
+        )
+        listOf(
+            PermissionAnswer.Selected(listOf("z")),
+            PermissionAnswer.Selected(listOf("a", "b")),
+            PermissionAnswer.Text("free"),
+        ).forEach { spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(decision.copy(answer = it))) }
+        spec.assertIgnored(
+            waiting,
+            ActiveSessionIntent.Public.Decide(decision.copy(answer = PermissionAnswer.Text("x"))),
+        )
+    }
+
+    @Test
+    fun `multi choice respects bounds and free text accepts any text`() {
+        val multi = TestPermission.copy(
+            input = PermissionInput.MultiChoice(
+                listOf(PermissionChoice("a", "A"), PermissionChoice("b", "B"), PermissionChoice("c", "C")),
+                min = 1,
+                max = 2,
+            ),
+        )
+        kotlin.test.assertTrue(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "c")))))
+        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(emptyList()))))
+        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "b", "c")))))
+        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "a")))))
+        val text = TestPermission.copy(input = PermissionInput.FreeText())
+        kotlin.test.assertTrue(text.accepts(decision.copy(answer = PermissionAnswer.Text("hi"))))
+        kotlin.test.assertFalse(text.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a")))))
+    }
 }
