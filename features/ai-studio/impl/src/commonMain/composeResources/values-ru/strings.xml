@@ -2,6 +2,7 @@
     <string name="studio_title">AI-студия</string>
     <string name="studio_empty">Студия готовится к запуску</string>
     <string name="studio_description">Здесь появится пространство для работы с AI.</string>
+    <string name="studio_connections">Подключения движков</string>
     <string name="studio_back">На главный экран</string>
     <string name="studio_loading">Готовим рабочее пространство</string>
     <string name="studio_error">Не удалось подготовить рабочее пространство</string>

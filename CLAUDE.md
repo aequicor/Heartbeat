@@ -34,9 +34,11 @@ lint/            detekt-rules — собственный набор правил
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
+> Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
+> «движок × подключение × модель», тогл `ai.engine_connections`) поверх `EngineFacade` и `AuthSources`; экраны показывают
+> только движки, объявившие `connectionMethods`, — продовые адаптеры их пока не объявляют, каталог пуст.
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
-> UI подключения пока не реализован.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
 > логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
@@ -50,7 +52,7 @@ lint/            detekt-rules — собственный набор правил
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
-> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root.
+> Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
 

@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
@@ -10,7 +12,14 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStud
 internal class AiStudioUiComponent(private val component: AiStudioComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        val exits = remember(component) { StudioExits(component::close, component::openToggles) }
+        val isConnectionsShown by component.showsConnections.collectAsState(false)
+        val exits = remember(component, isConnectionsShown) {
+            StudioExits(
+                onBack = component::close,
+                onOpenToggles = component::openToggles,
+                onOpenConnections = if (isConnectionsShown) component::openConnections else null,
+            )
+        }
         AiStudioScreen(component.model, exits, modifier)
     }
 }

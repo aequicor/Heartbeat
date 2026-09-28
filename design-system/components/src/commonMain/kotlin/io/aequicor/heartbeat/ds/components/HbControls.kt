@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.password
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.adaptive.AdaptiveButton
@@ -119,7 +120,12 @@ private fun SoftButton(
     }
 }
 
-/** Controlled input. The caller owns its text; logs never contain the input value. */
+/**
+ * Controlled input. The caller owns its text; logs never contain the input value.
+ * [isSecret] makes a secure single-line field: obfuscated text marked as a password for accessibility,
+ * no cut/copy, a password keyboard without autocorrect, and nothing written to saved state.
+ * A secret field is always single-line, whatever [singleLine] says.
+ */
 @Composable
 public fun HbTextField(
     value: String,
@@ -129,6 +135,7 @@ public fun HbTextField(
     enabled: Boolean = true,
     singleLine: Boolean = true,
     accessibleLabel: String = placeholder,
+    isSecret: Boolean = false,
 ) {
     val loggedChange: (String) -> Unit = {
         log.d { "text input changed length=${it.length}" }
@@ -138,10 +145,14 @@ public fun HbTextField(
     SoftTextField(
         value,
         loggedChange,
-        modifier.semantics { if (accessibleLabel.isNotBlank()) contentDescription = accessibleLabel },
+        modifier.semantics {
+            if (accessibleLabel.isNotBlank()) contentDescription = accessibleLabel
+            if (isSecret) password()
+        },
         placeholder,
         enabled,
-        singleLine,
+        singleLine || isSecret,
+        isSecret,
     )
 }
 
@@ -153,6 +164,7 @@ private fun SoftTextField(
     placeholder: String = "",
     enabled: Boolean = true,
     singleLine: Boolean = true,
+    isSecret: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -170,5 +182,6 @@ private fun SoftTextField(
         interactionSource = interactionSource,
         placeholder = placeholder,
         contentPadding = PaddingValues(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs),
+        isSecret = isSecret,
     )
 }
