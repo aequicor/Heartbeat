@@ -101,7 +101,8 @@ internal class ClaudeTurnObserver(
         update(ActiveSessionState.Ready(turn))
     }
 
-    fun writeFailed() {
+    /** A result was observed, but the input write or the process exit did not confirm it. */
+    fun resultUnconfirmed() {
         val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id)
         history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
         update(ActiveSessionState.Unavailable(failure, lastTurn = turn.copy(outcome = TurnOutcome.Unknown)))

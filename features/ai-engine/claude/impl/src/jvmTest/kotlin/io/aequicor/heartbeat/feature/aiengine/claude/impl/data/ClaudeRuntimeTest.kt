@@ -178,11 +178,14 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `failure before any session frame leaves delivery unknown`() = runTest {
+    fun `a launch failure is not delivered and synchronize makes the session ready again`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
+        val history = session.features.available(SessionHistory)
+        val checkpoint = history.page().checkpoint
         val missing = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
+        val generate = fixture.transport.generation
         fixture.transport.generation = { _, _ -> throw EngineException(missing) }
         val rejected = async {
             assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
@@ -190,7 +193,77 @@ class ClaudeRuntimeTest {
         runCurrent()
         assertEquals(missing, rejected.await().failure)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        session.features.available(ReconcilesSession).synchronize()
+        assertEquals(null, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn)
+
+        fixture.transport.generation = generate
+        val retried = async { session.features.available(SendsPrompts).send(prompt("retry")) }
+        runCurrent()
+        retried.await()
+        assertTrue(fixture.transport.calls.last().any { it == "--session-id=${session.ref.nativeId}" })
         runtime.close()
+        val finished = history.watch(checkpoint).toList().filterIsInstance<SessionEvent.TurnFinished>()
+        assertEquals(listOf(TurnOutcome.Completed), finished.map { it.outcome })
+    }
+
+    @Test
+    fun `a failure after a started process before any frame stays unresolved`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { _, _ -> 1 }
+        val rejected = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), rejected.await().failure)
+        val cannotResume = assertFailsWith<EngineException> {
+            session.features.available(ReconcilesSession).synchronize()
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), cannotResume.failure)
+        runtime.close()
+    }
+
+    @Test
+    fun `a result followed by a nonzero exit is not reported as completed`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(resultFrame(id))
+            1
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val history = session.features.available(SessionHistory)
+        val checkpoint = history.page().checkpoint
+        val send = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        send.await()
+        val unavailable = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(TurnOutcome.Unknown, unavailable.lastTurn?.outcome)
+        runtime.close()
+        val finished = history.watch(checkpoint).toList().filterIsInstance<SessionEvent.TurnFinished>()
+        assertEquals(listOf(TurnOutcome.Unknown), finished.map { it.outcome })
+    }
+
+    @Test
+    fun `closing the runtime during submission leaves the prompt outcome unknown`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val started = CompletableDeferred<Unit>()
+        fixture.transport.generation = { _, _ ->
+            started.complete(Unit)
+            kotlinx.coroutines.awaitCancellation()
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val send = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        started.await()
+        runtime.close()
+        val failure = assertIs<EngineFailure.Request>(send.await().failure)
+        assertEquals(RequestFailureReason.OutcomeUnknown, failure.reason)
     }
 
     @Test

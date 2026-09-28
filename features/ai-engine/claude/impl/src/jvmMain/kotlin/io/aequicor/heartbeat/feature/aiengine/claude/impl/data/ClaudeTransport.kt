@@ -22,7 +22,9 @@ import java.io.IOException
 
 /**
  * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
- * With `closeInput = false` stdin stays open until the operation ends.
+ * With `closeInput = false` stdin stays open until the operation ends. An input that was not fully written
+ * fails the operation with `Unavailable`, even after an early stop. `RequirementsNotMet` is reported only
+ * before a child process exists, so the input was certainly not delivered.
  */
 internal interface ClaudeTransport {
     suspend fun run(
@@ -91,7 +93,7 @@ internal class ProcessClaudeTransport(
             }
             val exit = reader.await()
             // After an early stop the child may still block the input write; killing it releases the writer.
-            process.destroyForcibly()
+            process.destroyTree()
             closeInput(process)
             val writeFailure = writer.await()
             if (writeFailure != null && input.isNotEmpty()) {
@@ -100,12 +102,12 @@ internal class ProcessClaudeTransport(
             log.d { "Claude CLI operation ended exit=$exit" }
             exit
         } finally {
-            process.destroyForcibly()
+            process.destroyTree()
             closeInput(process)
         }
     }
 
-    /** A child that stops reading stdin still reports its own exit code and frames. */
+    /** Returns the write failure instead of throwing, so the reader keeps the child's frames and exit code. */
     private fun writeInput(process: Process, input: String, closeInput: Boolean): IOException? {
         val stream = process.outputStream.bufferedWriter(Charsets.UTF_8)
         return try {
@@ -117,6 +119,15 @@ internal class ProcessClaudeTransport(
             log.w(e.redacted()) { "Claude process stopped reading input" }
             e
         }
+    }
+
+    /**
+     * Descendants are captured while the CLI is alive: a helper that inherited stdout would otherwise keep the
+     * pipe open, and the reader would never see EOF after cancellation.
+     */
+    private fun Process.destroyTree() {
+        descendants().forEach { it.destroyForcibly() }
+        destroyForcibly()
     }
 
     /** Windows does not close the parent's pipe handles when the child is destroyed. */

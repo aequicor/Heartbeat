@@ -90,7 +90,10 @@ internal class JvmClaudeBackend(
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
         enabled()
-        if (!accepts(source, context)) authFailure(AuthFailureReason.AuthMismatch)
+        if (!accepts(source, context)) {
+            log.w { "Claude model discovery requested for a foreign source" }
+            authFailure(AuthFailureReason.AuthMismatch)
+        }
         account.validate(source.info.revision)
         log.i { "Discovering Claude models" }
         return withProbeTimeout {
@@ -133,7 +136,7 @@ internal class JvmClaudeBackend(
         account.validate(identity.revision)
         val current = runtime
         if (current != null && current.identity == identity && !current.isClosed) return@withLock current
-        current?.close()
+        current?.retire()
         log.i { "Creating Claude profile runtime" }
         ClaudeRuntime(identity, transport, account, toggles, profile.coroutineScope).also { runtime = it }
     }

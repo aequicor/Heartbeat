@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -89,6 +90,11 @@ class ClaudeBackendTest {
         val second = assertIs<ClaudeRuntime>(backend.createRuntime(fixture.identity()))
         assertNotSame(first, second)
         assertTrue(first.isClosed)
+        val retired = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(
+            AuthFailureReason.SourceChanged,
+            assertIs<EngineFailure.Authentication>(retired.failure).reason.reason,
+        )
         val missing = assertFailsWith<EngineException> { backend.session(session.ref) }
         assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
         second.close()

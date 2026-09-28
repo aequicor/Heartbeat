@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
@@ -46,11 +47,14 @@ internal class ClaudeRuntime(
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()
     val isClosed: Boolean get() = !owner.isActive
+
+    @Volatile
+    private var closeFailure: EngineFailure = EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)
     override val features = ClaudeFeatures(CreatesSessions to this, AttachesSessions to this)
 
     init {
         owner.invokeOnCompletion { _ ->
-            sessions.values.forEach { it.shutdown() }
+            sessions.values.forEach { it.shutdown(closeFailure) }
         }
     }
 
@@ -103,6 +107,15 @@ internal class ClaudeRuntime(
         log.i { "Closing Claude runtime" }
         owner.cancelAndJoin()
         sessions.clear()
+    }
+
+    /** Replaced by a runtime for another account revision: its sessions report the changed source. */
+    suspend fun retire() {
+        log.i { "Retiring Claude runtime after an account change" }
+        closeFailure = EngineFailure.Authentication(
+            AuthFailure(AuthFailureReason.SourceChanged, ClaudeEngine.AuthSource),
+        )
+        close()
     }
 
     private suspend fun validate(target: EngineTarget) {

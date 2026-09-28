@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -48,7 +50,51 @@ class ClaudeProcessTest {
             }
             val pid = started.await()
             task.cancelAndJoin()
-            assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+            assertExited(pid)
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `cancellation also terminates a helper that inherited stdout`() = runTest {
+        val program = Files.createTempFile("claude-tree", ".java")
+        Files.writeString(program, TREE_PROGRAM)
+        val transport = transport()
+        val helper = CompletableDeferred<Long>()
+        try {
+            val task = async {
+                transport.run(listOf(program.toString(), program.toString()), closeInput = false) { line ->
+                    helper.complete(line.toLong())
+                    false
+                }
+            }
+            val pid = helper.await()
+            task.cancelAndJoin()
+            assertExited(pid)
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
+    fun `frames read after cancellation are not delivered`() = runTest {
+        val program = Files.createTempFile("claude-burst", ".java")
+        Files.writeString(program, BURST_PROGRAM)
+        val transport = transport()
+        val seen = mutableListOf<String>()
+        try {
+            lateinit var task: Job
+            task = async {
+                transport.run(listOf(program.toString())) { line ->
+                    seen += line
+                    task.cancel()
+                    false
+                }
+            }
+            task.join()
+            assertTrue(task.isCancelled)
+            assertEquals(listOf("first"), seen)
         } finally {
             Files.deleteIfExists(program)
         }
@@ -148,6 +194,13 @@ class ClaudeProcessTest {
     }
 }
 
+private fun assertExited(pid: Long) {
+    ProcessHandle.of(pid).ifPresent { it.onExit().get(EXIT_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
+    assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+}
+
+private const val EXIT_TIMEOUT_SECONDS = 10L
+
 private val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
 
 private const val CHILD_PROGRAM = """
@@ -166,6 +219,38 @@ class Sleeper {
     public static void main(String[] args) throws Exception {
         var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
         stdout.println("started");
+        Thread.sleep(60_000);
+    }
+}
+"""
+
+/** Starts a sleeping helper that shares stdout, prints its pid and keeps running. */
+private const val TREE_PROGRAM = """
+class Tree {
+    public static void main(String[] args) throws Exception {
+        if (args.length > 1) {
+            Thread.sleep(60_000);
+            return;
+        }
+        var launcher = ProcessHandle.current().info().command().orElseThrow();
+        var helper = new ProcessBuilder(launcher, args[0], args[0], "helper")
+            .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+            .redirectError(ProcessBuilder.Redirect.DISCARD)
+            .start();
+        var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
+        stdout.println(helper.pid());
+        Thread.sleep(60_000);
+    }
+}
+"""
+
+/** Writes two frames at once, so the second is already buffered when the first cancels the operation. */
+private const val BURST_PROGRAM = """
+class Burst {
+    public static void main(String[] args) throws Exception {
+        var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), false);
+        stdout.print("first\nsecond\n");
+        stdout.flush();
         Thread.sleep(60_000);
     }
 }
