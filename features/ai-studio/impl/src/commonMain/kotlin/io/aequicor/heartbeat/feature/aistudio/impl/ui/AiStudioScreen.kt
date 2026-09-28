@@ -9,6 +9,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -55,11 +57,16 @@ import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
 @Composable
-internal fun AiStudioScreen(model: AiStudioModel, exits: StudioExits, modifier: Modifier = Modifier) {
+internal fun AiStudioScreen(
+    model: AiStudioModel,
+    exits: StudioExits,
+    modifier: Modifier = Modifier,
+    chatArea: ComposableComponent? = null,
+) {
     val state by produceState(AiStudioScreenState(), model) {
         model.store.collect { states.collect { value = it } }
     }
-    AiStudioContent(state, model.store::intent, exits, modifier)
+    AiStudioContent(state, model.store::intent, exits, modifier, chatArea)
 }
 
 @Composable
@@ -68,6 +75,7 @@ internal fun AiStudioContent(
     onIntent: (AiStudioScreenIntent) -> Unit,
     exits: StudioExits,
     modifier: Modifier = Modifier,
+    chatArea: ComposableComponent? = null,
 ) {
     HbStudioTheme {
         HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
@@ -85,7 +93,7 @@ internal fun AiStudioContent(
 
                         StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
 
-                        StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits)
+                        StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea)
                     }
                 }
             }
@@ -94,7 +102,12 @@ internal fun AiStudioContent(
 }
 
 @Composable
-private fun StudioWorkspace(state: AiStudioScreenState, onIntent: (AiStudioScreenIntent) -> Unit, exits: StudioExits) {
+private fun StudioWorkspace(
+    state: AiStudioScreenState,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    exits: StudioExits,
+    chatArea: ComposableComponent?,
+) {
     val focus = remember { StudioFocusState() }
     val dispatch: (AiStudioScreenIntent) -> Unit = { intent ->
         focus.beforeIntent(intent, state)
@@ -123,6 +136,7 @@ private fun StudioWorkspace(state: AiStudioScreenState, onIntent: (AiStudioScree
                     exits,
                     focus,
                     drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
+                    chatArea = chatArea,
                 )
             } else {
                 val panesWidth = availableWidth - sidebarWidth - studio.outerInset * 2
@@ -133,6 +147,7 @@ private fun StudioWorkspace(state: AiStudioScreenState, onIntent: (AiStudioScree
                     focus,
                     sidebarWidth,
                     isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
+                    chatArea = chatArea,
                 )
             }
         }
@@ -147,6 +162,7 @@ private fun WideWorkspace(
     focus: StudioFocusState,
     sidebarWidth: Dp,
     isSplitAllowed: Boolean,
+    chatArea: ComposableComponent?,
 ) {
     HbRow(
         Modifier.fillMaxSize().padding(
@@ -168,6 +184,15 @@ private fun WideWorkspace(
                         .background(HbTheme.studioColors.sidebar).studioSidebarFocus(focus),
                 )
             }
+        }
+        if (chatArea != null) {
+            StudioChatArea(
+                chatArea,
+                onToggleSidebar = { onIntent(AiStudioScreenIntent.ToggleSidebar) },
+                isAtWindowLeadingEdge = !state.sidebar.isVisible,
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+            )
+            return@HbRow
         }
         val shown = if (isSplitAllowed) state.panes else state.panes.filter { it.id == state.focusedPaneId }
         HbRow(
@@ -202,9 +227,18 @@ private fun CompactWorkspace(
     exits: StudioExits,
     focus: StudioFocusState,
     drawerWidth: Dp,
+    chatArea: ComposableComponent?,
 ) {
     Box(Modifier.fillMaxSize()) {
-        state.panes.firstOrNull { it.id == state.focusedPaneId }?.let { pane ->
+        if (chatArea != null) {
+            StudioChatArea(
+                chatArea,
+                onToggleSidebar = { onIntent(AiStudioScreenIntent.SetDrawerOpen(true)) },
+                isAtWindowLeadingEdge = true,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        state.panes.takeIf { chatArea == null }?.firstOrNull { it.id == state.focusedPaneId }?.let { pane ->
             StudioPaneView(
                 content = state.paneContent(pane),
                 onOpenResearch = exits.onOpenResearch,
@@ -281,5 +315,22 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
                 )
             }
         }
+    }
+}
+
+/**
+ * A feature shown in the chat area instead of the studio panes, e.g. research. The studio keeps its sidebar and
+ * draws the area header itself: the sidebar toggle and the macOS traffic-light inset belong to the studio window.
+ */
+@Composable
+private fun StudioChatArea(
+    component: ComposableComponent,
+    onToggleSidebar: () -> Unit,
+    isAtWindowLeadingEdge: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    HbColumn(modifier.testTag("studio-chat-area"), gap = HbTheme.spacing.none) {
+        ChatAreaHeader(onToggleSidebar, isAtWindowLeadingEdge)
+        Box(Modifier.weight(1f).fillMaxWidth()) { component.Content(Modifier.fillMaxSize()) }
     }
 }

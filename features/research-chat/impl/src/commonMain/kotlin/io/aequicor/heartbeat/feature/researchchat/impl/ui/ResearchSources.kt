@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -17,9 +18,7 @@ import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbNavigationHeader
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
-import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -41,7 +40,6 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_remove
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_selected_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_session_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_share_source
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_sources_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_use_source
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_website
@@ -56,9 +54,8 @@ internal fun ResearchSources(
     val sharedCount = state.resources.count { it.isShared }
     val questionCount = state.resources.size - sharedCount
     val resources = state.resources.filter { it.isShared == (state.selectedSourceScope == ResourceScopeUi.Session) }
-    HbPanel(modifier.testTag("research-sources")) {
+    Box(modifier.testTag("research-sources")) {
         HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            HbNavigationHeader(stringResource(Res.string.research_sources))
             HbRow(Modifier.selectableGroup().padding(horizontal = HbTheme.spacing.xs), gap = HbTheme.spacing.xxs) {
                 HbNavigationItem(
                     label = stringResource(Res.string.research_session_sources, sharedCount),

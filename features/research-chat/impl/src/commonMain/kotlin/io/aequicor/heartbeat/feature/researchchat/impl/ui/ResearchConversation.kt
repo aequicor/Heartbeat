@@ -17,10 +17,9 @@ import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerIconButton
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
-import io.aequicor.heartbeat.ds.components.HbDivider
+import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -32,6 +31,7 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_add_so
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_composer_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_chat
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_hint
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_question
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_session
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_previous_run_failed
@@ -39,81 +39,122 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_send
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_stop
 import org.jetbrains.compose.resources.stringResource
 
+/**
+ * The research conversation laid out like a studio chat: a centered transcript column and the same composer, where
+ * the checked "Research" toggle returns the chat area to the regular chat and [panelToggle] shows the side panel.
+ */
 @Composable
 internal fun ResearchConversation(
     state: ResearchScreenState,
     onIntent: (ResearchScreenIntent) -> Unit,
+    onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    panelToggle: (@Composable () -> Unit)? = null,
 ) {
-    HbPanel(modifier.testTag("research-conversation")) {
-        HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            HbColumn(Modifier.fillMaxWidth().padding(HbTheme.spacing.l), gap = HbTheme.spacing.xxs) {
-                HbText(
-                    state.sessionTitle.ifBlank { stringResource(Res.string.research_new_session) },
-                    style = HbTheme.typography.caption,
-                    color = HbTheme.colors.textSecondary,
-                    maxLines = 1,
-                )
-                HbText(
-                    state.questionTitle.ifBlank { stringResource(Res.string.research_new_question) },
-                    style = HbTheme.typography.label,
-                    maxLines = 2,
-                )
-            }
-            HbDivider()
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (state.messages.isEmpty()) {
-                    ResearchEmptyConversation(Modifier.fillMaxSize())
-                } else {
-                    key(state.questionId) {
-                        ResearchTranscript(
-                            state,
-                            Modifier.fillMaxSize().widthIn(max = HbTheme.dimensions.chatMessageMaxWidth),
-                        )
-                    }
+    val column = Modifier.widthIn(max = HbTheme.studioDimensions.composerMaxWidth).fillMaxWidth()
+    HbColumn(
+        modifier.testTag("research-conversation"),
+        gap = HbTheme.spacing.none,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        ResearchContextLine(state, column.padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.spacing.s))
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            if (state.messages.isEmpty()) {
+                ResearchEmptyConversation(Modifier.fillMaxSize())
+            } else {
+                key(state.questionId) {
+                    ResearchTranscript(
+                        state,
+                        Modifier.fillMaxSize().widthIn(max = HbTheme.studioDimensions.messageMaxWidth),
+                    )
                 }
             }
+        }
+        HbColumn(
+            Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.spacing.m),
+            gap = HbTheme.spacing.s,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             if (state.hasQuestionFailed) {
                 HbText(
                     stringResource(Res.string.research_previous_run_failed),
-                    Modifier.padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.s)
-                        .semantics { liveRegion = LiveRegionMode.Polite }.testTag("research-previous-run-failed"),
+                    column.semantics { liveRegion = LiveRegionMode.Polite }.testTag("research-previous-run-failed"),
                     style = HbTheme.typography.caption,
                     color = HbTheme.colors.error,
                 )
             }
-            HbChatComposer(
-                value = state.draft,
-                onValueChange = { onIntent(ResearchScreenIntent.DraftChanged(it)) },
-                onSend = { onIntent(ResearchScreenIntent.Submit) },
-                onStop = { onIntent(ResearchScreenIntent.Stop) },
-                sendLabel = stringResource(Res.string.research_send),
-                stopLabel = stringResource(Res.string.research_stop),
-                modifier = Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("research-composer"),
-                layout = HbComposerLayout.Panel,
-                placeholder = stringResource(Res.string.research_composer_hint),
-                isStreaming = state.isRunning,
-                enabled = state.isEditable || state.isRunning,
-                leadingContent = {
-                    HbComposerIconButton(
-                        icon = HbIcons.Paperclip,
-                        contentDescription = stringResource(Res.string.research_add_source),
-                        onClick = { onIntent(ResearchScreenIntent.ShowResourceDialog(true)) },
-                        modifier = Modifier.testTag("research-attach-source"),
-                        enabled = state.isEditable,
-                    )
-                },
-            )
+            ResearchComposer(state, onIntent, onClose, panelToggle, column)
         }
     }
+}
+
+/** Session and question of the conversation, quiet above the transcript; the studio header names the mode. */
+@Composable
+private fun ResearchContextLine(state: ResearchScreenState, modifier: Modifier = Modifier) {
+    val session = state.sessionTitle.ifBlank { stringResource(Res.string.research_new_session) }
+    val question = state.questionTitle.ifBlank { stringResource(Res.string.research_new_question) }
+    // The first question usually names its session; repeating the same text reads as a glitch.
+    val context = if (session == question) question else "$session · $question"
+    HbText(
+        context,
+        modifier.testTag("research-context"),
+        style = HbTheme.typography.caption,
+        color = HbTheme.colors.textSecondary,
+        maxLines = 1,
+        isOverflowTooltipEnabled = true,
+    )
+}
+
+@Composable
+private fun ResearchComposer(
+    state: ResearchScreenState,
+    onIntent: (ResearchScreenIntent) -> Unit,
+    onClose: () -> Unit,
+    panelToggle: (@Composable () -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    HbChatComposer(
+        value = state.draft,
+        onValueChange = { onIntent(ResearchScreenIntent.DraftChanged(it)) },
+        onSend = { onIntent(ResearchScreenIntent.Submit) },
+        onStop = { onIntent(ResearchScreenIntent.Stop) },
+        sendLabel = stringResource(Res.string.research_send),
+        stopLabel = stringResource(Res.string.research_stop),
+        modifier = modifier.testTag("research-composer"),
+        layout = HbComposerLayout.Panel,
+        inputMaxHeight = HbTheme.studioDimensions.editorMaxHeight,
+        placeholder = stringResource(Res.string.research_composer_hint),
+        isStreaming = state.isRunning,
+        enabled = state.isEditable || state.isRunning,
+        leadingContent = {
+            HbComposerIconButton(
+                icon = HbIcons.Paperclip,
+                contentDescription = stringResource(Res.string.research_add_source),
+                onClick = { onIntent(ResearchScreenIntent.ShowResourceDialog(true)) },
+                modifier = Modifier.testTag("research-attach-source"),
+                enabled = state.isEditable,
+            )
+            HbComposerToggle(
+                label = stringResource(Res.string.research_mode),
+                isChecked = true,
+                onCheckedChange = { if (!it) onClose() },
+                modifier = Modifier.testTag("research-mode"),
+                icon = HbIcons.Library,
+            )
+        },
+        trailingContent = { panelToggle?.invoke() },
+    )
 }
 
 @Composable
 private fun ResearchEmptyConversation(modifier: Modifier = Modifier) {
     Box(modifier.hbVerticalScroll(rememberScrollState()), contentAlignment = Alignment.Center) {
-        HbColumn(Modifier.padding(HbTheme.spacing.xxl), horizontalAlignment = Alignment.CenterHorizontally) {
+        HbColumn(
+            Modifier.padding(HbTheme.spacing.xxl).widthIn(max = HbTheme.studioDimensions.composerMaxWidth),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
             HbIcon(HbIcons.Library, contentDescription = null, tint = HbTheme.colors.primary)
-            HbText(stringResource(Res.string.research_empty_chat), style = HbTheme.typography.title)
+            HbText(stringResource(Res.string.research_empty_chat), style = HbTheme.typography.display)
             HbText(stringResource(Res.string.research_empty_hint), color = HbTheme.colors.textSecondary)
         }
     }

@@ -5,6 +5,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
 
@@ -23,6 +24,9 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenResearch = component::openResearch,
             )
         }
-        AiStudioScreen(component.model, exits, modifier)
+        val workspace by component.workspace.stack.subscribeAsState()
+        // Any entry above the studio's own chat (research) takes over the chat area; the sidebar stays.
+        val chatArea = workspace.active.instance as? ComposableComponent
+        AiStudioScreen(component.model, exits, modifier, chatArea = chatArea)
     }
 }

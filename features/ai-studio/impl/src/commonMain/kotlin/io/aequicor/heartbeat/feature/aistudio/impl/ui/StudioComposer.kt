@@ -9,10 +9,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
-import io.aequicor.heartbeat.ds.components.HbComposerIconButton
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -104,11 +104,12 @@ internal fun StudioComposer(
                 )
             }
             if (content.isResearchAvailable && onOpenResearch != null) {
-                HbComposerIconButton(
-                    icon = HbIcons.Sparkles,
-                    contentDescription = stringResource(Res.string.research_mode),
-                    onClick = { onOpenResearch(settings.modelId) },
+                HbComposerToggle(
+                    label = stringResource(Res.string.research_mode),
+                    isChecked = false,
+                    onCheckedChange = { if (it) onOpenResearch(settings.modelId) },
                     modifier = Modifier.testTag("research-mode"),
+                    icon = HbIcons.Library,
                 )
             }
         },

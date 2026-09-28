@@ -111,7 +111,7 @@
     <string name="stop_failed">Не удалось подтвердить остановку. Движок может ещё работать. Нажмите «Остановить» повторно.</string>
     <string name="session_read_only">Продолжение этой сессии сейчас недоступно. Сохранённая история доступна; для продолжения работы создайте новый чат.</string>
     <string name="stop_unsupported">Этот движок не поддерживает остановку принятого запроса.</string>
-    <string name="research_mode">Режим исследования</string>
+    <string name="research_mode">Исследование</string>
     <string name="model_not_selected">Модель не выбрана</string>
     <string name="reasoning_title">Размышление</string>
     <string name="tool_pending">Ожидание</string>

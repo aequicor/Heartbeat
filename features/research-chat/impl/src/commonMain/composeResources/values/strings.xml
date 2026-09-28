@@ -1,6 +1,6 @@
 <resources>
-    <string name="research_title">Research</string>
-    <string name="research_back">Back to studio</string>
+    <string name="research_mode">Research</string>
+    <string name="research_toggle_panel">Show or hide questions and sources</string>
     <string name="research_sessions">Sessions</string>
     <string name="research_questions">Questions</string>
     <string name="research_chat">Chat</string>

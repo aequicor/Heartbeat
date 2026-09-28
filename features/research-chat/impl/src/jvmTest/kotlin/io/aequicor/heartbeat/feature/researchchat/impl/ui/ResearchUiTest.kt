@@ -81,13 +81,18 @@ class ResearchUiTest {
         }
 
     @Test
-    fun `wide research shows sessions questions transcript and selected shared sources`() =
+    fun `wide research keeps the chat column with a side panel of questions sources and sessions`() =
         runSkikoComposeUiTest(size = Size(1440f, 900f)) {
             val intents = mutableListOf<ResearchScreenIntent>()
-            setContent { HbTheme(darkTheme = false) { ResearchScreenContent(researchUiSample(), intents::add, {}) } }
-            onNodeWithTag("research-sessions").assertIsDisplayed()
-            onNodeWithTag("research-questions").assertIsDisplayed()
+            var closes = 0
+            setContent {
+                HbTheme(darkTheme = false) { ResearchScreenContent(researchUiSample(), intents::add, { closes++ }) }
+            }
             onNodeWithTag("research-transcript").assertIsDisplayed()
+            onNodeWithTag("research-questions").assertIsDisplayed()
+            onNodeWithTag("research-tab-Sessions").performClick()
+            onNodeWithTag("research-sessions").assertIsDisplayed()
+            onNodeWithTag("research-tab-Sources").performClick()
             onNodeWithTag("research-source-shared").assertIsDisplayed()
             onNodeWithTag("research-source-local").assertDoesNotExist()
             onNodeWithTag("research-source-selected-shared").performClick()
@@ -99,6 +104,12 @@ class ResearchUiTest {
                 ),
                 intents,
             )
+            onNodeWithTag("research-hide-panel").performClick()
+            onNodeWithTag("research-side-panel").assertDoesNotExist()
+            onNodeWithTag("research-toggle-panel").performClick()
+            onNodeWithTag("research-side-panel").assertIsDisplayed()
+            onNodeWithTag("research-mode").performClick()
+            assertEquals(1, closes, "The checked research toggle returns the chat area to the regular chat")
             save("research-wide-light", captureToImage().toAwtImage())
         }
 
@@ -114,6 +125,7 @@ class ResearchUiTest {
                 }, {})
             }
         }
+        onNodeWithTag("research-tab-Sources").performClick()
         onNodeWithTag("research-question-sources").performClick()
         onNodeWithTag("research-source-shared").assertDoesNotExist()
         onNodeWithTag("research-source-local").assertIsDisplayed()

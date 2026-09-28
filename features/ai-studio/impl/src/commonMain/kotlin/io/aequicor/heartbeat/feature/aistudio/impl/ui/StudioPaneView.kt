@@ -64,6 +64,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
@@ -234,7 +235,8 @@ private fun PaneHeader(
                 ),
             gap = HbTheme.spacing.m,
         ) {
-            run {
+            // The open sidebar has its own collapse button; the header offers one only when the sidebar is away.
+            if (layout.isCompact || isAtWindowLeadingEdge) {
                 HbIconButton(
                     icon = HbIcons.Menu,
                     contentDescription = stringResource(Res.string.pane_open_sidebar),
@@ -254,6 +256,47 @@ private fun PaneHeader(
             PaneTitle(content, onIntent, Modifier.weight(1f))
             PaneSessionMenu(content, onIntent)
             PaneLayoutActions(pane.id, layout, onIntent)
+        }
+    }
+}
+
+/** Header of the chat area while another feature (research) fills it: sidebar toggle, window inset and title. */
+@Composable
+internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
+    val studio = HbTheme.studioDimensions
+    val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
+        studio.titlebarLeadingInset
+    } else {
+        HbTheme.spacing.m
+    }
+    HbWindowDragArea(Modifier.fillMaxWidth()) {
+        HbRow(
+            Modifier.fillMaxWidth()
+                .heightIn(min = studio.headerHeight)
+                .background(HbTheme.studioColors.header)
+                .padding(
+                    start = leadingInset,
+                    end = HbTheme.spacing.m,
+                    top = HbTheme.spacing.xs,
+                    bottom = HbTheme.spacing.xs,
+                ),
+            gap = HbTheme.spacing.m,
+        ) {
+            if (isAtWindowLeadingEdge) {
+                HbIconButton(
+                    icon = HbIcons.Menu,
+                    contentDescription = stringResource(Res.string.pane_open_sidebar),
+                    tooltipText = "${stringResource(Res.string.pane_open_sidebar)} ${studioShortcutLabel("\\")}",
+                    onClick = onToggleSidebar,
+                    modifier = Modifier.testTag("chat-area-open-sidebar"),
+                )
+            }
+            HbText(
+                text = stringResource(Res.string.research_mode),
+                modifier = Modifier.weight(1f),
+                style = HbTheme.typography.title,
+                maxLines = 1,
+            )
         }
     }
 }

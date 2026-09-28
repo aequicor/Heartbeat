@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -10,11 +11,7 @@ import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbDivider
-import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbNavigationHeader
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
-import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
@@ -26,8 +23,6 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_qu
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_session
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_no_questions
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_no_sessions
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_questions
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_sessions
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -36,10 +31,8 @@ internal fun ResearchSessions(
     onIntent: (ResearchScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbPanel(modifier.testTag("research-sessions")) {
+    Box(modifier.testTag("research-sessions")) {
         HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            HbNavigationHeader(stringResource(Res.string.research_sessions))
-            HbDivider()
             HbLazyColumn(Modifier.weight(1f).fillMaxWidth(), gap = HbTheme.spacing.xs) {
                 if (state.sessions.isEmpty()) {
                     item {
@@ -54,7 +47,7 @@ internal fun ResearchSessions(
                         label = session.title.ifBlank { stringResource(Res.string.research_new_session) },
                         onClick = { onIntent(ResearchScreenIntent.SelectSession(session.id)) },
                         modifier = Modifier.testTag("research-session-${session.id}"),
-                        icon = HbIcons.Library,
+                        minHeight = HbTheme.studioDimensions.navigationRowHeight,
                         isSelected = session.isSelected,
                     )
                 }
@@ -76,10 +69,8 @@ internal fun ResearchQuestions(
     onIntent: (ResearchScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbPanel(modifier.testTag("research-questions")) {
+    Box(modifier.testTag("research-questions")) {
         HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            HbNavigationHeader(stringResource(Res.string.research_questions))
-            HbDivider()
             HbLazyColumn(Modifier.weight(1f).fillMaxWidth(), gap = HbTheme.spacing.xs) {
                 if (state.questions.isEmpty()) {
                     item {
@@ -94,7 +85,7 @@ internal fun ResearchQuestions(
                         label = question.title.ifBlank { stringResource(Res.string.research_new_question) },
                         onClick = { onIntent(ResearchScreenIntent.SelectQuestion(question.id)) },
                         modifier = Modifier.testTag("research-question-${question.id}"),
-                        icon = HbIcons.Chat,
+                        minHeight = HbTheme.studioDimensions.navigationRowHeight,
                         isSelected = question.isSelected,
                         trailingContent = {
                             if (question.isRunning) HbActivityIndicator(size = HbTheme.dimensions.iconSmallSize)
