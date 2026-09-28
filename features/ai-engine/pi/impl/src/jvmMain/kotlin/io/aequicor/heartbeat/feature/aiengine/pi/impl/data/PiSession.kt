@@ -106,6 +106,9 @@ internal class PiSession(
     // Pending tool approvals keyed by the Pi extension UI request id; confined to dispatchers.main.
     private val permissions = mutableMapOf<PermissionRequestId, PermissionRequest>()
     private val decisions = mutableSetOf<PermissionRequestId>()
+
+    // Non-approval dialogs among [permissions] and how to answer them; confined to dispatchers.main.
+    private val dialogs = mutableMapOf<PermissionRequestId, PiDialog>()
     private val machine = environment.machines.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(UUID.randomUUID().toString()), ActiveSessionState.Ready()),
         handle,
@@ -323,6 +326,7 @@ internal class PiSession(
         connection = null
         // Approvals belonged to the lost process; its extension can no longer receive an answer.
         permissions.clear()
+        dialogs.clear()
         decisions.clear()
         val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
@@ -465,20 +469,21 @@ internal class PiSession(
         // Fire-and-forget UI (notify, status, widgets) needs no answer.
         if (record.string("method") !in DIALOG_METHODS) return
         val active = turn
-        val request = if (record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE) {
-            active?.let { approvalRequest(id, it.id, record.string("message")) }
-        } else {
-            null
-        }
+        val isApproval = record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE
+        val dialog = if (isApproval) null else active?.let { PiDialog.from(record, id, it.id) }
+        val approval = if (isApproval) active?.let { approvalRequest(id, it.id, record.string("message")) } else null
+        val request = approval ?: dialog?.request
         if (request == null || isHandleClosed) {
             dismiss(id)
             return
         }
         permissions[request.id] = request
+        dialog?.let { dialogs[request.id] = it }
         if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted) {
-            log.i { "Pi tool call awaits user approval" }
+            log.i { if (isApproval) "Pi tool call awaits user approval" else "Pi dialog awaits user answer" }
         } else {
             permissions.remove(request.id)
+            dialogs.remove(request.id)
             dismiss(id)
         }
     }
@@ -516,26 +521,37 @@ internal class PiSession(
     }
 
     private suspend fun answer(decision: PermissionDecision) {
-        permissions.remove(decision.request) ?: return
+        val request = permissions.remove(decision.request) ?: return
+        val dialog = dialogs.remove(decision.request)
         try {
             val isAllowed = decision.option == AllowOption
+            val reply = dialog?.reply(decision) ?: ("confirmed" to JsonPrimitive(isAllowed))
             rpc().send(
                 JsonObject(
                     mapOf(
                         "type" to JsonPrimitive("extension_ui_response"),
                         "id" to JsonPrimitive(decision.request.value),
-                        "confirmed" to JsonPrimitive(isAllowed),
+                        reply,
                     ),
                 ),
             )
             // Pi does not acknowledge dialog answers; handing the answer to the process resolves the request.
             machine.send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
-            log.i { if (isAllowed) "Pi tool call allowed by user" else "Pi tool call denied by user" }
+            log.i {
+                when {
+                    dialog != null -> "Pi dialog answered by user: ${reply.first}"
+                    isAllowed -> "Pi tool call allowed by user"
+                    else -> "Pi tool call denied by user"
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: EngineException) {
             log.w(e) { "Pi approval answer was not delivered" }
             decisions.remove(decision.request)
+            // The request is still pending in Pi: keep it answerable so a retry can deliver the answer.
+            permissions[decision.request] = request
+            dialog?.let { dialogs[decision.request] = it }
             if (turn?.id == decision.turn) failed(e.failure)
         }
     }
@@ -543,6 +559,7 @@ internal class PiSession(
     private suspend fun dismissApprovals() {
         val pending = permissions.keys.toList()
         permissions.clear()
+        dialogs.clear()
         pending.forEach { dismiss(it.value) }
     }
 
@@ -581,6 +598,7 @@ internal class PiSession(
         journal.finished(completed.id, outcome)
         turn = null
         permissions.clear()
+        dialogs.clear()
         decisions.clear()
         if (isHandleClosed) release()
     }
@@ -623,6 +641,7 @@ internal class PiSession(
             journal.finished(completed.turn, completed.outcome)
             turn = null
             permissions.clear()
+            dialogs.clear()
             decisions.clear()
         }
     }

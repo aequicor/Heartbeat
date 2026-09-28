@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileGraph
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.core.profilefacade.ProfileStartupAccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,7 +95,23 @@ internal class ProfileSessionsImpl(
             scope.close()
             throw e
         }
+        startServices(graph)
         return ProfileSession(id, graph) to scope
+    }
+
+    private fun startServices(graph: ProfileGraph) {
+        val startups = (graph as? ProfileStartupAccess)?.profileStartups.orEmpty()
+        log.i { "starting profile services count=${startups.size}" }
+        // A failing feature service must not keep the profile closed; its failure is logged with the cause.
+        startups.forEach { startup ->
+            try {
+                startup.start()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.e(e) { "failed to start a profile service" }
+            }
+        }
     }
 
     private companion object {

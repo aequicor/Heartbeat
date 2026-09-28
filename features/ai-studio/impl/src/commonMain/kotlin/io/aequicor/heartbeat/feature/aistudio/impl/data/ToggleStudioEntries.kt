@@ -12,8 +12,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.settings.api.UnifiedSettings
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 
 /**
  * Entry points gated by feature toggles. Connection settings are profile routes, so they are offered only while
@@ -21,13 +24,23 @@ import kotlinx.coroutines.flow.combine
  */
 @Inject
 @ContributesBinding(AiStudioScope::class)
-internal class ToggleStudioEntries(toggles: FeatureToggles, sessions: ProfileSessions) : StudioEntries {
+@OptIn(ExperimentalCoroutinesApi::class)
+internal class ToggleStudioEntries(
+    toggles: FeatureToggles,
+    sessions: ProfileSessions,
+    questions: Lazy<StudioQuestionBridge>,
+) : StudioEntries {
     override val showsResearch: Flow<Boolean> = combine(
         toggles.observe(ResearchChatEnabled),
         toggles.observe(StudioEngineRuntime),
         toggles.observe(KoogEngineEnabled),
         sessions.active,
     ) { research, runtime, koog, session -> research && runtime && koog && session != null }
+
+    // The profile bridge runs from the profile start; a guest studio has no profile questions.
+    override val questionSources: Flow<Set<String>> = sessions.active.flatMapLatest { session ->
+        if (session == null) flowOf(emptySet()) else questions.value.sources
+    }
 
     override val showsConnections: Flow<Boolean> =
         combine(toggles.observe(EngineConnectionsEnabled), sessions.active) { isEnabled, session ->

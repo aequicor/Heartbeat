@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -82,6 +83,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
 
@@ -97,6 +100,7 @@ internal fun StudioPaneView(
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
     isAtWindowLeadingEdge: Boolean = false,
+    questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     val pane = content.pane
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -156,7 +160,7 @@ internal fun StudioPaneView(
                 Modifier.fillMaxWidth(),
                 gap = HbTheme.spacing.none,
             ) {
-                PaneNotices(content, onIntent)
+                PaneNotices(content, onIntent, questions)
                 PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
             }
         }
@@ -164,7 +168,11 @@ internal fun StudioPaneView(
 }
 
 @Composable
-private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun PaneNotices(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    questions: ImmutableMap<String, ComposableComponent>,
+) {
     HbColumn(
         Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
@@ -178,7 +186,9 @@ private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -
         if (content.isStopFailed) {
             HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
         }
-        content.permissions.forEach { request ->
+        val asked = content.session?.id?.let(questions::get)
+        asked?.Content(Modifier.padding(HbTheme.spacing.m).testTag("pane-questionnaire"))
+        content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(
                     Modifier.padding(HbTheme.spacing.m)

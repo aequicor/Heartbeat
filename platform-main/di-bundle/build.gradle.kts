@@ -22,6 +22,8 @@ kotlin {
             implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
+            api(projects.features.questionnaire.api)
+            implementation(projects.features.questionnaire.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.researchChat.impl)
             implementation(projects.features.searchEngine.impl)

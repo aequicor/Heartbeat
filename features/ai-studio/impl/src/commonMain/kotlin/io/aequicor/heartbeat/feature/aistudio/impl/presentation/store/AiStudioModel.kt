@@ -69,6 +69,9 @@ class AiStudioModel(
         reflect(machine, onOutput = { output ->
             when (output) {
                 is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output.paneId, output.prompt) }
+
+                // Delivery results of engine questions are handled by the question bridge.
+                is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
             }
         }) { reflectMachine(it) }
         whileSubscribed(name = "workspace") {

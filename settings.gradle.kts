@@ -36,6 +36,7 @@ plugins {
 include(":core:logging")
 include(":core:mvi")
 include(":features:welcome:api", ":features:welcome:impl")
+include(":features:questionnaire:api", ":features:questionnaire:impl")
 include(":features:ai-studio:api", ":features:ai-studio:impl")
 include(":features:search-engine:api", ":features:search-engine:impl")
 include(":features:toggles-panel:api", ":features:toggles-panel:impl")

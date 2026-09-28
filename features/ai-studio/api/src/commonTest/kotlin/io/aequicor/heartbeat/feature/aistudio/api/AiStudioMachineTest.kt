@@ -335,6 +335,7 @@ class AiStudioMachineTest {
             intent = AiStudioIntent.Internal.RunFinished("s3", RunOutcome.Completed),
             to = home,
             effects = listOf(AiStudioEffect.Apply("s3", SessionEdit.SetUnread(true))),
+            outputs = listOf(AiStudioOutput.RunEnded("s3", RunOutcome.Completed)),
         )
     }
 
@@ -398,8 +399,9 @@ class AiStudioMachineTest {
         )
         AiStudioMachineSpec.assertTransition(
             from = answered,
-            intent = AiStudioIntent.Internal.PermissionAnswerFailed("request"),
+            intent = AiStudioIntent.Internal.PermissionAnswerFailed("s1", "request"),
             to = answered.copy(answeredPermissions = emptySet()),
+            outputs = listOf(AiStudioOutput.PermissionAnswerFailed("s1", "request")),
         )
         AiStudioMachineSpec.assertTransition(
             from = answered.copy(answeredPermissions = emptySet()),
@@ -411,12 +413,47 @@ class AiStudioMachineTest {
     }
 
     @Test
+    fun `structured permission answers reach the effect`() {
+        val permission = StudioPermission(
+            "s1",
+            "request",
+            "Pick",
+            listOf(StudioPermissionOption("submit", "Submit")),
+            input = StudioPermissionInput.FreeText(null, false),
+        )
+        val live = session.copy(running = setOf("s1"), observedRunning = setOf("s1"), permissions = listOf(permission))
+        val answer = StudioPermissionAnswer.Text("blue")
+        AiStudioMachineSpec.assertTransition(
+            from = live,
+            intent = AiStudioIntent.Public.RespondPermission("s1", "request", "submit", answer),
+            to = live.copy(permissions = emptyList(), answeredPermissions = setOf("request")),
+            effects = listOf(AiStudioEffect.RespondPermission("s1", "request", "submit", answer)),
+        )
+    }
+
+    @Test
+    fun `follow-up answers run idle sessions only`() {
+        AiStudioMachineSpec.assertTransition(
+            from = session,
+            intent = AiStudioIntent.Public.FollowUp("s1", " Pick\nblue "),
+            to = session.copy(running = setOf("s1")),
+            effects = listOf(AiStudioEffect.Run("s1", "Pick\nblue", session.settings)),
+        )
+        AiStudioMachineSpec.assertIgnored(
+            session.copy(running = setOf("s1")),
+            AiStudioIntent.Public.FollowUp("s1", "x"),
+        )
+        AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.FollowUp("s1", " "))
+    }
+
+    @Test
     fun `late run completion never clears a newer native run`() {
         val observed = session.copy(running = setOf("s1"), observedRunning = setOf("s1"))
         AiStudioMachineSpec.assertTransition(
             from = observed,
             intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Completed),
             to = observed,
+            outputs = listOf(AiStudioOutput.RunEnded("s1", RunOutcome.Completed)),
         )
     }
 
@@ -426,6 +463,7 @@ class AiStudioMachineTest {
             from = session.copy(running = setOf("s1"), stopping = setOf("s1")),
             intent = AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Stopped),
             to = session,
+            outputs = listOf(AiStudioOutput.RunEnded("s1", RunOutcome.Stopped)),
         )
     }
 

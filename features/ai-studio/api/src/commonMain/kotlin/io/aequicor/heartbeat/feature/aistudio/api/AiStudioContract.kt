@@ -120,8 +120,22 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Asks the running agent of [sessionId] to stop. */
         public data class Stop(val sessionId: String) : Public
 
-        /** Answers one currently pending engine permission. */
-        public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) : Public
+        /**
+         * Answers one currently pending engine permission with an offered option and, for permissions with input,
+         * the structured [answer] (e.g. from the questionnaire).
+         */
+        public data class RespondPermission(
+            val sessionId: String,
+            val requestId: String,
+            val optionId: String,
+            val answer: StudioPermissionAnswer? = null,
+        ) : Public
+
+        /**
+         * Sends [prompt] as the next user message of [sessionId] without a composer (e.g. an answer to a question
+         * whose native request no longer exists); accepted only while the session is idle.
+         */
+        public data class FollowUp(val sessionId: String, val prompt: String) : Public
 
         /** Changes the metadata of [sessionId]. */
         public data class Edit(val sessionId: String, val edit: SessionEdit) : Public
@@ -159,7 +173,7 @@ public sealed interface AiStudioIntent : MachineIntent {
         public data class RunFinished(val sessionId: String, val outcome: RunOutcome) : Internal
 
         /** Answering permission [requestId] failed; the request is shown again by the next runtime snapshot. */
-        public data class PermissionAnswerFailed(val requestId: String) : Internal
+        public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : Internal
 
         /** The runtime observation failed; nothing is known to run any more. */
         public data object RuntimeLost : Internal
@@ -198,9 +212,13 @@ public sealed interface AiStudioEffect : MachineEffect {
     /** Picks and registers a local folder without logging or exposing its path to the machine. */
     public data class ChooseProject(val paneId: Int) : AiStudioEffect
 
-    /** Sends an explicit engine-offered decision. */
-    public data class RespondPermission(val sessionId: String, val requestId: String, val optionId: String) :
-        AiStudioEffect
+    /** Sends an explicit engine-offered decision with the structured [answer] of its input. */
+    public data class RespondPermission(
+        val sessionId: String,
+        val requestId: String,
+        val optionId: String,
+        val answer: StudioPermissionAnswer? = null,
+    ) : AiStudioEffect
 
     /** Creates a session for the first [prompt] of [paneId] inside [projectId]. */
     public data class CreateSession(
@@ -224,6 +242,12 @@ public sealed interface AiStudioEffect : MachineEffect {
 public sealed interface AiStudioOutput : MachineOutput {
     /** The prompt of [paneId] was not sent; the composer can restore it. */
     public data class SubmitFailed(val paneId: Int, val prompt: String) : AiStudioOutput
+
+    /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
+    public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput
+
+    /** An effect run of [sessionId] ended with [outcome] (emitted for every `RunFinished`). */
+    public data class RunEnded(val sessionId: String, val outcome: RunOutcome) : AiStudioOutput
 }
 
 /** Address of the studio machine. */

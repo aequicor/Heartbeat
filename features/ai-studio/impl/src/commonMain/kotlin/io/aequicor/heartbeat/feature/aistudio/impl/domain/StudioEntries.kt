@@ -8,6 +8,9 @@ interface StudioEntries {
     /** Whether projectless Koog research entry points may be offered. */
     val showsResearch: Flow<Boolean> get() = flowOf(false)
 
+    /** Sessions with open questionnaire questions (inside a profile, while the questionnaire is enabled). */
+    val questionSources: Flow<Set<String>> get() = flowOf(emptySet())
+
     /** Whether the engine connection settings can be opened. */
     val showsConnections: Flow<Boolean>
 

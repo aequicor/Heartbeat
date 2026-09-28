@@ -10,6 +10,7 @@ kotlin {
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.researchChat.api)
+            implementation(projects.features.questionnaire.api)
             implementation(projects.features.aiEngine.koog.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.settings.api)
