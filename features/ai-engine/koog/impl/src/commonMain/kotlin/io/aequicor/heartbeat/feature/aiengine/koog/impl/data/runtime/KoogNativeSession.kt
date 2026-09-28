@@ -290,12 +290,12 @@ internal class KoogNativeSession(
                 is SessionItem.ToolCall -> if (item.status == ToolCallStatus.Succeeded ||
                     item.status == ToolCallStatus.Failed
                 ) {
-                    toolCall(item.call.value, item.name, item.arguments)
+                    toolCall(tool = item.name, args = item.arguments, id = item.call.value)
                 }
 
                 is SessionItem.ToolResult -> calls[item.call]?.let { call ->
                     val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-                    toolResult(item.call.value, call.name, text, item.failure != null)
+                    toolResult(tool = call.name, output = text, id = item.call.value, isError = item.failure != null)
                 }
 
                 is SessionItem.Plan, is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
@@ -388,8 +388,8 @@ internal class KoogNativeSession(
         }
         messages(input.messages)
         if (text.isNotBlank()) assistant(text)
-        calls.forEach { toolCall(it.id, it.name, it.arguments) }
-        calls.forEach { toolResult(it.id, it.name, it.result.text, it.result.isFailed) }
+        calls.forEach { toolCall(tool = it.name, args = it.arguments, id = it.id) }
+        calls.forEach { toolResult(tool = it.name, output = it.result.text, id = it.id, isError = it.result.isFailed) }
     }
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {

@@ -16,7 +16,7 @@ internal class KoogClient(val executor: PromptExecutor, val models: suspend () -
 /**
  * SDK model for the chosen text route. [tools] is set only when search tools are sent to a model that supports them.
  * Anthropic 1.3 requires Tools even for an empty tool list; this is an SDK precondition, not an advertised
- * adapter capability. OpenAI receives the explicit Chat Completions endpoint required by the SDK for arbitrary
+ * adapter capability. OpenAI-compatible providers receive the explicit Chat Completions endpoint for arbitrary
  * provider model ids. [attachments] permits native image/document serialization; the provider still validates
  * whether the selected model supports the requested modality.
  */
@@ -26,7 +26,9 @@ internal fun KoogProvider.textModel(id: String, tools: Boolean = false, attachme
         id = id,
         capabilities = buildList {
             add(LLMCapability.Completion)
-            if (this@textModel == KoogProvider.OpenAI) add(LLMCapability.OpenAIEndpoint.Completions)
+            if (this@textModel == KoogProvider.OpenAI || this@textModel == KoogProvider.AlibabaQwen) {
+                add(LLMCapability.OpenAIEndpoint.Completions)
+            }
             if (tools || this@textModel == KoogProvider.Anthropic) add(LLMCapability.Tools)
             if (attachments) {
                 add(LLMCapability.Vision.Image)

@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAuthOwner
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogSessionSource
 
 /** App-wide toggle declaration; registrations themselves are owned by profiles. */
@@ -66,6 +67,11 @@ public object KoogBindings {
                     ConnectionMethodId("anthropic"),
                     ProviderInfo(ProviderId("anthropic"), "Anthropic"),
                     EndpointOrigin("https://api.anthropic.com"),
+                ),
+                ConnectionMethod.ApiKey(
+                    ConnectionMethodId(KoogProvider.AlibabaQwen.id.value),
+                    ProviderInfo(KoogProvider.AlibabaQwen.id, "Alibaba Qwen (Token Plan)"),
+                    KoogProvider.AlibabaQwen.origin,
                 ),
                 ConnectionMethod.NoAuth(
                     ConnectionMethodId("ollama"),
