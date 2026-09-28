@@ -1,5 +1,4 @@
 <resources>
-    <string name="welcome_brand">AEQUICOR</string>
     <string name="welcome_title">Heartbeat</string>
     <string name="welcome_subtitle">Пространство для ваших идей с AI</string>
     <string name="welcome_studio">Перейти в AI-studio</string>

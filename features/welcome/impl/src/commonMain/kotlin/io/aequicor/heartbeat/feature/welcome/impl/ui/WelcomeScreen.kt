@@ -1,8 +1,10 @@
 package io.aequicor.heartbeat.feature.welcome.impl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -36,9 +38,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbCinematicBackdrop
-import io.aequicor.heartbeat.ds.components.HbGlassOrbit
+import io.aequicor.heartbeat.ds.components.HbStudioMark
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -49,7 +51,6 @@ import io.aequicor.heartbeat.feature.welcome.impl.presentation.store.WelcomePhas
 import io.aequicor.heartbeat.feature.welcome.impl.presentation.store.WelcomeScreenIntent
 import io.aequicor.heartbeat.feature.welcome.impl.presentation.store.WelcomeScreenState
 import io.aequicor.heartbeat.feature.welcome.impl.resources.Res
-import io.aequicor.heartbeat.feature.welcome.impl.resources.welcome_brand
 import io.aequicor.heartbeat.feature.welcome.impl.resources.welcome_footer
 import io.aequicor.heartbeat.feature.welcome.impl.resources.welcome_skip
 import io.aequicor.heartbeat.feature.welcome.impl.resources.welcome_studio
@@ -67,38 +68,46 @@ internal fun WelcomeScreen(model: WelcomeModel, modifier: Modifier = Modifier) {
     WelcomeContent(state.phase, model.store::intent, modifier)
 }
 
+/**
+ * Welcome in the same flat, edge-to-edge window as the studio: a draggable header strip, the studio mark and one
+ * clear primary path (the studio) with a compact secondary action. The introduction only fades the parts in.
+ */
 @Composable
 internal fun WelcomeContent(
     phase: WelcomePhase,
     onIntent: (WelcomeScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbTheme(darkTheme = false, motion = HbTheme.motion) {
-        val progress = rememberIntroProgress(phase, onIntent)
-        val isIntro = phase == WelcomePhase.Intro || phase == WelcomePhase.Preparing
-        val isReady = phase == WelcomePhase.Ready
-        val skipFocus = remember { FocusRequester() }
-        val studioFocus = remember { FocusRequester() }
-        LaunchedEffect(isIntro, isReady) {
-            // Wait until the newly revealed controls are attached and laid out.
-            withFrameNanos { }
-            if (isIntro) skipFocus.requestFocus()
-            if (isReady) studioFocus.requestFocus()
-        }
-        val sceneProgress = { if (isIntro) progress.value else 1f }
-        Box(
-            modifier.fillMaxSize().testTag("welcome").skipIntroOnEscape(isIntro, onIntent),
-        ) {
-            HbCinematicBackdrop(sceneProgress)
-            WelcomeStage(sceneProgress, isReady, onIntent, studioFocus)
-            if (isIntro) {
-                HbButton(
-                    stringResource(Res.string.welcome_skip),
-                    { onIntent(WelcomeScreenIntent.Skip) },
-                    Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(HbTheme.spacing.l)
-                        .focusRequester(skipFocus).testTag("welcome-skip"),
-                    style = HbButtonStyle.Quiet,
-                )
+    val progress = rememberIntroProgress(phase, onIntent)
+    val isIntro = phase == WelcomePhase.Intro || phase == WelcomePhase.Preparing
+    val isReady = phase == WelcomePhase.Ready
+    val skipFocus = remember { FocusRequester() }
+    val studioFocus = remember { FocusRequester() }
+    LaunchedEffect(isIntro, isReady) {
+        // Wait until the newly revealed controls are attached and laid out.
+        withFrameNanos { }
+        if (isIntro) skipFocus.requestFocus()
+        if (isReady) studioFocus.requestFocus()
+    }
+    val sceneProgress = { if (isIntro) progress.value else 1f }
+    Box(
+        modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("welcome")
+            .skipIntroOnEscape(isIntro, onIntent),
+    ) {
+        WelcomeStage(sceneProgress, isReady, onIntent, studioFocus)
+        HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) {
+            Box(
+                Modifier.fillMaxSize().padding(horizontal = HbTheme.spacing.m),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                if (isIntro) {
+                    HbButton(
+                        stringResource(Res.string.welcome_skip),
+                        { onIntent(WelcomeScreenIntent.Skip) },
+                        Modifier.focusRequester(skipFocus).testTag("welcome-skip"),
+                        style = HbButtonStyle.Quiet,
+                    )
+                }
             }
         }
     }
@@ -152,13 +161,11 @@ private fun WelcomeStage(
 ) {
     val tokens = HbTheme.welcome
     HbBoxWithConstraints(modifier.fillMaxSize().safeDrawingPadding()) {
-        val isCompact = maxWidth < HbTheme.dimensions.compactBreakpoint
         val viewportHeight = maxHeight
-        val pagePadding = if (isCompact) tokens.compactPagePadding else tokens.pagePadding
         HbColumn(Modifier.fillMaxSize().hbVerticalScroll(rememberScrollState())) {
             Box(
                 Modifier.fillMaxWidth().heightIn(min = viewportHeight)
-                    .padding(pagePadding),
+                    .padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.dimensions.headerHeight),
                 contentAlignment = Alignment.Center,
             ) {
                 HbColumn(
@@ -166,26 +173,20 @@ private fun WelcomeStage(
                     gap = tokens.sectionGap,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    HbText(stringResource(Res.string.welcome_brand), style = tokens.brand)
-                    HbGlassOrbit(
-                        progress,
-                        Modifier.size(if (isCompact) tokens.compactSymbolSize else tokens.symbolSize),
-                    )
-                    WelcomeTitle(isCompact, progress)
+                    HbStudioMark(Modifier.size(tokens.symbolSize).reveal(progress, tokens.symbolStart))
+                    WelcomeTitle(Modifier.reveal(progress, tokens.titleStart))
                     WelcomeActions(
-                        isCompact,
                         isReady,
                         onIntent,
                         studioFocus,
-                        Modifier.graphicsLayer {
-                            alpha = ((progress() - tokens.actionsStart) / (1f - tokens.actionsStart)).coerceIn(0f, 1f)
-                        }.then(if (isReady) Modifier else Modifier.clearAndSetSemantics { }),
+                        Modifier.reveal(progress, tokens.actionsStart)
+                            .then(if (isReady) Modifier else Modifier.clearAndSetSemantics { }),
                     )
                     HbText(
                         stringResource(Res.string.welcome_footer),
                         style = HbTheme.typography.caption.copy(textAlign = TextAlign.Center),
                         color = HbTheme.colors.textSecondary,
-                        modifier = Modifier.graphicsLayer { alpha = progress() },
+                        modifier = Modifier.reveal(progress, tokens.actionsStart),
                     )
                 }
             }
@@ -193,17 +194,19 @@ private fun WelcomeStage(
     }
 }
 
+/** Fades a part in from [start] of the introduction, drifting it up by [HbWelcome.revealOffset]. */
+private fun Modifier.reveal(progress: () -> Float, start: Float): Modifier {
+    val offset = HbTheme.welcome.revealOffset
+    return graphicsLayer {
+        alpha = ((progress() - start) / REVEAL_SPAN).coerceIn(0f, 1f)
+        translationY = (1f - alpha) * offset.toPx()
+    }
+}
+
 @Composable
-private fun WelcomeTitle(isCompact: Boolean, progress: () -> Float, modifier: Modifier = Modifier) {
-    val tokens = HbTheme.welcome
-    HbColumn(
-        modifier.graphicsLayer {
-            alpha = ((progress() - tokens.titleStart) / (tokens.actionsStart - tokens.titleStart)).coerceIn(0f, 1f)
-            translationY = (1f - alpha) * tokens.sectionGap.toPx()
-        },
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        HbText(stringResource(Res.string.welcome_title), style = if (isCompact) tokens.compactTitle else tokens.title)
+private fun WelcomeTitle(modifier: Modifier = Modifier) {
+    HbColumn(modifier, gap = HbTheme.spacing.s, horizontalAlignment = Alignment.CenterHorizontally) {
+        HbText(stringResource(Res.string.welcome_title), style = HbTheme.typography.display)
         HbText(
             stringResource(Res.string.welcome_subtitle),
             style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
@@ -214,40 +217,41 @@ private fun WelcomeTitle(isCompact: Boolean, progress: () -> Float, modifier: Mo
 
 @Composable
 private fun WelcomeActions(
-    isCompact: Boolean,
     enabled: Boolean,
     onIntent: (WelcomeScreenIntent) -> Unit,
     studioFocus: FocusRequester,
     modifier: Modifier = Modifier,
 ) {
-    val actions: @Composable () -> Unit = {
+    HbColumn(modifier, gap = HbTheme.spacing.s, horizontalAlignment = Alignment.CenterHorizontally) {
         HbButton(
             stringResource(Res.string.welcome_studio),
             { onIntent(WelcomeScreenIntent.OpenStudio) },
-            Modifier.widthIn(min = HbTheme.welcome.actionWidth).heightIn(min = HbTheme.welcome.actionHeight)
-                .focusRequester(studioFocus).testTag("welcome-studio"),
+            Modifier.focusRequester(studioFocus).testTag("welcome-studio"),
             enabled = enabled,
         )
-        HbButton(
-            stringResource(Res.string.welcome_toggles),
-            { onIntent(WelcomeScreenIntent.OpenToggles) },
-            Modifier.widthIn(min = HbTheme.welcome.actionWidth).heightIn(min = HbTheme.welcome.actionHeight)
-                .testTag("welcome-toggles"),
-            style = HbButtonStyle.Secondary,
-            enabled = enabled,
-        )
-    }
-    if (isCompact) {
-        HbColumn(modifier, horizontalAlignment = Alignment.CenterHorizontally) { actions() }
-    } else {
-        HbRow(modifier) { actions() }
+        HbRow(gap = HbTheme.spacing.xs) {
+            HbButton(
+                stringResource(Res.string.welcome_toggles),
+                { onIntent(WelcomeScreenIntent.OpenToggles) },
+                Modifier.testTag("welcome-toggles"),
+                style = HbButtonStyle.Quiet,
+                enabled = enabled,
+            )
+        }
     }
 }
 
 private const val NANOS_PER_MILLI = 1_000_000f
+private const val REVEAL_SPAN = 0.2f
 
 @Preview
 @Composable
-private fun WelcomePreview() {
-    HbTheme { WelcomeContent(WelcomePhase.Ready, {}) }
+private fun WelcomeLightPreview() {
+    HbTheme(darkTheme = false) { WelcomeContent(WelcomePhase.Ready, {}) }
+}
+
+@Preview
+@Composable
+private fun WelcomeDarkPreview() {
+    HbTheme(darkTheme = true) { WelcomeContent(WelcomePhase.Ready, {}) }
 }
