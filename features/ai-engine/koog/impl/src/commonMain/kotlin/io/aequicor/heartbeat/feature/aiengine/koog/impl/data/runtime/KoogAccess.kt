@@ -123,13 +123,21 @@ internal class KoogAccess(
                 val secret = read(source)
                 secret.use {
                     revalidate(connection)
-                    it.reveal { chars -> transport.open(provider, chars.concatToString(), model) }
+                    it.reveal { chars ->
+                        transport.open(
+                            provider,
+                            chars.concatToString(),
+                            model,
+                            source.scope.origin,
+                            source.scope.basePath,
+                        )
+                    }
                 }
             }
 
             is AuthSource.NoAuth -> {
                 revalidate(connection)
-                transport.open(provider, null, model)
+                transport.open(provider, null, model, source.scope.origin, source.scope.basePath)
             }
 
             else -> fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))

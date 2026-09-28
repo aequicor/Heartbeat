@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.prompt.dsl.prompt
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
@@ -13,6 +14,7 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SdkKoogTransportTest {
@@ -103,6 +105,71 @@ class SdkKoogTransportTest {
         HttpClient(engine).use { http ->
             SdkKoogTransport(http).open(KoogProvider.Ollama, null).use { client ->
                 assertEquals(0, client.models().size)
+            }
+        }
+    }
+
+    @Test
+    fun `compatible providers call the user origin with the native protocol`() = runTest {
+        val origin = EndpointOrigin("https://llm.example:8443")
+        listOf(KoogProvider.OpenAICompatible, KoogProvider.AnthropicCompatible).forEach { provider ->
+            val isAnthropic = provider == KoogProvider.AnthropicCompatible
+            val engine = MockEngine { request ->
+                assertEquals(
+                    "https://llm.example:8443/v1/" + if (isAnthropic) "messages" else "chat/completions",
+                    request.url.toString(),
+                )
+                val body = if (isAnthropic) {
+                    """{"id":"msg","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}"""
+                } else {
+                    """{"id":"msg","object":"chat.completion","created":0,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"""
+                }
+                respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+            HttpClient(engine).use { http ->
+                SdkKoogTransport(http).open(provider, "mock-key", "m", origin).use { client ->
+                    val response = client.executor.execute(prompt("p") { user("hi") }, provider.textModel("m"))
+                    assertEquals("ok", response.textContent())
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `transport refuses a foreign origin for fixed routes and plain http for remote servers`() {
+        HttpClient(MockEngine { error("no request expected") }).use { http ->
+            val transport = SdkKoogTransport(http)
+            assertFailsWith<IllegalArgumentException> {
+                transport.open(KoogProvider.OpenAI, "mock-key", origin = EndpointOrigin("https://llm.example"))
+            }
+            assertFailsWith<IllegalArgumentException> {
+                transport.open(KoogProvider.OpenAICompatible, "mock-key", origin = EndpointOrigin("http://llm.example"))
+            }
+        }
+    }
+
+    @Test
+    fun `compatible providers honor a custom base path`() = runTest {
+        val origin = EndpointOrigin("https://llm.example")
+        listOf(
+            Triple(KoogProvider.OpenAICompatible, "/api/v1", "https://llm.example/api/v1/chat/completions"),
+            Triple(KoogProvider.AnthropicCompatible, "/anthropic", "https://llm.example/anthropic/v1/messages"),
+        ).forEach { (provider, path, expected) ->
+            val isAnthropic = provider == KoogProvider.AnthropicCompatible
+            val engine = MockEngine { request ->
+                assertEquals(expected, request.url.toString())
+                val body = if (isAnthropic) {
+                    """{"id":"msg","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}"""
+                } else {
+                    """{"id":"msg","object":"chat.completion","created":0,"model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"""
+                }
+                respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+            HttpClient(engine).use { http ->
+                SdkKoogTransport(http).open(provider, "mock-key", "m", origin, path).use { client ->
+                    val response = client.executor.execute(prompt("p") { user("hi") }, provider.textModel("m"))
+                    assertEquals("ok", response.textContent())
+                }
             }
         }
     }
