@@ -64,6 +64,7 @@ data class SidebarUi(
 @Immutable
 data class AiStudioScreenState(
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val isResearchEnabled: Boolean = false,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val phase: StudioPhase = StudioPhase.Loading,
     val panes: ImmutableList<PaneUi> = persistentListOf(),

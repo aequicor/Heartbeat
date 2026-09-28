@@ -57,7 +57,7 @@ internal class ToggleStudioBackend(
         Selected(repository, AiStudioEffects(repository, ScriptedStudioAgent(), availability, clock))
     }
 
-    private class Selected(
+    private data class Selected(
         val repository: StudioRepository,
         val effects: EffectHandler<AiStudioEffect, AiStudioIntent>,
     )

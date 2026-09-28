@@ -124,6 +124,7 @@ private fun WideWorkspace(
                 key(pane.id) {
                     StudioPaneView(
                         content = state.paneContent(pane),
+                        onOpenResearch = exits.onOpenResearch,
                         onIntent = onIntent,
                         layout = PaneLayout(
                             isSplitAllowed = isSplitAllowed && state.panes.size == 1,
@@ -149,6 +150,7 @@ private fun CompactWorkspace(
         state.panes.firstOrNull { it.id == state.focusedPaneId }?.let { pane ->
             StudioPaneView(
                 content = state.paneContent(pane),
+                onOpenResearch = exits.onOpenResearch,
                 onIntent = onIntent,
                 layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
                 modifier = Modifier.fillMaxSize().padding(HbTheme.spacing.xs),

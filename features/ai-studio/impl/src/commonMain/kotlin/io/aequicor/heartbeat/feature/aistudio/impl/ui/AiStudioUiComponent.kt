@@ -20,6 +20,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenToggles = component::openToggles,
                 onOpenProfileSettings = if (isProfileSettingsShown) component::openProfileSettings else null,
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
+                onOpenResearch = component::openResearch,
             )
         }
         AiStudioScreen(component.model, exits, modifier)

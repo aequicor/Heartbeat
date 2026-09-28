@@ -53,6 +53,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
@@ -76,6 +77,7 @@ internal fun StudioPaneView(
     onIntent: (AiStudioScreenIntent) -> Unit,
     layout: PaneLayout,
     modifier: Modifier = Modifier,
+    onOpenResearch: ((String) -> Unit)? = null,
 ) {
     val pane = content.pane
     HbPanel(
@@ -138,7 +140,7 @@ internal fun StudioPaneView(
                     }
                 }
             }
-            PaneFooter(content, onIntent, layout.isCompact)
+            PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
         }
     }
 }
@@ -262,7 +264,12 @@ private fun SessionTranscript(
 }
 
 @Composable
-private fun PaneFooter(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit, isCompact: Boolean) {
+private fun PaneFooter(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    isCompact: Boolean,
+    onOpenResearch: ((String) -> Unit)?,
+) {
     HbColumn(
         Modifier.fillMaxWidth().padding(HbTheme.spacing.m),
         gap = HbTheme.spacing.s,
@@ -275,6 +282,13 @@ private fun PaneFooter(content: PaneContent, onIntent: (AiStudioScreenIntent) ->
         }
         if (content.pane.sessionId == null) {
             ContextTray(content.pane, content.project, content.projects, onIntent, column)
+        }
+        if (content.isResearchAvailable && onOpenResearch != null) {
+            HbButton(
+                text = stringResource(Res.string.research_mode),
+                onClick = { onOpenResearch(content.settings.modelId) },
+                modifier = column.testTag("research-mode"),
+            )
         }
         StudioComposer(content, onIntent, isCompact, column)
     }

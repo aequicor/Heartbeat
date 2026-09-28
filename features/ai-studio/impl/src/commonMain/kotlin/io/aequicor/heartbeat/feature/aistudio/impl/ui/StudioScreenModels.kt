@@ -24,6 +24,7 @@ internal data class StudioExits(
     val onOpenToggles: () -> Unit,
     val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
+    val onOpenResearch: ((String) -> Unit)? = null,
 )
 
 /** What a pane may offer in the current window layout. */
@@ -52,6 +53,7 @@ internal data class PaneContent(
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
+    val isResearchAvailable: Boolean = false,
 )
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
@@ -86,6 +88,8 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         settings = session?.modelId?.let { settings.copy(modelId = it) } ?: settings,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,
+        isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
+            models.any { it.id == settings.modelId && it.isResearchSupported },
         models = models,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
     )

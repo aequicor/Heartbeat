@@ -102,4 +102,5 @@
     <string name="stop_failed">Could not confirm the stop. The engine may still be running. Try Stop again.</string>
     <string name="session_read_only">This session cannot be continued right now. Its saved history is available; start a new chat to continue working.</string>
     <string name="stop_unsupported">This engine does not support stopping an accepted request.</string>
+    <string name="research_mode">Research chat</string>
 </resources>

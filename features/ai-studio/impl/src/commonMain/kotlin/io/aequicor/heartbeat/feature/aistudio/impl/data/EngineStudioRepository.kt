@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
@@ -213,6 +214,7 @@ internal class EngineStudioRepository(
                 StudioModel(
                     Json.encodeToString(EngineTarget.serializer(), target),
                     "${engine.descriptor.title} · ${model.value} · $label",
+                    isResearchSupported = binding.engine == KoogEngineId,
                 )
             }
         }
@@ -405,18 +407,24 @@ internal class EngineStudioRepository(
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
                 .resume(ResumeSessionRequest(target))
         }
+        persistReference(id, target, active)
+        handlesLock.withLock { handles[id] = active }
+        active
+    }
+
+    private suspend fun persistReference(id: String, target: EngineTarget, active: ActiveSession) {
+        var isPersisted = false
         try {
             update(id) { copy(ref = active.ref, target = target) }
+            isPersisted = true
         } catch (e: CancellationException) {
-            closeOrphan(active)
             throw e
         } catch (e: Exception) {
             log.e(e) { "Could not persist the native session reference; closing the session" }
-            closeOrphan(active)
             throw e
+        } finally {
+            if (!isPersisted) withContext(NonCancellable) { closeOrphan(active) }
         }
-        handlesLock.withLock { handles[id] = active }
-        active
     }
 
     /** Runs [block] under the lock of conversation [id]; the lock entry is dropped once nobody uses it. */
@@ -537,6 +545,8 @@ internal class EngineStudioRepository(
         log.i { "Released native session of an archived conversation" }
     }
 
+    // Detekt cannot resolve the cross-module generic store.get here; the Kotlin compiler requires suspend.
+    @Suppress("RedundantSuspendModifier")
     private suspend fun record(id: String): StudioChatRecord =
         store.get(ChatsKey).orEmpty().firstOrNull { it.id == id } ?: error("Unknown studio conversation")
 

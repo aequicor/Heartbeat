@@ -78,7 +78,7 @@ sealed interface StudioMessage {
 }
 
 /** A model offered by the studio composer. */
-data class StudioModel(val id: String, val name: String)
+data class StudioModel(val id: String, val name: String, val isResearchSupported: Boolean = false)
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */
 val StudioModels: List<StudioModel> = listOf(

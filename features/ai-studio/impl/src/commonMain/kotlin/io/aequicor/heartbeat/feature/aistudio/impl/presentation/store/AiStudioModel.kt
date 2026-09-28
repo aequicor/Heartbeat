@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -26,7 +27,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -52,6 +55,7 @@ class AiStudioModel(
     private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    private val entries: StudioEntries? = null,
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
@@ -68,10 +72,21 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch { observeResearch(pipeline) }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
-                        updateState { copy(models = models.map { ModelUi(it.id, it.name) }.toImmutableList()) }
+                        updateState {
+                            copy(
+                                models = models.map {
+                                    ModelUi(
+                                        it.id,
+                                        it.name,
+                                        it.isResearchSupported,
+                                    )
+                                }.toImmutableList(),
+                            )
+                        }
                     }
                 }
                 launch { observeTranscripts(pipeline) }
@@ -84,6 +99,10 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
+        entries?.showsResearch?.collect { updateState { copy(isResearchEnabled = it) } }
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
@@ -102,19 +121,22 @@ class AiStudioModel(
             .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
     }
 
-    private suspend fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> =
-        if (ids.isEmpty()) {
-            flowOf(emptyMap())
-        } else {
+    private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {
+        flowOf(emptyMap())
+    } else {
+        flow {
             val repository = backend.repository()
-            combine(
-                ids.map { id ->
-                    repository.observeMessages(id).map { messages ->
-                        id to messages.map { it.toUi() }.toImmutableList()
-                    }
-                },
-            ) { it.toMap() }
+            emitAll(
+                combine(
+                    ids.map { id ->
+                        repository.observeMessages(id).map { messages ->
+                            id to messages.map { it.toUi() }.toImmutableList()
+                        }
+                    },
+                ) { it.toMap() },
+            )
         }
+    }
 
     /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
     private suspend fun tickWhileRunning(pipeline: StudioPipeline) = with(pipeline) {

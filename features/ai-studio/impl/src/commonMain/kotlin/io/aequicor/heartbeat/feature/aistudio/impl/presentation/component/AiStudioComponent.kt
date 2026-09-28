@@ -11,11 +11,15 @@ import io.aequicor.heartbeat.core.navigation.NavTarget
 import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
 
 /** Lifecycle-bound navigation component rendering the feature screen. */
 @AssistedInject
@@ -52,6 +56,19 @@ class AiStudioComponent(
     fun openConnections() {
         log.i { "open engine connections" }
         navigator.navigate(EngineConnectionsRoute, NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+    }
+
+    /** Opens the projectless research workspace for the selected Koog route. */
+    fun openResearch(modelId: String) {
+        val target = try {
+            Json.decodeFromString(EngineTarget.serializer(), modelId)
+        } catch (e: IllegalArgumentException) {
+            log.w(e) { "Invalid research model selection" }
+            return
+        }
+        if (target.engine != KoogEngineId) return
+        log.i { "Open research chat" }
+        navigator.navigate(ResearchChatRoute(target), NavOptions(LaunchMode.SingleTop, NavTarget.Root))
     }
 
     /** Metro factory for a lifecycle-owned feature instance. */

@@ -7,10 +7,14 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,6 +24,25 @@ class ToggleStudioEntriesTest {
     private val sessions = FakeSessions()
     private val isSearchEnabled = MutableStateFlow(false)
     private val entries = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled), sessions)
+
+    @Test
+    fun `research entry observes all prerequisites and disappears on disable`() = runTest {
+        val research = MutableStateFlow(true)
+        val runtime = MutableStateFlow(true)
+        val koog = MutableStateFlow(true)
+        val gated = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled, research, runtime, koog), sessions)
+        assertEquals(false, gated.showsResearch.first())
+        sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
+        assertEquals(true, gated.showsResearch.first())
+        research.value = false
+        assertEquals(false, gated.showsResearch.first())
+        research.value = true
+        runtime.value = false
+        assertEquals(false, gated.showsResearch.first())
+        runtime.value = true
+        koog.value = false
+        assertEquals(false, gated.showsResearch.first())
+    }
 
     @Test
     fun `connections are offered only with the toggle on and a profile active`() = runTest {
@@ -41,14 +64,23 @@ class ToggleStudioEntriesTest {
     }
 }
 
-private class FakeToggles(private val connections: Flow<Boolean>, private val search: Flow<Boolean>) : FeatureToggles {
+private class FakeToggles(
+    private val connections: Flow<Boolean>,
+    private val search: Flow<Boolean>,
+    private val research: Flow<Boolean> = flowOf(false),
+    private val runtime: Flow<Boolean> = flowOf(false),
+    private val koog: Flow<Boolean> = flowOf(false),
+) : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> {
         val flow = when (toggle) {
             EngineConnectionsEnabled -> connections
             SearchEngineTools -> search
-            else -> error("unexpected toggle ${toggle.key}")
+            ResearchChatEnabled -> research
+            StudioEngineRuntime -> runtime
+            KoogEngineEnabled -> koog
+            else -> flowOf(toggle.default)
         }
-        // Both toggles read here are Boolean flags checked above.
+        // All toggles read here are Boolean flags checked above.
         @Suppress("UNCHECKED_CAST")
         return flow as Flow<T>
     }

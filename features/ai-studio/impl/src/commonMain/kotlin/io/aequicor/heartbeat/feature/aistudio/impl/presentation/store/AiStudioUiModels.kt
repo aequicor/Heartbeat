@@ -36,7 +36,7 @@ enum class ApprovalUi { Ask, AutoApprove }
 
 /** A model offered by the composer. */
 @Immutable
-data class ModelUi(val id: String, val name: String)
+data class ModelUi(val id: String, val name: String, val isResearchSupported: Boolean = false)
 
 /** Composer preferences mirrored from the machine. */
 @Immutable

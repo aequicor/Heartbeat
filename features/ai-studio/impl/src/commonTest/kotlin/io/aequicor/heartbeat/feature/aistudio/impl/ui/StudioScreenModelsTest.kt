@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -36,6 +37,25 @@ class StudioScreenModelsTest {
         ),
         now = Instant.fromEpochSeconds(130),
     )
+
+    @Test
+    fun `research entry requires flag Koog and a new projectless pane`() {
+        val koog = state.copy(
+            isResearchEnabled = true,
+            models = persistentListOf(ModelUi(state.settings.modelId, "Koog", isResearchSupported = true)),
+        )
+        val newChat = PaneUi(7)
+        assertTrue(koog.paneContent(newChat).isResearchAvailable)
+        assertEquals(false, koog.copy(isResearchEnabled = false).paneContent(newChat).isResearchAvailable)
+        assertEquals(false, koog.paneContent(newChat.copy(projectId = "p")).isResearchAvailable)
+        assertEquals(false, koog.paneContent(newChat.copy(sessionId = "s")).isResearchAvailable)
+        assertEquals(
+            false,
+            koog.copy(models = persistentListOf(ModelUi(state.settings.modelId, "Other")))
+                .paneContent(newChat).isResearchAvailable,
+        )
+        assertEquals(false, koog.copy(models = persistentListOf()).paneContent(newChat).isResearchAvailable)
+    }
 
     @Test
     fun `every session menu item maps to its intent and unknown ids are ignored`() {
