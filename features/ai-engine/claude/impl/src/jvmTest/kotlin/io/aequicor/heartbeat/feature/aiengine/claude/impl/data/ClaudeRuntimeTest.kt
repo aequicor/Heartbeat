@@ -442,4 +442,35 @@ class ClaudeRuntimeTest {
         assertEquals(session.ref, resumed.ref)
         runtime.close()
     }
+
+    @Test
+    fun `released sessions beyond the retention bound are dropped, recent ones stay resumable`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val refs = List(MAX_RELEASED + 3) {
+            val session = runtime.create(CreateSessionRequest(testTarget))
+            session.close()
+            session.ref
+        }
+        assertEquals(MAX_RELEASED, runtime.retainedSessions)
+        val dropped = assertFailsWith<EngineException> {
+            runtime.attach(refs.first(), ResumeSessionRequest(testTarget))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), dropped.failure)
+        val reopened = runtime.attach(refs.last(), ResumeSessionRequest(testTarget))
+        assertEquals(refs.last(), reopened.ref)
+        runtime.close()
+        assertEquals(0, runtime.retainedSessions)
+    }
+
+    @Test
+    fun `leased sessions are never dropped`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val held = List(MAX_RELEASED + 3) { runtime.create(CreateSessionRequest(testTarget)) }
+        assertEquals(held.size, runtime.retainedSessions)
+        held.first().close()
+        assertEquals(held.size, runtime.retainedSessions)
+        runtime.close()
+    }
 }

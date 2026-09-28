@@ -43,9 +43,22 @@ internal class ClaudeRuntime(
     private val log = Log.tag("ClaudeRuntime")
     private val owner = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + owner)
-    private val environment = ClaudeSessionEnvironment(transport, account, toggles, scope) { closeFailure }
+    private val environment = ClaudeSessionEnvironment(
+        transport,
+        account,
+        toggles,
+        scope,
+        closeFailure = { closeFailure },
+        onReleased = ::released,
+    )
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()
+
+    /** Sessions without handles or running turns, oldest release first; kept for reopen up to [MAX_RELEASED]. */
+    private val releasedOrder = LinkedHashSet<SessionRef>()
+
+    /** Number of sessions this runtime still keeps for attach and lookup. */
+    internal val retainedSessions: Int get() = sessions.size
     val isClosed: Boolean get() = !owner.isActive
 
     @Volatile
@@ -107,6 +120,33 @@ internal class ClaudeRuntime(
         log.i { "Closing Claude runtime" }
         owner.cancelAndJoin()
         sessions.clear()
+        synchronized(releasedOrder) { releasedOrder.clear() }
+    }
+
+    /**
+     * Released sessions stay resumable while few; beyond [MAX_RELEASED] the oldest released ones are dropped,
+     * so their refs later fail with NotResumable/NotFound instead of accumulating for the runtime's lifetime.
+     * Called outside session locks; only this method takes [releasedOrder] and then a session lock.
+     */
+    private fun released(session: ClaudeSession) {
+        if (isClosed) return
+        synchronized(releasedOrder) {
+            releasedOrder.remove(session.ref)
+            if (session.isReleased) releasedOrder.add(session.ref)
+            val iterator = releasedOrder.iterator()
+            var excess = releasedOrder.size - MAX_RELEASED
+            while (excess > 0 && iterator.hasNext()) {
+                val ref = iterator.next()
+                val candidate = sessions[ref]
+                iterator.remove()
+                excess--
+                // A session leased again meanwhile is skipped; it re-registers on its next release.
+                if (candidate != null && candidate.evict()) {
+                    sessions.remove(ref, candidate)
+                    log.d { "Dropped released Claude session; retained=${sessions.size}" }
+                }
+            }
+        }
     }
 
     /** Replaced by a runtime for another account revision: its sessions report the changed source. */
@@ -130,6 +170,9 @@ internal class ClaudeRuntime(
         }
     }
 }
+
+/** Released sessions a runtime keeps resumable; older released ones are dropped. */
+internal const val MAX_RELEASED = 16
 
 internal suspend fun requireClaudeEnabled(toggles: FeatureToggles) {
     if (!toggles.get(ClaudeEngine.Enabled)) {

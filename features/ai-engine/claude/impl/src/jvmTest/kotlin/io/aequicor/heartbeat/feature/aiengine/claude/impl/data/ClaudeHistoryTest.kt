@@ -42,4 +42,21 @@ class ClaudeHistoryTest {
         repeat(300) { history.item(TurnId("turn")) { SessionItem.Notice(it, "update") } }
         assertIs<SessionEvent.HistoryInvalidated>(history.watch(checkpoint).toList().single())
     }
+
+    @Test
+    fun `history is bounded by total text size, keeping the newest items`() = runTest {
+        val history = ClaudeHistory()
+        val chunk = "x".repeat((MAX_ITEM_CHARS / 4).toInt())
+        repeat(6) { history.item(TurnId("turn")) { SessionItem.Notice(it, chunk) } }
+        val page = history.page(HistoryPageRequest(limit = 100))
+        assertEquals(listOf(2L, 3L, 4L, 5L), page.items.map { it.info.position })
+    }
+
+    @Test
+    fun `an oversized item is still retained as the newest one`() = runTest {
+        val history = ClaudeHistory()
+        history.item(TurnId("turn")) { SessionItem.Notice(it, "small") }
+        history.item(TurnId("turn")) { SessionItem.Notice(it, "x".repeat((MAX_ITEM_CHARS + 1).toInt())) }
+        assertEquals(listOf(1L), history.page().items.map { it.info.position })
+    }
 }
