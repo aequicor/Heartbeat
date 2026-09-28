@@ -8,11 +8,34 @@ import kotlin.test.assertTrue
 
 class WelcomeMachineTest {
     @Test
+    fun `studio opens the profile before navigating`() {
+        WelcomeMachineSpec.assertTransition(
+            WelcomeState.Ready,
+            WelcomeIntent.Public.Open(WelcomeDestination.Studio),
+            WelcomeState.OpeningProfile,
+            effects = listOf(WelcomeEffect.OpenProfile),
+        )
+        WelcomeMachineSpec.assertTransition(
+            WelcomeState.OpeningProfile,
+            WelcomeIntent.Internal.ProfileOpened,
+            WelcomeState.Opening(WelcomeDestination.Studio),
+        )
+        WelcomeMachineSpec.assertIgnored(
+            WelcomeState.OpeningProfile,
+            WelcomeIntent.Public.Open(WelcomeDestination.Studio),
+        )
+    }
+
+    @Test
     fun `profile opening failure restores actions for retry`() {
         WelcomeMachineSpec.assertTransition(
-            WelcomeState.Opening(WelcomeDestination.Studio),
+            WelcomeState.OpeningProfile,
             WelcomeIntent.Internal.Failed,
             WelcomeState.Ready,
+        )
+        assertEquals(
+            WelcomeIntent.Internal.Failed,
+            WelcomeMachineSpec.onEffectFailure(WelcomeEffect.OpenProfile, IllegalStateException("storage")),
         )
     }
 
@@ -52,7 +75,9 @@ class WelcomeMachineTest {
             val open = WelcomeIntent.Public.Open(destination)
             val opening = WelcomeState.Opening(destination)
             WelcomeMachineSpec.assertIgnored(WelcomeState.Intro, open)
-            WelcomeMachineSpec.assertTransition(WelcomeState.Ready, open, opening)
+            if (destination == WelcomeDestination.Toggles) {
+                WelcomeMachineSpec.assertTransition(WelcomeState.Ready, open, opening)
+            }
             WelcomeMachineSpec.assertIgnored(opening, open)
             WelcomeMachineSpec.assertTransition(opening, WelcomeIntent.Internal.NavigationHandled, WelcomeState.Away)
             WelcomeMachineSpec.assertIgnored(WelcomeState.Away, open)
@@ -67,6 +92,7 @@ class WelcomeMachineTest {
             WelcomeState.Checking,
             WelcomeState.Intro,
             WelcomeState.Ready,
+            WelcomeState.OpeningProfile,
             WelcomeState.Opening(WelcomeDestination.Studio),
             WelcomeState.Away,
         ).forEach {

@@ -36,6 +36,9 @@ public sealed interface WelcomeState : MachineState {
     /** The destination actions are available. */
     @Serializable public data object Ready : WelcomeState
 
+    /** The studio needs a profile; the local one is being opened before navigation. */
+    @Serializable public data object OpeningProfile : WelcomeState
+
     /** A destination request awaiting acknowledgement by the navigation component. */
     @Serializable public data class Opening(val destination: WelcomeDestination) : WelcomeState
 
@@ -65,21 +68,27 @@ public sealed interface WelcomeIntent : MachineIntent {
         /** The presentation reached its final frame. */
         public data object Finished : Internal
 
+        /** A profile is active; the studio can be opened inside it. */
+        public data object ProfileOpened : Internal
+
         /** The component has applied the pending navigation request. */
         public data object NavigationHandled : Internal
 
         /** The welcome entry became active again. */
         public data object Returned : Internal
 
-        /** Settings or navigation could not be completed; return to the static welcome. */
+        /** Settings or the profile could not be prepared; return to the static welcome. */
         public data object Failed : Internal
     }
 }
 
-/** Only settings IO is a machine effect; the frame clock belongs to the presentation. */
+/** Settings and profile IO are machine effects; the frame clock belongs to the presentation. */
 public sealed interface WelcomeEffect : MachineEffect {
     /** Reads the device-local cinematic preference. */
     public data object ReadSettings : WelcomeEffect
+
+    /** Opens the local profile unless a profile is already active. */
+    public data object OpenProfile : WelcomeEffect
 }
 
 /** Navigation is acknowledged state, not an ephemeral output. */
@@ -100,8 +109,9 @@ public val CinematicIntro: FeatureToggle.Flag = FeatureToggle.Flag(
 
 /**
  * Idle --Start--> Checking --Configured--> Intro/Ready; Intro --Finished/Skip--> Ready.
- * Ready --Open--> Opening --NavigationHandled--> Away --Returned--> Ready.
- * Settings failure and Skip during preparation both lead to Ready. Duplicate opens are ignored.
+ * Ready --Open(Toggles)--> Opening --NavigationHandled--> Away --Returned--> Ready.
+ * Ready --Open(Studio)--> OpeningProfile [OpenProfile] --ProfileOpened--> Opening(Studio).
+ * Settings or profile failure (Failed) and Skip during preparation lead to Ready. Duplicate opens are ignored.
  * OS restoration continues the session at Ready; a fresh session starts at Idle.
  */
 public val WelcomeMachineSpec: MachineSpec<WelcomeState, WelcomeIntent, WelcomeEffect, WelcomeOutput> =
@@ -128,10 +138,21 @@ public val WelcomeMachineSpec: MachineSpec<WelcomeState, WelcomeIntent, WelcomeE
             on<WelcomeIntent.Public.Skip> { goto<WelcomeState.Ready> { WelcomeState.Ready } }
         }
         state<WelcomeState.Ready> {
-            on<WelcomeIntent.Public.Open> { goto<WelcomeState.Opening> { WelcomeState.Opening(intent.destination) } }
+            on<WelcomeIntent.Public.Open>(guard = { intent.destination == WelcomeDestination.Studio }) {
+                goto<WelcomeState.OpeningProfile> { WelcomeState.OpeningProfile }
+                effect { WelcomeEffect.OpenProfile }
+            }
+            on<WelcomeIntent.Public.Open>(guard = { intent.destination != WelcomeDestination.Studio }) {
+                goto<WelcomeState.Opening> { WelcomeState.Opening(intent.destination) }
+            }
+        }
+        state<WelcomeState.OpeningProfile> {
+            on<WelcomeIntent.Internal.ProfileOpened> {
+                goto<WelcomeState.Opening> { WelcomeState.Opening(WelcomeDestination.Studio) }
+            }
+            on<WelcomeIntent.Internal.Failed> { goto<WelcomeState.Ready> { WelcomeState.Ready } }
         }
         state<WelcomeState.Opening> {
-            on<WelcomeIntent.Internal.Failed> { goto<WelcomeState.Ready> { WelcomeState.Ready } }
             on<WelcomeIntent.Internal.NavigationHandled> { goto<WelcomeState.Away> { WelcomeState.Away } }
         }
         state<WelcomeState.Away> {
