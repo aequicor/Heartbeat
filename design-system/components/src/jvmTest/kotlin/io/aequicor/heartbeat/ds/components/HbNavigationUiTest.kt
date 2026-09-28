@@ -21,13 +21,16 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -100,23 +103,78 @@ class HbNavigationUiTest {
         }
 
     @Test
-    fun `row actions stay reachable when Tab moves focus from the row onto them`() =
+    fun `conversation preview selects its row and nested actions stay reachable by keyboard`() =
         runSkikoComposeUiTest(size = Size(320f, 120f)) {
             var actions = 0
+            var isSelected by mutableStateOf(false)
             setContent {
                 HbTheme {
                     HbGlassScene {
-                        HbNavigationItem("Session", onClick = {}) { isActive ->
+                        HbNavigationItem(
+                            "Session",
+                            onClick = { isSelected = true },
+                            isSelected = isSelected,
+                            supportingText = "Latest message",
+                            leadingContent = { HbIcon(HbIcons.Chat, contentDescription = null) },
+                            selectedBackground = HbTheme.studioColors.selected,
+                            selectedForeground = HbTheme.studioColors.onSelected,
+                        ) { isActive ->
                             if (isActive) HbIconButton(HbIcons.More, "Session actions", onClick = { actions++ })
                         }
                     }
                 }
             }
+            onNodeWithText("Latest message").performClick()
+            onNodeWithText("Session").assert(SemanticsMatcher.expectValue(SemanticsProperties.Selected, true))
             onNodeWithText("Session").requestFocus()
             onNodeWithContentDescription("Session actions").assertExists()
             onNodeWithText("Session").performKeyInput { pressKey(Key.Tab) }
             onNodeWithContentDescription("Session actions").assertIsFocused().performKeyInput { pressKey(Key.Enter) }
             runOnIdle { assertEquals(1, actions) }
+        }
+
+    @Test
+    fun `desktop rows reveal actions for mouse hover or real touch without activating unrelated rows`() =
+        runSkikoComposeUiTest(size = Size(320f, 200f)) {
+            var rowClicks = 0
+            var actionClicks = 0
+            setContent {
+                HbTheme {
+                    Column {
+                        listOf("First", "Second").forEach { label ->
+                            HbNavigationItem(label, { rowClicks++ }, Modifier.testTag(label)) { isActive ->
+                                if (isActive) {
+                                    HbIconButton(HbIcons.More, "$label actions", { actionClicks++ })
+                                }
+                            }
+                        }
+                        HbButton("Outside", {})
+                    }
+                }
+            }
+            val first = onNodeWithTag("First")
+            val firstActions = onNodeWithContentDescription("First actions")
+            firstActions.assertDoesNotExist()
+            onNodeWithContentDescription("Second actions").assertDoesNotExist()
+            first.performMouseInput { moveTo(center) }
+            firstActions.assertExists()
+            first.performMouseInput { exit() }
+            firstActions.assertDoesNotExist()
+
+            first.performTouchInput { click() }
+            onNodeWithText("Outside").requestFocus()
+            firstActions.assertExists().performTouchInput { click() }
+            onNodeWithContentDescription("Second actions").assertDoesNotExist()
+            onNodeWithText("Outside").requestFocus()
+            first.performMouseInput {
+                moveTo(center)
+                exit()
+            }
+            firstActions.assertDoesNotExist()
+            runOnIdle {
+                assertEquals(1, rowClicks, "Pointer observation must preserve the ordinary row click")
+                assertEquals(1, actionClicks, "The nested action must not also click its row")
+            }
         }
 
     @Test

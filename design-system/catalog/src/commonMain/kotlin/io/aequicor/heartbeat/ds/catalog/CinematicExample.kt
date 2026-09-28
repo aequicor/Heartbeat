@@ -31,11 +31,11 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 internal fun CinematicExample(modifier: Modifier = Modifier) {
     val progress = remember { Animatable(1f) }
     var replay by remember { mutableIntStateOf(0) }
-    var enabled by remember { mutableStateOf(true) }
+    var isEnabled by remember { mutableStateOf(true) }
     val tokens = HbTheme.welcome
-    val reduced = HbTheme.motion.isReducedMotion
-    LaunchedEffect(replay, reduced, enabled) {
-        if (replay > 0 && !reduced && enabled) {
+    val isReduced = HbTheme.motion.isReducedMotion
+    LaunchedEffect(replay, isReduced, isEnabled) {
+        if (replay > 0 && !isReduced && isEnabled) {
             progress.snapTo(0f)
             progress.animateTo(1f, tween(tokens.durationMillis, easing = LinearEasing))
         } else {
@@ -50,7 +50,7 @@ internal fun CinematicExample(modifier: Modifier = Modifier) {
         }
         HbRow {
             HbButton(hbString(HbString.ReplayIntro), { replay++ })
-            HbSwitch(enabled, { enabled = it }, hbString(HbString.CinematicWelcome))
+            HbSwitch(isEnabled, { isEnabled = it }, hbString(HbString.CinematicWelcome))
         }
     }
 }
