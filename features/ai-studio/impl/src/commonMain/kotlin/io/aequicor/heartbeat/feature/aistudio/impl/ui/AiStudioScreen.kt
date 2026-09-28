@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
@@ -293,22 +294,23 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
         modifier.fillMaxSize().hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl),
         contentAlignment = Alignment.Center,
     ) {
-        HbPanel(Modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)) {
-            HbColumn(Modifier.padding(HbTheme.spacing.xxl), horizontalAlignment = Alignment.CenterHorizontally) {
-                HbText(stringResource(Res.string.studio_title), style = HbTheme.typography.display)
-                HbText(stringResource(Res.string.studio_empty), style = HbTheme.typography.title)
-                HbText(
-                    stringResource(Res.string.studio_description),
-                    color = HbTheme.colors.textSecondary,
-                    style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
-                )
-                HbButton(
-                    stringResource(Res.string.studio_back),
-                    onBack,
-                    Modifier.testTag("studio-back"),
-                    style = HbButtonStyle.Secondary,
-                )
-            }
+        HbColumn(
+            Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            HbText(stringResource(Res.string.studio_title), style = HbTheme.typography.display)
+            HbEmptyState(
+                stringResource(Res.string.studio_empty),
+                description = stringResource(Res.string.studio_description),
+                action = {
+                    HbButton(
+                        stringResource(Res.string.studio_back),
+                        onBack,
+                        Modifier.testTag("studio-back"),
+                        style = HbButtonStyle.Secondary,
+                    )
+                },
+            )
         }
     }
 }

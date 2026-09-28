@@ -1,29 +1,22 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.ui
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.window.Dialog
+import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbDialog
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
-import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
-import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
-import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenIntent
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenState
@@ -49,65 +42,52 @@ import org.jetbrains.compose.resources.stringResource
 
 @Composable
 internal fun ResearchResourceDialog(state: ResearchScreenState, onIntent: (ResearchScreenIntent) -> Unit) {
-    Dialog(onDismissRequest = { onIntent(ResearchScreenIntent.ShowResourceDialog(false)) }) {
-        HbPanel(
-            Modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth).testTag("research-resource-dialog"),
-            background = HbTheme.colors.surface,
-        ) {
-            HbColumn(
-                Modifier.hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xl),
-                gap = HbTheme.spacing.l,
-            ) {
-                HbText(stringResource(Res.string.research_add_source), style = HbTheme.typography.title)
-                ResourceKindTabs(state.resourceKind, onIntent)
-                ResourceForm(state, onIntent)
-                if (state.hasError) {
-                    HbText(
-                        stringResource(Res.string.research_error),
-                        Modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("research-source-error"),
-                        color = HbTheme.colors.error,
-                    )
-                }
-                if (state.questions.firstOrNull()?.isSelected == true || state.questions.isEmpty()) {
-                    HbText(stringResource(Res.string.research_scope_session))
-                } else {
-                    ResourceScopeTabs(state.resourceScope, onIntent)
-                }
-                HbText(
-                    stringResource(Res.string.research_first_question_hint),
-                    style = HbTheme.typography.caption,
-                    color = HbTheme.colors.textSecondary,
-                )
-                ResourceFormActions(state, onIntent)
-            }
+    HbDialog(
+        stringResource(Res.string.research_add_source),
+        onDismissRequest = { onIntent(ResearchScreenIntent.ShowResourceDialog(false)) },
+        modifier = Modifier.testTag("research-resource-dialog"),
+        actions = { ResourceFormActions(state, onIntent) },
+    ) {
+        ResourceKindTabs(state.resourceKind, onIntent)
+        ResourceForm(state, onIntent)
+        if (state.hasError) {
+            HbBanner(stringResource(Res.string.research_error), Modifier.testTag("research-source-error"))
         }
+        if (state.questions.firstOrNull()?.isSelected == true || state.questions.isEmpty()) {
+            HbText(stringResource(Res.string.research_scope_session))
+        } else {
+            ResourceScopeTabs(state.resourceScope, onIntent)
+        }
+        HbText(
+            stringResource(Res.string.research_first_question_hint),
+            style = HbTheme.typography.caption,
+            color = HbTheme.colors.textSecondary,
+        )
     }
 }
 
 @Composable
-private fun ResourceFormActions(state: ResearchScreenState, onIntent: (ResearchScreenIntent) -> Unit) {
-    HbFlowRow(Modifier.fillMaxWidth()) {
-        if (state.isFileImportAvailable) {
-            HbButton(
-                stringResource(Res.string.research_import_file),
-                { onIntent(ResearchScreenIntent.ImportFile) },
-                Modifier.testTag("research-import-file"),
-                style = HbButtonStyle.Secondary,
-                enabled = state.isEditable,
-            )
-        }
+private fun RowScope.ResourceFormActions(state: ResearchScreenState, onIntent: (ResearchScreenIntent) -> Unit) {
+    if (state.isFileImportAvailable) {
         HbButton(
-            stringResource(Res.string.research_cancel),
-            { onIntent(ResearchScreenIntent.ShowResourceDialog(false)) },
-            style = HbButtonStyle.Ghost,
-        )
-        HbButton(
-            stringResource(Res.string.research_add),
-            { onIntent(ResearchScreenIntent.AddResource) },
-            Modifier.testTag("research-confirm-source"),
-            enabled = state.isEditable && state.resourceValue.isNotBlank(),
+            stringResource(Res.string.research_import_file),
+            { onIntent(ResearchScreenIntent.ImportFile) },
+            Modifier.testTag("research-import-file"),
+            style = HbButtonStyle.Secondary,
+            enabled = state.isEditable,
         )
     }
+    HbButton(
+        stringResource(Res.string.research_cancel),
+        { onIntent(ResearchScreenIntent.ShowResourceDialog(false)) },
+        style = HbButtonStyle.Ghost,
+    )
+    HbButton(
+        stringResource(Res.string.research_add),
+        { onIntent(ResearchScreenIntent.AddResource) },
+        Modifier.testTag("research-confirm-source"),
+        enabled = state.isEditable && state.resourceValue.isNotBlank(),
+    )
 }
 
 @Composable
