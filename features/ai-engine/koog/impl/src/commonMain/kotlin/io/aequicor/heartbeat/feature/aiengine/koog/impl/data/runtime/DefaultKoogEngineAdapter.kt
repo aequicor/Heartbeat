@@ -114,6 +114,7 @@ internal class DefaultKoogEngineAdapter(
                 fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
             }
             log.i { "Discovering provider models" }
+            val provider = koogProvider(connection.source)
             koogCall {
                 access.open(connection).use { client ->
                     client.models().distinctBy { it.id }.map {
@@ -122,6 +123,7 @@ internal class DefaultKoogEngineAdapter(
                             title = it.id,
                             features = setOf(SendsPrompts.id, CancelsTurns.id, SessionHistory.id),
                             contextLimitTokens = it.contextLength?.takeIf { limit -> limit > 0 },
+                            reasoningEfforts = provider?.reasoningEfforts(it.id).orEmpty(),
                         )
                     }
                 }
