@@ -17,15 +17,20 @@ internal fun PreserveDisclosureAnchor(
     state: LazyListState,
     sections: ImmutableList<HbExpandedTimelineSection>,
     expandedKeys: ImmutableSet<String>,
+    showSectionHeaders: Boolean = true,
 ) {
-    val previous = remember(state) { DisclosureProjection(sections, expandedKeys) }
+    val previous = remember(state) { DisclosureProjection(sections, expandedKeys, showSectionHeaders) }
     SideEffect {
         val previousSections = previous.sections
-        val hasProjectionChanged = previousSections !== sections || previous.expandedKeys != expandedKeys
-        previous.update(sections, expandedKeys)
+        val hasPreviousSectionHeaders = previous.hasSectionHeaders
+        val hasProjectionChanged = previousSections !== sections || previous.expandedKeys != expandedKeys ||
+            hasPreviousSectionHeaders != showSectionHeaders
+        previous.update(sections, expandedKeys, showSectionHeaders)
         if (hasProjectionChanged) {
-            val anchor = previousSections.disclosureAnchor(state.firstVisibleItemIndex)
-            val position = anchor?.let { sections.restoreDisclosureAnchor(it, state.firstVisibleItemScrollOffset) }
+            val anchor = previousSections.disclosureAnchor(state.firstVisibleItemIndex, hasPreviousSectionHeaders)
+            val position = anchor?.let {
+                sections.restoreDisclosureAnchor(it, state.firstVisibleItemScrollOffset, showSectionHeaders)
+            }
             val isMoved = position != null &&
                 (position.index != state.firstVisibleItemIndex || position.offset != state.firstVisibleItemScrollOffset)
             // Tail streaming keeps earlier rows in place, so only real shifts request a new position.
@@ -37,10 +42,16 @@ internal fun PreserveDisclosureAnchor(
 private class DisclosureProjection(
     var sections: ImmutableList<HbExpandedTimelineSection>,
     var expandedKeys: ImmutableSet<String>,
+    var hasSectionHeaders: Boolean,
 ) {
-    fun update(sections: ImmutableList<HbExpandedTimelineSection>, expandedKeys: ImmutableSet<String>) {
+    fun update(
+        sections: ImmutableList<HbExpandedTimelineSection>,
+        expandedKeys: ImmutableSet<String>,
+        showSectionHeaders: Boolean,
+    ) {
         this.sections = sections
         this.expandedKeys = expandedKeys
+        this.hasSectionHeaders = showSectionHeaders
     }
 }
 
@@ -53,17 +64,21 @@ private data class DisclosureAnchor(
 
 private data class DisclosurePosition(val index: Int, val offset: Int)
 
-private fun ImmutableList<HbExpandedTimelineSection>.disclosureAnchor(index: Int): DisclosureAnchor? {
+private fun ImmutableList<HbExpandedTimelineSection>.disclosureAnchor(
+    index: Int,
+    showSectionHeaders: Boolean,
+): DisclosureAnchor? {
     var relative = index
     for (section in this) {
-        if (relative <= section.itemCount) {
-            return if (relative == 0) {
+        val headerCount = if (showSectionHeaders && section.source.section.title.isNotBlank()) 1 else 0
+        if (relative < section.itemCount + headerCount) {
+            return if (headerCount == 1 && relative == 0) {
                 DisclosureAnchor(section.source.section.id, entryIndex = -1)
             } else {
-                section.disclosureAnchor(relative - 1)
+                section.disclosureAnchor(relative - headerCount)
             }
         }
-        relative -= section.itemCount + 1
+        relative -= section.itemCount + headerCount
     }
     return null
 }
@@ -93,19 +108,28 @@ private fun HbExpandedTimelineSection.disclosureAnchor(index: Int): DisclosureAn
 private fun ImmutableList<HbExpandedTimelineSection>.restoreDisclosureAnchor(
     anchor: DisclosureAnchor,
     offset: Int,
+    showSectionHeaders: Boolean,
 ): DisclosurePosition? {
     var sectionStart = 0
     for (section in this) {
+        val headerCount = if (showSectionHeaders && section.source.section.title.isNotBlank()) 1 else 0
         if (section.source.section.id == anchor.sectionId) {
-            return if (anchor.entryIndex < 0) {
-                DisclosurePosition(sectionStart, offset)
-            } else {
-                section.restoreDisclosureAnchor(anchor, sectionStart + 1, offset)
-            }
+            return section.restoreSectionAnchor(anchor, sectionStart, headerCount, offset)
         }
-        sectionStart += section.itemCount + 1
+        sectionStart += section.itemCount + headerCount
     }
     return null
+}
+
+private fun HbExpandedTimelineSection.restoreSectionAnchor(
+    anchor: DisclosureAnchor,
+    sectionStart: Int,
+    headerCount: Int,
+    offset: Int,
+): DisclosurePosition? = if (anchor.entryIndex < 0) {
+    DisclosurePosition(sectionStart, if (headerCount == 1) offset else 0)
+} else {
+    restoreDisclosureAnchor(anchor, sectionStart + headerCount, offset)
 }
 
 private fun HbExpandedTimelineSection.restoreDisclosureAnchor(

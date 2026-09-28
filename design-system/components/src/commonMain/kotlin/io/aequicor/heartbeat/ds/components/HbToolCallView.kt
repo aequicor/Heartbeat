@@ -80,7 +80,12 @@ internal fun HbToolCallHeader(
     onExpandedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     labels: HbToolLabels = HbToolLabels(),
+    isUnified: Boolean = false,
 ) {
+    if (isUnified) {
+        HbUnifiedToolHeader(toolCall, isExpanded, onExpandedChange, modifier, labels)
+        return
+    }
     HbColumn(modifier = modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
         ToolHeaderButton(
             toolCall = toolCall,
@@ -112,12 +117,15 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
     val isPressed by interactionSource.collectIsPressedAsState()
     val background = toolHeaderBackground(isHovered, isPressed)
     val status = when (toolCall.status) {
+        HbToolStatus.Pending -> labels.pending
+        HbToolStatus.Cancelled -> labels.cancelled
         HbToolStatus.Running -> labels.running
         HbToolStatus.Complete -> labels.complete
         HbToolStatus.Error -> labels.error
     }
     HbRow(
         modifier = Modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget)
+            .hbFocusOutline(isFocused, HbTheme.shapes.small)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -126,7 +134,6 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
                 onClick = onClick,
             )
             .background(background, HbTheme.shapes.small)
-            .hbFocusOutline(isFocused, HbTheme.shapes.small)
             .semantics { stateDescription = if (isExpanded) labels.collapse else labels.expand }
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xxs),
         gap = HbTheme.spacing.s,
@@ -148,7 +155,8 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
         ) {
             HbIcon(
                 icon = when (toolCall.status) {
-                    HbToolStatus.Running -> HbIcons.More
+                    HbToolStatus.Pending, HbToolStatus.Running -> HbIcons.More
+                    HbToolStatus.Cancelled -> HbIcons.Close
                     HbToolStatus.Complete -> HbIcons.Check
                     HbToolStatus.Error -> HbIcons.Alert
                 },

@@ -9,7 +9,7 @@ import kotlinx.collections.immutable.persistentMapOf
 
 /** Caller-localized date or session group. Keep [id] stable while its title changes language. */
 @Immutable
-public data class HbChatSection(val id: String, val title: String) {
+public data class HbChatSection(val id: String, val title: String, val isDate: Boolean = false) {
     init {
         require(id.isNotBlank()) { "A chat section needs a stable non-blank id." }
     }

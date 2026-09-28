@@ -71,6 +71,6 @@ private fun LazyListScope.baseItems(
 private fun HbExpandedTool.payloadChunk(index: Int): HbTranscriptChunk = HbTranscriptChunk(
     messageId = chunk.messageId,
     id = "tool-payload:${body.call.id.length}:${body.call.id}:${body.rows[index].id}",
-    body = HbTranscriptBody.ToolPayload(body.rows[index]),
+    body = HbTranscriptBody.ToolPayload(body.rows[index], isFirst = index == 0, isLast = index == body.rows.lastIndex),
     isLast = chunk.isLast && index == body.rows.lastIndex,
 )

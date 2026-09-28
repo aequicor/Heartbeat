@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
@@ -42,6 +43,8 @@ import kotlin.math.roundToInt
  * Fill this host with the lazy list using [state], and call the supplied header content from its
  * sticky slots. [header] must apply its modifier and render the same stateless surface for each key.
  * Native measurement and placement still control height, horizontal insets and section push-off.
+ * [overlapInsets] fades only the scrolling layer beneath external top/bottom panels, preserving the
+ * scrollbar and pinned headings as fully opaque controls.
  */
 @Composable
 public fun HbStickyHeaderHost(
@@ -49,6 +52,7 @@ public fun HbStickyHeaderHost(
     stickyHeaderKeyPrefix: String,
     header: @Composable (key: String, modifier: Modifier) -> Unit,
     modifier: Modifier = Modifier,
+    overlapInsets: PaddingValues = PaddingValues(),
     content: @Composable (headerContent: @Composable (String) -> Unit) -> Unit,
 ) {
     val measurements = remember { mutableStateMapOf<String, NativeHeaderMeasurement>() }
@@ -63,7 +67,7 @@ public fun HbStickyHeaderHost(
     )
     // Until the first native measurement, leave its surface visible and defer the content mask.
     val fade = if (pinned == null || measurement != null) {
-        Modifier.hbLazyEdgeFades(state, stickyHeaderKeyPrefix)
+        Modifier.hbLazyEdgeFades(state, stickyHeaderKeyPrefix, overlapInsets)
     } else {
         Modifier
     }
