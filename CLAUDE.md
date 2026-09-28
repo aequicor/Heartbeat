@@ -29,7 +29,7 @@ lint/            detekt-rules — собственный набор правил
 > Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
 > AI-движки: контракты `features:ai-engine:{facade,authenticator}:api`; `authenticator:impl` — источники авторизации профиля и проверки;
 > `facade:impl` — каталог движков и привязок, выбор движка по умолчанию, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине.
-> Адаптер `koog:{api,impl}` (OpenAI, Anthropic, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
+> Адаптер `koog:{api,impl}` (OpenAI, Anthropic, OpenAI-/Anthropic-совместимые серверы по HTTPS или loopback, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
 > подключён в DI, включение — тогл `ai.koog` (по умолчанию false).
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
@@ -50,7 +50,7 @@ lint/            detekt-rules — собственный набор правил
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
-> за тоглами `ai.engines` + `ai.pi`, изменяющие вызовы инструментов — только после подтверждения пользователя;
+> за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`), изменяющие вызовы инструментов — только после подтверждения пользователя;
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
