@@ -68,13 +68,44 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiSessionTest {
     @Test
-    fun `unadvertised reasoning effort is rejected before a native prompt`() = runTest {
+    fun `unknown thinking level is rejected before a native prompt`() = runTest {
         val fixture = fixture()
-        val request = prompt("effort").copy(reasoningEffort = "high")
+        val request = prompt("effort").copy(reasoningEffort = "turbo")
         val error = assertFailsWith<EngineException> { fixture.session.send(request) }
         assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
         assertFalse("prompt" in fixture.connection.commands)
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `selected thinking level is applied before the prompt and the native level restored later`() = runTest {
+        val fixture = fixture()
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        fixture.session.send(prompt("first").copy(reasoningEffort = "high"))
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        fixture.session.send(prompt("second").copy(reasoningEffort = "high"))
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        fixture.session.send(prompt("third"))
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        runCurrent()
+        val levels = fixture.connection.commands.zip(fixture.connection.fields)
+            .filter { it.first == "set_thinking_level" }
+            .map { it.second.string("level") }
+        assertEquals(listOf("high", "medium"), levels)
+        val first = fixture.connection.commands.indexOf("set_thinking_level")
+        assertEquals("prompt", fixture.connection.commands[first + 1])
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `thinking levels follow the model catalog`() {
+        fun model(json: String) = Json.parseToJsonElement(json).jsonObject.piThinkingLevels()
+        assertEquals(emptyList(), model("""{"reasoning":false}"""))
+        assertEquals(listOf("off", "minimal", "low", "medium", "high"), model("""{"reasoning":true}"""))
+        assertEquals(
+            listOf("off", "low", "medium", "high", "xhigh"),
+            model("""{"reasoning":true,"thinkingLevelMap":{"minimal":null,"xhigh":"max"}}"""),
+        )
     }
 
     @Test
@@ -485,7 +516,7 @@ private class FakeConnection : PiConnection {
     }
 
     private fun state() = Json.parseToJsonElement(
-        """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":false,
+        """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":false,"thinkingLevel":"medium",
            "model":{"provider":"anthropic","id":"test"}}""",
     ).jsonObject
 }

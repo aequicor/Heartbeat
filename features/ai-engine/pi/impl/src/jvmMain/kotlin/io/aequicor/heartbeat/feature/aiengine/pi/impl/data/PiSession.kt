@@ -98,6 +98,10 @@ internal class PiSession(
     private var pendingEffect: ActiveSessionEffect? = null
     private var isEffectStarted = false
     private var target = request.target
+
+    // Thinking level Pi started with, restored when a prompt asks for the native default; confined to main.
+    private var nativeThinking: String? = null
+    private var appliedThinking: String? = null
     private var turn: Turn? = null
     private var terminal: TurnOutcome = TurnOutcome.Completed
     private var acceptance: CompletableDeferred<TurnId>? = null
@@ -148,6 +152,8 @@ internal class PiSession(
                 ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             nativeRef = SessionRef(route.engine, SessionSourceId("pi.profile"), nativeId)
             sessionFile = snapshot.string("sessionFile")
+            nativeThinking = snapshot.string("thinkingLevel")
+            appliedThinking = nativeThinking
             isStarted = true
         } finally {
             if (!isStarted) withContext(NonCancellable) { shutdown() }
@@ -189,7 +195,8 @@ internal class PiSession(
         if (request.parts.any { it !is ContentPart.Text }) {
             piFailure(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
         }
-        if (request.reasoningEffort != null) {
+        val effort = request.reasoningEffort
+        if (effort != null && effort !in PiThinkingLevels) {
             piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
     }
@@ -428,10 +435,19 @@ internal class PiSession(
         }
         val accepted = acceptance
         val message = effect.request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
+        applyThinking(effect.request.reasoningEffort ?: nativeThinking)
         rpc().command("prompt", JsonObject(mapOf("message" to JsonPrimitive(message))))
         if (turn?.id == effect.turn.id) machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
         started(effect.turn)
         accepted?.complete(effect.turn.id)
+    }
+
+    /** Pi clamps the level to the model; it is session-local and never written to Pi's global defaults. */
+    private suspend fun applyThinking(level: String?) {
+        if (level == null || level == appliedThinking) return
+        rpc().command("set_thinking_level", JsonObject(mapOf("level" to JsonPrimitive(level))))
+        appliedThinking = level
+        log.i { "thinking level set: $level" }
     }
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
