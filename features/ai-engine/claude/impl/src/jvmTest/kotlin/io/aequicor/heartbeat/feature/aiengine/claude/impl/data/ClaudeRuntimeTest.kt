@@ -359,6 +359,27 @@ class ClaudeRuntimeTest {
     }
 
     @Test
+    fun `a crash after the init frame leaves the outcome unknown until synchronized`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        fixture.transport.generation = { args, line ->
+            line(initFrame(args.last().substringAfter('=')))
+            1
+        }
+        val send = async {
+            assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
+        }
+        runCurrent()
+        assertEquals(RequestFailureReason.OutcomeUnknown, assertIs<EngineFailure.Request>(send.await().failure).reason)
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        session.features.available(ReconcilesSession).synchronize()
+        val ready = assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
     fun `a foreign session frame makes delivery ambiguous`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { _, line ->
