@@ -27,7 +27,7 @@ public enum class HbMarkdownBlockKind { Paragraph, Heading, Code, Quote, TableRo
  * Prepared Markdown row. [id] is based on source position and chunk number, stable while appending text.
  * Tables have one row per block; [level] is the heading level, or nesting depth for lists and quotes.
  * [codeSpans] preserves lexical context across code chunks; null highlights a manually supplied block.
- * [isFirstSegment]/[isLastSegment] mark bounded pieces of one fenced block so they render as one panel.
+ * [isFirstSegment]/[isLastSegment] mark bounded pieces of one source block so continuation rows have no paragraph gap.
  */
 @Immutable
 public data class HbMarkdownBlock(

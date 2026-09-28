@@ -8,6 +8,28 @@ import kotlin.test.assertTrue
 
 class HbMarkdownParserTest {
     @Test
+    fun `hard breaks render once while soft line endings remain in the same paragraph`() {
+        for (breakMarker in listOf("  ", "\\")) {
+            val block = parseHbMarkdown("First${breakMarker}\nSecond\ncontinued").single()
+            assertEquals("First\nSecond continued", block.content.text)
+        }
+    }
+
+    @Test
+    fun `long prose continues at word boundaries with stable segment flags and intact formatting`() {
+        val text = "A readable paragraph with words and spaces. ".repeat(160).trimEnd()
+        val blocks = parseHbMarkdown("**$text**")
+        assertTrue(blocks.size > 2)
+        assertEquals(text, blocks.joinToString("") { it.content.text })
+        assertEquals(1, blocks.count { it.isFirstSegment })
+        assertEquals(1, blocks.count { it.isLastSegment })
+        assertTrue(blocks.first().isFirstSegment)
+        assertTrue(blocks.last().isLastSegment)
+        blocks.dropLast(1).forEach { assertTrue(it.content.text.last().isWhitespace()) }
+        blocks.forEach { assertEquals(it.content.text, it.content.spanText(HbMarkdownStyle.Bold)) }
+    }
+
+    @Test
     fun `headings and nested inline styles produce semantic text rather than delimiter glyphs`() {
         val blocks = parseHbMarkdown(
             "# A **clear** title\n\nA **bold and *italic*** answer with `code` and ~~removed~~.",

@@ -139,7 +139,7 @@ private class MarkdownBlockParser(private val source: String) {
     private fun table(node: ASTNode) {
         node.children.filter { it.type == GFMElementTypes.HEADER || it.type == GFMElementTypes.ROW }.forEach { row ->
             val cells = row.children.filter { it.type == GFMTokenTypes.CELL }.map { inline.parse(it).trimmed() }
-            val chunks = cells.map(::chunkHbText)
+            val chunks = cells.map { chunkHbText(it) }
             val chunkCount = chunks.maxOfOrNull { it.size } ?: 0
             repeat(chunkCount) { index ->
                 rows += HbMarkdownBlock(
@@ -159,8 +159,17 @@ private class MarkdownBlockParser(private val source: String) {
         level: Int = 0,
         marker: String? = null,
     ) {
-        chunkHbText(text).forEachIndexed { index, chunk ->
-            rows += HbMarkdownBlock("${node.startOffset}:$index", kind, chunk, level, if (index == 0) marker else null)
+        val chunks = chunkHbText(text, preferWordBoundary = true)
+        chunks.forEachIndexed { index, chunk ->
+            rows += HbMarkdownBlock(
+                "${node.startOffset}:$index",
+                kind,
+                chunk,
+                level,
+                if (index == 0) marker else null,
+                isFirstSegment = index == 0,
+                isLastSegment = index == chunks.lastIndex,
+            )
         }
     }
 }
