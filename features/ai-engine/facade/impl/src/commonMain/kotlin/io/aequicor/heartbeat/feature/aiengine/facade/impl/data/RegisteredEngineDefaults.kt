@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.data
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -19,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.validateEngineRegis
  * constructed. Registrations are validated once, on first use.
  */
 @Inject
+@SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 internal class RegisteredEngineDefaults(
     private val registrations: Set<EngineRegistration>,
@@ -44,7 +46,7 @@ internal class RegisteredEngineDefaults(
             !toggles.get(registration.descriptor.toggle) -> "${registration.descriptor.id.value} toggle off"
             else -> return registration.descriptor.id.also { log.i { "Default engine: ${it.value}" } }
         }
-        log.i { "No default engine: $rejection" }
+        log.d { "No default engine: $rejection" }
         return null
     }
 

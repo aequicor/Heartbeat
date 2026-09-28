@@ -1,13 +1,9 @@
 package io.aequicor.heartbeat.platform.dibundle
 
-import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesTo
-import dev.zacsweers.metro.IntoSet
-import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -118,12 +114,4 @@ class SessionTransferIntegrationTest {
 @ContributesTo(ProfileScope::class)
 interface TestTransferAccessors {
     val transferMachine: Machine<SessionTransferState, SessionTransferIntent, SessionTransferOutput>
-}
-
-/** AiEngines is owned by the future facade implementation; tests register it to enable transfers. */
-@ContributesTo(AppScope::class)
-interface TestEngineToggleContribution {
-    @Provides
-    @IntoSet
-    fun aiEngines(): FeatureToggle<*> = AiEngines
 }

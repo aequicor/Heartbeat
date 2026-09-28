@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthContextKey
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 
 @Inject
+@SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<PiAdapter>())
 internal class UnsupportedPiEngine : PiAdapter {
     override suspend fun checkRequirements(): EngineAvailability = EngineAvailability.UnsupportedPlatform

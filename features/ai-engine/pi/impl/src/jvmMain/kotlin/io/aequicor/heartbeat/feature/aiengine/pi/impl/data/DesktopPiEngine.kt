@@ -79,21 +79,24 @@ internal class DesktopPiEngine(
 
     override suspend fun bind(binding: EngineBindingId, source: AuthSource): Unit = mutex.withLock {
         if (source !is AuthSource.ManagedKey || !accepts(source, EngineContext(PiEngineId, binding))) {
+            log.w { "Rejected Pi credential route: unsupported source" }
             authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
         }
-        if (source.info.revision !is AuthRevision.Known) piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
+        if (source.info.revision !is AuthRevision.Known) {
+            log.w { "Rejected Pi credential route: unknown revision" }
+            piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
+        }
         log.i { "Binding Pi credential route" }
         val before = settings.snapshot().bindings
         settings.bind(binding, source)
-        val after = settings.snapshot().bindings
-        retireUnused(before.values.filter { it !in after.values }.map { it.info.id }.toSet())
+        retireUnused(retiredSources(before, settings.snapshot().bindings))
     }
 
     override suspend fun unbind(binding: EngineBindingId): Unit = mutex.withLock {
-        val removed = settings.unbind(binding) ?: return@withLock
+        val before = settings.snapshot().bindings
+        settings.unbind(binding) ?: return@withLock
         log.i { "Unbinding Pi credential route" }
-        val remaining = settings.snapshot().bindings.values
-        if (remaining.none { it == removed }) retireUnused(setOf(removed.info.id))
+        retireUnused(retiredSources(before, settings.snapshot().bindings))
     }
 
     override suspend fun configureWorkspace(workspace: WorkspaceRef, directory: String) {
@@ -105,6 +108,9 @@ internal class DesktopPiEngine(
                 null
             } catch (e: InvalidPathException) {
                 log.w(e) { "Pi workspace directory is invalid" }
+                null
+            } catch (e: SecurityException) {
+                log.w(e) { "Pi workspace directory is not accessible" }
                 null
             }
         } ?: piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
@@ -175,3 +181,12 @@ internal class DesktopPiEngine(
         }
     }
 }
+
+/**
+ * Sources whose stored route changed or disappeared between two binding snapshots. A source still referenced
+ * with identical metadata by any binding keeps its pooled runtime.
+ */
+internal fun retiredSources(
+    before: Map<String, AuthSource.ManagedKey>,
+    after: Map<String, AuthSource.ManagedKey>,
+): Set<AuthSourceId> = (before.values.toSet() - after.values.toSet()).map { it.info.id }.toSet()
