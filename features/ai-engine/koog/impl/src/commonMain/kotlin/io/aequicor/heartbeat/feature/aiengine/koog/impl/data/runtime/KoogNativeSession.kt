@@ -169,7 +169,7 @@ internal class KoogNativeSession(
         val connection = access.route(route.binding, identity)
         val provider = requireNotNull(koogProvider(connection.source))
         val effort = request.reasoningEffort
-        if (effort != null && effort !in provider.reasoningEfforts(model.value)) {
+        if (effort != null && effort !in access.reasoning.levels(provider, model.value)) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
         request.parts.koogUserParts(provider, request.id)
@@ -215,13 +215,8 @@ internal class KoogNativeSession(
             val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
             val hasAttachments = record.items.hasResourceInputs()
             log.i { "Koog turn effort=${effort ?: "default"}" }
-            generate(
-                turn,
-                client,
-                provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments),
-                tools,
-                provider.reasoningParams(effort),
-            )
+            val textModel = provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments)
+            generateWithEffort(turn, client, provider, textModel, tools, effort)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -268,6 +263,31 @@ internal class KoogNativeSession(
         } catch (e: Exception) {
             log.w(e.sanitized()) { "Model capabilities unavailable; search tools disabled for this turn" }
             false
+        }
+    }
+
+    /**
+     * A provider that refuses the reasoning parameters before producing any output gets the same prompt again without
+     * them, and the model stops offering effort, so a wrong capability guess never fails the user's turn.
+     */
+    private suspend fun generateWithEffort(
+        turn: Turn,
+        client: KoogClient,
+        provider: KoogProvider,
+        model: LLModel,
+        tools: List<ToolDescriptor>,
+        effort: String?,
+    ) {
+        val produced = history.items.size
+        try {
+            generate(turn, client, model, tools, provider.reasoningParams(effort))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (effort == null || !e.isRequestRejection() || history.items.size != produced) throw e
+            log.w(e.sanitized()) { "Reasoning parameters rejected; retrying without effort" }
+            access.reasoning.reject(provider, model.id)
+            generate(turn, client, model, tools, LLMParams())
         }
     }
 

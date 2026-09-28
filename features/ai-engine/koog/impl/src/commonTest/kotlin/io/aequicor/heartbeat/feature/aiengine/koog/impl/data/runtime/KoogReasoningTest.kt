@@ -13,14 +13,14 @@ import kotlin.test.assertTrue
 
 class KoogReasoningTest {
     @Test
-    fun `only reasoning model families advertise effort`() {
+    fun `family guess covers known reasoning families`() {
         val levels = listOf("low", "medium", "high")
-        assertEquals(levels, KoogProvider.OpenAI.reasoningEfforts("o4-mini"))
-        assertEquals(levels, KoogProvider.OpenAI.reasoningEfforts("gpt-5.1"))
-        assertTrue(KoogProvider.OpenAI.reasoningEfforts("gpt-4o").isEmpty())
-        assertEquals(levels, KoogProvider.Anthropic.reasoningEfforts("claude-sonnet-4-5"))
-        assertTrue(KoogProvider.Anthropic.reasoningEfforts("claude-3-5-haiku-latest").isEmpty())
-        assertTrue(KoogProvider.Ollama.reasoningEfforts("o3").isEmpty())
+        assertEquals(levels, KoogProvider.OpenAI.fallbackReasoningEfforts("o4-mini"))
+        assertEquals(levels, KoogProvider.OpenAI.fallbackReasoningEfforts("gpt-5.1"))
+        assertTrue(KoogProvider.OpenAI.fallbackReasoningEfforts("gpt-4o").isEmpty())
+        assertEquals(levels, KoogProvider.Anthropic.fallbackReasoningEfforts("claude-sonnet-4-5"))
+        assertTrue(KoogProvider.Anthropic.fallbackReasoningEfforts("claude-3-5-haiku-latest").isEmpty())
+        assertTrue(KoogProvider.Ollama.fallbackReasoningEfforts("o3").isEmpty())
     }
 
     @Test

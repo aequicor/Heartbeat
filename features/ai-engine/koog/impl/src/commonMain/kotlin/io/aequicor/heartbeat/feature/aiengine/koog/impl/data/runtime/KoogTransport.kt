@@ -9,7 +9,15 @@ internal interface KoogTransport {
     fun open(provider: KoogProvider, key: String?, model: String? = null): KoogClient
 }
 
-internal class KoogClient(val executor: PromptExecutor, val models: suspend () -> List<LLModel>) : AutoCloseable {
+/**
+ * [reasoning] asks the provider API which of the given models accept reasoning parameters; null when the API has
+ * no such information or the request failed.
+ */
+internal class KoogClient(
+    val executor: PromptExecutor,
+    val reasoning: suspend (models: List<String>) -> Map<String, List<String>>? = { null },
+    val models: suspend () -> List<LLModel>,
+) : AutoCloseable {
     override fun close() = executor.close()
 }
 

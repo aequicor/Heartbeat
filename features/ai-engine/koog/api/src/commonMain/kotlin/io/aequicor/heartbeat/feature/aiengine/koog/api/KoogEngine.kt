@@ -19,6 +19,16 @@ public val KoogAuthOwner: AuthOwnerId = AuthOwnerId("koog")
 /** Experimental text generation, disabled until explicitly enabled. */
 public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog", "Движок Koog")
 
+/**
+ * Allows reading the public models.dev catalog to learn which OpenAI and Alibaba models accept reasoning effort;
+ * off, unknown models fall back to a guess by model family.
+ */
+public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.koog.reasoning_catalog",
+    "Koog: каталог models.dev для уровней effort",
+    default = false,
+)
+
 /** Supported routes. Fixed origins prevent forwarding managed credentials to an arbitrary server. */
 @Serializable
 public enum class KoogProvider(public val id: ProviderId, public val origin: EndpointOrigin) {

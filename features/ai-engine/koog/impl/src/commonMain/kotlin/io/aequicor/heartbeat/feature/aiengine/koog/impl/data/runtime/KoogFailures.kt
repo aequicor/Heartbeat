@@ -37,6 +37,17 @@ internal fun Exception.sanitized(): EngineException {
     return EngineException(failure)
 }
 
+/**
+ * The provider refused the request itself (400/422) for an unclassified reason, e.g. an unsupported parameter;
+ * context-limit errors, which share the status, are excluded.
+ */
+internal fun Throwable.isRequestRejection(): Boolean {
+    val http = generateSequence(this) { it.cause }.take(MAX_CAUSE_DEPTH).firstNotNullOfOrNull { it.httpError() }
+    return http != null && http.status in RequestRejections && http.failure() is EngineFailure.Unknown
+}
+
+private val RequestRejections = setOf(BAD_REQUEST, UNPROCESSABLE)
+
 private data class HttpError(val status: Int, val body: String)
 
 private fun Throwable.httpError(): HttpError? = when (this) {
@@ -95,6 +106,8 @@ private val ContextErrors = listOf("context_length_exceeded", "prompt is too lon
 private val QuotaErrors = listOf("insufficient_quota")
 
 private const val MAX_CAUSE_DEPTH = 16
+private const val BAD_REQUEST = 400
+private const val UNPROCESSABLE = 422
 private const val UNAUTHORIZED = 401
 private const val FORBIDDEN = 403
 private const val PAYLOAD_TOO_LARGE = 413

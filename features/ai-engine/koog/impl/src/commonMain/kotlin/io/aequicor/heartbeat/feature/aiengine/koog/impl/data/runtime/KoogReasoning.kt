@@ -4,16 +4,26 @@ import ai.koog.prompt.executor.clients.anthropic.AnthropicParams
 import ai.koog.prompt.executor.clients.anthropic.models.AnthropicThinking
 import ai.koog.prompt.executor.clients.openai.OpenAIChatParams
 import ai.koog.prompt.executor.clients.openai.base.models.ReasoningEffort
+import ai.koog.prompt.executor.ollama.client.OllamaParams
 import ai.koog.prompt.params.LLMParams
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 
+/** `reasoning_effort` values Koog 1.3 can send to OpenAI-compatible routes. */
+internal val KoogReasoningEffortLevels = listOf("minimal", "low", "medium", "high")
+
+/** Anthropic levels, each mapped to a thinking budget. */
+internal val KoogBudgetLevels = listOf("low", "medium", "high")
+
+/** Ollama `think` switch. */
+internal val KoogToggleLevels = listOf("off", "on")
+
 /**
- * Effort levels Heartbeat can express for a provider model. Provider catalogs do not advertise reasoning support,
- * so it is recognised by model family; unknown families keep the provider default and show no selector.
+ * Last-resort guess by model family, used only when neither the provider API nor the catalog knows the model.
+ * Unknown families keep the provider default and show no selector.
  */
-internal fun KoogProvider.reasoningEfforts(model: String): List<String> = when (this) {
-    KoogProvider.OpenAI -> if (OpenAIReasoning.containsMatchIn(model)) KoogEffortLevels else emptyList()
-    KoogProvider.Anthropic -> if (AnthropicReasoning.containsMatchIn(model)) KoogEffortLevels else emptyList()
+internal fun KoogProvider.fallbackReasoningEfforts(model: String): List<String> = when (this) {
+    KoogProvider.OpenAI -> if (OpenAIReasoning.containsMatchIn(model)) KoogBudgetLevels else emptyList()
+    KoogProvider.Anthropic -> if (AnthropicReasoning.containsMatchIn(model)) KoogBudgetLevels else emptyList()
     KoogProvider.AlibabaQwen, KoogProvider.Ollama -> emptyList()
 }
 
@@ -21,7 +31,7 @@ internal fun KoogProvider.reasoningEfforts(model: String): List<String> = when (
 internal fun KoogProvider.reasoningParams(effort: String?): LLMParams {
     val level = effort ?: return LLMParams()
     return when (this) {
-        KoogProvider.OpenAI -> OpenAIChatParams(reasoningEffort = openAIEffort(level))
+        KoogProvider.OpenAI, KoogProvider.AlibabaQwen -> OpenAIChatParams(reasoningEffort = openAIEffort(level))
 
         KoogProvider.Anthropic -> {
             val budget = anthropicBudget(level)
@@ -29,11 +39,12 @@ internal fun KoogProvider.reasoningParams(effort: String?): LLMParams {
             AnthropicParams(maxTokens = budget + ANSWER_TOKENS, thinking = AnthropicThinking.Enabled(budget))
         }
 
-        KoogProvider.AlibabaQwen, KoogProvider.Ollama -> error("Effort is not advertised for $this")
+        KoogProvider.Ollama -> OllamaParams(think = level == "on")
     }
 }
 
 private fun openAIEffort(level: String): ReasoningEffort = when (level) {
+    "minimal" -> ReasoningEffort.MINIMAL
     "low" -> ReasoningEffort.LOW
     "medium" -> ReasoningEffort.MEDIUM
     "high" -> ReasoningEffort.HIGH
@@ -47,7 +58,6 @@ private fun anthropicBudget(level: String): Int = when (level) {
     else -> error("Unknown effort level")
 }
 
-private val KoogEffortLevels = listOf("low", "medium", "high")
 private val OpenAIReasoning = Regex("^(o\\d|gpt-5)")
 private val AnthropicReasoning = Regex("^claude-(3-7-sonnet|(opus|sonnet|haiku)-4)")
 private const val LOW_BUDGET = 2_048
