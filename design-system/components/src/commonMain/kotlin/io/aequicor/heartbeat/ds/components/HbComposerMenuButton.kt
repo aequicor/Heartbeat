@@ -19,9 +19,13 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.ImmutableList
 
 private val log = Log.tag("DS/ComposerMenu")
+
+/** The standard toolbar action, a circular add control, or a pill with an optional accent fill. */
+public enum class HbComposerMenuStyle { Standard, Circle, Pill, AccentPill }
 
 /**
  * Controlled toolbar menu. The owner supplies localized labels and handles action identifiers.
@@ -43,6 +47,7 @@ public fun HbComposerMenuButton(
     accessibleLabel: String = label,
     isIcon: Boolean = false,
     icon: ImageVector? = null,
+    style: HbComposerMenuStyle = HbComposerMenuStyle.Standard,
 ) {
     require(actions.map { it.id }.distinct().size == actions.size) { "Composer action ids must be unique" }
     val triggerFocus = remember { FocusRequester() }
@@ -57,16 +62,19 @@ public fun HbComposerMenuButton(
         onExpandedChange(it)
     }
     Box(modifier = modifier) {
-        ComposerMenuTrigger(
-            label = label,
-            accessibleLabel = accessibleLabel,
-            onClick = { changeExpanded(!isOpen) },
-            onOpen = { changeExpanded(true) },
-            modifier = Modifier.focusRequester(triggerFocus),
-            enabled = enabled && actions.isNotEmpty(),
-            isIcon = isIcon,
-            icon = icon,
-        )
+        HbTooltip(accessibleLabel) {
+            ComposerMenuTrigger(
+                label = label,
+                accessibleLabel = accessibleLabel,
+                onClick = { changeExpanded(!isOpen) },
+                onOpen = { changeExpanded(true) },
+                modifier = Modifier.focusRequester(triggerFocus),
+                enabled = enabled && actions.isNotEmpty(),
+                isIcon = isIcon,
+                icon = icon,
+                style = style,
+            )
+        }
         if (isOpen) {
             ComposerMenuPopup(
                 actions = actions,
@@ -93,6 +101,7 @@ private fun ComposerMenuTrigger(
     enabled: Boolean = true,
     isIcon: Boolean = false,
     icon: ImageVector? = null,
+    style: HbComposerMenuStyle = HbComposerMenuStyle.Standard,
 ) {
     val triggerModifier = modifier
         .semantics { contentDescription = accessibleLabel }
@@ -105,8 +114,32 @@ private fun ComposerMenuTrigger(
                 false
             }
         }
-    if (icon != null || isIcon) {
-        ComposerIconButton(icon, accessibleLabel, onClick, triggerModifier, enabled = enabled, fallbackSymbol = label)
+    if (style == HbComposerMenuStyle.Pill || style == HbComposerMenuStyle.AccentPill) {
+        ComposerMenuPill(label, onClick, triggerModifier, icon, enabled, style == HbComposerMenuStyle.AccentPill)
+    } else if (style == HbComposerMenuStyle.Circle) {
+        ComposerIconButton(
+            icon,
+            accessibleLabel,
+            onClick,
+            triggerModifier,
+            enabled = enabled,
+            fallbackSymbol = label,
+            shape = HbTheme.shapes.small,
+            size = HbTheme.studioDimensions.composerActionSize,
+            background = HbTheme.studioColors.composerPill,
+            iconSize = HbTheme.dimensions.iconSize,
+            tooltipText = null,
+        )
+    } else if (icon != null || isIcon) {
+        ComposerIconButton(
+            icon,
+            accessibleLabel,
+            onClick,
+            triggerModifier,
+            enabled = enabled,
+            fallbackSymbol = label,
+            tooltipText = null,
+        )
     } else {
         HbButton(label, onClick, triggerModifier, style = HbButtonStyle.Quiet, enabled = enabled)
     }

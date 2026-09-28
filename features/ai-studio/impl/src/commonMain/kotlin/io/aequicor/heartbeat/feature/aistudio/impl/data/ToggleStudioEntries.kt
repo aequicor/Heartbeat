@@ -5,8 +5,11 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
+import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -18,6 +21,13 @@ import kotlinx.coroutines.flow.combine
 @Inject
 @ContributesBinding(AiStudioScope::class)
 internal class ToggleStudioEntries(toggles: FeatureToggles, sessions: ProfileSessions) : StudioEntries {
+    override val showsResearch: Flow<Boolean> = combine(
+        toggles.observe(ResearchChatEnabled),
+        toggles.observe(StudioEngineRuntime),
+        toggles.observe(KoogEngineEnabled),
+        sessions.active,
+    ) { research, runtime, koog, session -> research && runtime && koog && session != null }
+
     override val showsConnections: Flow<Boolean> =
         combine(toggles.observe(EngineConnectionsEnabled), sessions.active) { isEnabled, session ->
             isEnabled && session != null

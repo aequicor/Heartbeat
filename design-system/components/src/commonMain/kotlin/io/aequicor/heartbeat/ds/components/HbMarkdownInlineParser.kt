@@ -47,9 +47,14 @@ private class InlineWriter(private val source: String) {
             Elements.AUTOLINK, GFMTokenTypes.GFM_AUTOLINK -> autoLink(node)
             Elements.LINK_TEXT -> children(node, skipBrackets = true)
             Tokens.HARD_LINE_BREAK -> text.append('\n')
+            Tokens.EOL -> softLineBreak()
             Tokens.BLOCK_QUOTE -> Unit
             else -> if (node.children.isEmpty()) text.append(unescapeMarkdown(node.raw(source))) else children(node)
         }
+    }
+
+    private fun softLineBreak() {
+        if (text.lastOrNull() != '\n') text.append(' ')
     }
 
     private fun children(node: ASTNode, skipBrackets: Boolean = false, delimiters: Int = 0) {

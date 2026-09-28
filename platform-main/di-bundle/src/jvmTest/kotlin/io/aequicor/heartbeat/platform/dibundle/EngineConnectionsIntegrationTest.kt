@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.domain.EngineServices
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -74,7 +75,8 @@ class EngineConnectionsIntegrationTest {
     }
 
     @Test
-    fun `without a bundled runtime the screens get an empty catalog and refused writes`() = runTest {
+    fun `disabled engines expose an empty catalog and refuse writes`() = runTest {
+        (app as TestToggleAccessors).toggleControl.setOverride(AiEngines, false)
         val services = (app.profileSessions.open(ProfileId("p1")).graph as EngineServicesAccessor).engineServices
         assertTrue(services.facade.engines.state.value.isEmpty())
         assertTrue(services.sources.state.value.isEmpty())

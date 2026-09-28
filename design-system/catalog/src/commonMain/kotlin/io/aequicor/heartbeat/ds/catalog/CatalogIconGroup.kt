@@ -126,6 +126,7 @@ internal val CatalogIconGroups: ImmutableList<CatalogIconGroup> = persistentList
         HbString.DevelopmentIcons,
         persistentListOf(
             HbIcons.Laptop,
+            HbIcons.Layers,
             HbIcons.Monitor,
             HbIcons.Phone,
             HbIcons.Terminal,

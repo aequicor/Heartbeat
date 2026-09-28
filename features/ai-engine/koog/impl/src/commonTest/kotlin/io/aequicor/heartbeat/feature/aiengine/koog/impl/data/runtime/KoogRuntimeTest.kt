@@ -148,6 +148,16 @@ class KoogRuntimeTest {
     }
 
     @Test
+    fun `unadvertised reasoning effort is rejected before opening the provider`() = runTest {
+        val fixture = KoogTestFixture(this)
+        val session = fixture.session()
+        val request = fixture.request().copy(reasoningEffort = "high")
+        val error = assertFailsWith<EngineException> { session.features.require(SendsPrompts).send(request) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
+        assertEquals(0, fixture.opens)
+    }
+
+    @Test
     fun streamCancellationDoesNotClaimConfirmedRemoteCancellation() = runTest {
         val f = KoogTestFixture(this)
         val session = f.session()

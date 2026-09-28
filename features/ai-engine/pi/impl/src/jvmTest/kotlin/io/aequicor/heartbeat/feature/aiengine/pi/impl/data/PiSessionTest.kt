@@ -68,6 +68,16 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiSessionTest {
     @Test
+    fun `unadvertised reasoning effort is rejected before a native prompt`() = runTest {
+        val fixture = fixture()
+        val request = prompt("effort").copy(reasoningEffort = "high")
+        val error = assertFailsWith<EngineException> { fixture.session.send(request) }
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
+        assertFalse("prompt" in fixture.connection.commands)
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `caller cancellation keeps the native turn and close releases the process after it settles`() = runTest {
         val fixture = fixture()
         val send = async { fixture.session.send(prompt("first")) }

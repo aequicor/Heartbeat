@@ -59,16 +59,21 @@ data class SidebarUi(
 /**
  * Studio screen. [panes], [focusedPaneId], [running], [stopping] and [settings] mirror the machine;
  * [projects], [sessions] and [transcripts] (of open sessions) mirror the repository; [drafts] and [sidebar]
- * are local input. [now] ticks while a run is active, for elapsed-time labels.
+ * are local input. [runStartedAt] mirrors execution start times; [now] ticks while a run is active.
  */
 @Immutable
 data class AiStudioScreenState(
     val models: ImmutableList<ModelUi> = persistentListOf(),
+    val isResearchEnabled: Boolean = false,
+    val isProjectAddingAvailable: Boolean = false,
+    val addingProjectTo: Int? = null,
+    val projectErrorPane: Int? = null,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val phase: StudioPhase = StudioPhase.Loading,
     val panes: ImmutableList<PaneUi> = persistentListOf(),
     val focusedPaneId: Int = 0,
     val running: ImmutableSet<String> = persistentSetOf(),
+    val runStartedAt: ImmutableMap<String, Instant> = persistentMapOf(),
     val stopping: ImmutableSet<String> = persistentSetOf(),
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
@@ -120,6 +125,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Changes the project of a new session. */
     data class SelectProject(val paneId: Int, val projectId: String?) : Navigation
 
+    /** Chooses and registers a local project for a new chat. */
+    data class AddProject(val paneId: Int) : Navigation
+
     /** Shows a session in the focused pane. */
     data class OpenSession(val sessionId: String) : Navigation
 
@@ -146,6 +154,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Chooses the reasoning effort of the next runs. */
     data class SelectEffort(val effort: EffortUi) : Composer
+
+    /** Selects an advertised native effort for an exact model route; null restores the engine default. */
+    data class SelectEngineEffort(val modelId: String, val effort: String?) : Composer
 
     /** Chooses how the agent treats actions with side effects. */
     data class SelectApproval(val approval: ApprovalUi) : Composer

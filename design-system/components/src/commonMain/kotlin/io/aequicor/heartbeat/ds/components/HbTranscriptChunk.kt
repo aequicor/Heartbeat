@@ -21,7 +21,8 @@ internal sealed interface HbTranscriptBody {
     ) : HbTranscriptBody
     data class Markdown(val block: HbMarkdownBlock) : HbTranscriptBody
     data class Tool(val call: HbToolCall, val rows: ImmutableList<HbToolDisplayRow>) : HbTranscriptBody
-    data class ToolPayload(val row: HbToolDisplayRow) : HbTranscriptBody
+    data class ToolPayload(val row: HbToolDisplayRow, val isFirst: Boolean = false, val isLast: Boolean = false) :
+        HbTranscriptBody
 }
 
 @Immutable
@@ -46,24 +47,23 @@ internal fun transcriptChunks(
     previousChunks: List<HbTranscriptChunk> = emptyList(),
 ): PersistentList<HbTranscriptChunk> {
     val chunks = mutableListOf<HbTranscriptChunk>()
-    if (message.kind == HbMessageKind.Markdown) {
-        parseHbMarkdown(message.text).forEach { block ->
-            chunks.add(HbTranscriptChunk(message.id, "markdown:${block.id}", HbTranscriptBody.Markdown(block)))
-        }
-    } else if (message.kind == HbMessageKind.Code) {
-        chunkHbCode(message.text, message.codeLanguage).forEachIndexed { index, code ->
-            chunks.add(
-                HbTranscriptChunk(
-                    message.id,
-                    "code:$index",
-                    HbTranscriptBody.Text(code.text, message.kind, code.spans),
-                ),
-            )
-        }
+    if (message.parts.isEmpty()) {
+        appendMessageText(message, chunks)
+        appendToolChunks(message, previousChunks, chunks)
     } else {
-        appendTextChunks(message, chunks)
+        val previousTools = previousChunks.mapNotNull { it.body as? HbTranscriptBody.Tool }.associateBy { it.call.id }
+        message.parts.forEach { part ->
+            when (part) {
+                is HbMessagePart.Text -> {
+                    val textChunks = mutableListOf<HbTranscriptChunk>()
+                    appendMessageText(message.copy(text = part.text, kind = part.kind), textChunks)
+                    chunks += textChunks.map { it.copy(id = "part:${part.id.length}:${part.id}:${it.id}") }
+                }
+
+                is HbMessagePart.Tool -> chunks += toolChunk(message.id, part.call, previousTools[part.id])
+            }
+        }
     }
-    appendToolChunks(message, previousChunks, chunks)
     if (chunks.isEmpty()) {
         chunks.add(HbTranscriptChunk(message.id, "empty", HbTranscriptBody.Text("", message.kind)))
     }
@@ -72,18 +72,38 @@ internal fun transcriptChunks(
     return chunks.toPersistentList()
 }
 
+private fun appendMessageText(message: HbChatMessage, chunks: MutableList<HbTranscriptChunk>) {
+    when (message.kind) {
+        HbMessageKind.Markdown -> parseHbMarkdown(message.text).forEach { block ->
+            chunks.add(HbTranscriptChunk(message.id, "markdown:${block.id}", HbTranscriptBody.Markdown(block)))
+        }
+
+        HbMessageKind.Code -> chunkHbCode(message.text, message.codeLanguage).forEachIndexed { index, code ->
+            chunks.add(
+                HbTranscriptChunk(
+                    message.id,
+                    "code:$index",
+                    HbTranscriptBody.Text(code.text, message.kind, code.spans),
+                ),
+            )
+        }
+
+        HbMessageKind.Text, HbMessageKind.Tool, HbMessageKind.Notice -> appendTextChunks(message, chunks)
+    }
+}
+
 private fun appendToolChunks(
     message: HbChatMessage,
     previousChunks: List<HbTranscriptChunk>,
     chunks: MutableList<HbTranscriptChunk>,
 ) {
-    if (message.toolCalls.isEmpty()) return
     val previousTools = previousChunks.mapNotNull { it.body as? HbTranscriptBody.Tool }.associateBy { it.call.id }
-    message.toolCalls.forEach { call ->
-        val previous = previousTools[call.id]
-        val rows = previous?.takeIf { it.call.blocks == call.blocks }?.rows ?: prepareToolRows(call.blocks)
-        chunks.add(HbTranscriptChunk(message.id, "tool:${call.id}", HbTranscriptBody.Tool(call, rows)))
-    }
+    message.toolCalls.forEach { call -> chunks += toolChunk(message.id, call, previousTools[call.id]) }
+}
+
+private fun toolChunk(messageId: String, call: HbToolCall, previous: HbTranscriptBody.Tool?): HbTranscriptChunk {
+    val rows = previous?.takeIf { it.call.blocks == call.blocks }?.rows ?: prepareToolRows(call.blocks)
+    return HbTranscriptChunk(messageId, "tool:${call.id}", HbTranscriptBody.Tool(call, rows))
 }
 
 /** Shares the bounded, CRLF- and surrogate-safe splitter used by Markdown, code, console and diff rows. */
@@ -115,14 +135,20 @@ internal fun HbTranscriptChunkContent(
         message.appearance.foreground
     }
     HbChatMessageBubble(
-        message = message,
+        message = if (chunk.isFirst && chunk.isLast) {
+            message
+        } else {
+            message.copy(
+                appearance = message.appearance.copy(isContentWidth = false),
+            )
+        },
         modifier = modifier,
         streamingLabel = streamingLabel,
         showHeader = chunk.isFirst,
         showStatus = chunk.isLast,
         onLinkClick = onLinkClick,
         toolLabels = toolLabels,
-        contentPadding = toolPanelChunkPadding(chunk),
+        contentPadding = if (message.appearance.isUnified) unifiedChunkPadding(chunk) else toolPanelChunkPadding(chunk),
     ) {
         when (val body = chunk.body) {
             is HbTranscriptBody.Markdown -> HbMarkdownBlockContent(
@@ -136,13 +162,14 @@ internal fun HbTranscriptChunkContent(
                 isExpanded = isToolExpanded,
                 onExpandedChange = onToolExpandedChange,
                 labels = toolLabels,
+                isUnified = message.appearance.isUnified,
             )
 
-            is HbTranscriptBody.ToolPayload -> HbToolPayloadRow(
-                row = body.row,
+            is HbTranscriptBody.ToolPayload -> UnifiedToolPayload(
+                body = body,
+                isUnified = message.appearance.isUnified,
                 labels = toolLabels,
                 onLinkClick = onLinkClick,
-                isSelectionContainerRequired = false,
             )
 
             is HbTranscriptBody.Text -> TranscriptText(body, foreground, isLastSegment = chunk.isLast)
@@ -199,4 +226,24 @@ private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color, isLas
             color = foreground,
         )
     }
+}
+
+/** Each lazy segment paints the same outer surface; only content gets an internal gap. */
+@Composable
+@ReadOnlyComposable
+private fun unifiedChunkPadding(chunk: HbTranscriptChunk): PaddingValues {
+    val inset = HbTheme.studioDimensions.messagePadding
+    val isPayload = chunk.body is HbTranscriptBody.ToolPayload
+    val markdown = (chunk.body as? HbTranscriptBody.Markdown)?.block
+    val isMarkdownContinuation = markdown != null && !markdown.isFirstSegment
+    return PaddingValues(
+        start = inset,
+        end = inset,
+        top = when {
+            chunk.isFirst -> inset
+            isPayload || isMarkdownContinuation -> HbTheme.spacing.none
+            else -> HbTheme.spacing.l
+        },
+        bottom = if (chunk.isLast) inset else HbTheme.spacing.none,
+    )
 }

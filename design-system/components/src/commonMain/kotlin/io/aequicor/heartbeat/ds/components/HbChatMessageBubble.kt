@@ -46,27 +46,125 @@ public fun HbChatMessageBubble(
         if (isReadingSurface) HbTheme.colors.assistantSurface else palette.background,
     )
     val foreground = message.appearance.foreground.orElse(palette.foreground)
-    val placement = when (resolvedAlignment(message)) {
-        HbMessageAlignment.End -> Alignment.TopEnd
-        HbMessageAlignment.Center -> Alignment.TopCenter
-        HbMessageAlignment.Automatic, HbMessageAlignment.Start -> Alignment.TopStart
-    }
-    Box(modifier = modifier.fillMaxWidth(), contentAlignment = placement) {
+    MessageBubblePlacement(message, showHeader, modifier) {
         HbColumn(
-            modifier = Modifier
-                .widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)
-                .fillMaxWidth(message.appearance.widthFraction)
-                .messageBubbleSurface(background, showHeader, showStatus, isReadingSurface)
-                .padding(contentPadding ?: messageBubblePadding(showHeader, showStatus))
+            modifier = message.bubbleWidth()
+                .messageBubbleDecoration(message, background, showHeader, showStatus, isReadingSurface, contentPadding)
                 .semantics {
                     if (message.status == HbMessageStatus.Streaming) stateDescription = streamingLabel
                 },
             gap = HbTheme.spacing.s,
         ) {
-            if (showHeader) MessageHeader(message, foreground)
-            MessageContent(message, foreground, toolLabels, onLinkClick, content)
-            if (showStatus) MessageStatus(message.status, streamingLabel, foreground)
+            BubbleBody(message, foreground, streamingLabel, showHeader, showStatus, toolLabels, onLinkClick, content)
         }
+    }
+}
+
+@Composable
+private fun MessageBubblePlacement(
+    message: HbChatMessage,
+    showHeader: Boolean,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val placement = message.bubblePlacement()
+    val maxWidth = if (message.appearance.isUnified) {
+        HbTheme.studioDimensions.messageMaxWidth
+    } else {
+        HbTheme.dimensions.chatMessageMaxWidth
+    }
+    Box(modifier = modifier.fillMaxWidth(), contentAlignment = placement) {
+        Box(
+            Modifier.widthIn(max = maxWidth).fillMaxWidth(message.appearance.widthFraction),
+            contentAlignment = placement,
+        ) {
+            HbColumn(
+                modifier = message.bubbleWidth(),
+                gap = HbTheme.spacing.xs,
+                horizontalAlignment = if (placement == Alignment.TopEnd) Alignment.End else Alignment.Start,
+            ) {
+                MessageOutsideLabel(message, showHeader)
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun MessageOutsideLabel(message: HbChatMessage, showHeader: Boolean) {
+    if (!showHeader || message.appearance.isAuthorVisible) return
+    message.label?.let { label ->
+        HbText(label, style = HbTheme.typography.metadata, color = HbTheme.colors.textSecondary)
+    }
+}
+
+@Composable
+private fun Modifier.messageBubbleDecoration(
+    message: HbChatMessage,
+    background: Color,
+    showHeader: Boolean,
+    showStatus: Boolean,
+    isReadingSurface: Boolean,
+    contentPadding: PaddingValues?,
+): Modifier {
+    val isUnified = message.appearance.isUnified
+    val surface = if (isUnified) {
+        hbUnifiedMessageSurface(background, showHeader, showStatus)
+    } else {
+        messageBubbleSurface(background, showHeader, showStatus, isReadingSurface)
+    }
+    val padding = contentPadding ?: if (isUnified) {
+        PaddingValues(HbTheme.studioDimensions.messagePadding)
+    } else {
+        messageBubblePadding(showHeader, showStatus)
+    }
+    return surface.padding(padding)
+}
+
+private fun HbChatMessage.bubbleWidth(): Modifier = if (appearance.isContentWidth) Modifier else Modifier.fillMaxWidth()
+
+private fun HbChatMessage.bubblePlacement(): Alignment = when (resolvedAlignment(this)) {
+    HbMessageAlignment.End -> Alignment.TopEnd
+    HbMessageAlignment.Center -> Alignment.TopCenter
+    HbMessageAlignment.Automatic, HbMessageAlignment.Start -> Alignment.TopStart
+}
+
+@Composable
+private fun BubbleBody(
+    message: HbChatMessage,
+    foreground: Color,
+    streamingLabel: String,
+    showHeader: Boolean,
+    showStatus: Boolean,
+    toolLabels: HbToolLabels,
+    onLinkClick: ((String) -> Unit)?,
+    content: (@Composable () -> Unit)?,
+) {
+    val bodyModifier = if (message.appearance.isUnified) Modifier.hbUnifiedBodyIndent() else Modifier
+    HbColumn(gap = HbTheme.spacing.s) {
+        if (showHeader && message.appearance.isAuthorVisible) {
+            if (message.appearance.isUnified) HbUnifiedMessageHeader(message) else MessageHeader(message, foreground)
+        }
+        HbColumn(bodyModifier, gap = HbTheme.spacing.s) {
+            MessageContent(message, foreground, toolLabels, onLinkClick, content)
+            MessageFooter(message, showStatus, streamingLabel, toolLabels, foreground)
+        }
+    }
+}
+
+@Composable
+private fun MessageFooter(
+    message: HbChatMessage,
+    showStatus: Boolean,
+    streamingLabel: String,
+    labels: HbToolLabels,
+    foreground: Color,
+) {
+    if (!showStatus) return
+    if (message.appearance.isUnified) {
+        HbUnifiedMessageFooter(message, streamingLabel, labels)
+    } else {
+        MessageStatus(message.status, streamingLabel, foreground)
     }
 }
 
@@ -109,9 +207,33 @@ private fun MessageContent(
     content: (@Composable () -> Unit)?,
 ) {
     SelectionContainer {
-        if (content == null) MessageBody(message, foreground, onLinkClick) else content()
+        when {
+            content != null -> content()
+
+            message.parts.isNotEmpty() -> HbColumn {
+                message.parts.forEach { part ->
+                    key(part.id) {
+                        when (part) {
+                            is HbMessagePart.Text -> MessageBody(
+                                message.copy(text = part.text, kind = part.kind),
+                                foreground,
+                                onLinkClick,
+                            )
+
+                            is HbMessagePart.Tool -> HbToolCallView(
+                                part.call,
+                                labels = labels,
+                                onLinkClick = onLinkClick,
+                            )
+                        }
+                    }
+                }
+            }
+
+            else -> MessageBody(message, foreground, onLinkClick)
+        }
     }
-    if (content == null && message.toolCalls.isNotEmpty()) {
+    if (content == null && message.parts.isEmpty() && message.toolCalls.isNotEmpty()) {
         HbColumn {
             message.toolCalls.forEach { tool ->
                 key(tool.id) { HbToolCallView(toolCall = tool, labels = labels, onLinkClick = onLinkClick) }
@@ -136,7 +258,7 @@ private fun MessageHeader(message: HbChatMessage, foreground: Color) {
     HbFlowRow(gap = HbTheme.spacing.s) {
         HbText(text = message.author, style = HbTheme.typography.label, color = foreground)
         message.label?.let { label ->
-            HbText(text = label, style = HbTheme.typography.caption, color = foreground)
+            HbText(text = label, style = HbTheme.typography.metadata, color = foreground)
         }
     }
 }

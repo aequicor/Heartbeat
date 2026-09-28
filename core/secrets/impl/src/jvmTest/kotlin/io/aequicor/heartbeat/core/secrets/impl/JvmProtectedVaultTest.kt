@@ -16,6 +16,8 @@ import kotlin.test.assertNull
 class JvmProtectedVaultTest {
     @Test
     fun nativeVaultPersistsAcrossInstancesAndWipesWithoutReadingCorruptCiphertext() {
+        // Native credential-store tests are explicit: ordinary development verification must not show OS prompts.
+        assumeTrue(System.getProperty("heartbeat.test.nativeSecrets") == "true")
         val os = System.getProperty("os.name")
         assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
         val host = if (os.startsWith("Windows")) HostPlatform.Windows else HostPlatform.MacOs

@@ -28,11 +28,13 @@ import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
 import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbTextField
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -77,29 +79,53 @@ internal class SessionRows(
         }
         val status = sessionStatus(session)
         val isMenuOpen = openMenu == rowKey
+        val isSelected = session.id == selectedId
         HbNavigationItem(
             label = session.title,
             onClick = { onIntent(AiStudioScreenIntent.OpenSession(session.id)) },
             modifier = modifier.testTag("session-${session.id}").semantics {
                 if (status.isNotEmpty()) stateDescription = status
             },
-            isSelected = session.id == selectedId,
-            isEmphasized = session.isUnread,
+            isSelected = isSelected,
             level = level,
+            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            onSecondaryClick = { onMenu(rowKey) },
+            selectedBackground = HbTheme.studioColors.selected,
+            selectedForeground = HbTheme.studioColors.onSelected,
+            contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
             if (isActive || isMenuOpen) {
-                HbMenuButton(
-                    icon = HbIcons.More,
-                    contentDescription = stringResource(Res.string.session_actions),
-                    items = sessionMenu(session, isOpenBesideAllowed),
-                    isExpanded = isMenuOpen,
-                    onExpandedChange = { onMenu(if (it) rowKey else null) },
-                    onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
-                    modifier = Modifier.testTag("session-menu-$rowKey"),
-                )
+                SessionHoverActions(session, rowKey, isMenuOpen)
             } else {
                 SessionIndicator(session)
             }
+        }
+    }
+
+    /** Hover-revealed archive and menu actions; their width shrinks the label so its fade ends before them. */
+    @Composable
+    private fun SessionHoverActions(session: SessionUi, rowKey: String, isMenuOpen: Boolean) {
+        HbRow(gap = HbTheme.spacing.none) {
+            val archiveLabel = stringResource(
+                if (session.isArchived) Res.string.action_restore else Res.string.action_archive,
+            )
+            HbIconButton(
+                icon = if (session.isArchived) HbIcons.Undo else HbIcons.Archive,
+                contentDescription = archiveLabel,
+                onClick = { onIntent(AiStudioScreenIntent.SetArchived(session.id, !session.isArchived)) },
+                modifier = Modifier.testTag("session-archive-$rowKey"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+            )
+            HbMenuButton(
+                icon = HbIcons.More,
+                contentDescription = stringResource(Res.string.session_actions),
+                items = sessionMenu(session, isOpenBesideAllowed),
+                isExpanded = isMenuOpen,
+                onExpandedChange = { onMenu(if (it) rowKey else null) },
+                onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
+                modifier = Modifier.testTag("session-menu-$rowKey"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+            )
         }
     }
 }
@@ -107,17 +133,16 @@ internal class SessionRows(
 @Composable
 private fun SessionIndicator(session: SessionUi) {
     val dimensions = HbTheme.dimensions
-    Box(Modifier.size(dimensions.touchTarget), contentAlignment = Alignment.Center) {
+    val foreground = if (session.isUnread) HbTheme.studioColors.accent else HbTheme.colors.textSecondary
+    Box(Modifier.size(HbTheme.studioDimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
         when {
             session.isRunning -> HbActivityIndicator()
 
             session.isUnread -> Box(
-                Modifier.size(dimensions.statusDotSize).background(HbTheme.colors.brand, CircleShape),
+                Modifier.size(dimensions.statusDotSize).background(foreground, CircleShape),
             )
 
-            session.branch != null -> HbIcon(HbIcons.Branch, null, Modifier.size(dimensions.iconSmallSize))
-
-            session.isPinned -> HbIcon(HbIcons.Pin, null, Modifier.size(dimensions.iconSmallSize))
+            session.isPinned -> HbIcon(HbIcons.Pin, null, Modifier.size(dimensions.iconSmallSize), tint = foreground)
         }
     }
 }
@@ -131,7 +156,7 @@ private fun sessionStatus(session: SessionUi): String = listOfNotNull(
 
 @Composable
 internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): ImmutableList<HbMenuItem> = listOfNotNull(
-    HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit),
+    HbMenuItem(MENU_RENAME, stringResource(Res.string.action_rename), HbIcons.Edit, isFocusRestoredOnSelect = false),
     if (session.isArchived) {
         null
     } else if (session.isPinned) {
@@ -146,9 +171,9 @@ internal fun sessionMenu(session: SessionUi, isOpenBesideAllowed: Boolean): Immu
     ),
     HbMenuItem(MENU_BESIDE, stringResource(Res.string.action_open_beside), HbIcons.Grid).takeIf { isOpenBesideAllowed },
     if (session.isArchived) {
-        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_restore), HbIcons.Undo, startsGroup = true)
+        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_restore), HbIcons.Undo, isGroupStart = true)
     } else {
-        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_archive), HbIcons.Archive, startsGroup = true)
+        HbMenuItem(MENU_ARCHIVE, stringResource(Res.string.action_archive), HbIcons.Archive, isGroupStart = true)
     },
 ).toImmutableList()
 

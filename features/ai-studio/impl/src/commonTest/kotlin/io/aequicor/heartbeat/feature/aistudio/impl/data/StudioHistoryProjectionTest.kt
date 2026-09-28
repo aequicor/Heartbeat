@@ -1,0 +1,140 @@
+package io.aequicor.heartbeat.feature.aistudio.impl.data
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.time.Instant
+
+class StudioHistoryProjectionTest {
+    private val now = Instant.fromEpochSeconds(100)
+
+    @Test
+    fun `protocol-only reasoning items do not create agent replies`() {
+        val items = listOf(
+            message("prompt", 0, MessageRole.User, "17 + 25"),
+            SessionItem.UnsupportedItem(info("reasoning", 1), "reasoning"),
+            SessionItem.UnsupportedItem(info("other", 2), "futureProtocolItem"),
+            message("answer", 3, MessageRole.Assistant, "42"),
+        )
+        val projected = items.toStudioMessages(now, isRunning = true)
+        assertEquals(2, projected.size)
+        assertEquals("17 + 25", assertIs<StudioMessage.Prompt>(projected[0]).text)
+        val reply = assertIs<StudioMessage.Reply>(projected[1])
+        assertEquals("42", reply.text)
+        assertTrue(reply.isStreaming)
+        assertFalse(reply.isTimestampKnown)
+        assertFalse(projected[0].isTimestampKnown)
+        assertTrue(reply.parts.none { it is StudioReplyPart.Reasoning })
+    }
+
+    @Test
+    fun `engine exposed reasoning and tools remain between text parts in one turn`() {
+        val call = ToolCallId("read-files")
+        val items = listOf(
+            message("prompt", 0, MessageRole.User, "Review"),
+            message("intro", 1, MessageRole.Assistant, "I will inspect the files"),
+            SessionItem.Message(
+                info("thought", 2),
+                MessageRole.Assistant,
+                listOf(ContentPart.Reasoning("Compare the public API")),
+            ),
+            SessionItem.ToolCall(info("call", 3), call, "Read files", "src/Main.kt", ToolCallStatus.Running),
+            message("progress", 4, MessageRole.Assistant, "The main entry is small"),
+            SessionItem.ToolResult(info("result", 5), call, listOf(ContentPart.Text("class Main"))),
+            message("final", 6, MessageRole.Assistant, "Here is the review"),
+        )
+        val projected = items.toStudioMessages(now, isRunning = false)
+        assertEquals(2, projected.size)
+        val reply = assertIs<StudioMessage.Reply>(projected[1])
+        assertEquals(listOf("intro:0", "thought:0", "read-files", "progress:0", "final:0"), reply.parts.map { it.id })
+        assertEquals("Compare the public API", assertIs<StudioReplyPart.Reasoning>(reply.parts[1]).text)
+        val tool = assertIs<StudioReplyPart.Tool>(reply.parts[2]).tool
+        assertEquals("Read files", tool.title)
+        assertEquals(ToolRunStatus.Done, tool.status)
+        assertEquals("src/Main.kt\nclass Main", tool.output)
+        assertEquals(listOf(tool), reply.tools)
+        assertFalse(reply.isStreaming)
+    }
+
+    @Test
+    fun `distinct turns and user prompts never merge and only current answer streams`() {
+        val items = listOf(
+            message("first", 0, MessageRole.Assistant, "First", "a"),
+            message("second", 1, MessageRole.Assistant, "Second", "b"),
+            message("prompt", 2, MessageRole.User, "Again", "c"),
+            message("third", 3, MessageRole.Assistant, "Third", "c"),
+        )
+        val result = items.toStudioMessages(now, isRunning = true)
+        assertEquals(listOf("first", "second", "prompt", "third"), result.map { it.id })
+        assertFalse(assertIs<StudioMessage.Reply>(result[0]).isStreaming)
+        assertFalse(assertIs<StudioMessage.Reply>(result[1]).isStreaming)
+        assertTrue(assertIs<StudioMessage.Reply>(result[3]).isStreaming)
+    }
+
+    @Test
+    fun `user visible engine notices retain content without fake timestamps or streaming`() {
+        val notice = SessionItem.Notice(info("notice", 0), "The request was interrupted")
+        val result = listOf(notice).toStudioMessages(now, isRunning = true)
+        val reply = assertIs<StudioMessage.Reply>(result.single())
+        assertEquals("The request was interrupted", reply.text)
+        assertFalse(reply.isTimestampKnown)
+        assertFalse(reply.isStreaming)
+    }
+
+    @Test
+    fun `cancelled invocation remains cancelled when its partial result arrives`() {
+        val call = ToolCallId("command")
+        val result = listOf(
+            SessionItem.ToolCall(info("call", 0), call, "Command", "test", ToolCallStatus.Cancelled),
+            SessionItem.ToolResult(info("output", 1), call, listOf(ContentPart.Text("partial"))),
+        ).toStudioMessages(now, isRunning = false)
+        assertEquals(ToolRunStatus.Cancelled, assertIs<StudioMessage.Reply>(result.single()).tools.single().status)
+    }
+
+    @Test
+    fun `service notice does not detach a result from the invocation it finishes`() {
+        val call = ToolCallId("read")
+        val result = listOf(
+            SessionItem.ToolCall(info("call", 0, "turn"), call, "Read source", "file.kt", ToolCallStatus.Running),
+            SessionItem.Notice(info("notice", 1), "Context was compacted"),
+            SessionItem.ToolResult(info("output", 2, "turn"), call, listOf(ContentPart.Text("source"))),
+        ).toStudioMessages(now, isRunning = false)
+        assertEquals(2, result.size)
+        val tool = assertIs<StudioMessage.Reply>(result[0]).tools.single()
+        assertEquals("Read source", tool.title)
+        assertEquals(ToolRunStatus.Done, tool.status)
+        assertEquals("file.kt\nsource", tool.output)
+        assertEquals("Context was compacted", assertIs<StudioMessage.Reply>(result[1]).text)
+    }
+
+    @Test
+    fun `the first known turn locks a preceding unlabelled answer without merging the next turn`() {
+        val result = listOf(
+            message("unknown", 0, MessageRole.Assistant, "Starting"),
+            message("known", 1, MessageRole.Assistant, "First", "a"),
+            message("next", 2, MessageRole.Assistant, "Second", "b"),
+        ).toStudioMessages(now, isRunning = false)
+        assertEquals(2, result.size)
+        assertEquals("Starting\n\nFirst", assertIs<StudioMessage.Reply>(result[0]).text)
+        assertEquals("Second", assertIs<StudioMessage.Reply>(result[1]).text)
+    }
+
+    private fun message(id: String, position: Long, role: MessageRole, text: String, turn: String? = null) =
+        SessionItem.Message(info(id, position, turn), role, listOf(ContentPart.Text(text)))
+
+    private fun info(id: String, position: Long, turn: String? = null): ItemInfo =
+        ItemInfo(ItemId(id), position, revision = 0, turn = turn?.let(::TurnId))
+}

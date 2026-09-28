@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.heading
@@ -133,8 +134,9 @@ private fun MarkdownHeading(
 ) {
     val style = when (block.level) {
         1 -> HbTheme.typography.title
-        2 -> HbTheme.typography.body.copy(fontWeight = FontWeight.Bold)
-        else -> HbTheme.typography.label
+        2 -> HbTheme.typography.body.copy(fontWeight = markdownEmphasisWeight())
+        3 -> HbTheme.typography.body.copy(fontWeight = FontWeight.SemiBold)
+        else -> HbTheme.typography.label.copy(fontWeight = FontWeight.SemiBold)
     }
     MarkdownRichText(block.content, modifier.semantics { heading() }, style, foreground, onLinkClick)
 }
@@ -155,9 +157,16 @@ private fun MarkdownParagraph(
     HbRow(
         modifier = modifier.padding(start = HbTheme.spacing.l * block.level.coerceAtMost(4)).then(quoteModifier),
         gap = HbTheme.spacing.s,
+        verticalAlignment = Alignment.Top,
     ) {
         block.marker?.let { HbText(text = it, color = foreground) }
-        MarkdownRichText(block.content, Modifier.weight(1f), HbTheme.typography.body, foreground, onLinkClick)
+        MarkdownRichText(
+            if (block.isLastSegment) block.content else block.content.withoutTrailingLineBreak(),
+            Modifier.weight(1f),
+            HbTheme.typography.body,
+            foreground,
+            onLinkClick,
+        )
     }
 }
 
@@ -194,8 +203,9 @@ private fun MarkdownRichText(
     onLinkClick: ((String) -> Unit)? = null,
 ) {
     val codeStyle = HbTheme.typography.code.toSpanStyle().copy(background = HbTheme.colors.primaryContainer)
-    val annotated = remember(content, codeStyle, onLinkClick) {
-        annotatedMarkdown(content, codeStyle, onLinkClick)
+    val emphasis = markdownEmphasisWeight()
+    val annotated = remember(content, codeStyle, emphasis, onLinkClick) {
+        annotatedMarkdown(content, codeStyle, emphasis, onLinkClick)
     }
     BasicText(text = annotated, modifier = modifier, style = style.copy(color = foreground))
 }
@@ -203,12 +213,13 @@ private fun MarkdownRichText(
 private fun annotatedMarkdown(
     content: HbMarkdownText,
     codeStyle: SpanStyle,
+    emphasis: FontWeight,
     onLinkClick: ((String) -> Unit)?,
 ): AnnotatedString = buildAnnotatedString {
     append(content.text)
     content.spans.forEach { span ->
         val style = when (span.style) {
-            HbMarkdownStyle.Bold -> SpanStyle(fontWeight = FontWeight.Bold)
+            HbMarkdownStyle.Bold -> SpanStyle(fontWeight = emphasis)
             HbMarkdownStyle.Italic -> SpanStyle(fontStyle = FontStyle.Italic)
             HbMarkdownStyle.Code -> codeStyle
             HbMarkdownStyle.Strike -> SpanStyle(textDecoration = TextDecoration.LineThrough)
@@ -231,3 +242,8 @@ private fun annotatedMarkdown(
         }
     }
 }
+
+@Composable
+@androidx.compose.runtime.ReadOnlyComposable
+private fun markdownEmphasisWeight(): FontWeight =
+    if (HbTheme.studioDimensions.isDesktop) FontWeight.SemiBold else FontWeight.Bold

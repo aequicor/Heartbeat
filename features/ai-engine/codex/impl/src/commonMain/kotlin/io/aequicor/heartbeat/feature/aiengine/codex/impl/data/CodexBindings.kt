@@ -51,6 +51,7 @@ public object CodexBindings {
                 EngineFamily.Vendor,
                 setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
                 CodexEngine.Enabled,
+                isLocalWorkspaceSupported = true,
                 requirements = listOf(
                     EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
                 ),

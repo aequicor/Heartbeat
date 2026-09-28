@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.withContext
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Executes the demo workspace effects while [io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime]
@@ -37,13 +38,15 @@ class AiStudioEffects(
     private val clock: Clock,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("AiStudioEffects")
-    private val activeRuns = MutableStateFlow(emptySet<String>())
+    private val activeRuns = MutableStateFlow(emptyMap<String, Instant>())
     private val stopRequests = MutableStateFlow(emptySet<String>())
 
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.ObserveRuntime -> activeRuns.collect {
-                machine.send(AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it)))
+                machine.send(
+                    AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it.keys, runStartedAt = it)),
+                )
             }
 
             // The scripted agent never asks for permissions; a stray answer is a caller error, not a decision.
@@ -52,6 +55,10 @@ class AiStudioEffects(
             AiStudioEffect.ObserveModels -> repository.observeModels().collect { models ->
                 machine.send(AiStudioIntent.Internal.ModelsChanged(models.map { it.id }))
             }
+
+            AiStudioEffect.ObserveProjects -> machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(false))
+
+            is AiStudioEffect.ChooseProject -> error("Local folder selection is unavailable in the demo workspace")
 
             AiStudioEffect.Load -> machine.send(
                 AiStudioIntent.Internal.Loaded(
@@ -85,10 +92,11 @@ class AiStudioEffects(
 
     /** Registers the run before its first suspension, so a stop sent right after the submit finds it. */
     private suspend fun run(effect: AiStudioEffect.Run): RunOutcome {
-        val started = activeRuns.updateAndGet { it + effect.sessionId }
+        val startedAt = clock.now()
+        val started = activeRuns.updateAndGet { it + (effect.sessionId to startedAt) }
         log.d { "active runs: ${started.size - 1} -> ${started.size}" }
         try {
-            return execute(effect)
+            return execute(effect, startedAt)
         } finally {
             val remaining = activeRuns.updateAndGet { it - effect.sessionId }
             log.d { "active runs: ${remaining.size + 1} -> ${remaining.size}" }
@@ -96,8 +104,7 @@ class AiStudioEffects(
         }
     }
 
-    private suspend fun execute(effect: AiStudioEffect.Run): RunOutcome {
-        val startedAt = clock.now()
+    private suspend fun execute(effect: AiStudioEffect.Run, startedAt: Instant): RunOutcome {
         var reply: StudioMessage.Reply? = null
         val outcome = try {
             val history = repository.observeMessages(effect.sessionId).first()
@@ -156,36 +163,70 @@ internal fun titleOf(prompt: String): String {
 }
 
 /** Folds one agent event into the streamed reply. */
-internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply = when (event) {
-    is AgentEvent.Text -> copy(text = text + event.text)
-
-    is AgentEvent.ToolStarted -> copy(tools = tools + StudioToolRun(event.id, event.title))
-
-    is AgentEvent.ToolOutput -> copy(
-        tools = tools.map { if (it.id == event.id) it.copy(output = it.output + event.output) else it },
-    )
-
-    is AgentEvent.ToolFinished -> copy(
-        tools = tools.map { tool ->
-            if (tool.id != event.id) {
-                tool
+internal fun StudioMessage.Reply.apply(event: AgentEvent): StudioMessage.Reply {
+    val ordered = parts.ifEmpty {
+        listOfNotNull(text.takeIf(String::isNotEmpty)?.let { StudioReplyPart.Text("$id:text:0", it) }) +
+            tools.map { StudioReplyPart.Tool(it) }
+    }
+    return when (event) {
+        is AgentEvent.Text -> {
+            val last = ordered.lastOrNull() as? StudioReplyPart.Text
+            val updated = if (last == null) {
+                ordered + StudioReplyPart.Text("$id:text:${ordered.size}", event.text)
             } else {
-                tool.copy(
-                    title = event.title,
-                    status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
-                    diff = event.diff ?: tool.diff,
-                )
+                ordered.dropLast(1) + last.copy(text = last.text + event.text)
             }
-        },
-    )
+            copy(text = text + event.text, parts = updated)
+        }
 
-    is AgentEvent.BranchCreated -> this
+        is AgentEvent.ToolStarted -> {
+            val tool = StudioToolRun(event.id, event.title)
+            copy(tools = tools + tool, parts = ordered + StudioReplyPart.Tool(tool))
+        }
+
+        is AgentEvent.ToolOutput -> updateTool(event.id, ordered) { copy(output = output + event.output) }
+
+        is AgentEvent.ToolFinished -> updateTool(event.id, ordered) {
+            copy(
+                title = event.title,
+                status = if (event.isSuccess) ToolRunStatus.Done else ToolRunStatus.Failed,
+                diff = event.diff ?: diff,
+            )
+        }
+
+        is AgentEvent.BranchCreated -> this
+    }
 }
 
-/** Ends streaming; tool calls interrupted by a stop or failure are marked failed. */
-internal fun StudioMessage.Reply.closed(): StudioMessage.Reply = copy(
-    isStreaming = false,
-    tools = tools.map { if (it.status == ToolRunStatus.Running) it.copy(status = ToolRunStatus.Failed) else it },
+private fun StudioMessage.Reply.updateTool(
+    toolId: String,
+    ordered: List<StudioReplyPart>,
+    update: StudioToolRun.() -> StudioToolRun,
+): StudioMessage.Reply = copy(
+    tools = tools.map { if (it.id == toolId) it.update() else it },
+    parts = ordered.map {
+        if (it is StudioReplyPart.Tool && it.id == toolId) {
+            StudioReplyPart.Tool(it.tool.update())
+        } else {
+            it
+        }
+    },
 )
+
+/** Ends streaming; tool calls interrupted by a stop or failure are marked failed. */
+internal fun StudioMessage.Reply.closed(): StudioMessage.Reply {
+    val close: StudioToolRun.() -> StudioToolRun = {
+        if (status == ToolRunStatus.Running || status == ToolRunStatus.Pending) {
+            copy(status = ToolRunStatus.Failed)
+        } else {
+            this
+        }
+    }
+    return copy(
+        isStreaming = false,
+        tools = tools.map { it.close() },
+        parts = parts.map { if (it is StudioReplyPart.Tool) StudioReplyPart.Tool(it.tool.close()) else it },
+    )
+}
 
 private const val TITLE_LENGTH = 60

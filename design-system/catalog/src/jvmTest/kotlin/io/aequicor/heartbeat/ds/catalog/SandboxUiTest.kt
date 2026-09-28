@@ -10,12 +10,17 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.adaptive.PlatformUi
@@ -37,11 +42,15 @@ class SandboxUiTest {
         onNodeWithText("Chat playground").assertIsDisplayed()
         savePreview("desktop-chat-dark", captureToImage().toAwtImage())
         onNodeWithText("Components").performClick()
-        onNode(hasSetTextAction()).performTextInput("Aequicor workspace")
+        val catalog = onNodeWithTag("components-catalog")
+        catalog.performScrollToNode(hasTestTag("catalog-input"))
+        onNodeWithTag("catalog-input").performTextInput("Aequicor workspace")
+        catalog.performScrollToNode(hasText("Create something"))
         onNodeWithText("Create something").performClick()
         onNodeWithText("Action received").assertIsDisplayed()
         onNodeWithText("RU").performClick()
-        onNodeWithText("Aequicor workspace").assertIsDisplayed()
+        catalog.performScrollToNode(hasTestTag("catalog-input"))
+        onNodeWithTag("catalog-input").assertIsDisplayed().assertTextEquals("Aequicor workspace")
         onNodeWithText("EN").performClick()
         onNodeWithText("Dark").performClick()
         onNodeWithText("System").performClick()
@@ -124,6 +133,7 @@ class SandboxUiTest {
                 }
                 onNodeWithText("EN").performClick()
                 onNodeWithText("Components").performClick()
+                onNodeWithTag("components-catalog").performScrollToNode(hasText("Create something"))
                 onNodeWithText("Create something").performClick()
                 onNodeWithText("Action received").assertIsDisplayed()
                 savePreview("desktop-${platform.name.lowercase()}", captureToImage().toAwtImage())

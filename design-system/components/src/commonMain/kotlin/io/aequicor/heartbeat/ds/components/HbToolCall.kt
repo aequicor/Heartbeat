@@ -5,7 +5,10 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
 /** Tool delivery state, updated by the agent integration rather than inferred from its payload. */
-public enum class HbToolStatus { Running, Complete, Error }
+public enum class HbToolStatus { Pending, Running, Complete, Error, Cancelled }
+
+/** Reasoning disclosures contain only engine-exposed content and never claim a tool execution status. */
+public enum class HbToolKind { Tool, Reasoning }
 
 /** Localized disclosure actions and status descriptions. */
 @Immutable
@@ -21,6 +24,10 @@ public data class HbToolLabels(
     val copyFilePath: String = "Copy file path",
     val filePathCopied: String = "Path copied",
     val unknownFile: String = "Code changes",
+    val pending: String = "Pending",
+    val cancelled: String = "Cancelled",
+    val copyMessage: String = "Copy answer",
+    val messageCopied: String = "Answer copied",
 )
 
 /** Typed tool payloads; console and unified diff content are always treated as literal text. */
@@ -49,6 +56,7 @@ public data class HbToolCall(
     val status: HbToolStatus = HbToolStatus.Complete,
     val summary: String = "",
     val blocks: ImmutableList<HbToolBlock> = persistentListOf(),
+    val kind: HbToolKind = HbToolKind.Tool,
 ) {
     init {
         require(id.isNotBlank()) { "A tool call needs a stable non-blank id." }

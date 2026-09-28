@@ -165,3 +165,7 @@ API-ключи, токены и персональные поля хранить
 ([контракт](../../../core/secrets/api/README.md)).
 `StorageMaintenance.wipeProfile` вызывает app-scoped `ProfileStorageCleaner` contributions до удаления обычных файлов;
 ошибка участника прерывает wipe. Секреты переживают переключение профиля, удаляются только явным wipe.
+
+Desktop development entry point использует тот же `SecretStore` с отдельным локальным backend без Keychain/DPAPI;
+это явный режим `SecretsConfig.isDevelopment`, не fallback при ошибке защищённого хранилища. Release оставляет
+системную защиту включённой. Не переносить production-секреты автоматически; UI сообщает фактическую защиту через `SecretStorageInfo`.

@@ -7,6 +7,8 @@
     <string name="api_key">API-ключ</string>
     <string name="api_host">URL API</string>
     <string name="key_configured">Ключ сохранён</string>
+    <string name="key_storage_protected">Ключи хранятся в защищённом хранилище профиля.</string>
+    <string name="key_storage_development">Сборка для разработки: ключи сохраняются локально без системной защиты, отдельно от ключей релизной версии.</string>
     <string name="key_missing">Ключ не задан</string>
     <string name="save_host">Сохранить URL</string>
     <string name="save_key">Сохранить ключ</string>

@@ -1,5 +1,7 @@
 <resources>
     <string name="studio_title">AI studio</string>
+    <string name="studio_brand">Heartbeat</string>
+    <string name="studio_short_title">Studio</string>
     <string name="studio_empty">The studio is getting ready</string>
     <string name="studio_description">Your space for working with AI will be here.</string>
     <string name="studio_connections">Engine connections</string>
@@ -9,16 +11,18 @@
     <string name="studio_retry">Try again</string>
 
     <string name="rail_sessions">Sessions</string>
-    <string name="rail_search">Search sessions</string>
+    <string name="rail_search">Search</string>
     <string name="rail_archive">Archive</string>
     <string name="rail_toggles">Feature toggles</string>
     <string name="rail_profile_settings">Profile settings</string>
     <string name="rail_sidebar_hide">Hide sidebar</string>
     <string name="rail_sidebar_show">Show sidebar</string>
 
-    <string name="sidebar_new_session">New session</string>
+    <string name="sidebar_new_session">New chat</string>
     <string name="sidebar_new_in_project">New session in %1$s</string>
     <string name="sidebar_search">Search sessions</string>
+    <string name="sidebar_search_clear">Clear search</string>
+    <string name="sidebar_shortcut_hint">%1$s (%2$s)</string>
     <string name="sidebar_pinned">Pinned</string>
     <string name="sidebar_projects">Projects</string>
     <string name="sidebar_recent">Recent</string>
@@ -53,10 +57,14 @@
     <string name="new_hint">Describe a task: the agent plans it, runs commands and reports back.</string>
     <string name="no_project">No project</string>
     <string name="project_menu">Project</string>
+    <string name="project_add">Add folder…</string>
+    <string name="project_add_failed">Could not add this folder. Check that it exists and is accessible, then try again.</string>
+    <string name="project_model_hint">Choose a connected Codex or Pi model to work in this folder.</string>
     <string name="environment_local">Local</string>
     <string name="environment_cloud">Cloud</string>
 
-    <string name="composer_placeholder">Ask anything</string>
+    <string name="composer_placeholder">Work with Heartbeat</string>
+    <string name="composer_effort_menu">Reasoning mode</string>
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
     <string name="composer_add">Add</string>
@@ -70,10 +78,11 @@
     <string name="approval_ask">Ask for approval</string>
     <string name="approval_auto">Approve for me</string>
     <string name="model_menu">Model and reasoning</string>
-    <string name="effort_low">Low</string>
-    <string name="effort_medium">Medium</string>
-    <string name="effort_high">High</string>
-    <string name="effort_very_high">Very high</string>
+    <string name="effort_low">Fast</string>
+    <string name="effort_default">Auto</string>
+    <string name="effort_medium">Balanced</string>
+    <string name="effort_high">Deep</string>
+    <string name="effort_very_high">Maximum</string>
 
     <string name="working_for">Working for %1$s</string>
     <string name="stopping">Stopping…</string>
@@ -83,7 +92,7 @@
     <string name="duration_seconds">%1$d s</string>
     <string name="duration_minutes">%1$d min %2$d s</string>
     <string name="author_you">You</string>
-    <string name="author_agent">Agent</string>
+    <string name="author_agent">Heartbeat</string>
     <string name="author_studio">Studio</string>
     <string name="streaming">Writing…</string>
     <string name="jump_latest">Jump to latest</string>
@@ -102,4 +111,15 @@
     <string name="stop_failed">Could not confirm the stop. The engine may still be running. Try Stop again.</string>
     <string name="session_read_only">This session cannot be continued right now. Its saved history is available; start a new chat to continue working.</string>
     <string name="stop_unsupported">This engine does not support stopping an accepted request.</string>
+    <string name="research_mode">Research</string>
+    <string name="model_not_selected">No model selected</string>
+    <string name="reasoning_title">Reasoning</string>
+    <string name="tool_pending">Pending</string>
+    <string name="tool_cancelled">Cancelled</string>
+    <string name="message_copy">Copy answer</string>
+    <string name="message_copied">Answer copied</string>
+    <string name="date_today">Today</string>
+    <string name="date_yesterday">Yesterday</string>
+    <string name="shortcut_command">⌘%1$s</string>
+    <string name="shortcut_control">Ctrl+%1$s</string>
 </resources>

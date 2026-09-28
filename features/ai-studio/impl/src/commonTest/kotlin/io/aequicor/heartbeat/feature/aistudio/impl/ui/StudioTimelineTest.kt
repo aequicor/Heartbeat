@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import io.aequicor.heartbeat.ds.components.HbMessagePart
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
+import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -21,6 +25,26 @@ class StudioTimelineTest {
         durations = durations,
     )
     private val prompt = MessageUi.Prompt("m1", Instant.fromEpochSeconds(0), "Fix the build")
+
+    @Test
+    fun `the latest reasoning remains running until answer text or turn completion arrives`() {
+        val cache = TimelineCache()
+        val thinking = reply("", isStreaming = true).copy(
+            parts = persistentListOf(ReplyPartUi.Reasoning("reasoning", "Check the public API")),
+        )
+        val running = cache.update(listOf(thinking), labels).messages.single()
+        assertEquals(HbToolStatus.Running, assertIs<HbMessagePart.Tool>(running.parts.single()).call.status)
+
+        val answering = thinking.copy(
+            parts = persistentListOf(thinking.parts.single(), ReplyPartUi.Text("answer", "Answer")),
+        )
+        val answered = cache.update(listOf(answering), labels).messages.single()
+        assertEquals(HbToolStatus.Complete, assertIs<HbMessagePart.Tool>(answered.parts.first()).call.status)
+        assertEquals(HbMessageStatus.Streaming, answered.status)
+
+        val completed = cache.update(listOf(thinking.copy(isStreaming = false)), labels).messages.single()
+        assertEquals(HbToolStatus.Complete, assertIs<HbMessagePart.Tool>(completed.parts.single()).call.status)
+    }
 
     @Test
     fun `durations show seconds below a minute and minutes with seconds above`() {

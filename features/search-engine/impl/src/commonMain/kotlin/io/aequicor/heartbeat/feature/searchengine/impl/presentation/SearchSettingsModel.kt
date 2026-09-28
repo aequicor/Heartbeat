@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.searchengine.impl.presentation
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.secrets.SecretStorageProtection
 import io.aequicor.heartbeat.feature.searchengine.api.SearchConfiguration
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import io.aequicor.heartbeat.feature.searchengine.api.SearchFailure
@@ -23,6 +24,7 @@ internal data class SearchSettingsState(
     val settings: SearchSettings? = null,
     val searchHost: String = "",
     val contentsHost: String = "",
+    val isKeyStorageProtected: Boolean = true,
     val searchCheck: CheckPhase = CheckPhase.Idle,
     val contentsCheck: CheckPhase = CheckPhase.Idle,
     val searchCheckFailure: SearchFailure? = null,
@@ -46,11 +48,12 @@ internal class SearchSettingsModel(
     private val configuration: SearchConfiguration,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
+    protection: SecretStorageProtection = SecretStorageProtection.System,
 ) {
     private val log = Log.tag("SearchSettings")
     val store = factory.create<SearchSettingsState, SearchSettingsIntent, SearchSettingsAction>(
         "SearchSettings",
-        SearchSettingsState(),
+        SearchSettingsState(isKeyStorageProtected = protection == SecretStorageProtection.System),
         onError = { copy(failure = SearchFailure.Unavailable) },
     ) {
         reduce { intent ->

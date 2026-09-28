@@ -9,9 +9,12 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
+            implementation(projects.features.researchChat.api)
+            implementation(projects.features.aiEngine.koog.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.kotlinx.datetime)
             implementation(projects.core.datastore.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.aiEngine.authenticator.api)

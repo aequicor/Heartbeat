@@ -14,10 +14,14 @@ import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
+import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
+import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
+import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
 
@@ -30,22 +34,38 @@ internal fun SandboxComposer(
     isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val menus = remember { ComposerMenus() }
-    HbChatComposer(
-        value = state.draft,
-        onValueChange = state::updateDraft,
-        onSend = { state.send(copy) },
-        onStop = state::stop,
-        sendLabel = hbString(HbString.Send),
-        stopLabel = hbString(HbString.Stop),
-        modifier = modifier.fillMaxWidth(),
-        inputMaxHeight = if (isCompact) HbTheme.dimensions.composerMinHeight else HbTheme.dimensions.composerMaxHeight,
-        placeholder = hbString(HbString.ComposerPlaceholder),
-        isStreaming = state.isStreaming,
-        enabled = !state.isLoadingHistory,
-        leadingContent = { AddContextMenu(state, copy, menus, isCompact) },
-        trailingContent = { ResponseMenus(state, menus, isCompact) },
-    )
+    HbStudioTheme {
+        val menus = remember { ComposerMenus() }
+        HbChatComposer(
+            value = state.draft,
+            onValueChange = state::updateDraft,
+            onSend = { state.send(copy) },
+            onStop = state::stop,
+            sendLabel = hbString(HbString.Send),
+            stopLabel = hbString(HbString.Stop),
+            modifier = modifier.fillMaxWidth(),
+            layout = HbComposerLayout.Panel,
+            inputMaxHeight = if (isCompact && !HbTheme.studioDimensions.isDesktop) {
+                HbTheme.dimensions.composerMinHeight
+            } else {
+                HbTheme.studioDimensions.editorMaxHeight
+            },
+            placeholder = hbString(HbString.ComposerPlaceholder),
+            isStreaming = state.isStreaming,
+            enabled = !state.isLoadingHistory,
+            leadingContent = {
+                AddContextMenu(state, copy, menus, isCompact)
+                var isResearch by remember { mutableStateOf(false) }
+                HbComposerToggle(
+                    label = hbString(HbString.ResearchMode),
+                    isChecked = isResearch,
+                    onCheckedChange = { isResearch = it },
+                    icon = HbIcons.Library,
+                )
+            },
+            trailingContent = { ResponseMenus(state, menus, isCompact) },
+        )
+    }
 }
 
 @Composable
@@ -78,6 +98,7 @@ private fun AddContextMenu(state: DemoChatState, copy: ChatDemoCopy, menus: Comp
         headerLabel = hbString(HbString.AddContext),
         accessibleLabel = hbString(HbString.AddContext),
         icon = HbIcons.Plus,
+        style = HbComposerMenuStyle.Circle,
     )
 }
 
@@ -98,6 +119,7 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
         headerLabel = if (isCompact) hbString(HbString.ModeMenu) else null,
         accessibleLabel = hbString(HbString.ModeMenu),
         icon = if (isCompact) HbIcons.Plan else null,
+        style = HbComposerMenuStyle.Pill,
     )
     HbComposerMenuButton(
         label = modelLabel,
@@ -112,6 +134,7 @@ private fun RowScope.ResponseMenus(state: DemoChatState, menus: ComposerMenus, i
         headerLabel = if (isCompact) hbString(HbString.ModelMenu) else null,
         accessibleLabel = hbString(HbString.ModelMenu),
         icon = if (isCompact) HbIcons.Sparkles else null,
+        style = HbComposerMenuStyle.Pill,
     )
 }
 

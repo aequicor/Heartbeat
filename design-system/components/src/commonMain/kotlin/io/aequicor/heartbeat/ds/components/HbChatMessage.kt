@@ -21,6 +21,7 @@ public enum class HbMessageAlignment { Automatic, Start, Center, End }
  * Per-message appearance without coupling the transcript to an agent protocol.
  * Unspecified colors inherit accessible theme colors. Width is a fraction of available space,
  * capped by the theme's message maximum width on large screens.
+ * [isContentWidth] lets short, unsegmented text messages wrap their content within that width cap.
  */
 @Immutable
 public data class HbMessageAppearance(
@@ -29,6 +30,11 @@ public data class HbMessageAppearance(
     val widthFraction: Float = DEFAULT_MESSAGE_WIDTH,
     val background: Color = Color.Unspecified,
     val foreground: Color = Color.Unspecified,
+    val isContentWidth: Boolean = false,
+    /** Joins lazy segments into one padded, outlined studio answer with one header and footer. */
+    val isUnified: Boolean = false,
+    /** Short user messages can omit an otherwise redundant author row. */
+    val isAuthorVisible: Boolean = true,
 ) {
     init {
         require(widthFraction > 0f && widthFraction <= 1f) { "Message width must be in (0, 1]." }
@@ -36,6 +42,26 @@ public data class HbMessageAppearance(
 }
 
 private const val DEFAULT_MESSAGE_WIDTH = 0.86f
+
+/** Chronological answer parts. An exposed reasoning summary uses a reasoning-kind tool disclosure. */
+@Immutable
+public sealed interface HbMessagePart {
+    public val id: String
+
+    /** A prose segment at its original position within the answer. */
+    @Immutable
+    public data class Text(
+        override val id: String,
+        val text: String,
+        val kind: HbMessageKind = HbMessageKind.Markdown,
+    ) : HbMessagePart
+
+    /** A tool invocation or exposed reasoning disclosure at its original position. */
+    @Immutable
+    public data class Tool(val call: HbToolCall) : HbMessagePart {
+        override val id: String get() = call.id
+    }
+}
 
 /**
  * Immutable display state. Keep [id] unchanged when streaming updates replace [text].
@@ -54,8 +80,11 @@ public data class HbChatMessage(
     val label: String? = null,
     val toolCalls: ImmutableList<HbToolCall> = persistentListOf(),
     val codeLanguage: String? = null,
+    /** When non-empty, replaces the legacy text-then-tools order without changing their identities. */
+    val parts: ImmutableList<HbMessagePart> = persistentListOf(),
 ) {
     init {
+        require(parts.map { it.id }.distinct().size == parts.size) { "Message part ids must be unique." }
         require(id.isNotBlank()) { "A chat message needs a stable non-blank id." }
         require(
             toolCalls.map { it.id }.toSet().size == toolCalls.size,

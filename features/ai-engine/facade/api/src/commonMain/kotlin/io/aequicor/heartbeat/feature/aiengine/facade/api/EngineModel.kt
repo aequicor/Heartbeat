@@ -36,6 +36,8 @@ public data class EngineDescriptor(
     val isDefault: Boolean = false,
     /** Ways the connection UI may offer to authenticate this engine; empty when it cannot be connected by users. */
     val connectionMethods: List<ConnectionMethod> = emptyList(),
+    /** The adapter resolves [LocalWorkspaces] and uses the project directory for native sessions. */
+    val isLocalWorkspaceSupported: Boolean = false,
 ) {
     init {
         require(connectionMethods.map { it.id }.distinct().size == connectionMethods.size) { "Duplicate method id" }
@@ -95,6 +97,10 @@ public data class ModelInfo(
     val title: String,
     val features: Set<EngineFeatureId> = emptySet(),
     val contextLimitTokens: Long? = null,
+    /** Native effort identifiers confirmed by this route's model catalog; empty means no selectable effort. */
+    val reasoningEfforts: List<String> = emptyList(),
+    /** Native default, when the catalog advertises it. Null leaves the runtime's configured default unchanged. */
+    val defaultReasoningEffort: String? = null,
 )
 
 /** Fixed credential/workspace route. The model actually used is recorded separately for each turn. */

@@ -72,7 +72,7 @@ class PersistedProfile(val suspendOperations: Boolean = true) {
     var id: ProfileId? = null
     var beforeProfileWipe: suspend () -> Unit = {}
     val secretsConfig: SecretsConfig by lazy {
-        SecretsConfig("heartbeat.test." + java.util.UUID.randomUUID(), storageRoot + "/secrets")
+        SecretsConfig("heartbeat.test." + java.util.UUID.randomUUID(), storageRoot + "/secrets", isDevelopment = true)
     }
 
     /** Storage directory of the "device"; created lazily, deleted by the tests that use storages. */

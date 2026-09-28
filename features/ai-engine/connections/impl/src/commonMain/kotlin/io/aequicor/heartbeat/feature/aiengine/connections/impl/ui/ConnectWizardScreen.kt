@@ -74,6 +74,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_get_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_host_fixed
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_hint_development
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_key_placeholder
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_method_search
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_methods_empty
@@ -309,7 +310,13 @@ private fun MethodForm(
                     isSecret = true,
                 )
                 HbText(
-                    stringResource(Res.string.wizard_key_hint),
+                    stringResource(
+                        if (state.isKeyStorageProtected) {
+                            Res.string.wizard_key_hint
+                        } else {
+                            Res.string.wizard_key_hint_development
+                        },
+                    ),
                     style = HbTheme.typography.caption,
                     color = HbTheme.colors.textSecondary,
                 )

@@ -1,24 +1,31 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -28,15 +35,16 @@ import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
-import io.aequicor.heartbeat.ds.components.HbDivider
-import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbChip
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
-import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
+import io.aequicor.heartbeat.ds.components.HbTooltip
+import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -45,6 +53,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading_general
@@ -53,14 +62,24 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stop_unsupported
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.streaming
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.submit_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review_prompt
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
 import kotlinx.collections.immutable.ImmutableList
 import org.jetbrains.compose.resources.stringResource
@@ -76,115 +95,243 @@ internal fun StudioPaneView(
     onIntent: (AiStudioScreenIntent) -> Unit,
     layout: PaneLayout,
     modifier: Modifier = Modifier,
+    onOpenResearch: ((String) -> Unit)? = null,
+    isAtWindowLeadingEdge: Boolean = false,
 ) {
     val pane = content.pane
-    HbPanel(
+    var headerHeight by remember { mutableIntStateOf(0) }
+    var footerHeight by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val topInset = with(density) { headerHeight.toDp() }
+    val bottomInset = with(density) { footerHeight.toDp() }
+    Box(
         modifier.focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
-            .testTag("pane-${pane.id}"),
-        shape = HbTheme.shapes.large,
+            .background(HbTheme.studioColors.assistant).testTag("pane-${pane.id}"),
     ) {
-        HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            PaneHeader(content, layout, onIntent)
-            HbDivider()
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                val sessionId = pane.sessionId
-                val transcript = content.transcript
-                when {
-                    sessionId == null -> NewSessionHero(content.project, Modifier.align(Alignment.Center))
-
-                    transcript != null -> key(sessionId) {
-                        SessionTranscript(
-                            sessionId = sessionId,
-                            messages = transcript,
-                            section = sectionTitle(content.project, content.session),
-                            modifier = Modifier.align(Alignment.TopCenter)
-                                .widthIn(max = HbTheme.dimensions.chatMessageMaxWidth + HbTheme.spacing.xxl * 2),
-                        )
-                    }
-                }
+        val sessionId = pane.sessionId
+        val transcript = content.transcript
+        if (sessionId == null) {
+            Box(Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset)) {
+                NewSessionHero(
+                    content.project,
+                    onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
+                    modifier = Modifier.align(BiasAlignment(0f, HbTheme.studioDimensions.emptyStateVerticalBias))
+                        .padding(HbTheme.spacing.xl),
+                )
             }
-            if (content.session?.isContinuable == false) {
-                HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
-            } else if (content.session?.isRunning == true && !content.isStoppable) {
-                HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
+        } else if (transcript != null) {
+            key(sessionId) {
+                SessionTranscript(
+                    sessionId = sessionId,
+                    messages = transcript,
+                    section = sectionTitle(content.project, content.session),
+                    calendar = content.calendar,
+                    contentPadding = PaddingValues(
+                        start = HbTheme.spacing.xl,
+                        end = HbTheme.spacing.xl,
+                        top = topInset + HbTheme.spacing.l,
+                        bottom = bottomInset + HbTheme.spacing.l,
+                    ),
+                    overlapInsets = PaddingValues(top = topInset, bottom = bottomInset),
+                    modifier = Modifier.align(Alignment.TopCenter)
+                        .widthIn(max = HbTheme.studioDimensions.messageMaxWidth + HbTheme.spacing.xl * 2)
+                        .fillMaxSize(),
+                )
             }
-            if (content.isStopFailed) {
-                HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
+        }
+        Box(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .onSizeChanged { headerHeight = it.height }
+                .pointerInput(Unit) { detectTapGestures { } }
+                .testTag("pane-header-${pane.id}"),
+        ) {
+            PaneHeader(content, layout, onIntent, isAtWindowLeadingEdge)
+        }
+        Box(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .onSizeChanged { footerHeight = it.height }
+                .testTag("pane-footer-${pane.id}"),
+        ) {
+            HbColumn(
+                Modifier.fillMaxWidth(),
+                gap = HbTheme.spacing.none,
+            ) {
+                PaneNotices(content, onIntent)
+                PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
             }
-            content.permissions.forEach { request ->
-                key(request.requestId) {
-                    HbColumn(
-                        Modifier.padding(HbTheme.spacing.m)
-                            .semantics { liveRegion = LiveRegionMode.Polite }
-                            .testTag("permission-${request.requestId}"),
-                        gap = HbTheme.spacing.s,
-                    ) {
-                        HbText(request.title)
-                        request.options.forEach { option ->
-                            HbButton(
-                                text = option.title,
-                                onClick = {
-                                    onIntent(
-                                        AiStudioScreenIntent.RespondPermission(
-                                            request.sessionId,
-                                            request.requestId,
-                                            option.id,
-                                        ),
-                                    )
-                                },
-                                modifier = Modifier.testTag("permission-${request.requestId}-${option.id}"),
-                            )
-                        }
-                    }
-                }
-            }
-            PaneFooter(content, onIntent, layout.isCompact)
         }
     }
 }
 
 @Composable
-private fun PaneHeader(content: PaneContent, layout: PaneLayout, onIntent: (AiStudioScreenIntent) -> Unit) {
-    var isMenuOpen by remember { mutableStateOf(false) }
-    val pane = content.pane
-    val session = content.session
-    val renaming = content.renaming
-    HbRow(
-        Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
-        gap = HbTheme.spacing.xs,
+private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+    HbColumn(
+        Modifier.fillMaxWidth().background(HbTheme.studioColors.header, HbTheme.shapes.large)
+            .pointerInput(Unit) { detectTapGestures { } },
+        gap = HbTheme.spacing.none,
     ) {
-        if (layout.isCompact) {
-            HbIconButton(
-                icon = HbIcons.Menu,
-                contentDescription = stringResource(Res.string.pane_open_sidebar),
-                onClick = { onIntent(AiStudioScreenIntent.SetDrawerOpen(true)) },
-                modifier = Modifier.testTag("pane-open-sidebar"),
+        if (content.session?.isContinuable == false) {
+            HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
+        } else if (content.session?.isRunning == true && !content.isStoppable) {
+            HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
+        }
+        if (content.isStopFailed) {
+            HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
+        }
+        content.permissions.forEach { request ->
+            key(request.requestId) {
+                HbColumn(
+                    Modifier.padding(HbTheme.spacing.m)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                        .testTag("permission-${request.requestId}"),
+                    gap = HbTheme.spacing.s,
+                ) {
+                    HbText(request.title)
+                    request.options.forEach { option ->
+                        HbButton(
+                            text = option.title,
+                            onClick = {
+                                onIntent(
+                                    AiStudioScreenIntent.RespondPermission(
+                                        request.sessionId,
+                                        request.requestId,
+                                        option.id,
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.testTag("permission-${request.requestId}-${option.id}"),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PaneHeader(
+    content: PaneContent,
+    layout: PaneLayout,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    isAtWindowLeadingEdge: Boolean,
+) {
+    val pane = content.pane
+    val studio = HbTheme.studioDimensions
+    val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
+        studio.titlebarLeadingInset
+    } else {
+        HbTheme.spacing.m
+    }
+    HbWindowDragArea(Modifier.fillMaxWidth()) {
+        HbRow(
+            Modifier.fillMaxWidth()
+                .heightIn(min = HbTheme.studioDimensions.headerHeight)
+                .background(HbTheme.studioColors.header)
+                .padding(
+                    start = leadingInset,
+                    end = HbTheme.spacing.m,
+                    top = HbTheme.spacing.xs,
+                    bottom = HbTheme.spacing.xs,
+                ),
+            gap = HbTheme.spacing.m,
+        ) {
+            // The open sidebar has its own collapse button; the header offers one only when the sidebar is away.
+            if (layout.isCompact || isAtWindowLeadingEdge) {
+                HbIconButton(
+                    icon = HbIcons.Menu,
+                    contentDescription = stringResource(Res.string.pane_open_sidebar),
+                    tooltipText = "${stringResource(Res.string.pane_open_sidebar)} ${studioShortcutLabel("\\")}",
+                    onClick = {
+                        onIntent(
+                            if (layout.isCompact) {
+                                AiStudioScreenIntent.SetDrawerOpen(true)
+                            } else {
+                                AiStudioScreenIntent.ToggleSidebar
+                            },
+                        )
+                    },
+                    modifier = Modifier.testTag("pane-open-sidebar"),
+                )
+            }
+            PaneTitle(content, onIntent, Modifier.weight(1f))
+            PaneSessionMenu(content, onIntent)
+            PaneLayoutActions(pane.id, layout, onIntent)
+        }
+    }
+}
+
+/** Header of the chat area while another feature (research) fills it: sidebar toggle, window inset and title. */
+@Composable
+internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
+    val studio = HbTheme.studioDimensions
+    val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
+        studio.titlebarLeadingInset
+    } else {
+        HbTheme.spacing.m
+    }
+    HbWindowDragArea(Modifier.fillMaxWidth()) {
+        HbRow(
+            Modifier.fillMaxWidth()
+                .heightIn(min = studio.headerHeight)
+                .background(HbTheme.studioColors.header)
+                .padding(
+                    start = leadingInset,
+                    end = HbTheme.spacing.m,
+                    top = HbTheme.spacing.xs,
+                    bottom = HbTheme.spacing.xs,
+                ),
+            gap = HbTheme.spacing.m,
+        ) {
+            if (isAtWindowLeadingEdge) {
+                HbIconButton(
+                    icon = HbIcons.Menu,
+                    contentDescription = stringResource(Res.string.pane_open_sidebar),
+                    tooltipText = "${stringResource(Res.string.pane_open_sidebar)} ${studioShortcutLabel("\\")}",
+                    onClick = onToggleSidebar,
+                    modifier = Modifier.testTag("chat-area-open-sidebar"),
+                )
+            }
+            HbText(
+                text = stringResource(Res.string.research_mode),
+                modifier = Modifier.weight(1f),
+                style = HbTheme.typography.title,
+                maxLines = 1,
             )
         }
-        if (renaming != null) {
-            RenameField(renaming.title, onIntent, Modifier.weight(1f))
-        } else {
+    }
+}
+
+@Composable
+private fun PaneTitle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit, modifier: Modifier = Modifier) {
+    val renaming = content.renaming
+    if (renaming != null) {
+        RenameField(renaming.title, onIntent, modifier)
+    } else {
+        val title = content.session?.title ?: stringResource(Res.string.sidebar_new_session)
+        HbTooltip(title, modifier) {
             HbText(
-                text = session?.title ?: stringResource(Res.string.sidebar_new_session),
-                modifier = Modifier.weight(1f).padding(start = HbTheme.spacing.xs),
-                style = HbTheme.typography.label,
+                text = title,
+                style = HbTheme.typography.title,
                 color = if (content.isFocused) HbTheme.colors.textPrimary else HbTheme.colors.textSecondary,
                 maxLines = 1,
             )
         }
-        if (session != null) {
-            HbMenuButton(
-                icon = HbIcons.More,
-                contentDescription = stringResource(Res.string.session_actions),
-                items = sessionMenu(session, isOpenBesideAllowed = false),
-                isExpanded = isMenuOpen,
-                onExpandedChange = { isMenuOpen = it },
-                onItem = { sessionAction(session, it, paneOrigin(pane.id))?.let(onIntent) },
-                modifier = Modifier.testTag("pane-menu-${pane.id}"),
-            )
-        }
-        PaneLayoutActions(pane.id, layout, onIntent)
     }
+}
+
+@Composable
+private fun PaneSessionMenu(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+    val session = content.session ?: return
+    var isMenuOpen by remember { mutableStateOf(false) }
+    HbMenuButton(
+        icon = HbIcons.MoreVertical,
+        contentDescription = stringResource(Res.string.session_actions),
+        items = sessionMenu(session, isOpenBesideAllowed = false),
+        isExpanded = isMenuOpen,
+        onExpandedChange = { isMenuOpen = it },
+        onItem = { sessionAction(session, it, paneOrigin(content.pane.id))?.let(onIntent) },
+        modifier = Modifier.testTag("pane-menu-${content.pane.id}"),
+    )
 }
 
 @Composable
@@ -215,19 +362,13 @@ private fun PaneLayoutActions(
 }
 
 @Composable
-private fun NewSessionHero(project: ProjectUi?, modifier: Modifier = Modifier) {
+private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modifier: Modifier = Modifier) {
     HbColumn(
-        modifier.hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl)
-            .widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)
+        modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)
+            .hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl)
             .testTag("new-session-hero"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        HbIcon(
-            icon = HbIcons.Terminal,
-            contentDescription = null,
-            modifier = Modifier.size(HbTheme.dimensions.iconLargeSize),
-            tint = HbTheme.colors.textSecondary,
-        )
         HbText(
             text = if (project == null) {
                 stringResource(Res.string.new_heading_general)
@@ -241,6 +382,17 @@ private fun NewSessionHero(project: ProjectUi?, modifier: Modifier = Modifier) {
             style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
             color = HbTheme.colors.textSecondary,
         )
+        val starters = listOf(
+            Res.string.template_plan to Res.string.template_plan_prompt,
+            Res.string.template_review to Res.string.template_review_prompt,
+            Res.string.template_tests to Res.string.template_tests_prompt,
+        )
+        HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
+            starters.forEach { (label, promptResource) ->
+                val prompt = stringResource(promptResource)
+                HbChip(label = stringResource(label), onClick = { onDraft(prompt) }, trailingIcon = null)
+            }
+        }
     }
 }
 
@@ -249,35 +401,63 @@ private fun SessionTranscript(
     sessionId: String,
     messages: ImmutableList<MessageUi>,
     section: String,
+    contentPadding: PaddingValues,
+    overlapInsets: PaddingValues,
+    calendar: StudioCalendar,
     modifier: Modifier = Modifier,
 ) {
-    val timeline = rememberStudioTimeline(sessionId, messages, timelineLabels(section))
+    val timeline = rememberStudioTimeline(sessionId, messages, timelineLabels(section, calendar))
     HbChatTranscript(
         timeline = timeline,
         modifier = modifier.fillMaxSize().testTag("transcript-$sessionId"),
         streamingLabel = stringResource(Res.string.streaming),
         jumpToLatestLabel = stringResource(Res.string.jump_latest),
         toolLabels = studioToolLabels(),
+        contentPadding = contentPadding,
+        overlapInsets = overlapInsets,
+        showSectionHeaders = true,
     )
 }
 
 @Composable
-private fun PaneFooter(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit, isCompact: Boolean) {
+private fun PaneFooter(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    isCompact: Boolean,
+    onOpenResearch: ((String) -> Unit)?,
+) {
     HbColumn(
-        Modifier.fillMaxWidth().padding(HbTheme.spacing.m),
+        Modifier.fillMaxWidth().padding(
+            horizontal = if (isCompact) HbTheme.spacing.m else HbTheme.spacing.xl,
+            vertical = HbTheme.spacing.m,
+        ),
         gap = HbTheme.spacing.s,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val column = Modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth).fillMaxWidth()
+        val column = Modifier.widthIn(max = HbTheme.studioDimensions.composerMaxWidth).fillMaxWidth()
+        ModelConnectionHint(content, column)
         if (content.session?.isRunning == true) RunStatus(content.isStopping, content.elapsed, column)
         if (content.isSubmitFailed) {
             HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
         }
-        if (content.pane.sessionId == null) {
-            ContextTray(content.pane, content.project, content.projects, onIntent, column)
+        if (content.isProjectFailed) {
+            HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
         }
-        StudioComposer(content, onIntent, isCompact, column)
+        StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
+}
+
+@Composable
+private fun ModelConnectionHint(content: PaneContent, modifier: Modifier = Modifier) {
+    val hint = when {
+        content.models.isEmpty() -> stringResource(Res.string.connect_model_hint)
+
+        content.project != null && content.models.none { it.id == content.settings.modelId } ->
+            stringResource(Res.string.project_model_hint)
+
+        else -> null
+    }
+    if (hint != null) HbText(hint, modifier, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
 }
 
 @Composable
@@ -285,13 +465,13 @@ private fun RunStatus(isStopping: Boolean, elapsed: Duration?, modifier: Modifie
     HbRow(modifier.semantics { liveRegion = LiveRegionMode.Polite }.testTag("run-status"), gap = HbTheme.spacing.s) {
         HbActivityIndicator()
         HbText(
-            text = if (isStopping || elapsed == null) {
-                stringResource(Res.string.stopping)
-            } else {
-                stringResource(Res.string.working_for, durationLabels().format(elapsed))
+            text = when {
+                isStopping -> stringResource(Res.string.stopping)
+                elapsed == null -> stringResource(Res.string.session_running)
+                else -> stringResource(Res.string.working_for, durationLabels().format(elapsed))
             },
             style = HbTheme.typography.caption,
-            color = HbTheme.colors.textSecondary,
+            color = HbTheme.colors.textPrimary,
         )
     }
 }
@@ -300,7 +480,12 @@ private fun RunStatus(isStopping: Boolean, elapsed: Duration?, modifier: Modifie
 @Composable
 private fun sectionTitle(project: ProjectUi?, session: SessionUi?): String {
     val general = stringResource(Res.string.pane_general)
-    return project?.let { "${it.name} · ${session?.branch ?: it.branch}" } ?: general
+    return project?.let {
+        listOf(
+            it.name,
+            session?.branch ?: it.branch,
+        ).filter(String::isNotBlank).joinToString(" · ")
+    } ?: general
 }
 
 /** Focuses the pane on any press inside it without consuming the gesture. */

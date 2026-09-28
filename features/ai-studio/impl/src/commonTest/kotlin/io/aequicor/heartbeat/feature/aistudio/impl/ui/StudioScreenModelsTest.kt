@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -38,6 +39,25 @@ class StudioScreenModelsTest {
     )
 
     @Test
+    fun `research entry requires flag Koog and a new projectless pane`() {
+        val koog = state.copy(
+            isResearchEnabled = true,
+            models = persistentListOf(ModelUi(state.settings.modelId, "Koog", isResearchSupported = true)),
+        )
+        val newChat = PaneUi(7)
+        assertTrue(koog.paneContent(newChat).isResearchAvailable)
+        assertEquals(false, koog.copy(isResearchEnabled = false).paneContent(newChat).isResearchAvailable)
+        assertEquals(false, koog.paneContent(newChat.copy(projectId = "p")).isResearchAvailable)
+        assertEquals(false, koog.paneContent(newChat.copy(sessionId = "s")).isResearchAvailable)
+        assertEquals(
+            false,
+            koog.copy(models = persistentListOf(ModelUi(state.settings.modelId, "Other")))
+                .paneContent(newChat).isResearchAvailable,
+        )
+        assertEquals(false, koog.copy(models = persistentListOf()).paneContent(newChat).isResearchAvailable)
+    }
+
+    @Test
     fun `every session menu item maps to its intent and unknown ids are ignored`() {
         val pinned = session.copy(isPinned = true, isUnread = true)
         assertEquals(AiStudioScreenIntent.StartRename("s", "recent:s"), sessionAction(pinned, "rename", "recent:s"))
@@ -49,13 +69,40 @@ class StudioScreenModelsTest {
     }
 
     @Test
-    fun `elapsed time counts from the latest prompt only while the session runs`() {
+    fun `elapsed time uses the current execution start instead of the previous prompt`() {
         val pane = state.panes.first()
         assertNull(state.paneContent(pane).elapsed)
 
         val running = state.copy(running = persistentSetOf("s"))
-        assertEquals(30.seconds, running.paneContent(pane).elapsed)
-        assertEquals(0.seconds, running.copy(now = Instant.fromEpochSeconds(50)).paneContent(pane).elapsed)
+        assertNull(running.paneContent(pane).elapsed)
+        val started = running.copy(runStartedAt = persistentMapOf("s" to Instant.fromEpochSeconds(125)))
+        assertEquals(5.seconds, started.paneContent(pane).elapsed)
+        assertEquals(0.seconds, started.copy(now = Instant.fromEpochSeconds(50)).paneContent(pane).elapsed)
+        assertEquals(5.seconds, started.copy(transcripts = persistentMapOf()).paneContent(pane).elapsed)
+    }
+
+    @Test
+    fun `existing chat displays the model selected for the next run`() {
+        val restored = state.copy(
+            sessions = persistentListOf(session.copy(modelId = "saved-sol")),
+            settings = state.settings.copy(modelId = "selected-luna"),
+        )
+        assertEquals("selected-luna", restored.paneContent(restored.panes.first()).settings.modelId)
+        val noSelection = restored.copy(settings = state.settings.copy(modelId = ""))
+        assertEquals("saved-sol", noSelection.paneContent(noSelection.panes.first()).settings.modelId)
+    }
+
+    @Test
+    fun `existing project chat offers only its saved model while new projects offer all local models`() {
+        val models = persistentListOf(
+            ModelUi("qwen", "Qwen"),
+            ModelUi("codex", "Codex", isLocalProjectSupported = true),
+            ModelUi("other", "Other Codex", isLocalProjectSupported = true),
+        )
+        val restored = state.copy(models = models, sessions = persistentListOf(session.copy(modelId = "codex")))
+        assertEquals(listOf("codex"), restored.paneContent(restored.panes.first()).models.map { it.id })
+        assertEquals(3, restored.paneContent(PaneUi(7)).models.size)
+        assertEquals(2, restored.paneContent(PaneUi(7, projectId = "p")).models.size)
     }
 
     @Test

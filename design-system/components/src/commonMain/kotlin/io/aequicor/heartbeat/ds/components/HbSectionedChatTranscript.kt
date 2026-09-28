@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -43,6 +45,9 @@ private val timelineLog = Log.tag("DS/SectionedTranscript")
  * Chronological, sectioned chat with pinned headers and individually virtualized message chunks.
  * Prepare [timeline] outside composition. Streaming only replaces the tail; history retains stable keys.
  * [messageAppearance] applies presentation preferences only to visible rows without mapping the history.
+ * [contentPadding] reserves readable space beneath floating controls without shrinking the scroll viewport.
+ * [showSectionHeaders] can hide date/session headings when their context is already shown outside the transcript.
+ * [overlapInsets] softly fades rows beneath floating controls without fading the scrollbar or jump action.
  */
 @Composable
 public fun HbChatTranscript(
@@ -58,11 +63,16 @@ public fun HbChatTranscript(
     toolLabels: HbToolLabels = HbToolLabels(),
     toolExpansionState: HbToolExpansionState = rememberHbToolExpansionState(),
     onLinkClick: ((String) -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(HbTheme.spacing.l),
+    showSectionHeaders: Boolean = true,
+    overlapInsets: PaddingValues = PaddingValues(),
 ) {
     val expandedKeys = toolExpansionState.expandedKeys
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
-    val displayedItemCount = sections.sumOf { it.itemCount + 1 }
-    PreserveDisclosureAnchor(state, sections, expandedKeys)
+    val displayedItemCount = sections.sumOf {
+        it.itemCount + if (showSectionHeaders && it.source.section.title.isNotBlank()) 1 else 0
+    }
+    PreserveDisclosureAnchor(state, sections, expandedKeys, showSectionHeaders)
     // Saved with the list position: a restored reader keeps their decision instead of guessing it from (0, 0).
     val followStateHolder = rememberSaveable(state, stateSaver = ChatFollowStateSaver) {
         mutableStateOf(
@@ -82,7 +92,7 @@ public fun HbChatTranscript(
     LaunchedEffect(state) {
         state.trackTimelineFollow(followStateHolder, followingScrollHolder, atLatestHolder, latestItemCountHolder)
     }
-    LaunchedEffect(state, timeline.latestMessage, timeline.itemCount) {
+    LaunchedEffect(state, timeline.latestMessage, timeline.itemCount, contentPadding, showSectionHeaders) {
         timelineLog.d { "timeline updated messages=${timeline.messageCount} rows=${timeline.itemCount}" }
         if (timeline.messageCount == 0) followState = ChatFollowState()
         if (timeline.itemCount > 0 && followState.shouldScrollOnUpdate(state.isScrollInProgress)) {
@@ -100,6 +110,7 @@ public fun HbChatTranscript(
             state = state,
             stickyHeaderKeyPrefix = "section:",
             modifier = Modifier.fillMaxSize(),
+            overlapInsets = overlapInsets,
             header = { key, headerModifier ->
                 // Layout info may retain the previous key until a replaced timeline is measured.
                 timeline.sections.firstOrNull { "section:${it.section.id}" == key }?.section?.let { section ->
@@ -111,13 +122,11 @@ public fun HbChatTranscript(
                 modifier = Modifier.fillMaxSize(),
                 state = state,
                 gap = HbTheme.elevation.none,
-                contentPadding = PaddingValues(HbTheme.spacing.l),
+                contentPadding = contentPadding,
                 showScrollbar = false,
             ) {
                 sections.forEach { section ->
-                    hbStickyHeader(key = "section:${section.source.section.id}") {
-                        headerContent("section:${section.source.section.id}")
-                    }
+                    hbTranscriptSectionHeader(section.source.section, showSectionHeaders, headerContent)
                     hbExpandedTimelineItems(section) { chunk ->
                         val message = timeline.message(chunk.messageId)
                         TimelineMessageChunk(
@@ -156,10 +165,29 @@ public fun HbChatTranscript(
                     }
                     onJumpToLatest()
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).padding(HbTheme.spacing.m),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(
+                    start = HbTheme.spacing.m,
+                    top = HbTheme.spacing.m,
+                    end = HbTheme.spacing.m,
+                    bottom = contentPadding.calculateBottomPadding() + HbTheme.spacing.m,
+                ),
                 style = HbButtonStyle.Secondary,
             )
         }
+    }
+}
+
+private fun LazyListScope.hbTranscriptSectionHeader(
+    section: HbChatSection,
+    isVisible: Boolean,
+    content: @Composable (String) -> Unit,
+) {
+    if (!isVisible || section.title.isBlank()) return
+    if (section.isDate) {
+        item(key = "date:${section.id}", contentType = "date") { HbTranscriptDateHeader(section) }
+    } else {
+        val key = "section:${section.id}"
+        hbStickyHeader(key = key) { content(key) }
     }
 }
 
@@ -181,13 +209,26 @@ private fun TimelineMessageChunk(
     isToolExpanded: Boolean = false,
     onToolExpandedChange: (Boolean) -> Unit = {},
 ) {
+    // Keep per-row snapshots cheap: only the footer needs the complete copyable prose.
+    val copyText = if (chunk.isLast && (appearance ?: message.appearance).isUnified) {
+        remember(message) {
+            if (message.parts.isEmpty()) {
+                message.text
+            } else {
+                message.parts.filterIsInstance<HbMessagePart.Text>().joinToString("\n\n") { it.text }
+            }
+        }
+    } else {
+        ""
+    }
     HbTranscriptChunkContent(
         chunk = chunk,
         modifier = modifier.padding(
             bottom = if (chunk.isLast && !isLatestMessage) HbTheme.spacing.l else HbTheme.elevation.none,
         ),
         message = message.copy(
-            text = "",
+            text = copyText,
+            parts = persistentListOf(),
             toolCalls = persistentListOf(),
             appearance = appearance ?: message.appearance,
         ),
@@ -282,4 +323,18 @@ private suspend fun LazyListState.moveToTimelineEnd(lastIndex: Int, isAnimated: 
     val finalItem = layoutInfo.visibleItemsInfo.lastOrNull { it.index == lastIndex }
     val remaining = (finalItem?.size ?: 0) + layoutInfo.afterContentPadding
     if (isAnimated) animateScrollBy(remaining.toFloat()) else scrollBy(remaining.toFloat())
+}
+
+/** Dates are small chronological markers, independent of the message and the pinned conversation header. */
+@Composable
+private fun HbTranscriptDateHeader(section: HbChatSection, modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().padding(vertical = HbTheme.spacing.l), contentAlignment = Alignment.Center) {
+        HbText(
+            section.title,
+            Modifier.background(HbTheme.studioColors.header, HbTheme.shapes.small)
+                .padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs).semantics { heading() },
+            style = HbTheme.typography.caption,
+            color = HbTheme.colors.textSecondary,
+        )
+    }
 }

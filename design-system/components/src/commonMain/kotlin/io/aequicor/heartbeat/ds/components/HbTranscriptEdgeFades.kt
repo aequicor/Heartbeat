@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -20,9 +21,15 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * Alpha masks soften lazy viewport overlap without painting over the scene or intercepting input.
  * Supply [stickyHeaderKeyPrefix] only with [HbStickyHeaderHost], which paints its pinned header
  * outside this layer. Its body is cleared here so raw content cannot leak through rounded corners.
+ * [overlapInsets] describes floating controls: rows fade inside these top/bottom bands, while the
+ * unobstructed content stays opaque. Horizontal padding is ignored; hit testing is unchanged.
  */
 @Composable
-public fun Modifier.hbLazyEdgeFades(state: LazyListState, stickyHeaderKeyPrefix: String? = null): Modifier {
+public fun Modifier.hbLazyEdgeFades(
+    state: LazyListState,
+    stickyHeaderKeyPrefix: String? = null,
+    overlapInsets: PaddingValues = PaddingValues(),
+): Modifier {
     val opaqueMask = HbTheme.colors.background.copy(alpha = 1f)
     val fade = HbTheme.dimensions.transcriptEdgeFade
     return graphicsLayer {
@@ -31,6 +38,8 @@ public fun Modifier.hbLazyEdgeFades(state: LazyListState, stickyHeaderKeyPrefix:
         val height = fade.toPx().coerceAtMost(size.height / 2f)
         val transparentMask = opaqueMask.copy(alpha = 0f)
         val bottom = Brush.verticalGradient(listOf(opaqueMask, transparentMask), size.height - height, size.height)
+        val overlayTop = overlapInsets.calculateTopPadding().toPx().coerceIn(0f, size.height)
+        val overlayBottom = overlapInsets.calculateBottomPadding().toPx().coerceIn(0f, size.height)
         onDrawWithContent {
             drawContent()
             if (state.canScrollBackward) {
@@ -39,7 +48,23 @@ public fun Modifier.hbLazyEdgeFades(state: LazyListState, stickyHeaderKeyPrefix:
             if (state.canScrollForward) {
                 applyAlphaBand(bottom, size.height - height, height)
             }
+            drawOverlayContentFades(overlayTop, overlayBottom, height, opaqueMask)
         }
+    }
+}
+
+private fun DrawScope.drawOverlayContentFades(top: Float, bottom: Float, height: Float, opaqueMask: Color) {
+    val transparentMask = opaqueMask.copy(alpha = 0f)
+    if (top > 0f) {
+        val start = (top - height).coerceAtLeast(0f)
+        applyAlphaBand(SolidColor(transparentMask), 0f, start)
+        applyAlphaBand(Brush.verticalGradient(listOf(transparentMask, opaqueMask), start, top), start, top - start)
+    }
+    if (bottom > 0f) {
+        val start = size.height - bottom
+        val end = (start + height).coerceAtMost(size.height)
+        applyAlphaBand(Brush.verticalGradient(listOf(opaqueMask, transparentMask), start, end), start, end - start)
+        applyAlphaBand(SolidColor(transparentMask), end, size.height - end)
     }
 }
 

@@ -5,6 +5,7 @@ import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
+import ai.koog.prompt.message.Message
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
@@ -161,13 +162,12 @@ internal class KoogNativeSession(
         // Re-checked under the lock: the lease may have been released while this call waited for it.
         checkLease(lease)
         if (current !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
-        if (request.parts.any { it !is ContentPart.Text }) {
-            fail(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
-        }
-        if (record.lastTurn?.request == request.id) {
+        if (record.lastTurn?.request == request.id || request.reasoningEffort != null) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
         val connection = access.route(route.binding, identity)
+        val provider = requireNotNull(koogProvider(connection.source))
+        request.parts.koogUserParts(provider, request.id)
         val client = koogCall { access.open(connection, model.value) }
         val turn = Turn(TurnId(Uuid.random().toString()), request.id, EngineTarget(route.engine, route.binding, model))
         val user = SessionItem.Message(
@@ -192,7 +192,6 @@ internal class KoogNativeSession(
         history.append { SessionEvent.TurnStarted(it, turn) }
         history.append { SessionEvent.ItemUpserted(it, user) }
         publish(ActiveSessionState.Running(turn))
-        val provider = requireNotNull(koogProvider(connection.source))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, model.value)
         }
@@ -203,7 +202,13 @@ internal class KoogNativeSession(
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
             val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
-            generate(turn, client, provider.textModel(model, tools = tools.isNotEmpty()), tools)
+            val hasAttachments = record.items.hasResourceInputs()
+            generate(
+                turn,
+                client,
+                provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments),
+                tools,
+            )
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -255,7 +260,7 @@ internal class KoogNativeSession(
 
     private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: List<ToolDescriptor>) {
         log.i { "Starting provider stream" }
-        var input = initialPrompt()
+        var input = initialPrompt(model.provider)
         repeat(MAX_TOOL_ROUNDS) { _ ->
             val round = streamRound(turn, client, model, input, tools)
             if (round.calls.isEmpty()) return
@@ -266,7 +271,9 @@ internal class KoogNativeSession(
         fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
     }
 
-    private fun initialPrompt(): Prompt = prompt("heartbeat") {
+    private fun initialPrompt(provider: ai.koog.prompt.llm.LLMProvider): Prompt = prompt("heartbeat") {
+        val koogProvider = KoogProvider.entries.first { it.llmProvider == provider }
+        if (record.items.hasSourceMaterial()) system(KOOG_RESOURCE_BOUNDARY)
         val calls = record.items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
         record.items.forEach { item ->
             when (item) {
@@ -274,7 +281,7 @@ internal class KoogNativeSession(
                     val text = item.parts.filterIsInstance<ContentPart.Text>()
                         .joinToString("") { it.text }
                     when (item.role) {
-                        MessageRole.User -> user(text)
+                        MessageRole.User -> user(item.parts.koogUserParts(koogProvider))
                         MessageRole.Assistant -> assistant(text)
                         MessageRole.System -> system(text)
                     }
@@ -283,12 +290,12 @@ internal class KoogNativeSession(
                 is SessionItem.ToolCall -> if (item.status == ToolCallStatus.Succeeded ||
                     item.status == ToolCallStatus.Failed
                 ) {
-                    toolCall(item.call.value, item.name, item.arguments)
+                    toolCall(tool = item.name, args = item.arguments, id = item.call.value)
                 }
 
                 is SessionItem.ToolResult -> calls[item.call]?.let { call ->
                     val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-                    toolResult(item.call.value, call.name, text, item.failure != null)
+                    toolResult(tool = call.name, output = text, id = item.call.value, isError = item.failure != null)
                 }
 
                 is SessionItem.Plan, is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
@@ -309,50 +316,39 @@ internal class KoogNativeSession(
             0,
             turn.id,
         )
-        val texts = mutableMapOf<Int, String>()
+        val content = KoogStreamParts()
         val calls = mutableListOf<StreamFrame.ToolCallComplete>()
         var revision = 0L
         var isEnded = false
         client.executor.executeStreaming(input, model, tools).collect { frame ->
-            val hasChanged = when (frame) {
-                is StreamFrame.TextDelta -> {
-                    texts[frame.index ?: 0] = texts[frame.index ?: 0].orEmpty() + frame.text
-                    true
-                }
-
-                is StreamFrame.TextComplete -> {
-                    texts[frame.index ?: 0] = frame.text
-                    true
-                }
-
+            when (frame) {
                 is StreamFrame.ToolCallComplete -> {
                     calls += frame
-                    false
                 }
 
                 is StreamFrame.End -> {
                     isEnded = true
-                    false
                 }
 
+                is StreamFrame.TextDelta,
+                is StreamFrame.TextComplete,
                 is StreamFrame.ToolCallDelta,
                 is StreamFrame.ReasoningDelta,
                 is StreamFrame.ReasoningComplete,
-                -> false
+                -> Unit
             }
-            if (hasChanged) {
+            if (content.append(frame)) {
                 revision++
-                val text = texts.keys.sorted().joinToString("") { texts.getValue(it) }
                 val message = SessionItem.Message(
                     info.copy(revision = revision),
                     MessageRole.Assistant,
-                    listOf(ContentPart.Text(text)),
+                    content.parts,
                 )
                 history.append { SessionEvent.ItemUpserted(it, message) }
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return SearchRound(texts.keys.sorted().joinToString("") { texts.getValue(it) }, calls)
+        return SearchRound(content.text, calls)
     }
 
     private suspend fun recordSearchCall(turn: Turn, call: StreamFrame.ToolCallComplete): HandledSearchCall {
@@ -366,7 +362,7 @@ internal class KoogNativeSession(
         val output = SessionItem.ToolResult(
             ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
             id,
-            listOf(ContentPart.Text(result.text)),
+            listOf(ContentPart.Text(result.text)) + result.resources.map { ContentPart.Resource(it) },
             if (result.isFailed) EngineFailure.Unknown() else null,
         )
         history.append { SessionEvent.ItemUpserted(it, output) }
@@ -376,10 +372,13 @@ internal class KoogNativeSession(
     private fun continuePrompt(input: Prompt, text: String, calls: List<HandledSearchCall>): Prompt = prompt(
         "heartbeat",
     ) {
+        if (input.messages.none { it is Message.System && it.textContent() == KOOG_RESOURCE_BOUNDARY }) {
+            system(KOOG_RESOURCE_BOUNDARY)
+        }
         messages(input.messages)
         if (text.isNotBlank()) assistant(text)
-        calls.forEach { toolCall(it.id, it.name, it.arguments) }
-        calls.forEach { toolResult(it.id, it.name, it.result.text, it.result.isFailed) }
+        calls.forEach { toolCall(tool = it.name, args = it.arguments, id = it.id) }
+        calls.forEach { toolResult(tool = it.name, output = it.result.text, id = it.id, isError = it.result.isFailed) }
     }
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {

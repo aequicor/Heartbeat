@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store
 
+import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
+import io.aequicor.heartbeat.core.secrets.SecretStorageProtection
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
@@ -16,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
@@ -23,8 +26,32 @@ class ConnectWizardModelTest {
     private val machine =
         FakeMachine<ConnectWizardState, ConnectWizardIntent, ConnectWizardOutput>(ConnectWizardState.Idle)
 
-    private fun TestScope.model() =
-        ConnectWizardModel(machine, ConnectEngineRoute(KoogId), testScopeHandle(), testStoreFactory())
+    private fun TestScope.model() = ConnectWizardModel(
+        machine,
+        ConnectEngineRoute(KoogId),
+        testScopeHandle(),
+        testStoreFactory(),
+        storage(SecretStorageProtection.System),
+    )
+
+    private fun storage(value: SecretStorageProtection) = object : SecretStorageInfo {
+        override val protection = value
+    }
+
+    @Test
+    fun `development protection metadata survives wizard step changes`() = runTest {
+        val model = ConnectWizardModel(
+            machine,
+            ConnectEngineRoute(KoogId),
+            testScopeHandle(),
+            testStoreFactory(),
+            storage(SecretStorageProtection.LocalDevelopment),
+        )
+        val screen = subscribe(model.store)
+        machine.state.value = ConnectWizardState.ChoosingMethod(engineInfo())
+        runCurrent()
+        assertFalse(screen.states.value.isKeyStorageProtected)
+    }
 
     @Test
     fun `the wizard starts for the routed engine and closes on a result reached while unsubscribed`() = runTest {

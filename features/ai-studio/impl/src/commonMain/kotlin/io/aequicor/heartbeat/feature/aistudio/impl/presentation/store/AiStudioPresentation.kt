@@ -21,6 +21,9 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
 
     is AiStudioState.Ready -> copy(
         phase = StudioPhase.Ready,
+        isProjectAddingAvailable = machine.isProjectAddingAvailable,
+        addingProjectTo = machine.addingProjectTo,
+        projectErrorPane = machine.projectErrorPane,
         permissions = machine.permissions.map { request ->
             PermissionUi(
                 request.sessionId,
@@ -32,6 +35,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         panes = machine.panes.map { it.toUi() }.toImmutableList(),
         focusedPaneId = machine.focusedPaneId,
         running = machine.running.toImmutableSet(),
+        runStartedAt = machine.runStartedAt.toImmutableMap(),
         stopping = machine.stopping.toImmutableSet(),
         stopFailures = machine.stopFailures.toImmutableSet(),
         uncancellable = machine.uncancellable.toImmutableSet(),
@@ -67,7 +71,9 @@ internal fun AiStudioScreenState.afterNavigation(intent: AiStudioScreenIntent.Na
             failedPanes = (failedPanes - intent.paneId).toImmutableSet(),
         )
 
-        AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane -> this
+        AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane,
+        is AiStudioScreenIntent.AddProject,
+        -> this
     }
 
 internal fun AiStudioScreenState.startRename(sessionId: String, origin: String): AiStudioScreenState {
@@ -99,13 +105,16 @@ internal fun SidebarUi.reduce(intent: AiStudioScreenIntent.Sidebar): SidebarUi =
     is AiStudioScreenIntent.SetDrawerOpen -> copy(isDrawerOpen = intent.isOpen)
 }
 
-/** Sessions of one project, newest first. */
+/** Unpinned sessions of one project, newest first; collapsed groups retain their hidden contents. */
 @Immutable
 data class ProjectGroupUi(val project: ProjectUi, val sessions: ImmutableList<SessionUi>, val isExpanded: Boolean)
 
 /**
- * Sidebar lists. Without a query: pinned sessions, projects with their sessions and all recent sessions,
- * newest first. With a query: [results] only. Archived sessions are listed separately.
+ * Sidebar lists, newest first within each group. Without a query, each active session is rendered once:
+ * pinned sessions take priority over expanded project groups, then remaining sessions go to [recent].
+ * Collapsing a project or the projects section returns its unpinned sessions to [recent].
+ * The renderer controls visibility of the recent section without changing its contents.
+ * With a query: [results] only. Archived sessions are listed separately.
  */
 @Immutable
 data class SidebarContent(
@@ -120,7 +129,7 @@ data class SidebarContent(
 internal fun sidebarContent(state: AiStudioScreenState): SidebarContent =
     sidebarContent(state.projects, state.sessions, state.running, state.sidebar)
 
-/** Groups [sessions] for the sidebar: running flags from [running], query and collapsed projects from [sidebar]. */
+/** Groups [sessions] using running flags from [running] and visible list precedence from [sidebar]. */
 fun sidebarContent(
     projects: List<ProjectUi>,
     sessions: List<SessionUi>,
@@ -140,16 +149,21 @@ fun sidebarContent(
             archived = archived,
         )
     }
+    val unpinned = active.filterNot { it.isPinned }
+    val expandedProjectIds = projects
+        .filter { sidebar.isProjectsExpanded && it.id !in sidebar.collapsedProjects }
+        .map { it.id }
+        .toSet()
     return SidebarContent(
         pinned = active.filter { it.isPinned }.toImmutableList(),
         projects = projects.map { project ->
             ProjectGroupUi(
                 project = project,
-                sessions = active.filter { it.projectId == project.id }.toImmutableList(),
+                sessions = unpinned.filter { it.projectId == project.id }.toImmutableList(),
                 isExpanded = project.id !in sidebar.collapsedProjects,
             )
         }.toImmutableList(),
-        recent = active.toImmutableList(),
+        recent = unpinned.filter { it.projectId !in expandedProjectIds }.toImmutableList(),
         archived = archived,
     )
 }

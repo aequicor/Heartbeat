@@ -1,8 +1,11 @@
 package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
@@ -13,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -30,18 +34,28 @@ fun HbSwitch(
     enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
-    val focused by interaction.collectIsFocusedAsState()
+    val isFocused by interaction.collectIsFocusedAsState()
+    val isHovered by interaction.collectIsHoveredAsState()
+    val isPressed by interaction.collectIsPressedAsState()
     val colors = HbTheme.colors
     val alpha = if (enabled) 1f else 0.45f
     val track = (if (checked) colors.primary else colors.outlineSubtle).copy(alpha = alpha)
     val thumb = (if (checked) colors.onPrimary else colors.textSecondary).copy(alpha = alpha)
+    val feedback = when {
+        !enabled -> Color.Transparent
+        isPressed -> colors.pressedOverlay
+        isHovered -> colors.interactionHoverOverlay
+        else -> Color.Transparent
+    }
     Box(
         modifier.size(HbTheme.dimensions.touchTarget)
+            .background(feedback, HbTheme.shapes.small)
             .semantics { contentDescription = label }
+            .hbFocusOutline(isFocused, HbTheme.shapes.small)
             .toggleable(checked, interaction, indication = null, enabled, Role.Switch) {
                 Log.tag("DS/Controls").i { "switch pressed" }
                 onCheckedChange(it)
-            }.hbFocusOutline(focused, HbTheme.shapes.small),
+            },
         contentAlignment = Alignment.Center,
     ) {
         Canvas(Modifier.size(HbTheme.dimensions.switchWidth, HbTheme.dimensions.switchHeight)) {

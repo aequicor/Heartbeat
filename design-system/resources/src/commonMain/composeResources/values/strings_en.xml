@@ -108,6 +108,7 @@
     <string name="en_layouts_symbol">≡</string>
     <string name="en_chat_symbol">✦</string>
     <string name="en_add_context">Add context</string>
+    <string name="en_research_mode">Research</string>
     <string name="en_insert_note">Note</string>
     <string name="en_insert_note_hint">Start a thought in the editor</string>
     <string name="en_markdown_demo">Markdown example</string>

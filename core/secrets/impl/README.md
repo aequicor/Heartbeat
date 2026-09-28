@@ -13,12 +13,18 @@
 | Windows | DPAPI текущего пользователя через JNA; SHA-256 профиля как entropy; атомарная замена файла в LOCALAPPDATA |
 | macOS | Login Keychain через Security.framework/JNA, один generic-password item на профиль, системные ACL |
 | iOS | Security.framework SecItem, один generic-password item на профиль |
+| Desktop development | Локальный отдельный `development-secrets` каталог без Keychain/DPAPI; атомарная запись и POSIX-права 0700/0600 |
 
 Apple: service `io.aequicor.heartbeat.secrets.v1`, account — SHA-256 ProfileId,
 На iOS — `AfterFirstUnlockThisDeviceOnly`; на macOS — политика блокировки/ACL Login Keychain. Синхронизация iCloud выключена. Имя service нельзя менять без миграции.
 Desktop/Android используют блокировку отдельного файла, iOS — open(O_EXLOCK) в sandbox; lock-файл не содержит данных.
 Одновременные операции внутри графа сериализует Mutex. На JVM пересечение lock между разными графами
-может завершиться ошибкой блокировки; потери обновлений не допускаются. Linux намеренно отклоняется без plaintext fallback.
+может завершиться ошибкой блокировки; потери обновлений не допускаются. Production на Linux намеренно отклоняется без plaintext fallback.
+
+Обычные desktop `run`/`createDistributable` используют `DevelopmentMainKt` и явно передают `SecretsConfig.isDevelopment`.
+Release-задачи используют `MainKt`, который всегда оставляет системную защиту включённой; переменные окружения и
+настройки приложения не переключают backend. Dev backend не читает и не мигрирует production-секреты.
+`SecretStorageInfo` отдаёт метаданные выбранного backend без доступа к ключам; экраны подключения и Querit показывают их пользователю.
 
 Закрытие профиля ничего не удаляет. Явный `StorageMaintenance.wipeProfile` вызывает
 `SecretsProfileCleaner`; erase пропускает дешифрование и удаляет даже повреждённые данные.
@@ -26,7 +32,8 @@ Desktop/Android используют блокировку отдельного �
 Сбой очистки останавливает удаление обычных данных; повторный wipe безопасен.
 
 `SecretsConfig` позволяет хосту задать отдельный desktop-каталог и Keychain service для тестов.
-Нативные тесты используют временный каталог/уникальный service и искусственные значения.
+Нативные тесты используют временный каталог/уникальный service и искусственные значения; тест Keychain/DPAPI
+запускается только с JVM property `heartbeat.test.nativeSecrets=true`. Обычные интеграционные тесты используют dev backend.
 
 Проверки: commonTest (контракт/изоляция/ротация/ссылки/ошибки), JVM нативный round-trip,
 интеграционные тесты Metro и удаления профиля. Нативная компиляция проверяется Gradle; линковка и исполнение iOS, а также прогон macOS Keychain требуют macOS.

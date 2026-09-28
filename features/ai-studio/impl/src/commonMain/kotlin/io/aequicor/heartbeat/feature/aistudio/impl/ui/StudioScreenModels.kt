@@ -24,6 +24,7 @@ internal data class StudioExits(
     val onOpenToggles: () -> Unit,
     val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
+    val onOpenResearch: ((String) -> Unit)? = null,
 )
 
 /** What a pane may offer in the current window layout. */
@@ -52,6 +53,11 @@ internal data class PaneContent(
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
     val isStopFailed: Boolean = false,
     val isStoppable: Boolean = true,
+    val isResearchAvailable: Boolean = false,
+    val isProjectAddingAvailable: Boolean = false,
+    val isPickingProject: Boolean = false,
+    val isProjectFailed: Boolean = false,
+    val calendar: StudioCalendar = StudioCalendar(),
 )
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
@@ -70,7 +76,7 @@ internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
 internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = session(pane.sessionId)
-    val startedAt = pane.sessionId?.let { id -> transcripts[id]?.lastOrNull { it is MessageUi.Prompt }?.createdAt }
+    val startedAt = runStartedAt[pane.sessionId]
     return PaneContent(
         pane = pane,
         session = session,
@@ -83,13 +89,25 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         draft = draft(pane.id),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
-        settings = session?.modelId?.let { settings.copy(modelId = it) } ?: settings,
+        settings = settings.copy(modelId = settings.modelId.ifBlank { session?.modelId.orEmpty() }),
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,
-        models = models,
+        isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
+            models.any { it.id == settings.modelId && it.isResearchSupported },
+        models = modelsForProject(pane.projectId ?: session?.projectId, session?.modelId),
+        isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
+        isPickingProject = addingProjectTo == pane.id,
+        isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
+        calendar = studioCalendar(now),
     )
 }
+
+/** Existing project chats keep their model; selecting it can restore a conflicting global draft preference. */
+private fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: String?): ImmutableList<ModelUi> =
+    models.filter {
+        projectId == null || (it.isLocalProjectSupported && (modelId == null || it.id == modelId))
+    }.toImmutableList()
 
 internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
     val focused = panes.firstOrNull { it.id == focusedPaneId }

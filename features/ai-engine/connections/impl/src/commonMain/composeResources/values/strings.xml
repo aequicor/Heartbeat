@@ -39,6 +39,7 @@
     <string name="wizard_field_key">API key</string>
     <string name="wizard_key_placeholder">Paste the key</string>
     <string name="wizard_key_hint">The key is kept in the protected storage of your profile.</string>
+    <string name="wizard_key_hint_development">Development build: keys are saved locally without system protection, separately from release keys.</string>
     <string name="wizard_get_key">Get an API key</string>
     <string name="wizard_field_host">API host</string>
     <string name="wizard_host_fixed">The address is fixed for this provider.</string>

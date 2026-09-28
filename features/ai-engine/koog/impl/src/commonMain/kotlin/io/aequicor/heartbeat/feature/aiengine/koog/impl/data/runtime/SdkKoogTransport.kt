@@ -36,13 +36,26 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
                     httpClientFactory = factory,
                 )
 
+                KoogProvider.AlibabaQwen -> AlibabaKoogClient(
+                    apiKey = requireNotNull(key),
+                    settings = OpenAIClientSettings(
+                        baseUrl = origin,
+                        chatCompletionsPath = "compatible-mode/v1/chat/completions",
+                        modelsPath = "compatible-mode/v1/models",
+                    ),
+                    httpClientFactory = factory,
+                )
+
                 KoogProvider.Anthropic -> AnthropicLLMClient(
                     apiKey = requireNotNull(key),
                     settings = if (model == null) {
                         AnthropicClientSettings(baseUrl = origin)
                     } else {
                         AnthropicClientSettings(
-                            modelVersionsMap = mapOf(provider.textModel(model) to model),
+                            modelVersionsMap = mapOf(
+                                provider.textModel(model) to model,
+                                provider.textModel(model, attachments = true) to model,
+                            ),
                             baseUrl = origin,
                         )
                     },
@@ -64,7 +77,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
 
 internal val KoogProvider.llmProvider: LLMProvider
     get() = when (this) {
-        KoogProvider.OpenAI -> LLMProvider.OpenAI
+        KoogProvider.OpenAI, KoogProvider.AlibabaQwen -> LLMProvider.OpenAI
         KoogProvider.Anthropic -> LLMProvider.Anthropic
         KoogProvider.Ollama -> LLMProvider.Ollama
     }

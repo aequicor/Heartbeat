@@ -31,6 +31,21 @@ class KoogCompatibilityTest {
     }
 
     @Test
+    fun alibabaTokenPlanCredentialsAreIsolatedFromOtherProvidersAndEndpoints() {
+        val alibaba = AuthScope(KoogProvider.AlibabaQwen.id, KoogProvider.AlibabaQwen.origin)
+        assertEquals(KoogProvider.AlibabaQwen, koogProvider(key.copy(scope = alibaba)))
+        assertNull(koogProvider(AuthSource.NoAuth(info, alibaba)))
+        assertNull(koogProvider(key.copy(scope = alibaba.copy(provider = KoogProvider.OpenAI.id))))
+        listOf(
+            KoogProvider.OpenAI.origin,
+            EndpointOrigin("https://dashscope.aliyuncs.com"),
+            EndpointOrigin("https://other.example"),
+        ).forEach { origin ->
+            assertNull(koogProvider(key.copy(scope = alibaba.copy(origin = origin))))
+        }
+    }
+
+    @Test
     fun localOllamaDoesNotReceiveCloudCredentials() {
         val local = AuthScope(KoogProvider.Ollama.id, KoogProvider.Ollama.origin)
         assertEquals(KoogProvider.Ollama, koogProvider(AuthSource.NoAuth(info, local)))

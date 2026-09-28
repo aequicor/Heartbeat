@@ -24,6 +24,13 @@ public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog",
 public enum class KoogProvider(public val id: ProviderId, public val origin: EndpointOrigin) {
     OpenAI(ProviderId("openai"), EndpointOrigin("https://api.openai.com")),
     Anthropic(ProviderId("anthropic"), EndpointOrigin("https://api.anthropic.com")),
+
+    /** Alibaba Token Plan uses its own credentials and the `/compatible-mode/v1` API prefix. */
+    AlibabaQwen(
+        ProviderId("alibaba-qwen-token-plan"),
+        EndpointOrigin("https://token-plan.ap-southeast-1.maas.aliyuncs.com"),
+    ),
+
     Ollama(ProviderId("ollama"), EndpointOrigin("http://localhost:11434")),
 }
 
@@ -68,7 +75,7 @@ public interface KoogConnections {
 public fun koogProvider(source: AuthSource): KoogProvider? = KoogProvider.entries.firstOrNull { provider ->
     source.scope.provider == provider.id && source.scope.origin == provider.origin &&
         when (provider) {
-            KoogProvider.OpenAI, KoogProvider.Anthropic -> source is AuthSource.ManagedKey
+            KoogProvider.OpenAI, KoogProvider.Anthropic, KoogProvider.AlibabaQwen -> source is AuthSource.ManagedKey
             KoogProvider.Ollama -> source is AuthSource.NoAuth
         }
 }

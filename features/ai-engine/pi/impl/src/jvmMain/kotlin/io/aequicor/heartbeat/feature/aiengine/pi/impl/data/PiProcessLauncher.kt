@@ -76,8 +76,8 @@ internal class PiProcessLauncher(
         } else {
             "read,bash,edit,write"
         }
-        val searchTools = toggles.get(SearchEngineTools)
-        val extensions = piExtensions(agentDir, searchTools)
+        val areSearchToolsEnabled = toggles.get(SearchEngineTools)
+        val extensions = piExtensions(agentDir, areSearchToolsEnabled)
         val command = piCommand(executable, provider.id, sessionDir, extensions, tools)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
@@ -86,7 +86,7 @@ internal class PiProcessLauncher(
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         var process: Process? = null
         try {
-            if (searchTools) {
+            if (areSearchToolsEnabled) {
                 val endpoint = searchBridge.endpoint()
                 environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
                 environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token

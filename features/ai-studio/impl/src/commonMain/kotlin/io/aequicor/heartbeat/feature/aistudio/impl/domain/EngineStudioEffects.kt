@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 /**
@@ -17,6 +18,7 @@ class EngineStudioEffects(
     private val repository: StudioRepository,
     private val runtime: StudioRuntime,
     private val availability: StudioAvailability,
+    private val projects: StudioProjects? = null,
 ) : EffectHandler<AiStudioEffect, AiStudioIntent> {
     private val log = Log.tag("EngineStudioEffects")
 
@@ -42,6 +44,14 @@ class EngineStudioEffects(
                 .map { models -> models.map { it.id } }
                 .distinctUntilChanged()
                 .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
+
+            AiStudioEffect.ObserveProjects -> (projects?.availability ?: flowOf(false)).collect {
+                machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(it))
+            }
+
+            is AiStudioEffect.ChooseProject -> machine.send(
+                AiStudioIntent.Internal.ProjectChosen(effect.paneId, checkNotNull(projects).choose()),
+            )
 
             is AiStudioEffect.CreateSession -> {
                 val session = repository.createSession(effect.projectId, titleOf(effect.prompt))

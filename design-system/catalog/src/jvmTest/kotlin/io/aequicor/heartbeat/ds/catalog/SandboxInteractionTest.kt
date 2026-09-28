@@ -12,12 +12,14 @@ import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
@@ -119,6 +121,7 @@ internal class SandboxInteractionTest {
             destination.assertIsFocused()
             destination.performKeyInput { pressKey(Key.Enter) }
             destination.assertIsSelected()
+            onNodeWithTag("components-catalog").performScrollToNode(hasText("Create something"))
             onNodeWithText("Create something").assertIsDisplayed()
         }
 }

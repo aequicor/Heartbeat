@@ -13,7 +13,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | From | Intent | Guard | To | Effect / Output |
  * |---|---|---|---|---|
  * | Idle | Start | | Loading | Load |
- * | Loading | Loaded | enabled | Ready (one new-session pane) | ObserveAvailability, ObserveRuntime, ObserveModels |
+ * | Loading | Loaded | enabled | Ready (one new-session pane) | ObserveAvailability, ObserveRuntime, models/projects |
  * | Loading | Loaded | disabled | Disabled | ObserveAvailability |
  * | Loading | LoadFailed | | LoadError | |
  * | LoadError | Retry | | Loading | Load |
@@ -21,18 +21,22 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project) | |
+ * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
+ * | Ready | ProjectChosen | matching picker | Ready (selected project, or unchanged on cancel) | |
+ * | Ready | ProjectChoiceFailed | matching picker | Ready (retryable project error) | |
+ * | Ready | ProjectAvailabilityChanged | | Ready (project selection availability) | |
  * | Ready | OpenSession | pane open | Ready (session shown or its pane focused) | Apply(SetUnread(false)) |
  * | Ready | OpenBeside | | Ready (second pane, focused) | Apply(SetUnread(false)) for sessions |
  * | Ready | ClosePane | several panes | Ready (pane removed) | |
  * | Ready | FocusPane | another open pane | Ready | |
- * | Ready | UpdateSettings | | Ready | |
+ * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
  * | Ready | RunFinished | | Ready (idle unless the latest snapshot runs it) | Apply(SetUnread(true)) if hidden |
- * | Ready | RuntimeChanged | | Ready (profile execution snapshot, answered permissions hidden) | |
+ * | Ready | RuntimeChanged | | Ready (profile execution snapshot with start times, answered permissions hidden) | |
  * | Ready | RuntimeLost | | Ready (nothing running, stopping or awaiting permission) | |
  * | Ready | RespondPermission | pending, not answered | Ready (permission answered) | RespondPermission |
  * | Ready | PermissionAnswerFailed | | Ready (request no longer answered) | |
@@ -62,6 +66,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ObserveAvailability }
                 effect { AiStudioEffect.ObserveRuntime }
                 effect { AiStudioEffect.ObserveModels }
+                effect { AiStudioEffect.ObserveProjects }
             }
             on<AiStudioIntent.Internal.Loaded>(guard = { !intent.isEnabled }) {
                 goto<AiStudioState.Disabled> { AiStudioState.Disabled }
@@ -86,6 +91,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
         state<AiStudioState.Ready> {
             runtime()
             navigation()
+            projects()
             conversations()
             executions()
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { !intent.isEnabled }) {
@@ -105,7 +111,9 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(effect.paneId, effect.prompt)
                 is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
                 is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
+                is AiStudioEffect.ChooseProject -> AiStudioIntent.Internal.ProjectChoiceFailed(effect.paneId)
                 AiStudioEffect.ObserveRuntime -> AiStudioIntent.Internal.RuntimeLost
+                AiStudioEffect.ObserveProjects -> AiStudioIntent.Internal.ProjectAvailabilityChanged(false)
                 is AiStudioEffect.RespondPermission -> AiStudioIntent.Internal.PermissionAnswerFailed(effect.requestId)
                 AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply -> null
             }
@@ -225,6 +233,7 @@ private fun ReadyTransitions.executions() {
                 state.copy(
                     running = state.running - intent.sessionId,
                     stopping = state.stopping - intent.sessionId,
+                    runStartedAt = state.runStartedAt - intent.sessionId,
                 )
             }
         }
@@ -243,6 +252,7 @@ private fun ReadyTransitions.runtime() {
             state.copy(
                 running = snapshot.running,
                 observedRunning = snapshot.running,
+                runStartedAt = snapshot.runStartedAt.filterKeys { it in snapshot.running },
                 stopping = state.stopping.intersect(snapshot.running) - snapshot.stopFailures,
                 permissions = snapshot.permissions.filterNot { it.requestId in answered },
                 answeredPermissions = answered,
@@ -256,6 +266,7 @@ private fun ReadyTransitions.runtime() {
             state.copy(
                 running = emptySet(),
                 observedRunning = emptySet(),
+                runStartedAt = emptyMap(),
                 stopping = emptySet(),
                 stopFailures = emptySet(),
                 permissions = emptyList(),

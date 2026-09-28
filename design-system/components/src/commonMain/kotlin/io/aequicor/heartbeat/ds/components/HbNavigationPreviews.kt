@@ -26,6 +26,7 @@ private fun NavigationPreviewContent() {
     HbGlassScene {
         HbColumn(modifier = Modifier.padding(HbTheme.spacing.l).width(HbTheme.dimensions.sidebarWidth)) {
             HbRow(gap = HbTheme.spacing.xs) {
+                HbRailItem(HbIcons.Chats, "Chats", onClick = {}, isSelected = true)
                 HbIconButton(HbIcons.Home, "Home", onClick = {}, isSelected = true)
                 HbIconButton(HbIcons.Archive, "Archive", onClick = {})
                 HbIconButton(HbIcons.Sliders, "Settings", onClick = {}, enabled = false)
@@ -36,6 +37,17 @@ private fun NavigationPreviewContent() {
                 HbActivityIndicator()
             }
             HbNavigationItem("Review the pull request", onClick = {}, isEmphasized = true, level = 1)
+            HbNavigationItem(
+                "Studio conversation",
+                onClick = {},
+                isSelected = true,
+                supportingText = "A two-line conversation preview",
+                leadingContent = {
+                    HbIcon(HbIcons.Chat, contentDescription = null, tint = HbTheme.studioColors.onSelected)
+                },
+                selectedBackground = HbTheme.studioColors.selected,
+                selectedForeground = HbTheme.studioColors.onSelected,
+            )
             HbRow(gap = HbTheme.spacing.xs) {
                 HbChip("heartbeat", icon = HbIcons.Folder, onClick = {})
                 HbChip("main", icon = HbIcons.Branch)

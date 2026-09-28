@@ -16,24 +16,30 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
@@ -52,10 +58,11 @@ class AiStudioModel(
     private val clock: Clock,
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    private val entries: StudioEntries,
 ) {
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
-        initial = AiStudioScreenState().reflectMachine(machine.state.value),
+        initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
@@ -68,14 +75,19 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch { observeResearch(pipeline) }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
-                        updateState { copy(models = models.map { ModelUi(it.id, it.name) }.toImmutableList()) }
+                        updateState {
+                            copy(
+                                models = models.map { it.toUi() }.toImmutableList(),
+                            )
+                        }
                     }
                 }
                 launch { observeTranscripts(pipeline) }
-                launch { tickWhileRunning(pipeline) }
+                launch { observeClock(pipeline) }
             }
         }
         reduce { intent -> handle(this, intent) }
@@ -84,6 +96,10 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
+        entries.showsResearch.collect { updateState { copy(isResearchEnabled = it) } }
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
@@ -102,29 +118,32 @@ class AiStudioModel(
             .collect { transcripts -> updateState { copy(transcripts = transcripts.toImmutableMap()) } }
     }
 
-    private suspend fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> =
-        if (ids.isEmpty()) {
-            flowOf(emptyMap())
-        } else {
+    private fun transcriptsOf(ids: List<String>): Flow<Map<String, ImmutableList<MessageUi>>> = if (ids.isEmpty()) {
+        flowOf(emptyMap())
+    } else {
+        flow {
             val repository = backend.repository()
-            combine(
-                ids.map { id ->
-                    repository.observeMessages(id).map { messages ->
-                        id to messages.map { it.toUi() }.toImmutableList()
-                    }
-                },
-            ) { it.toMap() }
+            emitAll(
+                combine(
+                    ids.map { id ->
+                        repository.observeMessages(id).map { messages ->
+                            id to messages.map { it.toUi() }.toImmutableList()
+                        }
+                    },
+                ) { it.toMap() },
+            )
         }
+    }
 
-    /** Refreshes [AiStudioScreenState.now] every second while any run is active, for elapsed-time labels. */
-    private suspend fun tickWhileRunning(pipeline: StudioPipeline) = with(pipeline) {
+    /** Active runs tick each second; idle screens refresh once a minute for local Today/Yesterday labels. */
+    private suspend fun observeClock(pipeline: StudioPipeline) = with(pipeline) {
         machine.state
             .map { (it as? AiStudioState.Ready)?.running?.isNotEmpty() == true }
             .distinctUntilChanged()
             .collectLatest { isRunning ->
-                while (isRunning) {
+                while (currentCoroutineContext().isActive) {
                     updateState { copy(now = clock.now()) }
-                    delay(1.seconds)
+                    delay(if (isRunning) 1.seconds else 1.minutes)
                 }
             }
     }
@@ -141,6 +160,8 @@ class AiStudioModel(
     private suspend fun navigate(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Navigation) = with(pipeline) {
         val command = when (intent) {
             AiStudioScreenIntent.Retry -> AiStudioIntent.Public.Retry
+
+            is AiStudioScreenIntent.AddProject -> AiStudioIntent.Public.AddProject(intent.paneId)
 
             is AiStudioScreenIntent.NewSession -> AiStudioIntent.Public.NewSession(intent.projectId)
 
@@ -183,6 +204,16 @@ class AiStudioModel(
             is AiStudioScreenIntent.SelectModel -> updateSettings(pipeline) { copy(modelId = intent.modelId) }
 
             is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
+
+            is AiStudioScreenIntent.SelectEngineEffort -> updateSettings(pipeline) {
+                copy(
+                    engineEfforts = if (intent.effort == null) {
+                        engineEfforts - intent.modelId
+                    } else {
+                        engineEfforts + (intent.modelId to intent.effort)
+                    },
+                )
+            }
 
             is AiStudioScreenIntent.SelectApproval -> updateSettings(
                 pipeline,
@@ -236,7 +267,12 @@ class AiStudioModel(
         pipeline,
     ) {
         withState {
-            val current = RunSettings(settings.modelId, settings.effort.toDomain(), settings.approval.toDomain())
+            val current = RunSettings(
+                settings.modelId,
+                settings.effort.toDomain(),
+                settings.approval.toDomain(),
+                settings.engineEfforts,
+            )
             sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
         }
     }

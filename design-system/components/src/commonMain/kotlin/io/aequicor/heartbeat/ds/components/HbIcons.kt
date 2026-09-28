@@ -78,6 +78,10 @@ public object HbIcons {
         "M4,13.5 V5 Q4,3.5 5.5,3.5 H14.5 Q16,3.5 16,5 V13.5 " +
             "M2,13.5 H18 L17,16 H3 Z M8,13.5 V14 H12 V13.5",
     )
+    public val Layers: ImageVector = outlineIcon(
+        "Layers",
+        "M10,2.5 L17.5,6.5 L10,10.5 L2.5,6.5 Z M2.5,10.5 L10,14.5 L17.5,10.5 M2.5,14 L10,18 L17.5,14",
+    )
     public val Branch: ImageVector = outlineIcon(
         "Branch",
         "M7,4 A1.75,1.75 0,1 1,3.5,4 A1.75,1.75 0,1 1,7,4 Z " +
@@ -463,7 +467,7 @@ public object HbIcons {
         Chat, Chats, Send, Reply, Mail, Inbox, Bell, BellOff, User, Users, Mic, MicOff, Paperclip, Video,
         Info, Alert, Warning, Help, Success, Error, Circle, Loading, Lock, Unlock, Shield, Eye, EyeOff,
         Wifi, WifiOff, Sun, Moon,
-        Laptop, Monitor, Phone, Terminal, Code, Branch, Commit, Merge, PullRequest, Cloud, CloudOff,
+        Laptop, Layers, Monitor, Phone, Terminal, Code, Branch, Commit, Merge, PullRequest, Cloud, CloudOff,
         Database, Globe, Sparkles, Plan,
         Play, Pause, Stop, Volume, VolumeOff, Headphones, Camera, Heart, Star,
     )

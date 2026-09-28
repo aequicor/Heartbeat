@@ -69,13 +69,30 @@ internal class ClaudeTurnObserver(
         val content = body["content"] as? JsonArray ?: protocolFailure()
         for (entry in content) {
             val part = entry as? JsonObject ?: protocolFailure()
-            val value = part.text("text")
-            if (part.text("type") == "text" && value != null) {
+            appendPart(part)
+        }
+    }
+
+    private fun appendPart(part: JsonObject) {
+        when (part.text("type")) {
+            "text" -> {
+                val value = part.text("text") ?: protocolFailure()
                 hasText = true
                 history.item(
                     turn.id,
                 ) { SessionItem.Message(it, MessageRole.Assistant, listOf(ContentPart.Text(value))) }
-            } else if (part.text("type") == "tool_use") {
+            }
+
+            "thinking" -> {
+                val value = part.text("thinking") ?: protocolFailure()
+                if (value.isNotBlank()) {
+                    history.item(turn.id) {
+                        SessionItem.Message(it, MessageRole.Assistant, listOf(ContentPart.Reasoning(value)))
+                    }
+                }
+            }
+
+            "tool_use" -> {
                 val call = part.text("id") ?: protocolFailure()
                 history.item(turn.id) {
                     SessionItem.ToolCall(
@@ -86,7 +103,9 @@ internal class ClaudeTurnObserver(
                         ToolCallStatus.Running,
                     )
                 }
-            } else {
+            }
+
+            else -> {
                 history.item(turn.id) { SessionItem.UnsupportedItem(it, "claude.content") }
             }
         }

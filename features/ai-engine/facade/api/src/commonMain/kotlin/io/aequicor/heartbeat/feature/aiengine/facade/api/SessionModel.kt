@@ -70,9 +70,18 @@ public data class ResumeSessionRequest(val target: EngineTarget, val workspace: 
 
 /** Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication. */
 @Serializable
-public data class PromptRequest(val id: RequestId, val parts: List<ContentPart>) {
+public data class PromptRequest(
+    val id: RequestId,
+    val parts: List<ContentPart>,
+    /**
+     * A model-advertised native effort identifier; null preserves the engine's configured default.
+     * Adapters reject unsupported overrides before acceptance instead of silently ignoring them.
+     */
+    val reasoningEffort: String? = null,
+) {
     init {
         require(parts.isNotEmpty())
+        require(reasoningEffort == null || reasoningEffort.isNotBlank())
     }
     override fun toString(): String = "PromptRequest(id=$id, parts=${parts.size})"
 }

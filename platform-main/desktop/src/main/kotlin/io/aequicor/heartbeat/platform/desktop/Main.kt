@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
@@ -8,6 +9,7 @@ import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.ds.components.HbWindowDragProvider
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.shared.App
@@ -16,9 +18,16 @@ import java.util.concurrent.FutureTask
 import javax.swing.SwingUtilities
 
 fun main() {
-    Log.init(isDebug = true)
+    launchHeartbeat(isDevelopment = false)
+}
+
+/** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
+internal fun launchHeartbeat(isDevelopment: Boolean) {
+    Log.init(isDebug = isDevelopment)
     val lifecycle = LifecycleRegistry()
-    val root = runOnUiThread { createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph()) }
+    val root = runOnUiThread {
+        createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
+    }
     val dimensions = HbDimensions()
     application {
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
@@ -31,7 +40,13 @@ fun main() {
             },
             title = "Heartbeat",
             state = windowState,
-        ) { App(root) }
+        ) {
+            DisposableEffect(window) {
+                configureDesktopChrome(window.rootPane)
+                onDispose { }
+            }
+            HbWindowDragProvider { App(root) }
+        }
     }
 }
 

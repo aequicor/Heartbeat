@@ -29,7 +29,9 @@ public sealed interface SecretRemoval {
 }
 
 /**
- * Protected persistent storage of the active profile. Switching/signing out closes access, not data.
+ * Persistent credentials of the active profile. Production uses system protection; [SecretStorageInfo] reports
+ * the active host backend, including the separate local development store. Switching/signing out closes access,
+ * not data.
  * Obtain a fresh instance when reopening a profile. Calls are main-safe; backend failures propagate.
  * Values and usage references commit together. Consumers persist a slot and resolve it via [readFor],
  * rather than copying values. Already resolved values cannot be retroactively rotated.

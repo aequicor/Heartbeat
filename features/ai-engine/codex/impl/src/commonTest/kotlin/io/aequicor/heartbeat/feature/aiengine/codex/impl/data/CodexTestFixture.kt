@@ -30,9 +30,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -45,6 +48,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -102,6 +106,7 @@ internal class Fixture(
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
     },
     searchTools: Boolean = true,
+    configuration: CodexLocalConfiguration = CodexLocalConfiguration(),
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -115,6 +120,7 @@ internal class Fixture(
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
     var threadTurns: List<JsonObject> = emptyList()
+    var modelList: List<JsonObject> = emptyList()
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
             message,
@@ -122,8 +128,9 @@ internal class Fixture(
         )
     }
     var isSearchEnabled = true
+    val workspacePaths = mutableMapOf<WorkspaceRef, String>()
     val environment = CodexRuntimeEnvironment(
-        CodexLocalConfiguration(),
+        configuration,
         object : FeatureToggles {
             override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
 
@@ -140,6 +147,12 @@ internal class Fixture(
         },
         search,
         profile,
+        object : LocalWorkspaces {
+            override val isAvailable = true
+            override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
+            override suspend fun register(directory: String): LocalWorkspace = error("Not used")
+            override suspend fun resolve(ref: WorkspaceRef): String? = workspacePaths[ref]
+        },
     )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),
@@ -151,6 +164,8 @@ internal class Fixture(
         wire.handler = { message ->
             when (message.text("method")) {
                 "account/read" -> wire.reply(message, json("account" to account))
+
+                "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
                 "thread/start", "thread/resume" -> wire.reply(
                     message,

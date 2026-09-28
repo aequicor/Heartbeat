@@ -64,7 +64,8 @@ private val log = Log.tag("DS/Menu")
 /**
  * A localized menu command. The owner handles [id] through [HbMenu]'s callback.
  * [shortcut] is a caller-formatted hint shown at the end of the row; [isChecked] marks the current choice
- * of a single-selection group; [startsGroup] draws a divider above the item.
+ * of a single-selection group; [isGroupStart] draws a divider above the item.
+ * Set [isFocusRestoredOnSelect] to false when the command opens an editor or another focused destination.
  */
 @Immutable
 public data class HbMenuItem(
@@ -74,7 +75,8 @@ public data class HbMenuItem(
     val shortcut: String? = null,
     val isEnabled: Boolean = true,
     val isChecked: Boolean = false,
-    val startsGroup: Boolean = false,
+    val isGroupStart: Boolean = false,
+    val isFocusRestoredOnSelect: Boolean = true,
 )
 
 /**
@@ -119,7 +121,8 @@ public fun HbMenu(
 }
 
 /**
- * Icon trigger with its [HbMenu]. Focus returns to the trigger after the menu closes.
+ * Icon trigger with its [HbMenu]. Dismissal returns focus to the trigger; selected commands may opt out
+ * through [HbMenuItem.isFocusRestoredOnSelect] so their destination can retain focus.
  * [contentDescription] labels both the trigger and the menu pane.
  */
 @Composable
@@ -136,9 +139,11 @@ public fun HbMenuButton(
 ) {
     val triggerFocus = remember { FocusRequester() }
     var hasOpened by remember { mutableStateOf(false) }
+    var isFocusRestored by remember { mutableStateOf(true) }
     val isOpen = isExpanded && enabled && items.isNotEmpty()
     SideEffect(isOpen) {
-        if (!isOpen && hasOpened) triggerFocus.requestFocus()
+        if (!isOpen && hasOpened && isFocusRestored) triggerFocus.requestFocus()
+        if (isOpen) isFocusRestored = true
         hasOpened = isOpen
     }
     Box(modifier = modifier) {
@@ -155,7 +160,10 @@ public fun HbMenuButton(
             items = items,
             isExpanded = isOpen,
             onDismiss = { onExpandedChange(false) },
-            onItem = onItem,
+            onItem = { id ->
+                isFocusRestored = items.firstOrNull { it.id == id }?.isFocusRestoredOnSelect ?: true
+                onItem(id)
+            },
             label = contentDescription,
         )
     }
@@ -193,7 +201,7 @@ private fun MenuSheet(
     ) {
         items.forEachIndexed { index, item ->
             key(item.id) {
-                if (item.startsGroup && index > 0) {
+                if (item.isGroupStart && index > 0) {
                     HbDivider(Modifier.padding(vertical = HbTheme.spacing.xs))
                 }
                 MenuRow(

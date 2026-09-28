@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.impl.data.InMemoryStudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import kotlinx.coroutines.CompletableDeferred
@@ -26,6 +27,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -109,6 +111,22 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `native effort selection is route scoped and automatic removes only that override`() = runTest {
+        val settings = ready.settings.copy(engineEfforts = mapOf("other-route" to "low"))
+        val fixture = Fixture(this, ready.copy(settings = settings))
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("native-route", "future"))
+        runCurrent()
+        val changed = settings.copy(engineEfforts = settings.engineEfforts + ("native-route" to "future"))
+        assertEquals(AiStudioIntent.Public.UpdateSettings(changed), fixture.machine.sent.last())
+        fixture.machine.state.value = ready.copy(settings = changed)
+        runCurrent()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("native-route", null))
+        runCurrent()
+        assertEquals(AiStudioIntent.Public.UpdateSettings(settings), fixture.machine.sent.last())
+    }
+
+    @Test
     fun `renaming sends only a changed title`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
@@ -126,7 +144,7 @@ class AiStudioModelTest {
     }
 
     @Test
-    fun `the elapsed clock ticks only while a run is active`() = runTest {
+    fun `the elapsed clock ticks each second only while a run is active`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
         val idle = screen.states.value.now
@@ -139,6 +157,32 @@ class AiStudioModelTest {
         advanceTimeBy(2.seconds)
         runCurrent()
         assertEquals(started + 2.seconds, screen.states.value.now)
+    }
+
+    @Test
+    fun `idle calendar refreshes without a running agent`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+        val initial = screen.states.value.now
+        advanceTimeBy(61.seconds)
+        runCurrent()
+        assertEquals(initial + 60.seconds, screen.states.value.now)
+    }
+
+    @Test
+    fun `research availability follows its entry service across machine updates`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+        assertEquals(false, screen.states.value.isResearchEnabled)
+        fixture.isResearchEnabled.value = true
+        runCurrent()
+        assertTrue(screen.states.value.isResearchEnabled)
+        fixture.machine.state.value = ready.copy(panes = listOf(StudioPane(1)), focusedPaneId = 1)
+        runCurrent()
+        assertTrue(screen.states.value.isResearchEnabled)
+        fixture.isResearchEnabled.value = false
+        runCurrent()
+        assertEquals(false, screen.states.value.isResearchEnabled)
     }
 
     @Test
@@ -156,6 +200,7 @@ class AiStudioModelTest {
 
     private class Fixture(private val scope: TestScope, initial: AiStudioState) {
         val machine = FakeMachine(initial)
+        val isResearchEnabled = MutableStateFlow(false)
         val model = AiStudioModel(
             machine = machine,
             backend = object : StudioBackend {
@@ -168,6 +213,11 @@ class AiStudioModelTest {
             clock = TestClock(scope),
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
+            entries = object : StudioEntries {
+                override val showsResearch = isResearchEnabled
+                override val showsConnections = flowOf(false)
+                override val showsProfileSettings = flowOf(false)
+            },
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

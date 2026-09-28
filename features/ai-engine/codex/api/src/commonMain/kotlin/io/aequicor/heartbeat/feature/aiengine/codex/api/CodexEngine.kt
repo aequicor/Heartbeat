@@ -25,7 +25,9 @@ public object CodexEngine {
  * The CLI must already be installed and logged in. Only CLI-owned ChatGPT login is supported; no key import,
  * login, credential helper or account switching is performed. Android/iOS report UnsupportedPlatform.
  *
- * [executable] names a native executable (not a .cmd/.bat wrapper on Windows). Null [homeDirectory] selects
+ * [executable] names a native executable (not a .cmd/.bat wrapper on Windows). The default `codex` also discovers
+ * standard macOS app-bundled and CLI installations when absent from PATH. Explicit paths are never replaced.
+ * Null [homeDirectory] selects
  * the CLI's normal home. [workspaces] resolves opaque application workspace ids to absolute local directories.
  * [source] and [location] identify exactly this installation within the current Heartbeat profile.
  */

@@ -9,12 +9,15 @@ import io.aequicor.heartbeat.ds.components.HbChatSection
 import io.aequicor.heartbeat.ds.components.HbChatTimeline
 import io.aequicor.heartbeat.ds.components.HbMessageAppearance
 import io.aequicor.heartbeat.ds.components.HbMessageKind
+import io.aequicor.heartbeat.ds.components.HbMessagePart
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
+import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import kotlinx.collections.immutable.ImmutableList
@@ -34,6 +37,13 @@ internal data class TimelineLabels(
     val stoppedTemplate: String,
     val failed: String,
     val durations: DurationLabels,
+    val promptAppearance: HbMessageAppearance = HbMessageAppearance(tone = HbTone.Brand),
+    val replyAppearance: HbMessageAppearance = HbMessageAppearance(),
+    val reasoning: String = "Reasoning",
+    val today: String = "Today",
+    val yesterday: String = "Yesterday",
+    val calendar: StudioCalendar = StudioCalendar(),
+    val isGroupedByDate: Boolean = false,
 )
 
 /** Templates of elapsed-time labels: seconds only, and minutes with seconds. */
@@ -71,7 +81,7 @@ internal class TimelineCache {
     private var timeline: HbChatTimeline = HbChatTimeline.Empty
 
     fun update(next: List<MessageUi>, nextLabels: TimelineLabels): HbChatTimeline {
-        val section = HbChatSection(SECTION_ID, nextLabels.section)
+        val sections = sectionsFor(next, nextLabels)
         val isSameSource = labels == nextLabels && next.size >= messages.size && messages.isNotEmpty()
         val keptPrefix = if (isSameSource) messages.size - 1 else 0
         val isIncremental = isSameSource &&
@@ -80,18 +90,45 @@ internal class TimelineCache {
         timeline = if (isIncremental) {
             val latest = next[keptPrefix]
             var updated = if (latest == messages.last()) timeline else timeline.replaceLatest(latest.toHb(nextLabels))
-            for (index in messages.size until next.size) updated = updated.append(section, next[index].toHb(nextLabels))
+            for (index in messages.size until next.size) {
+                updated = updated.append(
+                    sections[index],
+                    next[index].toHb(nextLabels),
+                )
+            }
             updated
         } else {
-            HbChatTimeline.from(section, next.map { it.toHb(nextLabels) }.toImmutableList())
+            next.foldIndexed(HbChatTimeline.Empty) { index, current, message ->
+                current.append(sections[index], message.toHb(nextLabels))
+            }
         }
         messages = next
         labels = nextLabels
         return timeline
     }
 
-    private companion object {
-        const val SECTION_ID = "session"
+    private fun sectionsFor(messages: List<MessageUi>, labels: TimelineLabels): List<HbChatSection> {
+        if (!labels.isGroupedByDate) return messages.map { HbChatSection("session", labels.section) }
+        var previousDate: kotlinx.datetime.LocalDate? = null
+        var section = HbChatSection("empty", "")
+        return messages.mapIndexed { index, message ->
+            val date = labels.calendar.day(message.createdAt).takeIf { message.isTimestampKnown }
+            if (index == 0 || date != previousDate) {
+                section = HbChatSection(
+                    "date:${message.id}",
+                    date?.let {
+                        labels.calendar.dateLabel(
+                            message.createdAt,
+                            labels.today,
+                            labels.yesterday,
+                        )
+                    }.orEmpty(),
+                    isDate = true,
+                )
+            }
+            previousDate = date
+            section
+        }
     }
 }
 
@@ -112,7 +149,8 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         author = labels.you,
         text = text,
         role = HbChatRole.User,
-        appearance = HbMessageAppearance(tone = HbTone.Brand),
+        appearance = labels.promptAppearance,
+        label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
     )
 
     is MessageUi.Reply -> HbChatMessage(
@@ -123,6 +161,11 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         kind = HbMessageKind.Markdown,
         status = if (isStreaming) HbMessageStatus.Streaming else HbMessageStatus.Complete,
         toolCalls = tools.map { it.toHb() }.toImmutableList(),
+        appearance = labels.replyAppearance,
+        parts = parts.mapIndexed { index, part ->
+            part.toHb(labels, isStreaming = isStreaming && index == parts.lastIndex)
+        }.toImmutableList(),
+        label = labels.calendar.timeLabel(createdAt).takeIf { isTimestampKnown },
     )
 
     is MessageUi.Stopped -> HbChatMessage(
@@ -147,6 +190,8 @@ private fun ToolUi.toHb(): HbToolCall = HbToolCall(
     id = id,
     title = title,
     status = when (status) {
+        ToolStatusUi.Pending -> HbToolStatus.Pending
+        ToolStatusUi.Cancelled -> HbToolStatus.Cancelled
         ToolStatusUi.Running -> HbToolStatus.Running
         ToolStatusUi.Done -> HbToolStatus.Complete
         ToolStatusUi.Failed -> HbToolStatus.Error
@@ -156,3 +201,20 @@ private fun ToolUi.toHb(): HbToolCall = HbToolCall(
         diff?.let { HbToolBlock.Diff("$id-diff", it) },
     ).toImmutableList(),
 )
+
+private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMessagePart = when (this) {
+    is ReplyPartUi.Text -> HbMessagePart.Text(id, text)
+
+    is ReplyPartUi.Tool -> HbMessagePart.Tool(tool.toHb())
+
+    is ReplyPartUi.Reasoning -> HbMessagePart.Tool(
+        HbToolCall(
+            id = "reasoning:$id",
+            title = labels.reasoning,
+            status = if (isStreaming) HbToolStatus.Running else HbToolStatus.Complete,
+            summary = text.lineSequence().firstOrNull().orEmpty(),
+            blocks = listOf(HbToolBlock.Markdown("reasoning:$id", text)).toImmutableList(),
+            kind = HbToolKind.Reasoning,
+        ),
+    )
+}

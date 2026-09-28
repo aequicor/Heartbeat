@@ -42,4 +42,6 @@ data class HbTypography(
         fontSize = 13.sp,
         lineHeight = 19.sp,
     ),
+    /** Aligned timestamps and counters; prose retains the font's proportional figures. */
+    val metadata: TextStyle = caption.copy(fontFeatureSettings = "tnum"),
 )

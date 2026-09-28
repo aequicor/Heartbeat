@@ -61,8 +61,8 @@ class ModelCatalogService(
 
     override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot> =
         combine(cache.observe(), routes.saved) { entries, saved ->
-            val bound = saved.any { it.id == binding && it.engine == engine }
-            snapshot(if (bound) entries.find(engine, binding) else null)
+            val isBound = saved.any { it.id == binding && it.engine == engine }
+            snapshot(if (isBound) entries.find(engine, binding) else null)
         }.stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null))
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {

@@ -13,7 +13,13 @@ public enum class ApprovalMode {
 }
 
 /** Model preferences applied to the next run of every pane. [modelId] references the studio model catalog. */
-public data class RunSettings(val modelId: String, val effort: ReasoningEffort, val approval: ApprovalMode)
+public data class RunSettings(
+    val modelId: String,
+    val effort: ReasoningEffort,
+    val approval: ApprovalMode,
+    /** Native effort overrides keyed by the exact studio model route; absent routes use their engine default. */
+    val engineEfforts: Map<String, String> = emptyMap(),
+)
 
 /** Values the studio starts with, resolved from the workspace and the model catalog. */
 public data class StudioDefaults(val projectId: String?, val settings: RunSettings)

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.AiStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.EngineStudioEffects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAvailability
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import kotlinx.coroutines.sync.Mutex
@@ -34,6 +35,7 @@ internal class ToggleStudioBackend(
     private val demoRepository: Lazy<InMemoryStudioRepository>,
     private val availability: StudioAvailability,
     private val clock: Clock,
+    private val projects: Lazy<StudioProjects>? = null,
 ) : StudioBackend {
     private val log = Log.tag("StudioBackend")
     private val lock = Mutex()
@@ -50,14 +52,14 @@ internal class ToggleStudioBackend(
     private suspend fun create(): Selected = if (toggles.get(StudioEngineRuntime)) {
         log.i { "Studio uses the engine runtime" }
         val repository = engineRepository.value
-        Selected(repository, EngineStudioEffects(repository, engineRuntime.value, availability))
+        Selected(repository, EngineStudioEffects(repository, engineRuntime.value, availability, projects?.value))
     } else {
         log.i { "Studio uses the demo workspace" }
         val repository = demoRepository.value
         Selected(repository, AiStudioEffects(repository, ScriptedStudioAgent(), availability, clock))
     }
 
-    private class Selected(
+    private data class Selected(
         val repository: StudioRepository,
         val effects: EffectHandler<AiStudioEffect, AiStudioIntent>,
     )

@@ -93,3 +93,4 @@ include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine
 
 include(":features:ai-engine:codex:api")
 include(":features:ai-engine:codex:impl")
+include(":features:research-chat:api", ":features:research-chat:impl")
