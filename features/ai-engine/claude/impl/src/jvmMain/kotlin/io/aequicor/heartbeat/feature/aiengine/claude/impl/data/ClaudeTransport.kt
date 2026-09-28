@@ -23,9 +23,13 @@ import kotlinx.serialization.json.put
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
-import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.AclEntry
+import java.nio.file.attribute.AclEntryPermission
+import java.nio.file.attribute.AclEntryType
+import java.nio.file.attribute.AclFileAttributeView
+import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
 
 /**
@@ -101,13 +105,35 @@ internal class ProcessClaudeTransport(
     }
 
     /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
+    private val configDirectory by lazy { mcpConfigDirectory() }
+
     private fun searchConfig(): Path = try {
-        claudeSearchConfig(searchBridge.endpoint())
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
+        claudeSearchConfig(searchBridge.endpoint(), configDirectory)
+    } catch (e: IOException) {
         log.w(e) { "Search bridge config could not be prepared" }
         throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+    } catch (e: IllegalStateException) {
+        log.w(e) { "Search bridge is closed" }
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+    }
+
+    /** One owner-only directory; files left by a crashed run are removed once per profile transport. */
+    private fun mcpConfigDirectory(): Path {
+        val directory = Path.of(System.getProperty("java.io.tmpdir"), MCP_CONFIG_DIRECTORY)
+        Files.createDirectories(directory)
+        restrictToOwner(directory, directory = true)
+        val staleBefore = System.currentTimeMillis() - STALE_CONFIG_MILLIS
+        Files.list(directory).use { files ->
+            files.filter { Files.getLastModifiedTime(it).toMillis() < staleBefore }.forEach { stale ->
+                try {
+                    Files.deleteIfExists(stale)
+                } catch (e: IOException) {
+                    log.w(e) { "Stale MCP config could not be removed" }
+                }
+            }
+        }
+        log.d { "MCP config directory ready" }
+        return directory
     }
 
     private suspend fun communicate(
@@ -213,7 +239,7 @@ internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<
         config.toString(),
     )
 
-internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint): Path {
+internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path): Path {
     val config = buildJsonObject {
         put(
             "mcpServers",
@@ -229,29 +255,37 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint): Path {
             },
         )
     }
-    // The file carries the bridge bearer: owner-only before any content is written, removed on JVM exit too.
-    val file = ownerOnlyTempFile("heartbeat-mcp-", ".json")
+    // The file carries the bridge bearer: owner-only before any content is written; deleted after the run.
+    val file = Files.createTempFile(directory, "heartbeat-mcp-", ".json")
+    restrictToOwner(file, directory = false)
     Files.writeString(file, config.toString())
     return file
 }
 
-internal fun ownerOnlyTempFile(prefix: String, suffix: String): Path {
-    val isPosix = "posix" in FileSystems.getDefault().supportedFileAttributeViews()
-    val file = if (isPosix) {
-        val ownerOnly = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
-        Files.createTempFile(prefix, suffix, ownerOnly)
-    } else {
-        Files.createTempFile(prefix, suffix).also { path ->
-            val handle = path.toFile()
-            handle.setReadable(false, false)
-            handle.setWritable(false, false)
-            handle.setReadable(true, true)
-            handle.setWritable(true, true)
-        }
+/**
+ * Restricts [path] to its owner: POSIX permissions, otherwise a single owner-only ACL entry (Windows).
+ * On a file system with neither view the platform temp-directory permissions are the only protection.
+ */
+internal fun restrictToOwner(path: Path, directory: Boolean) {
+    val posix = Files.getFileAttributeView(path, PosixFileAttributeView::class.java)
+    val acl = Files.getFileAttributeView(path, AclFileAttributeView::class.java)
+    when {
+        posix != null -> posix.setPermissions(
+            PosixFilePermissions.fromString(if (directory) "rwx------" else "rw-------"),
+        )
+
+        acl != null -> acl.acl = listOf(
+            AclEntry.newBuilder()
+                .setType(AclEntryType.ALLOW)
+                .setPrincipal(acl.owner)
+                .setPermissions(AclEntryPermission.entries.toSet())
+                .build(),
+        )
     }
-    file.toFile().deleteOnExit()
-    return file
 }
+
+private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
+private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
 /**
  * Host variables passed to the CLI: no API keys or endpoint overrides. `CLAUDE_CONFIG_DIR` is set only when

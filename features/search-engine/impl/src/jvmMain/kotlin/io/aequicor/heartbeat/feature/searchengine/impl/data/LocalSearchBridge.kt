@@ -36,6 +36,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Loopback-only, profile-lifetime MCP/JSON bridge; child engines never receive Querit keys. */
 @SingleIn(ProfileScope::class)
@@ -66,7 +67,11 @@ internal class LocalSearchBridge(
     }
 
     private fun start(): HttpServer {
-        val pool = Executors.newFixedThreadPool(MAX_THREADS)
+        val threads = AtomicInteger()
+        val pool = Executors.newFixedThreadPool(MAX_THREADS) { task ->
+            Thread(task, "heartbeat-search-bridge-${threads.incrementAndGet()}").apply { isDaemon = true }
+        }
+        var isStarted = false
         try {
             val created = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
                 createContext("/mcp", ::handleMcp)
@@ -76,12 +81,15 @@ internal class LocalSearchBridge(
             }
             server = created
             executor = pool
+            isStarted = true
             log.i { "Search bridge started on port ${created.address.port}" }
             return created
         } catch (e: IOException) {
-            pool.shutdownNow()
             log.e(e) { "Search bridge failed to start" }
             throw e
+        } finally {
+            // Any failure, not only IO, releases the threads.
+            if (!isStarted) pool.shutdownNow()
         }
     }
 
@@ -159,8 +167,8 @@ internal class LocalSearchBridge(
         job.cancel()
         throw e
     } catch (e: ExecutionException) {
-        // Unwraps the tool failure so logs show the real cause.
-        throw e.cause ?: e
+        // Unwraps the tool failure so logs show the real cause; a cancelled request is unavailable (503).
+        throw if (e.cause is CancellationException) BridgeUnavailableException(e) else e.cause ?: e
     }
 
     private fun authorized(exchange: HttpExchange): Boolean {

@@ -95,8 +95,13 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
         lock.withLock {
             gate(identity)
             val searchTools = toggles.get(SearchEngineTools)
-            runtime?.takeIf { !it.isClosed && it.identity == identity && it.searchTools == searchTools }
+            // A toggle change applies only once no session is active; live sessions keep their runtime.
+            runtime?.takeIf { !it.isClosed && it.identity == identity }
+                ?.takeIf { it.searchTools == searchTools || it.hasActiveSessions }
                 ?.let { return@withLock it }
+            if (runtime?.let { !it.isClosed && it.searchTools != searchTools } == true) {
+                log.i { "Recreating idle Codex runtime: search tools = $searchTools" }
+            }
             runtime?.close()
             runtime = null
             val rpc = CodexRpc(transport.open(), profile.coroutineScope)

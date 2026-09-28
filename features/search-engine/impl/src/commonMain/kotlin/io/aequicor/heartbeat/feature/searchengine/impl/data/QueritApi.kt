@@ -196,9 +196,14 @@ private fun ipv4Block(cidr: String): Pair<Long, Int> {
     return value to prefix.toInt()
 }
 
-/** Unspecified, private, CGNAT, loopback, link-local, and multicast/reserved IPv4 ranges. */
+/** Unspecified, private, CGNAT, loopback, link-local, IETF/benchmark/TEST-NET and multicast/reserved IPv4. */
 private val NON_PUBLIC_IPV4 = listOf(
     "0.0.0.0/8",
+    "192.0.0.0/24",
+    "192.0.2.0/24",
+    "198.18.0.0/15",
+    "198.51.100.0/24",
+    "203.0.113.0/24",
     "10.0.0.0/8",
     "100.64.0.0/10",
     "127.0.0.0/8",
@@ -212,7 +217,8 @@ private fun isPublicIpv6(host: String): Boolean {
     val address = host.substringBefore('%')
     val linkLocal = listOf("fe8", "fe9", "fea", "feb").any { address.startsWith(it) }
     return !(
-        address == "::" || address == "::1" || address.startsWith("::ffff:") || linkLocal ||
+        // "::"-prefixed covers unspecified, loopback, IPv4-compatible and IPv4-mapped; 64:ff9b: is NAT64.
+        address.startsWith("::") || address.startsWith("64:ff9b:") || linkLocal ||
             address.startsWith("fc") || address.startsWith("fd") || address.startsWith("ff")
     )
 }

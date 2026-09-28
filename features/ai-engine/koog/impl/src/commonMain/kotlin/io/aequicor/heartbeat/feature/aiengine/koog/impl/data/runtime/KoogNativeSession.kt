@@ -235,11 +235,17 @@ internal class KoogNativeSession(
      * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
      * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
      */
+
+    // Ollama tool support per model id, looked up once per session.
+    private val toolSupport = mutableMapOf<String, Boolean>()
+
     private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
         if (!access.searchToolsEnabled()) return false
         if (provider != KoogProvider.Ollama) return true
+        toolSupport[model]?.let { return it }
         return try {
-            client.models().firstOrNull { it.id == model }?.capabilities?.contains(LLMCapability.Tools) == true
+            (client.models().firstOrNull { it.id == model }?.capabilities?.contains(LLMCapability.Tools) == true)
+                .also { toolSupport[model] = it }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -460,11 +466,10 @@ internal class KoogNativeSession(
         current = next
         handles.forEach { it.value = next }
     }
-
-    private companion object {
-        const val MAX_TOOL_ROUNDS = 8
-    }
 }
+
+/** Upper bound of search tool rounds in one turn. */
+internal const val MAX_TOOL_ROUNDS = 8
 
 private typealias Lease = MutableStateFlow<ActiveSessionState>
 

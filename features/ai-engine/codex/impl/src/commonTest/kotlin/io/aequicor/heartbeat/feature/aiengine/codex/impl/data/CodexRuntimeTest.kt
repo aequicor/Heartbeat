@@ -79,7 +79,7 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `slow tool call does not block events and is cancelled with its turn`() = runTest {
+    fun `slow tool call does not block events, is cancelled with its turn and late calls are refused`() = runTest {
         val fixture = Fixture(
             this,
             object : SearchEngine {
@@ -89,21 +89,27 @@ class CodexRuntimeTest {
             },
         )
         val session = fixture.open()
-        session.feature(SendsPrompts).send(Prompt)
-        fixture.event(
+        val turn = session.feature(SendsPrompts).send(Prompt)
+        suspend fun toolCall(id: Int) = fixture.event(
             "item/tool/call",
             "turnId" to "native-turn".json(),
             "tool" to "web_search".json(),
             "arguments" to json("query" to "topic".json()),
-            id = JsonPrimitive(89),
+            id = JsonPrimitive(id),
         )
+        toolCall(89)
         runCurrent()
-        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        session.feature(CancelsTurns).cancel(turn)
         runCurrent()
-        assertIs<ActiveSessionState.Ready>(session.state.value)
         val response = fixture.wire.written.last { it["id"] == JsonPrimitive(89) }.obj("result")
         assertEquals("false", response["success"].toString())
         assertTrue(response.toString().contains("Cancelled"))
+        toolCall(90)
+        runCurrent()
+        assertTrue(fixture.wire.written.last { it["id"] == JsonPrimitive(90) }.toString().contains("TurnUnavailable"))
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
     }
 
     @Test

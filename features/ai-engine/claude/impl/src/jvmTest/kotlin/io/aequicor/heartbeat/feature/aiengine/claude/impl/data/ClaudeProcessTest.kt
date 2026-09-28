@@ -211,7 +211,10 @@ class ClaudeProcessTest {
 
     @Test
     fun `search session receives only local MCP bridge and its two tools`() {
-        val config = claudeSearchConfig(SearchBridgeEndpoint("http://127.0.0.1:4321", "bridge-token"))
+        val config = claudeSearchConfig(
+            SearchBridgeEndpoint("http://127.0.0.1:4321", "bridge-token"),
+            Files.createTempDirectory("heartbeat-mcp-test"),
+        )
         try {
             val arguments = claudeSearchArguments(claudeArguments(search = true), config)
             assertFalse(SEARCH_BRIDGE_MARKER in arguments)

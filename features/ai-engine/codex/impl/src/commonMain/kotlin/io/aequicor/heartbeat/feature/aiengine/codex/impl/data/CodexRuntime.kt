@@ -57,6 +57,9 @@ internal class CodexRuntime(
         if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
     })
     private val sessions = mutableMapOf<String, CodexSession>()
+
+    /** Whether any session still has handles or a running turn. */
+    val hasActiveSessions: Boolean get() = sessions.values.any { it.isActive }
     private val early = mutableListOf<JsonObject>()
     private var isOpening = false
     private val commands = Mutex()

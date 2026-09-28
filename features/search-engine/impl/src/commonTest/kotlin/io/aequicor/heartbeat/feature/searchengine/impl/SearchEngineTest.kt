@@ -147,6 +147,8 @@ class SearchEngineTest {
             "http://192.168.1.1/", "http://169.254.169.254/latest", "http://100.64.0.1/", "http://0.0.0.0/",
             "http://2130706433/", "http://0x7f.0.0.1/", "http://[::1]/", "http://[fe80::1]/", "http://[fd00::1]/",
             "http://[::ffff:127.0.0.1]/", "https://user@example.com/",
+            "http://192.0.2.1/", "http://198.18.0.1/", "http://203.0.113.5/", "http://[::7f00:1]/",
+            "http://[64:ff9b::7f00:1]/",
         )
         rejected.forEach { url ->
             val error = assertFailsWith<SearchException>(url) { router.fetch(url) }

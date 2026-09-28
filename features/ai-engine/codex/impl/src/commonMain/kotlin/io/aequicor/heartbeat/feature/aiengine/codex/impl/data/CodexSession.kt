@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -59,7 +60,13 @@ internal class CodexSession(
     private val finished = mutableSetOf<TurnId>()
 
     /** Running dynamic tool calls per turn; cancelled when the turn is interrupted or finishes. */
-    private val toolJobs = mutableMapOf<TurnId, Job>()
+    private val toolJobs = mutableMapOf<TurnId, CompletableJob>()
+
+    /** Turns whose tool jobs were closed; late tool calls for them are refused, never restarted. */
+    private val toolsClosed = mutableSetOf<TurnId>()
+
+    /** Whether a handle is open or a turn is in flight; such a session must not lose its runtime. */
+    val isActive: Boolean get() = leases.isNotEmpty() || currentTurn() != null
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(Uuid.random().toString()), ActiveSessionState.Ready()),
         scope,
@@ -340,11 +347,13 @@ internal class CodexSession(
     private suspend fun dynamicTool(message: JsonObject, turn: Turn?) {
         val id = message["id"] ?: protocolFailure()
         val params = message.obj("params")
-        if (turn == null || params.text("turnId") != nativeTurn) {
+        val isClosed = turn == null || turn.id in finished || turn.id in toolsClosed
+        if (isClosed || params.text("turnId") != nativeTurn) {
+            log.i { "Codex tool call refused: turn unavailable" }
             rpc.respond(id, toolFailureResult("TurnUnavailable"))
             return
         }
-        accept(turn)
+        accept(checkNotNull(turn))
         val tool = params.text("tool").orEmpty()
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
@@ -372,7 +381,14 @@ internal class CodexSession(
     }
 
     private fun cancelTools(turn: TurnId) {
+        toolsClosed += turn
         toolJobs.remove(turn)?.cancel()
+    }
+
+    /** Normal completion: running calls may still answer, but no new call starts for this turn. */
+    private fun completeTools(turn: TurnId) {
+        toolsClosed += turn
+        toolJobs.remove(turn)?.complete()
     }
 
     private fun correlate(params: JsonObject, turn: Turn?): TurnId? {
@@ -387,7 +403,7 @@ internal class CodexSession(
 
     private suspend fun complete(id: TurnId, native: JsonObject) {
         if (!finished.add(id)) return
-        cancelTools(id)
+        completeTools(id)
         val outcome = outcome(native)
         currentTurn()?.takeIf { it.id == id }?.let { accept(it) }
         machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))

@@ -76,7 +76,7 @@ class KoogRuntimeTest {
         f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
         val session = f.session()
         session.features.require(SendsPrompts).send(f.request())
-        repeat(8) { round ->
+        repeat(MAX_TOOL_ROUNDS) { round ->
             f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-$round", "web_search", "{\"query\":\"q\"}", 0))
             f.executor.frames.trySend(StreamFrame.End("tool_calls"))
         }
