@@ -1,8 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -128,3 +132,22 @@ val DefaultRunSettings: RunSettings = RunSettings(
     effort = ReasoningEffort.High,
     approval = ApprovalMode.Ask,
 )
+
+/** Studio model id of an engine route: the exact route, so preferences never cross credentials. */
+internal fun EngineTarget.studioModelId(): String = Json.encodeToString(EngineTarget.serializer(), this)
+
+/** Engine route of a studio model id; null for scripted demo models, which are not JSON. */
+internal fun studioModelTarget(id: String): EngineTarget? {
+    if (!id.startsWith("{")) return null
+    return try {
+        Json.decodeFromString(EngineTarget.serializer(), id)
+    } catch (e: SerializationException) {
+        log.w(e) { "malformed studio model id" }
+        null
+    } catch (e: IllegalArgumentException) {
+        log.w(e) { "invalid studio model route" }
+        null
+    }
+}
+
+private val log = Log.tag("StudioModels")

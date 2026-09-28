@@ -78,7 +78,10 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
             base.close()
         }
         val executor = MultiLLMPromptExecutor(mapOf(provider.llmProvider to client))
-        return KoogClient(executor) {
+        val reasoning: suspend (List<String>) -> Map<String, List<String>>? = { models ->
+            probeReasoning(httpClient, provider, key, models)
+        }
+        return KoogClient(executor, reasoning) {
             if (client is OllamaClient) client.getModels().map { it.toLLModel() } else client.models()
         }
     }

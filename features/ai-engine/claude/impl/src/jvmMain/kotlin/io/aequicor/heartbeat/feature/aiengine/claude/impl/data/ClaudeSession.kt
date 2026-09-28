@@ -175,9 +175,15 @@ internal class ClaudeSession(
         val request = submission.request
         val observer = ClaudeTurnObserver(ref, submission.turn, request, history, accepted, ::update)
         try {
-            log.i { "Submitting Claude prompt" }
+            log.i { "Submitting Claude prompt effort=${request.reasoningEffort ?: "default"}" }
             val exit = transport.run(
-                claudeArguments(target.model, ref.nativeId, hasNativeSession, search = toggles.get(SearchEngineTools)),
+                claudeArguments(
+                    target.model,
+                    ref.nativeId,
+                    hasNativeSession,
+                    search = toggles.get(SearchEngineTools),
+                    effort = request.reasoningEffort,
+                ),
                 submission.text,
                 route.workspace,
             ) {
@@ -387,7 +393,8 @@ private fun promptText(request: PromptRequest): String {
         throw EngineException(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
     }
     val text = request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-    if (text.isBlank() || text.length > MAX_PROMPT_CHARS || request.reasoningEffort != null) {
+    val isEffortKnown = request.reasoningEffort?.let { it in ClaudeEffortLevels } ?: true
+    if (text.isBlank() || text.length > MAX_PROMPT_CHARS || !isEffortKnown) {
         throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
     }
     return text

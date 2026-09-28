@@ -22,6 +22,16 @@ public val KoogAuthOwner: AuthOwnerId = AuthOwnerId("koog")
 public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog", "Движок Koog")
 
 /**
+ * Allows reading the public models.dev catalog to learn which OpenAI and Alibaba models accept reasoning effort;
+ * off, unknown models fall back to a guess by model family.
+ */
+public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.koog.reasoning_catalog",
+    "Koog: каталог models.dev для уровней effort",
+    default = false,
+)
+
+/**
  * Supported routes. Fixed origins prevent forwarding managed credentials to an arbitrary server; for
  * [isOriginEditable] routes [origin] is only the suggested default and the source scope names the user's server.
  */

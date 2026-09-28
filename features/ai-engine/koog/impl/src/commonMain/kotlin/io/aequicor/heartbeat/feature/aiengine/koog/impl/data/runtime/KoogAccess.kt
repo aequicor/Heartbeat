@@ -35,6 +35,8 @@ internal class KoogAccess(
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val transport: KoogTransport,
+    /** Effort levels offered per model; shared by discovery and sessions of this profile. */
+    val reasoning: KoogReasoningLevels,
 ) {
     private val log = Log.tag("KoogAccess")
 

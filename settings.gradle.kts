@@ -92,6 +92,7 @@ include(":features:ai-engine:acp-interface:api", ":features:ai-engine:acp-interf
 include(":features:ai-engine:claude:api")
 include(":features:ai-engine:claude:impl")
 include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
+include(":features:effort-configuration:api", ":features:effort-configuration:impl")
 
 include(":features:ai-engine:codex:api")
 include(":features:ai-engine:codex:impl")

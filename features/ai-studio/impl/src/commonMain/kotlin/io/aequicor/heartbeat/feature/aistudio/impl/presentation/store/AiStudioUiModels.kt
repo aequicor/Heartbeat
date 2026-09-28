@@ -18,7 +18,6 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -155,7 +154,6 @@ internal fun RunSettings.toUi(): SettingsUi = SettingsUi(
     modelId,
     effort.toUi(),
     approval.toUi(),
-    engineEfforts.toImmutableMap(),
 )
 
 internal fun ReasoningEffort.toUi(): EffortUi = when (this) {

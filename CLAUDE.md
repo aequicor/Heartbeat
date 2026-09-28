@@ -54,6 +54,10 @@ lint/            detekt-rules — собственный набор правил
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
+> `features:effort-configuration:{api,impl}` — машина выбора reasoning effort по маршруту модели (ProfileScope); ai-studio шлёт выбор
+> через неё, движки Codex/Claude/Pi/Koog объявляют и применяют уровни; сохранение в профиле — тогл `ai.effort_configuration`.
+> Koog узнаёт поддержку effort из API (Anthropic, Ollama), иначе из каталога models.dev (тогл `ai.koog.reasoning_catalog`), иначе по семейству модели;
+> отвергнутые поставщиком параметры — повтор хода без них.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

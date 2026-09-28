@@ -145,6 +145,7 @@ internal class DesktopPiEngine(
                     EngineTarget(PiEngineId, context.binding, ModelId(source.scope.provider.value + "/" + id)),
                     model.string("name") ?: id,
                     contextLimitTokens = model["contextWindow"]?.jsonPrimitive?.longOrNull,
+                    reasoningEfforts = model.piThinkingLevels(),
                 )
             }
         } finally {

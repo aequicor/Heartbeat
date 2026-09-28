@@ -7,7 +7,18 @@ import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineEffect
+import io.aequicor.heartbeat.core.statemachine.MachineIntent
+import io.aequicor.heartbeat.core.statemachine.MachineKey
+import io.aequicor.heartbeat.core.statemachine.MachineOutput
+import io.aequicor.heartbeat.core.statemachine.MachineRef
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -21,12 +32,19 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -111,19 +129,24 @@ class AiStudioModelTest {
     }
 
     @Test
-    fun `native effort selection is route scoped and automatic removes only that override`() = runTest {
-        val settings = ready.settings.copy(engineEfforts = mapOf("other-route" to "low"))
-        val fixture = Fixture(this, ready.copy(settings = settings))
-        fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("native-route", "future"))
+    fun `native effort selection goes to the effort machine and its choices are mirrored`() = runTest {
+        val fixture = Fixture(this, ready)
+        val screen = fixture.subscribe()
+        val target = EngineTarget(EngineId("engine"), EngineBindingId("route"), ModelId("model"))
+        val id = target.studioModelId()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, "future"))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("scripted-model", "low"))
         runCurrent()
-        val changed = settings.copy(engineEfforts = settings.engineEfforts + ("native-route" to "future"))
-        assertEquals(AiStudioIntent.Public.UpdateSettings(changed), fixture.machine.sent.last())
-        fixture.machine.state.value = ready.copy(settings = changed)
+        assertEquals<Any>(
+            listOf<Any>(EffortConfigurationIntent.Public.Select(target, "future")),
+            fixture.efforts.sent,
+        )
+        fixture.efforts.state.value = EffortConfigurationState.Ready(listOf(EffortChoice(target, "future")))
         runCurrent()
-        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort("native-route", null))
+        assertEquals(mapOf(id to "future"), screen.states.value.settings.engineEfforts)
+        fixture.model.store.intent(AiStudioScreenIntent.SelectEngineEffort(id, null))
         runCurrent()
-        assertEquals(AiStudioIntent.Public.UpdateSettings(settings), fixture.machine.sent.last())
+        assertEquals(EffortConfigurationIntent.Public.Select(target, null), fixture.efforts.sent.last())
     }
 
     @Test
@@ -200,6 +223,7 @@ class AiStudioModelTest {
 
     private class Fixture(private val scope: TestScope, initial: AiStudioState) {
         val machine = FakeMachine(initial)
+        val efforts = FakeEfforts()
         val isResearchEnabled = MutableStateFlow(false)
         val model = AiStudioModel(
             machine = machine,
@@ -218,6 +242,8 @@ class AiStudioModelTest {
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
             },
+            efforts = efforts,
+            machines = efforts,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -245,6 +271,30 @@ private class FakeMachine(initial: AiStudioState) : Machine<AiStudioState, AiStu
     override suspend fun send(intent: AiStudioIntent): SendResult {
         if (result == SendResult.Accepted || intent == AiStudioIntent.Public.Start) sent += intent
         return if (intent == AiStudioIntent.Public.Start) SendResult.Accepted else result
+    }
+}
+
+private class FakeEfforts :
+    EffortChoicesView,
+    MachineRegistry {
+    override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
+    val sent = mutableListOf<Any>()
+
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
+        key: MachineKey<S, I, P, E, O>,
+    ): MachineRef<S, P, O>? = null
+
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
+        key: MachineKey<S, I, P, E, O>,
+    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(null)
+
+    override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
+        key: MachineKey<S, I, P, E, O>,
+        intent: P,
+    ): SendResult {
+        assertEquals(EffortConfigurationMachineKey.name, key.name)
+        sent += intent
+        return SendResult.Accepted
     }
 }
 

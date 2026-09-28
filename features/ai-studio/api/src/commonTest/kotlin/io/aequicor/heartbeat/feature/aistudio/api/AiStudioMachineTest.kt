@@ -294,23 +294,6 @@ class AiStudioMachineTest {
     }
 
     @Test
-    fun `native effort preferences are carried into the next accepted run`() {
-        val native = settings.copy(engineEfforts = mapOf(settings.modelId to "future-effort"))
-        val configured = session.copy(settings = native)
-        AiStudioMachineSpec.assertTransition(
-            from = session,
-            intent = AiStudioIntent.Public.UpdateSettings(native),
-            to = configured,
-        )
-        AiStudioMachineSpec.assertTransition(
-            from = configured,
-            intent = AiStudioIntent.Public.Submit(0, "Next"),
-            to = configured.copy(running = setOf("s1")),
-            effects = listOf(AiStudioEffect.Run("s1", "Next", native)),
-        )
-    }
-
-    @Test
     fun `stop is requested once and the finished run clears both flags`() {
         val running = session.copy(running = setOf("s1"))
         AiStudioMachineSpec.assertTransition(

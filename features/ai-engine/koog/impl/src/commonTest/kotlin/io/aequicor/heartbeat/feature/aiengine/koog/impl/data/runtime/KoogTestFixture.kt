@@ -83,6 +83,15 @@ internal class KoogTestFixture(test: TestScope) {
             (if (toggle == SearchEngineTools) isSearchEnabled else isEnabled) as T
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
     }
+    val reasoningStore = MemoryReasoningStore()
+    var catalogLevels: Map<String, List<String>> = emptyMap()
+    val reasoning = KoogReasoningLevels(
+        reasoningStore,
+        object : KoogReasoningCatalog {
+            override suspend fun levels(provider: KoogProvider, model: String) = catalogLevels[model]
+        },
+        toggles,
+    )
     val access = KoogAccess(
         connections,
         secrets,
@@ -104,6 +113,7 @@ internal class KoogTestFixture(test: TestScope) {
                 }
             }
         },
+        reasoning,
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null
@@ -119,6 +129,14 @@ internal class KoogTestFixture(test: TestScope) {
     suspend fun runtime(): KoogRuntime = adapter.createRuntime(identity) as KoogRuntime
     suspend fun session(): ActiveSession = runtime().create(CreateSessionRequest(target))
     fun request(id: String = "request") = PromptRequest(RequestId(id), listOf(ContentPart.Text("hello")))
+}
+
+internal class MemoryReasoningStore : KoogReasoningStore {
+    var state = KoogReasoningState()
+    override suspend fun read() = state
+    override suspend fun write(state: KoogReasoningState) {
+        this.state = state
+    }
 }
 
 internal class FakeConnections(val values: MutableList<KoogConnection>) : KoogConnections {
@@ -155,11 +173,16 @@ internal class FakeExecutor : PromptExecutor() {
     val tools = mutableListOf<List<ToolDescriptor>>()
     var closed = 0
     var failure: Exception? = null
+    var nextFailure: Exception? = null
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
             prompts += prompt
             this@FakeExecutor.tools += tools
             failure?.let { throw it }
+            nextFailure?.let {
+                nextFailure = null
+                throw it
+            }
             do {
                 val frame = frames.receive()
                 emit(frame)

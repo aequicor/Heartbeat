@@ -4,8 +4,10 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
@@ -17,7 +19,14 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,7 +68,11 @@ class AiStudioModel(
     @ForScope(AiStudioScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
     private val entries: StudioEntries,
+    private val efforts: EffortChoicesView,
+    private val machines: MachineRegistry,
 ) {
+    private val log = Log.tag("AiStudioModel")
+
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
         initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
@@ -79,6 +92,7 @@ class AiStudioModel(
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
                 launch { observeResearch(pipeline) }
+                launch { observeEfforts(pipeline) }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
@@ -99,6 +113,12 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeEfforts(pipeline: StudioPipeline) {
+        with(pipeline) {
+            efforts.state.collect { updateState { copy(settings = settings.copy(engineEfforts = it.studioEfforts())) } }
+        }
     }
 
     private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
@@ -208,15 +228,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
 
-            is AiStudioScreenIntent.SelectEngineEffort -> updateSettings(pipeline) {
-                copy(
-                    engineEfforts = if (intent.effort == null) {
-                        engineEfforts - intent.modelId
-                    } else {
-                        engineEfforts + (intent.modelId to intent.effort)
-                    },
-                )
-            }
+            is AiStudioScreenIntent.SelectEngineEffort -> selectEngineEffort(pipeline, intent)
 
             is AiStudioScreenIntent.SelectApproval -> updateSettings(
                 pipeline,
@@ -262,6 +274,17 @@ class AiStudioModel(
         }
     }
 
+    private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
+        with(pipeline) {
+            log.i { "select effort: ${intent.effort ?: "default"}" }
+            val target = studioModelTarget(intent.modelId) ?: return@with log.w {
+                "effort selection ignored: model is not an engine route"
+            }
+            val select = EffortConfigurationIntent.Public.Select(target, intent.effort)
+            val result = machines.send(EffortConfigurationMachineKey, select)
+            if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }
+        }
+
     private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {
         sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))
     }
@@ -274,9 +297,14 @@ class AiStudioModel(
                 settings.modelId,
                 settings.effort.toDomain(),
                 settings.approval.toDomain(),
-                settings.engineEfforts,
             )
             sendTo(machine, AiStudioIntent.Public.UpdateSettings(current.change()))
         }
     }
+}
+
+/** Stored choices keyed by studio model id; empty until the effort machine is ready. */
+private fun EffortConfigurationState.studioEfforts() = when (this) {
+    EffortConfigurationState.Idle, EffortConfigurationState.Loading -> persistentMapOf()
+    is EffortConfigurationState.Ready -> choices.associate { it.target.studioModelId() to it.effort }.toImmutableMap()
 }

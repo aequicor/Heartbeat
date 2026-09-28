@@ -6,6 +6,7 @@ import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
+import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
@@ -162,11 +163,15 @@ internal class KoogNativeSession(
         // Re-checked under the lock: the lease may have been released while this call waited for it.
         checkLease(lease)
         if (current !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
-        if (record.lastTurn?.request == request.id || request.reasoningEffort != null) {
+        if (record.lastTurn?.request == request.id) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
         val connection = access.route(route.binding, identity)
         val provider = requireNotNull(koogProvider(connection.source))
+        val effort = request.reasoningEffort
+        if (effort != null && effort !in access.reasoning.levels(provider, model.value)) {
+            fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
+        }
         request.parts.koogUserParts(provider, request.id)
         val client = koogCall { access.open(connection, model.value) }
         val turn = Turn(TurnId(Uuid.random().toString()), request.id, EngineTarget(route.engine, route.binding, model))
@@ -193,22 +198,25 @@ internal class KoogNativeSession(
         history.append { SessionEvent.ItemUpserted(it, user) }
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider, model.value)
+            runTurn(turn, client, provider, model.value, effort)
         }
         return turn.id
     }
 
-    private suspend fun runTurn(turn: Turn, client: KoogClient, provider: KoogProvider, model: String) {
+    private suspend fun runTurn(
+        turn: Turn,
+        client: KoogClient,
+        provider: KoogProvider,
+        model: String,
+        effort: String?,
+    ) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
             val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
             val hasAttachments = record.items.hasResourceInputs()
-            generate(
-                turn,
-                client,
-                provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments),
-                tools,
-            )
+            log.i { "Koog turn effort=${effort ?: "default"}" }
+            val textModel = provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments)
+            generateWithEffort(turn, client, provider, textModel, tools, effort)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -258,9 +266,41 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: List<ToolDescriptor>) {
+    /**
+     * A provider that refuses the reasoning parameters before producing any output gets the same prompt again without
+     * them. Only when that retry succeeds were the reasoning parameters the cause, and the model stops offering effort,
+     * so a wrong capability guess never fails the user's turn and an unrelated 400 does not disable effort.
+     */
+    private suspend fun generateWithEffort(
+        turn: Turn,
+        client: KoogClient,
+        provider: KoogProvider,
+        model: LLModel,
+        tools: List<ToolDescriptor>,
+        effort: String?,
+    ) {
+        val produced = history.items.size
+        try {
+            generate(turn, client, model, tools, provider.reasoningParams(effort, model.maxOutputTokens))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (effort == null || !e.isRequestRejection() || history.items.size != produced) throw e
+            log.w(e.sanitized()) { "Reasoning parameters rejected; retrying without effort" }
+            generate(turn, client, model, tools, LLMParams())
+            access.reasoning.reject(provider, model.id)
+        }
+    }
+
+    private suspend fun generate(
+        turn: Turn,
+        client: KoogClient,
+        model: LLModel,
+        tools: List<ToolDescriptor>,
+        params: LLMParams,
+    ) {
         log.i { "Starting provider stream" }
-        var input = initialPrompt(model.provider)
+        var input = initialPrompt(model.provider, params)
         repeat(MAX_TOOL_ROUNDS) { _ ->
             val round = streamRound(turn, client, model, input, tools)
             if (round.calls.isEmpty()) return
@@ -271,7 +311,10 @@ internal class KoogNativeSession(
         fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
     }
 
-    private fun initialPrompt(provider: ai.koog.prompt.llm.LLMProvider): Prompt = prompt("heartbeat") {
+    private fun initialPrompt(provider: ai.koog.prompt.llm.LLMProvider, params: LLMParams): Prompt = prompt(
+        "heartbeat",
+        params,
+    ) {
         val koogProvider = KoogProvider.entries.first { it.llmProvider == provider }
         if (record.items.hasSourceMaterial()) system(KOOG_RESOURCE_BOUNDARY)
         val calls = record.items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
@@ -371,6 +414,7 @@ internal class KoogNativeSession(
 
     private fun continuePrompt(input: Prompt, text: String, calls: List<HandledSearchCall>): Prompt = prompt(
         "heartbeat",
+        input.params,
     ) {
         if (input.messages.none { it is Message.System && it.textContent() == KOOG_RESOURCE_BOUNDARY }) {
             system(KOOG_RESOURCE_BOUNDARY)

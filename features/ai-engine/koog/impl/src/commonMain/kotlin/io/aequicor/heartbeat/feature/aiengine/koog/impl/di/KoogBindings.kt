@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogReasoningCatalogEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogSessionSource
 
 /** App-wide toggle declaration; registrations themselves are owned by profiles. */
@@ -42,6 +43,11 @@ public object KoogToggleBindings {
     @Provides
     @IntoSet
     public fun toggle(): FeatureToggle<*> = KoogEngineEnabled
+
+    /** Registers the disabled-by-default reasoning catalog switch. */
+    @Provides
+    @IntoSet
+    public fun reasoningCatalog(): FeatureToggle<*> = KoogReasoningCatalogEnabled
 }
 
 /** Lazy registration: descriptor lookup never resolves secrets, creates a client or reads storage. */
