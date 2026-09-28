@@ -63,13 +63,30 @@ internal class ClaudeSession(
     @Volatile
     private var hasNativeSession = false
 
+    /** Set once the runtime dropped this released session; no new lease may be opened on it. */
+    private var isEvicted = false
+
     /** A turn whose CLI process never started: the prompt was certainly not delivered. */
     @Volatile
     private var undelivered: TurnId? = null
 
     fun lease(): ActiveSession = synchronized(lock) {
         ensureOpen()
+        if (isEvicted) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
         Lease(current).also { leases.add(it) }
+    }
+
+    /** No handle is attached and no turn is running: the runtime may drop the session. */
+    val isReleased: Boolean get() = synchronized(lock) { leases.isEmpty() && operation?.isActive != true }
+
+    /** Atomically marks a released session as dropped; returns false if it was leased or busy meanwhile. */
+    fun evict(): Boolean = synchronized(lock) {
+        if (!isEvicted && leases.isEmpty() && operation?.isActive != true) {
+            log.d { "Evicting released Claude session" }
+            isEvicted = true
+            history.close()
+        }
+        isEvicted
     }
 
     fun stored(attachSession: suspend (ResumeSessionRequest) -> ActiveSession): EngineSession = object :
@@ -145,6 +162,8 @@ internal class ClaudeSession(
                     }
                 }
             }
+            // Registered outside the session lock: a turn ending without handles releases the session.
+            operation?.invokeOnCompletion { environment.onReleased(this) }
         } finally {
             commands.unlock()
         }
@@ -339,11 +358,16 @@ internal class ClaudeSession(
             }
         }
 
-        override suspend fun close() = synchronized(lock) {
-            log.i { "Detaching Claude session handle" }
-            isDetached = true
-            leases.remove(this)
-            mutableState.value = ActiveSessionState.Closed
+        override suspend fun close() {
+            val isLast = synchronized(lock) {
+                log.i { "Detaching Claude session handle" }
+                isDetached = true
+                leases.remove(this)
+                mutableState.value = ActiveSessionState.Closed
+                leases.isEmpty()
+            }
+            // Outside the session lock: the runtime may lock other sessions while pruning.
+            if (isLast) environment.onReleased(this@ClaudeSession)
         }
 
         fun ensureAttached() = synchronized(lock) {
@@ -384,4 +408,6 @@ internal data class ClaudeSessionEnvironment(
     val toggles: FeatureToggles,
     val scope: CoroutineScope,
     val closeFailure: () -> EngineFailure,
+    /** Called outside session locks when a session may have become released (last handle closed or turn ended). */
+    val onReleased: (ClaudeSession) -> Unit = {},
 )
