@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -70,5 +71,21 @@ class ConnectWizardPresentationTest {
         val auth = EngineFailure.Authentication(AuthFailure(AuthFailureReason.CredentialsRejected))
         assertEquals(FailureUi.Authentication, auth.toUi())
         assertEquals(FailureUi.Unknown, EngineFailure.Unknown().toUi())
+    }
+
+    @Test
+    fun `a compatible method keeps the base path of a full URL`() {
+        val method = CompatibleProtocol.OpenAI.method
+        val valid = assertIs<FormCheck.Valid>(
+            CredentialForm("Router", " https://OpenRouter.ai/api/v1/ ", SecretText("sk-1")).toRequest(method),
+        )
+        val credential = assertIs<CredentialInput.ApiKey>(valid.credential)
+        assertEquals(EndpointOrigin("https://openrouter.ai"), credential.origin)
+        assertEquals("/api/v1", credential.basePath)
+        credential.key.close()
+        assertEquals(
+            FormCheck.Invalid(FormError.InvalidOrigin),
+            CredentialForm("NAS", "http://nas.local:11434/api").toRequest(OllamaMethod),
+        )
     }
 }

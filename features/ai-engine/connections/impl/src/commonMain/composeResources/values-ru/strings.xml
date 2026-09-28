@@ -42,6 +42,7 @@
     <string name="wizard_key_hint_development">Сборка для разработки: ключи сохраняются локально без системной защиты, отдельно от ключей релизной версии.</string>
     <string name="wizard_get_key">Получить API-ключ</string>
     <string name="wizard_field_host">Адрес API</string>
+    <string name="wizard_base_url_hint">Можно указать полный базовый URL API вместе с путём, например https://openrouter.ai/api/v1.</string>
     <string name="wizard_host_fixed">Адрес фиксирован для этого провайдера.</string>
     <string name="wizard_field_label">Название подключения</string>
     <string name="wizard_cli_hint">Используется вход, выполненный в CLI самого движка. Heartbeat не читает, не копирует и не обновляет его токены.</string>

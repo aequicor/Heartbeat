@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointBaseUrl
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalBaseUrl
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
@@ -260,17 +262,27 @@ internal sealed interface FormCheck {
 
 /** Validates the form; a blank name falls back to the provider title. */
 internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
-    val origin = if (method.isOriginEditable) canonicalOrigin(origin) else method.origin
+    val endpoint = when {
+        method.isPathEditable -> canonicalBaseUrl(origin)
+        method.isOriginEditable -> canonicalOrigin(origin)?.let(::EndpointBaseUrl)
+        else -> EndpointBaseUrl(method.origin)
+    }
     val label = label.trim().ifEmpty { method.provider.title }
     return when {
-        origin == null -> FormCheck.Invalid(FormError.InvalidOrigin)
+        endpoint == null -> FormCheck.Invalid(FormError.InvalidOrigin)
 
         method is ConnectionMethod.ApiKey && key.value.isBlank() -> FormCheck.Invalid(FormError.MissingKey)
 
-        method is ConnectionMethod.ApiKey ->
-            FormCheck.Valid(CredentialInput.ApiKey(label, origin, Secret(key.value.trim().toCharArray())))
+        method is ConnectionMethod.ApiKey -> FormCheck.Valid(
+            CredentialInput.ApiKey(
+                label,
+                endpoint.origin,
+                Secret(key.value.trim().toCharArray()),
+                endpoint.basePath,
+            ),
+        )
 
-        else -> FormCheck.Valid(CredentialInput.Existing(label, origin))
+        else -> FormCheck.Valid(CredentialInput.Existing(label, endpoint.origin))
     }
 }
 
