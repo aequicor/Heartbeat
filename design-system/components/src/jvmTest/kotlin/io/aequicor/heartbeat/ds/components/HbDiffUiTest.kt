@@ -55,7 +55,11 @@ class HbDiffUiTest {
         val layout = layouts.single()
         // SkiaParagraph.isLineEllipsized always returns false in Compose 1.12.1.
         assertEquals(1, layout.layoutInput.maxLines)
-        assertEquals(TextOverflow.Ellipsis, layout.layoutInput.overflow)
+        assertEquals(
+            TextOverflow.Clip,
+            layout.layoutInput.overflow,
+            "Single-line text fades instead of ending with an ellipsis",
+        )
         assertTrue(layout.hasVisualOverflow && layout.size.width < 320, "The full path must exceed its bounded header")
         saveDiffPathPreview(captureToImage().toAwtImage())
         val copy = onNodeWithContentDescription("Copy file path: $path")

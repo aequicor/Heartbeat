@@ -79,6 +79,8 @@ data class HbDimensions(
     val glassShadowRadius: Dp = 12.dp,
     val glassShadowOffset: Dp = 3.dp,
     val transcriptEdgeFade: Dp = 32.dp,
+    /** Width of the trailing fade that replaces an ellipsis on clipped single-line text. */
+    val textOverflowFade: Dp = 24.dp,
     val toolPayloadMaxHeight: Dp = 320.dp,
     val markdownTableCellWidth: Dp = 200.dp,
     val swatchSize: Dp = 64.dp,

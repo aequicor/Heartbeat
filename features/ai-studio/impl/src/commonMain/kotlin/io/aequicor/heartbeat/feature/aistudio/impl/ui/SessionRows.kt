@@ -28,11 +28,13 @@ import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbIcon
+import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenuButton
 import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbTextField
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -93,19 +95,37 @@ internal class SessionRows(
             contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
             if (isActive || isMenuOpen) {
-                HbMenuButton(
-                    icon = HbIcons.More,
-                    contentDescription = stringResource(Res.string.session_actions),
-                    items = sessionMenu(session, isOpenBesideAllowed),
-                    isExpanded = isMenuOpen,
-                    onExpandedChange = { onMenu(if (it) rowKey else null) },
-                    onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
-                    modifier = Modifier.testTag("session-menu-$rowKey"),
-                    size = HbTheme.studioDimensions.navigationRowHeight,
-                )
+                SessionHoverActions(session, rowKey, isMenuOpen)
             } else {
                 SessionIndicator(session)
             }
+        }
+    }
+
+    /** Hover-revealed archive and menu actions; their width shrinks the label so its fade ends before them. */
+    @Composable
+    private fun SessionHoverActions(session: SessionUi, rowKey: String, isMenuOpen: Boolean) {
+        HbRow(gap = HbTheme.spacing.none) {
+            val archiveLabel = stringResource(
+                if (session.isArchived) Res.string.action_restore else Res.string.action_archive,
+            )
+            HbIconButton(
+                icon = if (session.isArchived) HbIcons.Undo else HbIcons.Archive,
+                contentDescription = archiveLabel,
+                onClick = { onIntent(AiStudioScreenIntent.SetArchived(session.id, !session.isArchived)) },
+                modifier = Modifier.testTag("session-archive-$rowKey"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+            )
+            HbMenuButton(
+                icon = HbIcons.More,
+                contentDescription = stringResource(Res.string.session_actions),
+                items = sessionMenu(session, isOpenBesideAllowed),
+                isExpanded = isMenuOpen,
+                onExpandedChange = { onMenu(if (it) rowKey else null) },
+                onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
+                modifier = Modifier.testTag("session-menu-$rowKey"),
+                size = HbTheme.studioDimensions.navigationRowHeight,
+            )
         }
     }
 }
