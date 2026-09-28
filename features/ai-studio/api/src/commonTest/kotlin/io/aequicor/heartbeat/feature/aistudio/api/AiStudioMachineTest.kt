@@ -411,6 +411,40 @@ class AiStudioMachineTest {
     }
 
     @Test
+    fun `structured permission answers reach the effect`() {
+        val permission = StudioPermission(
+            "s1",
+            "request",
+            "Pick",
+            listOf(StudioPermissionOption("submit", "Submit")),
+            input = StudioPermissionInput.FreeText(null, false),
+        )
+        val live = session.copy(running = setOf("s1"), observedRunning = setOf("s1"), permissions = listOf(permission))
+        val answer = StudioPermissionAnswer.Text("blue")
+        AiStudioMachineSpec.assertTransition(
+            from = live,
+            intent = AiStudioIntent.Public.RespondPermission("s1", "request", "submit", answer),
+            to = live.copy(permissions = emptyList(), answeredPermissions = setOf("request")),
+            effects = listOf(AiStudioEffect.RespondPermission("s1", "request", "submit", answer)),
+        )
+    }
+
+    @Test
+    fun `follow-up answers run idle sessions only`() {
+        AiStudioMachineSpec.assertTransition(
+            from = session,
+            intent = AiStudioIntent.Public.FollowUp("s1", " Pick\nblue "),
+            to = session.copy(running = setOf("s1")),
+            effects = listOf(AiStudioEffect.Run("s1", "Pick\nblue", session.settings)),
+        )
+        AiStudioMachineSpec.assertIgnored(
+            session.copy(running = setOf("s1")),
+            AiStudioIntent.Public.FollowUp("s1", "x"),
+        )
+        AiStudioMachineSpec.assertIgnored(session, AiStudioIntent.Public.FollowUp("s1", " "))
+    }
+
+    @Test
     fun `late run completion never clears a newer native run`() {
         val observed = session.copy(running = setOf("s1"), observedRunning = setOf("s1"))
         AiStudioMachineSpec.assertTransition(

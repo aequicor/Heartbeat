@@ -92,7 +92,8 @@ public object QuestionnaireMachineKey : MachineKey<
  *
  * Everything else is ignored. The machine is a pure queue without effects; answers stay pending until the
  * source withdraws them, so a failed delivery can re-ask the same id.
- * Restoration keeps every pending question and reopens submitted ones: a delivery does not survive the process.
+ * The machine lives in the profile scope, whose saved state is not persisted; open questions survive app restarts
+ * through the questionnaire journal of the impl module, which asks them again (reopened) when the profile opens.
  */
 public val QuestionnaireMachineSpec:
     MachineSpec<QuestionnaireState, QuestionnaireIntent, QuestionnaireEffect, QuestionnaireOutput> =
@@ -129,12 +130,6 @@ public val QuestionnaireMachineSpec:
             }) {
                 goto<QuestionnaireState.Idle> { QuestionnaireState.Idle }
                 output { QuestionnaireOutput.Withdrawn(intent.id) }
-            }
-        }
-        persist(QuestionnaireState.serializer()) { saved ->
-            when (saved) {
-                QuestionnaireState.Idle -> restore(saved)
-                is QuestionnaireState.Asking -> restore(saved.copy(submitting = emptySet()))
             }
         }
     }

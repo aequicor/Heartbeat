@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -22,13 +23,16 @@ class StudioDecisionTest {
         listOf(StudioPermissionOption("allow", "Allow"), StudioPermissionOption("deny", "Deny")),
     )
     private val select = approval.copy(
-        options = listOf(StudioPermissionOption("answer", "Answer"), StudioPermissionOption("skip", "Skip")),
+        options = listOf(
+            StudioPermissionOption("answer", "Answer"),
+            StudioPermissionOption("skip", "Skip", isSkip = true),
+        ),
         input = StudioPermissionInput.SingleChoice(listOf(StudioPermissionOption("0", "red"))),
     )
 
     @Test
     fun `two plain options become an unskippable confirmation of the session`() {
-        val questionnaire = approval.toQuestionnaire()
+        val questionnaire = assertNotNull(approval.toQuestionnaire())
         assertEquals(QuestionnaireId("s1/r1"), questionnaire.id)
         assertEquals("s1", questionnaire.source)
         assertEquals(Question.Confirm("Allow", "Deny"), questionnaire.question)
@@ -42,22 +46,36 @@ class StudioDecisionTest {
         val three = approval.copy(options = approval.options + StudioPermissionOption("always", "Always"))
         assertEquals(
             Question.SingleChoice(listOf(Choice("allow", "Allow"), Choice("deny", "Deny"), Choice("always", "Always"))),
-            three.toQuestionnaire().question,
+            assertNotNull(three.toQuestionnaire()).question,
         )
         assertEquals(StudioDecision("always", null), three.decision(Answer.Selected(listOf("always"))))
         assertNull(three.decision(Answer.Selected(listOf("foreign"))))
     }
 
     @Test
-    fun `structured input submits with the first option and skips with the last`() {
-        assertTrue(select.toQuestionnaire().isSkippable)
+    fun `structured input submits with the submit option and skips with the skip option`() {
+        assertTrue(assertNotNull(select.toQuestionnaire()).isSkippable)
         assertEquals(
             StudioDecision("answer", StudioPermissionAnswer.Selected(listOf("0"))),
             select.decision(Answer.Selected(listOf("0"))),
         )
         assertEquals(StudioDecision("skip", null), select.decision(Answer.Skipped))
         val text = select.copy(input = StudioPermissionInput.FreeText(null, true))
-        assertEquals(Question.FreeText(null, true), text.toQuestionnaire().question)
+        assertEquals(Question.FreeText(null, true), assertNotNull(text.toQuestionnaire()).question)
         assertEquals(StudioDecision("answer", StudioPermissionAnswer.Text("hi")), text.decision(Answer.Text("hi")))
+    }
+
+    @Test
+    fun `permissions without usable options ask nothing and never throw`() {
+        val empty = approval.copy(options = emptyList())
+        assertNull(empty.toQuestionnaire())
+        assertNull(empty.decision(Answer.Confirmed(true)))
+        val onlySkip = select.copy(options = listOf(StudioPermissionOption("skip", "Skip", isSkip = true)))
+        assertNull(onlySkip.toQuestionnaire())
+        assertNull(onlySkip.decision(Answer.Selected(listOf("0"))))
+        val noSkip = select.copy(options = listOf(StudioPermissionOption("answer", "Answer")))
+        assertFalse(assertNotNull(noSkip.toQuestionnaire()).isSkippable)
+        assertNull(noSkip.decision(Answer.Skipped))
+        assertNull(select.copy(options = emptyList()).decision(Answer.Text("x")))
     }
 }

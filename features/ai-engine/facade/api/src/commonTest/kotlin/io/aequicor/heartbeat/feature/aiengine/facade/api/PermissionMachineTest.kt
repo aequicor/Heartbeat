@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PermissionMachineTest {
     private val spec = activeSessionMachineSpec(ActiveSessionMachineKey("permissions"), ActiveSessionState.Ready())
@@ -73,8 +75,13 @@ class PermissionMachineTest {
     @Test
     fun `structured answers must fit the requested input`() {
         val choice = TestPermission.copy(
+            options = listOf(
+                PermissionOption(PermissionOptionId("allow"), "Answer"),
+                PermissionOption(PermissionOptionId("deny"), "Skip", isSkip = true),
+            ),
             input = PermissionInput.SingleChoice(listOf(PermissionChoice("a", "A"), PermissionChoice("b", "B"))),
         )
+        val skipped = decision.copy(option = PermissionOptionId("deny"))
         val asking = waiting.copy(requests = listOf(choice))
         val answered = decision.copy(answer = PermissionAnswer.Selected(listOf("b")))
         spec.assertTransition(
@@ -85,9 +92,15 @@ class PermissionMachineTest {
         )
         spec.assertTransition(
             asking,
-            ActiveSessionIntent.Public.Decide(decision),
+            ActiveSessionIntent.Public.Decide(skipped),
             asking.copy(responding = setOf(choice.id)),
-            effects = listOf(ActiveSessionEffect.Decide(decision)),
+            effects = listOf(ActiveSessionEffect.Decide(skipped)),
+        )
+        // Submitting without an answer and skipping with one are both rejected.
+        spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(decision))
+        spec.assertIgnored(
+            asking,
+            ActiveSessionIntent.Public.Decide(skipped.copy(answer = PermissionAnswer.Selected(listOf("a")))),
         )
         listOf(
             PermissionAnswer.Selected(listOf("z")),
@@ -109,12 +122,12 @@ class PermissionMachineTest {
                 max = 2,
             ),
         )
-        kotlin.test.assertTrue(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "c")))))
-        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(emptyList()))))
-        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "b", "c")))))
-        kotlin.test.assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "a")))))
+        assertTrue(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "c")))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(emptyList()))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "b", "c")))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "a")))))
         val text = TestPermission.copy(input = PermissionInput.FreeText())
-        kotlin.test.assertTrue(text.accepts(decision.copy(answer = PermissionAnswer.Text("hi"))))
-        kotlin.test.assertFalse(text.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a")))))
+        assertTrue(text.accepts(decision.copy(answer = PermissionAnswer.Text("hi"))))
+        assertFalse(text.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a")))))
     }
 }

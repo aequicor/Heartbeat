@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class QuestionnaireJournalTest {
     private val saved = Questionnaire(QuestionnaireId("s1/r1"), "s1", "Go?", Question.Confirm("Yes", "No"))
@@ -35,10 +36,52 @@ class QuestionnaireJournalTest {
         assertEquals(emptyList(), storage.pending)
     }
 
+    @Test
+    fun `the queue before restoration never overwrites saved questions`() = runTest {
+        val storage = MemoryStorage(listOf(saved))
+        val machine = RecordingMachine()
+        machine.state.value = QuestionnaireState.Idle
+        backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        runCurrent()
+        assertEquals(listOf(saved), storage.pending)
+        assertEquals(0, storage.saves)
+    }
+
+    @Test
+    fun `storage failures are logged and the journal keeps saving`() = runTest {
+        val storage = MemoryStorage(emptyList()).apply { failures = 2 }
+        val machine = RecordingMachine()
+        val journal = backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        runCurrent()
+
+        machine.state.value = QuestionnaireState.Asking(listOf(saved))
+        runCurrent()
+        machine.state.value = QuestionnaireState.Idle
+        runCurrent()
+        machine.state.value = QuestionnaireState.Asking(listOf(saved))
+        runCurrent()
+        assertTrue(journal.isActive)
+        assertEquals(listOf(saved), storage.pending)
+    }
+
     private class MemoryStorage(var pending: List<Questionnaire>) : QuestionnaireStorage {
-        override suspend fun load() = pending
+        var failures = 0
+        var saves = 0
+
+        override suspend fun load(): List<Questionnaire> {
+            if (failures > 0) {
+                failures--
+                error("load failed")
+            }
+            return pending
+        }
 
         override suspend fun save(pending: List<Questionnaire>) {
+            if (failures > 0) {
+                failures--
+                error("save failed")
+            }
+            saves++
             this.pending = pending
         }
     }

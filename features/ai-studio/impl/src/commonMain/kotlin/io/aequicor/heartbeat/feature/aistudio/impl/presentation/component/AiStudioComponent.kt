@@ -1,6 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.component
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.ExperimentalDecomposeApi
+import com.arkivanov.decompose.router.items.Items
+import com.arkivanov.decompose.router.items.Items.ActiveLifecycleState
+import com.arkivanov.decompose.router.items.ItemsNavigation
+import com.arkivanov.decompose.router.items.childItems
+import com.arkivanov.decompose.router.items.navigate
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
@@ -39,6 +45,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /** Lifecycle-bound navigation component rendering the feature screen. */
+@OptIn(ExperimentalDecomposeApi::class) // childItems keeps one questionnaire host per session.
 @AssistedInject
 class AiStudioComponent(
     @Assisted context: ComponentContext,
@@ -63,28 +70,46 @@ class AiStudioComponent(
         global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
     )
 
+    private val questionNavigation = ItemsNavigation<String>()
+
+    // One child per session with open questions; a session without questions destroys its child and host.
+    private val questionItems = childItems(
+        source = questionNavigation,
+        serializer = null,
+        initialItems = { Items() },
+        key = "questions",
+    ) { sessionId, context -> questionHost(context, sessionId) }
+
     private val questionHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
 
     /**
      * Questionnaire hosts by session (toggle `questionnaire.enabled`): each session with open questions gets its own
-     * nested host, shown inside the pane of that session. Hosts stay for the component lifetime.
+     * nested host, shown inside the pane of that session, and loses it once the session has no open questions.
      */
     val questions: StateFlow<Map<String, StackHost>> = questionHosts.asStateFlow()
 
     init {
+        val hostsWatch = questionItems.subscribe { children ->
+            val next = children.activeItems.mapValues { (_, child) -> child.first }
+            log.d { "questionHosts: ${questionHosts.value.size} -> ${next.size}" }
+            questionHosts.value = next
+        }
+        // The feature scope runs on the main dispatcher, where Decompose navigation must happen.
         val watching = scope.coroutineScope.launch {
             entries.questionSources.collect { sources ->
-                val added = sources - questionHosts.value.keys
-                if (added.isEmpty()) return@collect
-                log.i { "Show questionnaires of sessions count=${added.size}" }
-                questionHosts.value += added.associateWith { questionHost(it) }
+                log.i { "Show questionnaires of sessions count=${sources.size}" }
+                val shown = sources.toList()
+                questionNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
             }
         }
-        lifecycle.doOnDestroy { watching.cancel() }
+        lifecycle.doOnDestroy {
+            watching.cancel()
+            hostsWatch.cancel()
+        }
     }
 
-    private fun questionHost(sessionId: String): StackHost = hosts.stack(
-        context = this,
+    private fun questionHost(context: ComponentContext, sessionId: String): StackHost = hosts.stack(
+        context = context,
         parent = navigator,
         name = "questions-$sessionId",
         initial = listOf(QuestionnaireRoute(sessionId)),

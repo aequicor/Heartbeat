@@ -36,9 +36,9 @@ internal class ToggleStudioEntries(
         sessions.active,
     ) { research, runtime, koog, session -> research && runtime && koog && session != null }
 
-    // The first studio that shows questions starts the profile bridge; it then outlives every studio screen.
+    // The profile bridge runs from the profile start; a guest studio has no profile questions.
     override val questionSources: Flow<Set<String>> = sessions.active.flatMapLatest { session ->
-        if (session == null) flowOf(emptySet()) else questions.value.also { it.start() }.sources
+        if (session == null) flowOf(emptySet()) else questions.value.sources
     }
 
     override val showsConnections: Flow<Boolean> =

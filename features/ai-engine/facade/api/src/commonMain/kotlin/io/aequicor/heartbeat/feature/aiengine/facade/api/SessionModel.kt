@@ -121,9 +121,13 @@ public data class Turn(
     val resolvedPermissions: Set<PermissionRequestId> = emptySet(),
 )
 
-/** Engine-offered decision; identifiers are validated against the outstanding request before delivery. */
+/**
+ * Engine-offered decision; identifiers are validated against the outstanding request before delivery.
+ * [isSkip] marks the option that declines a [PermissionRequest.input] without an answer; every other option of a
+ * request with input submits the answer.
+ */
 @Serializable
-public data class PermissionOption(val id: PermissionOptionId, val title: String)
+public data class PermissionOption(val id: PermissionOptionId, val title: String, val isSkip: Boolean = false)
 
 /** Pending action is authoritative state; replaying a historical notification never makes it pending again. */
 @Serializable
@@ -202,13 +206,15 @@ public data class PermissionDecision(
 
 /**
  * True when [decision] targets this request with an offered option and its [PermissionDecision.answer]
- * fits [PermissionRequest.input]: a missing answer is always accepted (skip), a present one must match the input kind.
+ * fits [PermissionRequest.input]: without input no answer is allowed; with input a skip option
+ * ([PermissionOption.isSkip]) takes no answer and any other option requires an answer of the input kind.
  */
 public fun PermissionRequest.accepts(decision: PermissionDecision): Boolean {
-    if (decision.turn != turn || decision.request != id || options.none { it.id == decision.option }) return false
-    val answer = decision.answer ?: return true
-    val expected = input ?: return false
-    return answer.fits(expected)
+    if (decision.turn != turn || decision.request != id) return false
+    val option = options.firstOrNull { it.id == decision.option } ?: return false
+    val expected = input ?: return decision.answer == null
+    val answer = decision.answer
+    return if (option.isSkip) answer == null else answer?.fits(expected) == true
 }
 
 private fun PermissionAnswer.fits(input: PermissionInput): Boolean = when (input) {

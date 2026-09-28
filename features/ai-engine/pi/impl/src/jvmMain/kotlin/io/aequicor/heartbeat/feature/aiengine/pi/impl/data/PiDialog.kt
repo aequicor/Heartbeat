@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -36,7 +37,9 @@ internal sealed interface PiDialog {
         override fun reply(decision: PermissionDecision): Pair<String, JsonElement> {
             val index = (decision.answer as? PermissionAnswer.Selected)?.ids?.singleOrNull()?.toIntOrNull()
             val value = index?.let(values::getOrNull)
-            return if (decision.option == AnswerOption && value != null) "value" to JsonPrimitive(value) else CANCELLED
+            if (decision.option == AnswerOption && value != null) return "value" to JsonPrimitive(value)
+            if (decision.option != SkipOption) log.w { "Pi select dialog cancelled: the answer is missing or invalid" }
+            return CANCELLED
         }
     }
 
@@ -44,7 +47,9 @@ internal sealed interface PiDialog {
     data class Text(override val request: PermissionRequest) : PiDialog {
         override fun reply(decision: PermissionDecision): Pair<String, JsonElement> {
             val text = (decision.answer as? PermissionAnswer.Text)?.value
-            return if (decision.option == AnswerOption && text != null) "value" to JsonPrimitive(text) else CANCELLED
+            if (decision.option == AnswerOption && text != null) return "value" to JsonPrimitive(text)
+            if (decision.option != SkipOption) log.w { "Pi text dialog cancelled: the answer is missing" }
+            return CANCELLED
         }
     }
 
@@ -54,6 +59,7 @@ internal sealed interface PiDialog {
         val AnswerOption = PermissionOptionId("answer")
         val SkipOption = PermissionOptionId("skip")
         private val CANCELLED = "cancelled" to JsonPrimitive(true)
+        private val log = Log.tag("PiDialog")
 
         /** Maps a non-approval dialog record; null when it is malformed and must be dismissed. */
         fun from(record: JsonObject, id: String, turn: TurnId): PiDialog? {
@@ -61,7 +67,7 @@ internal sealed interface PiDialog {
             val requestId = PermissionRequestId(id)
             val answerActions = listOf(
                 PermissionOption(AnswerOption, "Ответить"),
-                PermissionOption(SkipOption, "Пропустить"),
+                PermissionOption(SkipOption, "Пропустить", isSkip = true),
             )
             return when (record.string("method")) {
                 "confirm" -> Confirm(

@@ -1,8 +1,5 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
-import io.aequicor.heartbeat.core.di.SavedBundle
-import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
@@ -13,6 +10,9 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
@@ -24,21 +24,21 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.KSerializer
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class StudioQuestionBridgeTest {
@@ -48,10 +48,10 @@ class StudioQuestionBridgeTest {
         "Run tests?",
         listOf(StudioPermissionOption("allow", "Allow"), StudioPermissionOption("deny", "Deny")),
     )
-    private val question = permission.toQuestionnaire()
+    private val question = assertNotNull(permission.toQuestionnaire())
 
     @Test
-    fun `live permission is answered natively and withdrawn once the engine resolves it`() = runTest {
+    fun `live permission is answered through the studio machine and withdrawn once delivered`() = runTest {
         val fixture = Fixture(this)
         fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
         runCurrent()
@@ -59,15 +59,30 @@ class StudioQuestionBridgeTest {
 
         fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
         runCurrent()
-        assertEquals(listOf("s1/r1/allow"), fixture.runtime.responses)
+        assertEquals(
+            listOf<AiStudioIntent.Public>(AiStudioIntent.Public.RespondPermission("s1", "r1", "allow", null)),
+            fixture.studio.sent,
+        )
+        assertEquals(QuestionnaireIntent.Public.Withdraw(question.id), fixture.queue.sent.last())
 
+        // The engine resolving the answered request withdraws nothing twice.
+        fixture.runtime.state.value = StudioRuntimeState()
+        runCurrent()
+        assertEquals(2, fixture.queue.sent.size)
+    }
+
+    @Test
+    fun `engine resolving an unanswered request withdraws its question`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
+        runCurrent()
         fixture.runtime.state.value = StudioRuntimeState()
         runCurrent()
         assertEquals(QuestionnaireIntent.Public.Withdraw(question.id), fixture.queue.sent.last())
     }
 
     @Test
-    fun `restored questions stay open without a native request and are answered by a follow-up message`() = runTest {
+    fun `restored questions are answered by a follow-up message and skipped ones are only withdrawn`() = runTest {
         val fixture = Fixture(this)
         fixture.runtime.state.value = StudioRuntimeState()
         runCurrent()
@@ -75,37 +90,61 @@ class StudioQuestionBridgeTest {
 
         fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(false)))
         runCurrent()
-        assertTrue(fixture.runtime.responses.isEmpty())
-        assertEquals(listOf("s1: Run tests?\nDeny"), fixture.runtime.prompts)
         assertEquals(
-            listOf<QuestionnaireIntent>(QuestionnaireIntent.Public.Withdraw(question.id)),
-            fixture.queue.sent,
+            listOf<AiStudioIntent.Public>(AiStudioIntent.Public.FollowUp("s1", "Run tests?\nDeny")),
+            fixture.studio.sent,
         )
+        assertEquals(listOf<QuestionnaireIntent>(QuestionnaireIntent.Public.Withdraw(question.id)), fixture.queue.sent)
+
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Skipped))
+        runCurrent()
+        assertEquals(1, fixture.studio.sent.size)
+        assertEquals(QuestionnaireIntent.Public.Withdraw(question.id), fixture.queue.sent.last())
     }
 
     @Test
-    fun `a native request lost while answering falls back to a follow-up message`() = runTest {
+    fun `undeliverable answers reopen their question and the bridge keeps running`() = runTest {
         val fixture = Fixture(this)
         fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission))
-        fixture.runtime.isRequestGone = true
         runCurrent()
+        fixture.studio.result = SendResult.NotRunning
         fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
         runCurrent()
-        assertEquals(listOf("s1: Run tests?\nAllow"), fixture.runtime.prompts)
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+
+        fixture.studio.failure = IllegalArgumentException("studio failed")
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(true)))
+        runCurrent()
+        assertEquals(QuestionnaireIntent.Public.Ask(question), fixture.queue.sent.last())
+
+        fixture.studio.failure = null
+        fixture.studio.result = SendResult.Accepted
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(question, Answer.Confirmed(false)))
+        runCurrent()
+        assertEquals(
+            AiStudioIntent.Public.RespondPermission("s1", "r1", "deny", null),
+            fixture.studio.sent.last(),
+        )
+        // A live request is never answered by a duplicate follow-up message.
+        assertTrue(fixture.studio.sent.none { it is AiStudioIntent.Public.FollowUp })
+    }
+
+    @Test
+    fun `permissions without options are not asked`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission.copy(options = emptyList())))
+        runCurrent()
+        assertTrue(fixture.queue.sent.isEmpty())
     }
 
     private class Fixture(scope: TestScope) {
         val runtime = FakeRuntime()
         val queue = FakeQueue()
-        val bridge = StudioQuestionBridge(
-            runtime,
-            queue.registry,
-            EnabledToggles,
-            TestScopeHandle(scope.backgroundScope),
-        )
+        val studio = FakeStudio()
+        val bridge = StudioQuestionBridge(lazyOf(runtime), registry(queue, studio), EnabledToggles)
 
         init {
-            bridge.start()
+            scope.backgroundScope.launch { bridge.run() }
         }
     }
 }
@@ -122,7 +161,6 @@ private class FakeRuntime : StudioRuntime {
     override val state = MutableStateFlow(StudioRuntimeState())
     val responses = mutableListOf<String>()
     val prompts = mutableListOf<String>()
-    var isRequestGone = false
 
     override suspend fun defaults(): RunSettings = DefaultRunSettings
 
@@ -139,7 +177,6 @@ private class FakeRuntime : StudioRuntime {
         optionId: String,
         answer: StudioPermissionAnswer?,
     ) {
-        check(!isRequestGone) { "the request is no longer pending" }
         responses += "$sessionId/$requestId/$optionId"
     }
 }
@@ -154,33 +191,35 @@ private class FakeQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.Pub
         sent += intent
         return SendResult.Accepted
     }
+}
 
-    val registry = object : MachineRegistry {
-        @Suppress("UNCHECKED_CAST") // The test registry serves only the questionnaire key.
-        override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
-            key: MachineKey<S, I, P, E, O>,
-        ): MachineRef<S, P, O> = this@FakeQueue as MachineRef<S, P, O>
+private class FakeStudio : MachineRef<AiStudioState, AiStudioIntent.Public, AiStudioOutput> {
+    override val name = "aistudio"
+    override val state = MutableStateFlow<AiStudioState>(AiStudioState.Idle)
+    override val outputs = MutableSharedFlow<AiStudioOutput>()
+    val sent = mutableListOf<AiStudioIntent.Public>()
+    var result = SendResult.Accepted
+    var failure: Exception? = null
 
-        override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
-            key: MachineKey<S, I, P, E, O>,
-        ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(find(key))
-
-        override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
-            key: MachineKey<S, I, P, E, O>,
-            intent: P,
-        ): SendResult = find(key).send(intent)
+    override suspend fun send(intent: AiStudioIntent.Public): SendResult {
+        failure?.let { throw it }
+        sent += intent
+        return result
     }
 }
 
-private class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
-    override val name = "test/profile"
-    override val isClosed = false
-    override val savedState = object : ScopeSavedState {
-        override fun <T : Any> consume(key: String, serializer: KSerializer<T>): T? = null
-        override fun <T : Any> register(key: String, serializer: KSerializer<T>, supplier: () -> T?) = Unit
-        override fun unregister(key: String) = Unit
-        override fun snapshot() = SavedBundle(emptyMap())
-    }
+private fun registry(queue: FakeQueue, studio: FakeStudio) = object : MachineRegistry {
+    @Suppress("UNCHECKED_CAST") // The test registry serves only the questionnaire and studio keys.
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
+        key: MachineKey<S, I, P, E, O>,
+    ): MachineRef<S, P, O> = (if (key == QuestionnaireMachineKey) queue else studio) as MachineRef<S, P, O>
 
-    override fun onClose(action: () -> Unit) = DisposableHandle { }
+    override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
+        key: MachineKey<S, I, P, E, O>,
+    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(find(key))
+
+    override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
+        key: MachineKey<S, I, P, E, O>,
+        intent: P,
+    ): SendResult = find(key).send(intent)
 }

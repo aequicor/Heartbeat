@@ -521,7 +521,7 @@ internal class PiSession(
     }
 
     private suspend fun answer(decision: PermissionDecision) {
-        permissions.remove(decision.request) ?: return
+        val request = permissions.remove(decision.request) ?: return
         val dialog = dialogs.remove(decision.request)
         try {
             val isAllowed = decision.option == AllowOption
@@ -549,6 +549,8 @@ internal class PiSession(
         } catch (e: EngineException) {
             log.w(e) { "Pi approval answer was not delivered" }
             decisions.remove(decision.request)
+            // The request is still pending in Pi: keep it answerable so a retry can deliver the answer.
+            permissions[decision.request] = request
             dialog?.let { dialogs[decision.request] = it }
             if (turn?.id == decision.turn) failed(e.failure)
         }

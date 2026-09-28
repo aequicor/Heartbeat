@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
@@ -324,6 +325,30 @@ class PiSessionTest {
     }
 
     @Test
+    fun `an undelivered dialog answer keeps the request pending in the session`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn()
+        fixture.connection.event(
+            record("""{"type":"extension_ui_request","id":"t","method":"input","title":"Name?"}"""),
+        )
+        val decision = PermissionDecision(
+            turn,
+            PermissionRequestId("t"),
+            PermissionOptionId("answer"),
+            PermissionAnswer.Text("hi"),
+        )
+        fixture.connection.sendFailure =
+            EngineException(EngineFailure.Transport(TransportFailureReason.ServiceUnavailable))
+        fixture.session.respond(decision)
+        runCurrent()
+        assertTrue(fixture.connection.sent.isEmpty())
+        // Pi still waits for the dialog, so closing the session must still decline it.
+        fixture.session.close()
+        assertEquals(listOf(answer("t", "cancelled", true)), fixture.connection.sent)
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `plain confirm dialog is answered with the chosen option`() = runTest {
         val fixture = fixture()
         val turn = fixture.runningTurn()
@@ -531,6 +556,7 @@ private class FakeConnection : PiConnection {
     var closed = false
     var sessionId = "native"
     var switchFailure: EngineException? = null
+    var sendFailure: EngineException? = null
     override var isOpen = true
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
         commands += type
@@ -554,6 +580,10 @@ private class FakeConnection : PiConnection {
         }
     }
     override suspend fun send(record: JsonObject) {
+        sendFailure?.let {
+            sendFailure = null
+            throw it
+        }
         sent += record
     }
     override fun close() {

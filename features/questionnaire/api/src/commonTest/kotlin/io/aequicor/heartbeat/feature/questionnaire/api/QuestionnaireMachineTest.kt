@@ -97,12 +97,4 @@ class QuestionnaireMachineTest {
         assertTrue(Answer.Text("").validFor(Question.FreeText()))
         assertFalse(Answer.Skipped.validFor(Question.FreeText()))
     }
-
-    @Test
-    fun `restoration keeps pending questions and reopens submitted ones`() {
-        val restored = spec.restore(QuestionnaireState.Asking(listOf(pick, confirm), setOf(pick.id)))
-        kotlin.test.assertEquals(QuestionnaireState.Asking(listOf(pick, confirm)), restored.state)
-        assertTrue(restored.effects.isEmpty())
-        kotlin.test.assertEquals(QuestionnaireState.Idle, spec.restore(QuestionnaireState.Idle).state)
-    }
 }

@@ -44,7 +44,7 @@ internal fun QuestionnaireScreen(
 }
 
 @Composable
-internal fun QuestionCard(
+private fun QuestionCard(
     question: QuestionUi,
     onIntent: (QuestionnaireScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
@@ -130,11 +130,16 @@ private fun ChoiceInput(
 }
 
 @Composable
-private fun TextInput(question: QuestionUi, kind: QuestionKindUi.Text, onIntent: (QuestionnaireScreenIntent) -> Unit) {
+private fun TextInput(
+    question: QuestionUi,
+    kind: QuestionKindUi.Text,
+    onIntent: (QuestionnaireScreenIntent) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     HbTextField(
         value = question.text,
         onValueChange = { onIntent(QuestionnaireScreenIntent.TextChanged(question.id, it)) },
-        modifier = Modifier.fillMaxWidth().testTag("question-text-${question.id}"),
+        modifier = modifier.fillMaxWidth().testTag("question-text-${question.id}"),
         placeholder = kind.placeholder ?: stringResource(Res.string.questionnaire_text_hint),
         enabled = !question.isSubmitting,
         singleLine = !kind.isMultiline,

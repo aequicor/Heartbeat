@@ -15,6 +15,7 @@ kotlin {
             implementation(projects.core.stateMachine.flowmviExt)
             implementation(projects.core.navigation.compose)
             implementation(projects.core.featureToggles.api)
+            implementation(projects.core.profileFacade.api)
             implementation(projects.core.logging)
             implementation(projects.designSystem.components)
             implementation(projects.designSystem.theme)

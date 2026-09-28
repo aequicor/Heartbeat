@@ -59,6 +59,7 @@ internal class QuestionnaireModel(
                 is QuestionnaireScreenIntent.Submit -> {
                     var draft: Answer? = null
                     withState { draft = questions.firstOrNull { it.id == intent.questionId }?.draftAnswer() }
+                    if (draft == null) log.w { "Submit ignored: the answer is not ready" }
                     draft
                 }
 

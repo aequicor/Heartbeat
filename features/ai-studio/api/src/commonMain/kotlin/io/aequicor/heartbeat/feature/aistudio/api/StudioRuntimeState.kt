@@ -14,7 +14,7 @@ public data class StudioPermission(
     val input: StudioPermissionInput? = null,
 )
 
-/** Structured input of a permission; its options stay the submit (first) and skip (last) actions. */
+/** Structured input of a permission; its options stay the submit and skip ([StudioPermissionOption.isSkip]) actions. */
 public sealed interface StudioPermissionInput {
     /** Exactly one of [choices]. */
     public data class SingleChoice(val choices: List<StudioPermissionOption>) : StudioPermissionInput
@@ -36,8 +36,8 @@ public sealed interface StudioPermissionAnswer {
     public data class Text(val value: String) : StudioPermissionAnswer
 }
 
-/** Opaque decision id and user-visible title supplied by the engine. */
-public data class StudioPermissionOption(val id: String, val title: String)
+/** Opaque decision id and user-visible title supplied by the engine; [isSkip] declines an input without answer. */
+public data class StudioPermissionOption(val id: String, val title: String, val isSkip: Boolean = false)
 
 /**
  * Profile-owned executions observed by the feature without owning their lifetime.

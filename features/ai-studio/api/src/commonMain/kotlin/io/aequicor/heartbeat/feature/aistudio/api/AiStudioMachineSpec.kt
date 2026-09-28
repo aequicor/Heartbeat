@@ -32,13 +32,14 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
+ * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
  * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
  * | Ready | RunFinished | | Ready (idle unless the latest snapshot runs it) | Apply(SetUnread(true)) if hidden |
  * | Ready | RuntimeChanged | | Ready (profile execution snapshot with start times, answered permissions hidden) | |
  * | Ready | RuntimeLost | | Ready (nothing running, stopping or awaiting permission) | |
- * | Ready | RespondPermission | pending, not answered | Ready (permission answered) | RespondPermission |
+ * | Ready | RespondPermission | pending, offered, not answered | Ready (answered) | RespondPermission(answer) |
  * | Ready | PermissionAnswerFailed | | Ready (request no longer answered) | |
  * | Ready | ModelsChanged | no model chosen, models offered | Ready (first model chosen) | |
  * | Ready | CancelFailed | | Ready (stop can be retried) | |
@@ -180,6 +181,10 @@ private fun ReadyTransitions.conversations() {
         stay { state.copy(running = state.running + state.sessionOf(intent.paneId)) }
         effect { AiStudioEffect.Run(state.sessionOf(intent.paneId), intent.prompt.trim(), state.settings) }
     }
+    on<AiStudioIntent.Public.FollowUp>(guard = { intent.prompt.isNotBlank() && state.isIdle(intent.sessionId) }) {
+        stay { state.copy(running = state.running + intent.sessionId) }
+        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt.trim(), state.settings) }
+    }
     on<AiStudioIntent.Internal.SessionCreated> {
         stay {
             state.copy(
@@ -286,7 +291,9 @@ private fun ReadyTransitions.runtime() {
                 answeredPermissions = state.answeredPermissions + intent.requestId,
             )
         }
-        effect { AiStudioEffect.RespondPermission(intent.sessionId, intent.requestId, intent.optionId) }
+        effect {
+            AiStudioEffect.RespondPermission(intent.sessionId, intent.requestId, intent.optionId, intent.answer)
+        }
     }
     // The request stays hidden until the next snapshot, which shows it again while the engine still waits.
     on<AiStudioIntent.Internal.PermissionAnswerFailed> {

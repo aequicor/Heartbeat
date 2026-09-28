@@ -14,7 +14,7 @@ internal fun PermissionRequest.toStudio(sessionId: String) = StudioPermission(
     sessionId,
     id.value,
     title,
-    options.map { StudioPermissionOption(it.id.value, it.title) },
+    options.map { StudioPermissionOption(it.id.value, it.title, it.isSkip) },
     description = description,
     input = when (val input = input) {
         null -> null
