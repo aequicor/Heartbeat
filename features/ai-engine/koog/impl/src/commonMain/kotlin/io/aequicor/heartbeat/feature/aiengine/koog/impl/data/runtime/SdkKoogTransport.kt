@@ -37,8 +37,10 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
         val base = httpClient.config { followRedirects = false }
         val factory = KtorKoogHttpClient.Factory(baseClient = base)
         // The origin is passed explicitly, so credentials follow the source scope rather than SDK defaults.
-        require(if (provider.isOriginEditable) isCompatibleOriginAllowed(origin) else origin == provider.origin)
-        require(provider.isOriginEditable || basePath == null)
+        require(if (provider.isOriginEditable) isCompatibleOriginAllowed(origin) else origin == provider.origin) {
+            "Origin ${origin.value} is not allowed for ${provider.name}"
+        }
+        require(provider.isOriginEditable || basePath == null) { "${provider.name} has a fixed API path" }
         val baseUrl = origin.value
         val paths = KoogPaths(provider, AuthScope(provider.id, origin, basePath))
         val client = try {

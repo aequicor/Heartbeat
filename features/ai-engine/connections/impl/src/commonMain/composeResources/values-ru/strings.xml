@@ -49,6 +49,7 @@
     <string name="wizard_no_auth_hint">Адрес не требует учётных данных — например, локальный сервер моделей.</string>
     <string name="wizard_error_missing_key">Введите API-ключ</string>
     <string name="wizard_error_invalid_host">Введите адрес вида https://api.example.com</string>
+    <string name="wizard_error_insecure_host">HTTP без шифрования разрешён только для localhost; для других серверов используйте https://</string>
     <string name="wizard_connect">Подключить</string>
     <string name="wizard_connecting">Подключение…</string>
     <string name="wizard_models_intro">Выберите модели, которые будут доступны через это подключение.</string>

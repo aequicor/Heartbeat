@@ -49,6 +49,7 @@
     <string name="wizard_no_auth_hint">The endpoint needs no credentials, for example a local model server.</string>
     <string name="wizard_error_missing_key">Enter the API key</string>
     <string name="wizard_error_invalid_host">Enter an address like https://api.example.com</string>
+    <string name="wizard_error_insecure_host">Plain HTTP is allowed only for localhost; use https:// for other servers</string>
     <string name="wizard_connect">Connect</string>
     <string name="wizard_connecting">Connecting…</string>
     <string name="wizard_models_intro">Choose the models offered through this connection.</string>

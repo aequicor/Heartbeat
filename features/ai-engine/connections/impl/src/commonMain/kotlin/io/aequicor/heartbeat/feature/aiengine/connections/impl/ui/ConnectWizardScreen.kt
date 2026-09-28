@@ -65,6 +65,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engine_intro
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engine_not_connectable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_engines_empty
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_insecure_host
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_invalid_host
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_error_missing_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_field_host
@@ -349,6 +350,7 @@ private fun MethodForm(
                     when (error) {
                         FormError.MissingKey -> Res.string.wizard_error_missing_key
                         FormError.InvalidOrigin -> Res.string.wizard_error_invalid_host
+                        FormError.InsecureOrigin -> Res.string.wizard_error_insecure_host
                     },
                 ),
                 Modifier.testTag("wizard-form-error"),

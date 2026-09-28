@@ -39,6 +39,14 @@ class EndpointOriginsTest {
             EndpointBaseUrl(EndpointOrigin("http://localhost:8000")),
             canonicalBaseUrl("http://localhost:8000/"),
         )
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("http://[::1]:8080"), "/v1"),
+            canonicalBaseUrl("http://[::1]:8080/v1"),
+        )
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("https://host:8443"), "/api"),
+            canonicalBaseUrl("https://host:8443/api/"),
+        )
         listOf(
             "https://host/api?x=1",
             "https://host/api#f",
@@ -46,6 +54,10 @@ class EndpointOriginsTest {
             "https://host//v1",
             "https://user@host/v1",
             "ftp://host/v1",
+            "https://host:0/v1",
+            "https://host:00443/v1",
+            "https://host/api%2Fv1",
+            "https://host/" + "a".repeat(4096),
         ).forEach { assertNull(canonicalBaseUrl(it), it) }
         assertFailsWith<IllegalArgumentException> {
             AuthScope(ProviderId("p"), EndpointOrigin("https://host"), "api/v1")

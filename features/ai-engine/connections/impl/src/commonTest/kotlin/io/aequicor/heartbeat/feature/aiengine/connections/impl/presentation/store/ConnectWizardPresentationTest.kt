@@ -88,4 +88,17 @@ class ConnectWizardPresentationTest {
             CredentialForm("NAS", "http://nas.local:11434/api").toRequest(OllamaMethod),
         )
     }
+
+    @Test
+    fun `a compatible method refuses plain HTTP off the loopback interface`() {
+        val method = CompatibleProtocol.Anthropic.method
+        assertEquals(
+            FormCheck.Invalid(FormError.InsecureOrigin),
+            CredentialForm("LAN", "http://192.168.1.10:8000/v1", SecretText("sk-1")).toRequest(method),
+        )
+        val local = assertIs<FormCheck.Valid>(
+            CredentialForm("Local", "http://127.0.0.1:4000", SecretText("sk-1")).toRequest(method),
+        )
+        assertIs<CredentialInput.ApiKey>(local.credential).key.close()
+    }
 }

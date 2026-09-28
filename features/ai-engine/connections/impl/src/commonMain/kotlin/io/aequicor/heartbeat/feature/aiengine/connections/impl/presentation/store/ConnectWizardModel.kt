@@ -23,10 +23,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutpu
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -43,7 +45,7 @@ import pro.respawn.flowmvi.plugins.reduce
 enum class WizardStep { Engine, Method, Models, Done }
 
 /** Form validation problems found before the machine is asked to connect. */
-enum class FormError { MissingKey, InvalidOrigin }
+enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
 
 /** Typed key; never rendered back, never printed. */
 @Immutable
@@ -270,6 +272,11 @@ internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
     val label = label.trim().ifEmpty { method.provider.title }
     return when {
         endpoint == null -> FormCheck.Invalid(FormError.InvalidOrigin)
+
+        // A managed key is never sent unencrypted over a network; catch it here rather than in the engine.
+        CompatibleProtocol.entries.any { it.provider.id == method.provider.id } &&
+            !isCompatibleOriginAllowed(endpoint.origin) ->
+            FormCheck.Invalid(FormError.InsecureOrigin)
 
         method is ConnectionMethod.ApiKey && key.value.isBlank() -> FormCheck.Invalid(FormError.MissingKey)
 

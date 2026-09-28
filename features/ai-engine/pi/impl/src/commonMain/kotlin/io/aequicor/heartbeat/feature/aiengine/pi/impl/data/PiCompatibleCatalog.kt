@@ -65,18 +65,16 @@ internal class PiCompatibleCatalog(private val httpClient: HttpClient) {
                         }
                     }
                 }
-                when {
-                    response.status == HttpStatusCode.Unauthorized || response.status == HttpStatusCode.Forbidden ->
-                        authenticationFailure(AuthFailureReason.NotAuthenticated, source)
-
-                    !response.status.isSuccess() ->
-                        piFailure(EngineFailure.Transport(TransportFailureReason.ServiceUnavailable))
-                }
+                checkStatus(response.status, source)
                 response.bodyAsText()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
+            log.w(e) { "Compatible server is unreachable" }
+            piFailure(EngineFailure.Transport(TransportFailureReason.NetworkUnavailable))
+        } catch (e: IllegalArgumentException) {
+            // Unresolvable hosts surface as UnresolvedAddressException, an IllegalArgumentException on the JVM.
             log.w(e) { "Compatible server is unreachable" }
             piFailure(EngineFailure.Transport(TransportFailureReason.NetworkUnavailable))
         }
@@ -90,6 +88,15 @@ internal class PiCompatibleCatalog(private val httpClient: HttpClient) {
             piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         }
     }
+}
+
+private fun checkStatus(status: HttpStatusCode, source: AuthSourceId) {
+    if (status.isSuccess()) return
+    Log.tag("PiCompatibleCatalog").w { "Compatible server answered ${status.value}" }
+    if (status == HttpStatusCode.Unauthorized || status == HttpStatusCode.Forbidden) {
+        authenticationFailure(AuthFailureReason.NotAuthenticated, source)
+    }
+    piFailure(EngineFailure.Transport(TransportFailureReason.ServiceUnavailable))
 }
 
 /** Both protocols answer `{"data":[{"id":…}]}`; Anthropic adds `display_name`. */
