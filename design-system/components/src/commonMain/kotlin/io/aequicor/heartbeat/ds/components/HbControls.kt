@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.adaptive.AdaptiveButton
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.theme.HbVisualStyle
+import io.aequicor.heartbeat.ds.tokens.HbColors
 
 private val log = Log.tag("DS/Controls")
 
@@ -103,11 +104,7 @@ private fun FlatButton(
     val isHovered by interactionSource.collectIsHoveredAsState()
     val colors = HbTheme.colors
     val shape = RoundedCornerShape(HbTheme.dimensions.controlCornerRadius)
-    val base = when {
-        style == HbButtonStyle.Primary && enabled -> colors.primary
-        style == HbButtonStyle.Ghost -> Color.Transparent
-        else -> colors.buttonFill
-    }
+    val base = buttonFill(colors, style, enabled)
     val targetBackground = when {
         !enabled -> base
         isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -123,12 +120,7 @@ private fun FlatButton(
             label = "buttonSurface",
         ).value
     }
-    val foreground = when {
-        !enabled -> colors.textSecondary
-        style == HbButtonStyle.Primary -> colors.onPrimary
-        style == HbButtonStyle.Danger -> colors.onError
-        else -> colors.textPrimary
-    }
+    val foreground = buttonContent(colors, style, enabled)
     Box(
         modifier = modifier
             .heightIn(min = buttonHeight(size))
@@ -234,4 +226,20 @@ private fun FlatTextField(
         leadingContent = leadingContent,
         trailingContent = trailingContent,
     )
+}
+
+/** Resting fill of a flat button; semantic roles keep their fill only while enabled. */
+private fun buttonFill(colors: HbColors, style: HbButtonStyle, enabled: Boolean): Color = when {
+    style == HbButtonStyle.Primary && enabled -> colors.primary
+    style == HbButtonStyle.Danger && enabled -> colors.error
+    style == HbButtonStyle.Ghost -> Color.Transparent
+    else -> colors.buttonFill
+}
+
+/** Label colour paired with [buttonFill]. */
+private fun buttonContent(colors: HbColors, style: HbButtonStyle, enabled: Boolean): Color = when {
+    !enabled -> colors.textSecondary
+    style == HbButtonStyle.Primary -> colors.onPrimary
+    style == HbButtonStyle.Danger -> colors.onError
+    else -> colors.textPrimary
 }

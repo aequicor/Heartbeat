@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.togglespanel.impl.presentation.component
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
@@ -48,7 +49,8 @@ class TogglesPanelComponent(
 
     init {
         if (!route.isEmbedded) {
-            scope.coroutineScope.launch {
+            // The feature scope outlives this entry: stop the redirect if the entry is destroyed first.
+            val redirect = scope.coroutineScope.launch {
                 if (policy.isUnified()) {
                     log.i { "legacy panel route opens the settings section" }
                     // Open the window, then remove exactly this entry, whatever was pushed meanwhile.
@@ -61,6 +63,7 @@ class TogglesPanelComponent(
                     mutablePresentation.value = PanelPresentation.Standalone
                 }
             }
+            lifecycle.doOnDestroy { redirect.cancel() }
         }
     }
 
