@@ -23,17 +23,24 @@ internal val KoogToggleLevels = listOf("off", "on")
  */
 internal fun KoogProvider.fallbackReasoningEfforts(model: String): List<String> = when (this) {
     KoogProvider.OpenAI -> if (OpenAIReasoning.containsMatchIn(model)) KoogBudgetLevels else emptyList()
+
     KoogProvider.Anthropic -> if (AnthropicReasoning.containsMatchIn(model)) KoogBudgetLevels else emptyList()
-    KoogProvider.AlibabaQwen, KoogProvider.Ollama -> emptyList()
+
+    KoogProvider.AlibabaQwen,
+    KoogProvider.Ollama,
+    KoogProvider.OpenAICompatible,
+    KoogProvider.AnthropicCompatible,
+    -> emptyList()
 }
 
 /** Request parameters carrying [effort]; default parameters when no effort is selected. */
 internal fun KoogProvider.reasoningParams(effort: String?): LLMParams {
     val level = effort ?: return LLMParams()
     return when (this) {
-        KoogProvider.OpenAI, KoogProvider.AlibabaQwen -> OpenAIChatParams(reasoningEffort = openAIEffort(level))
+        KoogProvider.OpenAI, KoogProvider.AlibabaQwen, KoogProvider.OpenAICompatible ->
+            OpenAIChatParams(reasoningEffort = openAIEffort(level))
 
-        KoogProvider.Anthropic -> {
+        KoogProvider.Anthropic, KoogProvider.AnthropicCompatible -> {
             val budget = anthropicBudget(level)
             // Anthropic requires max_tokens above the thinking budget; the rest is left for the answer.
             AnthropicParams(maxTokens = budget + ANSWER_TOKENS, thinking = AnthropicThinking.Enabled(budget))

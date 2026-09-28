@@ -75,5 +75,5 @@ internal class TogglesPanelRouteEntry(
 ) : RouteEntry<TogglesPanelRoute>(TogglesPanelRoute::class, TogglesPanelRoute.serializer()) {
     override fun create(route: TogglesPanelRoute, context: ComponentContext, navigator: Navigator): NavComponent =
         context.retainedGraph(scopes, app, name = "togglespanel") { graphs.createTogglesPanel(it) }
-            .factory.create(context, navigator).let { TogglesPanelUiComponent(it) }
+            .factory.create(context, navigator, route).let { TogglesPanelUiComponent(it) }
 }

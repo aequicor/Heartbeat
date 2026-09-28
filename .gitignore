@@ -106,3 +106,6 @@ CLAUDE.local.md
 /.claude/worktrees/*
 
 __pycache__/
+
+# Desktop audit screenshots written by AiStudioDesktopAuditUiTest
+/output/

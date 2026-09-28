@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointBaseUrl
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalBaseUrl
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.canonicalOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
@@ -21,10 +23,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutpu
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isCompatibleOriginAllowed
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -41,7 +45,7 @@ import pro.respawn.flowmvi.plugins.reduce
 enum class WizardStep { Engine, Method, Models, Done }
 
 /** Form validation problems found before the machine is asked to connect. */
-enum class FormError { MissingKey, InvalidOrigin }
+enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
 
 /** Typed key; never rendered back, never printed. */
 @Immutable
@@ -260,17 +264,32 @@ internal sealed interface FormCheck {
 
 /** Validates the form; a blank name falls back to the provider title. */
 internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
-    val origin = if (method.isOriginEditable) canonicalOrigin(origin) else method.origin
+    val endpoint = when {
+        method.isPathEditable -> canonicalBaseUrl(origin)
+        method.isOriginEditable -> canonicalOrigin(origin)?.let(::EndpointBaseUrl)
+        else -> EndpointBaseUrl(method.origin)
+    }
     val label = label.trim().ifEmpty { method.provider.title }
     return when {
-        origin == null -> FormCheck.Invalid(FormError.InvalidOrigin)
+        endpoint == null -> FormCheck.Invalid(FormError.InvalidOrigin)
+
+        // A managed key is never sent unencrypted over a network; catch it here rather than in the engine.
+        CompatibleProtocol.entries.any { it.provider.id == method.provider.id } &&
+            !isCompatibleOriginAllowed(endpoint.origin) ->
+            FormCheck.Invalid(FormError.InsecureOrigin)
 
         method is ConnectionMethod.ApiKey && key.value.isBlank() -> FormCheck.Invalid(FormError.MissingKey)
 
-        method is ConnectionMethod.ApiKey ->
-            FormCheck.Valid(CredentialInput.ApiKey(label, origin, Secret(key.value.trim().toCharArray())))
+        method is ConnectionMethod.ApiKey -> FormCheck.Valid(
+            CredentialInput.ApiKey(
+                label,
+                endpoint.origin,
+                Secret(key.value.trim().toCharArray()),
+                endpoint.basePath,
+            ),
+        )
 
-        else -> FormCheck.Valid(CredentialInput.Existing(label, origin))
+        else -> FormCheck.Valid(CredentialInput.Existing(label, endpoint.origin))
     }
 }
 

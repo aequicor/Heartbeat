@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -82,6 +83,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
 
@@ -97,6 +100,7 @@ internal fun StudioPaneView(
     modifier: Modifier = Modifier,
     onOpenResearch: ((String) -> Unit)? = null,
     isAtWindowLeadingEdge: Boolean = false,
+    questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     val pane = content.pane
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -106,7 +110,7 @@ internal fun StudioPaneView(
     val bottomInset = with(density) { footerHeight.toDp() }
     Box(
         modifier.focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
-            .background(HbTheme.studioColors.assistant).testTag("pane-${pane.id}"),
+            .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val sessionId = pane.sessionId
         val transcript = content.transcript
@@ -115,7 +119,7 @@ internal fun StudioPaneView(
                 NewSessionHero(
                     content.project,
                     onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
-                    modifier = Modifier.align(BiasAlignment(0f, HbTheme.studioDimensions.emptyStateVerticalBias))
+                    modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
             }
@@ -134,7 +138,7 @@ internal fun StudioPaneView(
                     ),
                     overlapInsets = PaddingValues(top = topInset, bottom = bottomInset),
                     modifier = Modifier.align(Alignment.TopCenter)
-                        .widthIn(max = HbTheme.studioDimensions.messageMaxWidth + HbTheme.spacing.xl * 2)
+                        .widthIn(max = HbTheme.dimensions.messageMaxWidth + HbTheme.spacing.xl * 2)
                         .fillMaxSize(),
                 )
             }
@@ -156,7 +160,7 @@ internal fun StudioPaneView(
                 Modifier.fillMaxWidth(),
                 gap = HbTheme.spacing.none,
             ) {
-                PaneNotices(content, onIntent)
+                PaneNotices(content, onIntent, questions)
                 PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
             }
         }
@@ -164,9 +168,13 @@ internal fun StudioPaneView(
 }
 
 @Composable
-private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun PaneNotices(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    questions: ImmutableMap<String, ComposableComponent>,
+) {
     HbColumn(
-        Modifier.fillMaxWidth().background(HbTheme.studioColors.header, HbTheme.shapes.large)
+        Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
     ) {
@@ -178,7 +186,9 @@ private fun PaneNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -
         if (content.isStopFailed) {
             HbText(stringResource(Res.string.stop_failed), Modifier.padding(HbTheme.spacing.m))
         }
-        content.permissions.forEach { request ->
+        val asked = content.session?.id?.let(questions::get)
+        asked?.Content(Modifier.padding(HbTheme.spacing.m).testTag("pane-questionnaire"))
+        content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(
                     Modifier.padding(HbTheme.spacing.m)
@@ -216,7 +226,7 @@ private fun PaneHeader(
     isAtWindowLeadingEdge: Boolean,
 ) {
     val pane = content.pane
-    val studio = HbTheme.studioDimensions
+    val studio = HbTheme.dimensions
     val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
         studio.titlebarLeadingInset
     } else {
@@ -225,8 +235,8 @@ private fun PaneHeader(
     HbWindowDragArea(Modifier.fillMaxWidth()) {
         HbRow(
             Modifier.fillMaxWidth()
-                .heightIn(min = HbTheme.studioDimensions.headerHeight)
-                .background(HbTheme.studioColors.header)
+                .heightIn(min = HbTheme.dimensions.headerHeight)
+                .background(HbTheme.surfaces.header)
                 .padding(
                     start = leadingInset,
                     end = HbTheme.spacing.m,
@@ -263,7 +273,7 @@ private fun PaneHeader(
 /** Header of the chat area while another feature (research) fills it: sidebar toggle, window inset and title. */
 @Composable
 internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
-    val studio = HbTheme.studioDimensions
+    val studio = HbTheme.dimensions
     val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
         studio.titlebarLeadingInset
     } else {
@@ -273,7 +283,7 @@ internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: 
         HbRow(
             Modifier.fillMaxWidth()
                 .heightIn(min = studio.headerHeight)
-                .background(HbTheme.studioColors.header)
+                .background(HbTheme.surfaces.header)
                 .padding(
                     start = leadingInset,
                     end = HbTheme.spacing.m,
@@ -434,7 +444,7 @@ private fun PaneFooter(
         gap = HbTheme.spacing.s,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val column = Modifier.widthIn(max = HbTheme.studioDimensions.composerMaxWidth).fillMaxWidth()
+        val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
         ModelConnectionHint(content, column)
         if (content.session?.isRunning == true) RunStatus(content.isStopping, content.elapsed, column)
         if (content.isSubmitFailed) {

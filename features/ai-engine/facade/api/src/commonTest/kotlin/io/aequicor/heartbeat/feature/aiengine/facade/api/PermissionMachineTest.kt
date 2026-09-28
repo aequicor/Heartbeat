@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.api
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
 import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PermissionMachineTest {
     private val spec = activeSessionMachineSpec(ActiveSessionMachineKey("permissions"), ActiveSessionState.Ready())
@@ -68,5 +70,64 @@ class PermissionMachineTest {
             ActiveSessionIntent.Internal.PermissionResolved(TestTurn.id, second.id),
             waiting.copy(turn = TestTurn.copy(resolvedPermissions = setOf(second.id))),
         )
+    }
+
+    @Test
+    fun `structured answers must fit the requested input`() {
+        val choice = TestPermission.copy(
+            options = listOf(
+                PermissionOption(PermissionOptionId("allow"), "Answer"),
+                PermissionOption(PermissionOptionId("deny"), "Skip", isSkip = true),
+            ),
+            input = PermissionInput.SingleChoice(listOf(PermissionChoice("a", "A"), PermissionChoice("b", "B"))),
+        )
+        val skipped = decision.copy(option = PermissionOptionId("deny"))
+        val asking = waiting.copy(requests = listOf(choice))
+        val answered = decision.copy(answer = PermissionAnswer.Selected(listOf("b")))
+        spec.assertTransition(
+            asking,
+            ActiveSessionIntent.Public.Decide(answered),
+            asking.copy(responding = setOf(choice.id)),
+            effects = listOf(ActiveSessionEffect.Decide(answered)),
+        )
+        spec.assertTransition(
+            asking,
+            ActiveSessionIntent.Public.Decide(skipped),
+            asking.copy(responding = setOf(choice.id)),
+            effects = listOf(ActiveSessionEffect.Decide(skipped)),
+        )
+        // Submitting without an answer and skipping with one are both rejected.
+        spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(decision))
+        spec.assertIgnored(
+            asking,
+            ActiveSessionIntent.Public.Decide(skipped.copy(answer = PermissionAnswer.Selected(listOf("a")))),
+        )
+        listOf(
+            PermissionAnswer.Selected(listOf("z")),
+            PermissionAnswer.Selected(listOf("a", "b")),
+            PermissionAnswer.Text("free"),
+        ).forEach { spec.assertIgnored(asking, ActiveSessionIntent.Public.Decide(decision.copy(answer = it))) }
+        spec.assertIgnored(
+            waiting,
+            ActiveSessionIntent.Public.Decide(decision.copy(answer = PermissionAnswer.Text("x"))),
+        )
+    }
+
+    @Test
+    fun `multi choice respects bounds and free text accepts any text`() {
+        val multi = TestPermission.copy(
+            input = PermissionInput.MultiChoice(
+                listOf(PermissionChoice("a", "A"), PermissionChoice("b", "B"), PermissionChoice("c", "C")),
+                min = 1,
+                max = 2,
+            ),
+        )
+        assertTrue(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "c")))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(emptyList()))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "b", "c")))))
+        assertFalse(multi.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a", "a")))))
+        val text = TestPermission.copy(input = PermissionInput.FreeText())
+        assertTrue(text.accepts(decision.copy(answer = PermissionAnswer.Text("hi"))))
+        assertFalse(text.accepts(decision.copy(answer = PermissionAnswer.Selected(listOf("a")))))
     }
 }

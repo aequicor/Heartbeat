@@ -11,7 +11,6 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbCard
-import io.aequicor.heartbeat.ds.components.HbGlassPanel
 import io.aequicor.heartbeat.ds.components.HbStickyHeaderHost
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
@@ -87,17 +86,15 @@ internal fun LayoutsCatalog(modifier: Modifier = Modifier) {
 @Composable
 private fun StickyLayoutHeading(sectionNumber: Int, modifier: Modifier = Modifier) {
     val shape = HbTheme.shapes.medium
-    HbGlassPanel(modifier = modifier, shape = shape) {
-        HbText(
-            text = "${hbString(HbString.Conversation)} $sectionNumber",
-            modifier = Modifier
-                .fillMaxWidth()
-                .hbSurface(HbTheme.colors.surfaceElevated, shape)
-                .padding(HbTheme.spacing.l)
-                .semantics { heading() },
-            style = HbTheme.typography.label,
-        )
-    }
+    HbText(
+        text = "${hbString(HbString.Conversation)} $sectionNumber",
+        modifier = modifier
+            .fillMaxWidth()
+            .hbSurface(HbTheme.colors.surfaceElevated, shape)
+            .padding(HbTheme.spacing.l)
+            .semantics { heading() },
+        style = HbTheme.typography.label,
+    )
 }
 
 private const val DEMO_SECTIONS = 3

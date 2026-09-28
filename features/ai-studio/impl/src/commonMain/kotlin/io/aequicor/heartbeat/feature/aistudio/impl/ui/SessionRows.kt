@@ -88,10 +88,10 @@ internal class SessionRows(
             },
             isSelected = isSelected,
             level = level,
-            minHeight = HbTheme.studioDimensions.navigationRowHeight,
+            minHeight = HbTheme.dimensions.navigationRowHeight,
             onSecondaryClick = { onMenu(rowKey) },
-            selectedBackground = HbTheme.studioColors.selected,
-            selectedForeground = HbTheme.studioColors.onSelected,
+            selectedBackground = HbTheme.surfaces.selected,
+            selectedForeground = HbTheme.surfaces.onSelected,
             contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
             if (isActive || isMenuOpen) {
@@ -114,7 +114,7 @@ internal class SessionRows(
                 contentDescription = archiveLabel,
                 onClick = { onIntent(AiStudioScreenIntent.SetArchived(session.id, !session.isArchived)) },
                 modifier = Modifier.testTag("session-archive-$rowKey"),
-                size = HbTheme.studioDimensions.navigationRowHeight,
+                size = HbTheme.dimensions.navigationRowHeight,
             )
             HbMenuButton(
                 icon = HbIcons.More,
@@ -124,7 +124,7 @@ internal class SessionRows(
                 onExpandedChange = { onMenu(if (it) rowKey else null) },
                 onItem = { sessionAction(session, it, rowKey)?.let(onIntent) },
                 modifier = Modifier.testTag("session-menu-$rowKey"),
-                size = HbTheme.studioDimensions.navigationRowHeight,
+                size = HbTheme.dimensions.navigationRowHeight,
             )
         }
     }
@@ -133,8 +133,8 @@ internal class SessionRows(
 @Composable
 private fun SessionIndicator(session: SessionUi) {
     val dimensions = HbTheme.dimensions
-    val foreground = if (session.isUnread) HbTheme.studioColors.accent else HbTheme.colors.textSecondary
-    Box(Modifier.size(HbTheme.studioDimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
+    val foreground = if (session.isUnread) HbTheme.surfaces.accent else HbTheme.colors.textSecondary
+    Box(Modifier.size(HbTheme.dimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
         when {
             session.isRunning -> HbActivityIndicator()
 

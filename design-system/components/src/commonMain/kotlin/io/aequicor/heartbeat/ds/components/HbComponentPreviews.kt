@@ -8,32 +8,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
-import io.aequicor.heartbeat.ds.tokens.HbStudioDimensions
 
 @Preview
 @Composable
 private fun LightComponentsPreview() {
-    HbTheme(darkTheme = false, studioDimensions = HbStudioDimensions.Desktop) {
-        HbStudioTheme { ComponentPreviewContent() }
+    HbTheme(darkTheme = false, dimensions = HbDimensions.Desktop) {
+        ComponentPreviewContent()
     }
 }
 
 @Preview
 @Composable
 private fun DarkComponentsPreview() {
-    HbTheme(darkTheme = true, studioDimensions = HbStudioDimensions.Desktop) {
-        HbStudioTheme { ComponentPreviewContent() }
+    HbTheme(darkTheme = true, dimensions = HbDimensions.Desktop) {
+        ComponentPreviewContent()
     }
 }
 
 @Preview
 @Composable
 private fun MobileComponentsPreview() {
-    HbTheme(dimensions = HbDimensions(), studioDimensions = HbStudioDimensions.Mobile) {
-        HbStudioTheme { ComponentPreviewContent() }
+    HbTheme(dimensions = HbDimensions.Mobile) {
+        ComponentPreviewContent()
     }
 }
 
@@ -71,7 +69,7 @@ private fun ComponentPreviewContent() {
                 appearance = HbMessageAppearance(
                     isContentWidth = true,
                     isAuthorVisible = false,
-                    background = HbTheme.studioColors.outgoing,
+                    background = HbTheme.surfaces.outgoing,
                 ),
             ),
         )
@@ -84,7 +82,7 @@ private fun ComponentPreviewContent() {
             stopLabel = "Stop",
             modifier = Modifier.fillMaxWidth(),
             layout = HbComposerLayout.Panel,
-            inputMaxHeight = HbTheme.studioDimensions.editorMaxHeight,
+            inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
             placeholder = "Message the agent",
             leadingContent = {
                 HbComposerIconButton(HbIcons.Plus, "Prompt templates", {})

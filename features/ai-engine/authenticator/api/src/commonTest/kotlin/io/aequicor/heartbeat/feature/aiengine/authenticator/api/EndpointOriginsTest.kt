@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.authenticator.api
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class EndpointOriginsTest {
@@ -26,5 +27,40 @@ class EndpointOriginsTest {
             "http://localhost:70000",
             "",
         ).forEach { assertNull(canonicalOrigin(it), it) }
+    }
+
+    @Test
+    fun baseUrlSplitsOriginAndCanonicalPath() {
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("https://openrouter.ai"), "/api/v1"),
+            canonicalBaseUrl(" HTTPS://OpenRouter.ai:443/api/v1/ "),
+        )
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("http://localhost:8000")),
+            canonicalBaseUrl("http://localhost:8000/"),
+        )
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("http://[::1]:8080"), "/v1"),
+            canonicalBaseUrl("http://[::1]:8080/v1"),
+        )
+        assertEquals(
+            EndpointBaseUrl(EndpointOrigin("https://host:8443"), "/api"),
+            canonicalBaseUrl("https://host:8443/api/"),
+        )
+        listOf(
+            "https://host/api?x=1",
+            "https://host/api#f",
+            "https://host/../v1",
+            "https://host//v1",
+            "https://user@host/v1",
+            "ftp://host/v1",
+            "https://host:0/v1",
+            "https://host:00443/v1",
+            "https://host/api%2Fv1",
+            "https://host/" + "a".repeat(4096),
+        ).forEach { assertNull(canonicalBaseUrl(it), it) }
+        assertFailsWith<IllegalArgumentException> {
+            AuthScope(ProviderId("p"), EndpointOrigin("https://host"), "api/v1")
+        }
     }
 }

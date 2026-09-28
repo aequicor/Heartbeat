@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -97,7 +98,13 @@ internal class KoogTestFixture(test: TestScope) {
         toggles,
         profile,
         object : KoogTransport {
-            override fun open(provider: KoogProvider, key: String?, model: String?): KoogClient {
+            override fun open(
+                provider: KoogProvider,
+                key: String?,
+                model: String?,
+                origin: EndpointOrigin,
+                basePath: String?,
+            ): KoogClient {
                 opens++
                 return KoogClient(executor) {
                     beforeModels()

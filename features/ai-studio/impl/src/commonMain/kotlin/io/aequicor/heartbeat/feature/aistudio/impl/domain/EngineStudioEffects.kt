@@ -74,7 +74,7 @@ class EngineStudioEffects(
 
             is AiStudioEffect.RespondPermission -> {
                 log.i { "User answered permission request=${effect.requestId} option=${effect.optionId}" }
-                runtime.respond(effect.sessionId, effect.requestId, effect.optionId)
+                runtime.respond(effect.sessionId, effect.requestId, effect.optionId, effect.answer)
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)

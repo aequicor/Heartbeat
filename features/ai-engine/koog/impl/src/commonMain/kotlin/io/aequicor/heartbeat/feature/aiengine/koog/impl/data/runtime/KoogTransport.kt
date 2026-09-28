@@ -2,11 +2,20 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.prompt.executor.model.PromptExecutor
 import ai.koog.prompt.llm.LLMCapability
+import ai.koog.prompt.llm.LLMProvider
 import ai.koog.prompt.llm.LLModel
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 
 internal interface KoogTransport {
-    fun open(provider: KoogProvider, key: String?, model: String? = null): KoogClient
+    /** [origin] and [basePath] differ from the defaults only for editable routes; the caller validated the scope. */
+    fun open(
+        provider: KoogProvider,
+        key: String?,
+        model: String? = null,
+        origin: EndpointOrigin = provider.origin,
+        basePath: String? = null,
+    ): KoogClient
 }
 
 /**
@@ -34,10 +43,10 @@ internal fun KoogProvider.textModel(id: String, tools: Boolean = false, attachme
         id = id,
         capabilities = buildList {
             add(LLMCapability.Completion)
-            if (this@textModel == KoogProvider.OpenAI || this@textModel == KoogProvider.AlibabaQwen) {
+            if (llmProvider == LLMProvider.OpenAI) {
                 add(LLMCapability.OpenAIEndpoint.Completions)
             }
-            if (tools || this@textModel == KoogProvider.Anthropic) add(LLMCapability.Tools)
+            if (tools || llmProvider == LLMProvider.Anthropic) add(LLMCapability.Tools)
             if (attachments) {
                 add(LLMCapability.Vision.Image)
                 if (this@textModel != KoogProvider.Ollama) add(LLMCapability.Document)

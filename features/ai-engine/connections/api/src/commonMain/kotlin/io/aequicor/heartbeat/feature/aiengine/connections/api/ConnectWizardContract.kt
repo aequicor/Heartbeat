@@ -25,9 +25,16 @@ public sealed interface CredentialInput {
     /** Origin chosen for the method; equal to the method origin unless it is editable. */
     public val origin: EndpointOrigin
 
+    /** API base path on [origin]; only for methods with an editable path. */
+    public val basePath: String? get() = null
+
     /** A key for [ConnectionMethod.ApiKey]. The effect handling the connection closes [key] after use. */
-    public data class ApiKey(override val label: String, override val origin: EndpointOrigin, public val key: Secret) :
-        CredentialInput {
+    public data class ApiKey(
+        override val label: String,
+        override val origin: EndpointOrigin,
+        public val key: Secret,
+        override val basePath: String? = null,
+    ) : CredentialInput {
         override fun toString(): String = "CredentialInput.ApiKey(origin=$origin)"
     }
 
@@ -39,7 +46,7 @@ public sealed interface CredentialInput {
 
 /** Whether [credential] fits this method: kind, origin policy and a non-blank label. */
 public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = credential.label.isNotBlank() &&
-    (isOriginEditable || credential.origin == origin) &&
+    (isOriginEditable || credential.origin == origin) && (isPathEditable || credential.basePath == null) &&
     (this is ConnectionMethod.ApiKey) == (credential is CredentialInput.ApiKey)
 
 /** Binding created by the wizard together with the source it owns until the wizard completes. */

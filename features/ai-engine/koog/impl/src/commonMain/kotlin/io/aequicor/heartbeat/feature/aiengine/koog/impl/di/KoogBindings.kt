@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -79,6 +80,8 @@ public object KoogBindings {
                     ProviderInfo(KoogProvider.AlibabaQwen.id, "Alibaba Qwen (Token Plan)"),
                     KoogProvider.AlibabaQwen.origin,
                 ),
+                CompatibleProtocol.OpenAI.method,
+                CompatibleProtocol.Anthropic.method,
                 ConnectionMethod.NoAuth(
                     ConnectionMethodId("ollama"),
                     ProviderInfo(ProviderId("ollama"), "Ollama"),

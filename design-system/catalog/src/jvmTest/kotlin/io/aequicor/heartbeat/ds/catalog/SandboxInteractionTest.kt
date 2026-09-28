@@ -49,7 +49,7 @@ internal class SandboxInteractionTest {
             val navigation = onNodeWithText("Chat playground").captureToImage().toPixelMap()
             val background = navigation[navigation.width - 8, navigation.height / 2]
             assertTrue(
-                contrastRatio(HbColors.Dark.textPrimary, background) >= 4.5f,
+                contrastRatio(HbColors.DesktopDark.textPrimary, background) >= 4.5f,
                 "The first dark-theme frame must not keep the animated light background behind light text.",
             )
         } finally {

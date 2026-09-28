@@ -34,8 +34,12 @@ internal suspend fun probeReasoning(
     models: List<String>,
 ): Map<String, List<String>>? = when (provider) {
     KoogProvider.Anthropic -> anthropicThinking(client, requireNotNull(key))
+
     KoogProvider.Ollama -> ollamaThinking(client, models)
-    KoogProvider.OpenAI, KoogProvider.AlibabaQwen -> null
+
+    // Compatible servers: the Anthropic probe targets the fixed Anthropic origin and must not receive their keys.
+    KoogProvider.OpenAI, KoogProvider.AlibabaQwen, KoogProvider.OpenAICompatible, KoogProvider.AnthropicCompatible ->
+        null
 }
 
 /** `GET /v1/models` lists `capabilities.thinking.types.enabled`, which the budget levels require. */

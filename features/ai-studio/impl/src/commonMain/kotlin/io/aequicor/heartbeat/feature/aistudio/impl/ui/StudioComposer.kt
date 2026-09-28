@@ -79,10 +79,10 @@ internal fun StudioComposer(
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = modifier.testTag("composer-${pane.id}"),
         layout = HbComposerLayout.Panel,
-        inputMaxHeight = if (isCompact && !HbTheme.studioDimensions.isDesktop) {
+        inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMaxHeight
         } else {
-            HbTheme.studioDimensions.editorMaxHeight
+            HbTheme.dimensions.editorMaxHeight
         },
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,

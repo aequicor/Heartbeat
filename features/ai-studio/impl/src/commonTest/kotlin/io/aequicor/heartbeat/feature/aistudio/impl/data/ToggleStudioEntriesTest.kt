@@ -23,14 +23,18 @@ class ToggleStudioEntriesTest {
     private val isEnabled = MutableStateFlow(true)
     private val sessions = FakeSessions()
     private val isSearchEnabled = MutableStateFlow(false)
-    private val entries = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled), sessions)
+    private val entries = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled), sessions, Unused)
 
     @Test
     fun `research entry observes all prerequisites and disappears on disable`() = runTest {
         val research = MutableStateFlow(true)
         val runtime = MutableStateFlow(true)
         val koog = MutableStateFlow(true)
-        val gated = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled, research, runtime, koog), sessions)
+        val gated = ToggleStudioEntries(
+            FakeToggles(isEnabled, isSearchEnabled, research, runtime, koog),
+            sessions,
+            Unused,
+        )
         assertEquals(false, gated.showsResearch.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
         assertEquals(true, gated.showsResearch.first())
@@ -104,3 +108,5 @@ private object UnusedGraph : ProfileGraph {
     override val scope get() = error("unused")
     override val sharedScopes get() = error("unused")
 }
+
+private val Unused = lazy<StudioQuestionBridge> { error("unused") }

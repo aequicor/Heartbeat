@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -100,7 +101,7 @@ private fun KeyInputComposer(value: String, onValueChange: (String) -> Unit, onS
     var isProjectOpen by remember { mutableStateOf(false) }
     var isAddOpen by remember { mutableStateOf(false) }
     HbTheme {
-        HbGlassScene(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(HbTheme.colors.background)) {
             HbColumn(Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
                 Box {
                     HbChip("Project", onClick = { isProjectOpen = !isProjectOpen })

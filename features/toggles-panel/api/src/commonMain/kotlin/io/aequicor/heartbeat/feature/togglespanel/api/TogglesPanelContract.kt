@@ -13,10 +13,14 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-/** Device-local feature flag settings, available before sign-in. */
+/**
+ * Device-local feature flag settings, available before sign-in. [isEmbedded] marks the route shown as a section
+ * of the settings window: the panel then draws only its content. Opened elsewhere it redirects to that section
+ * while unified settings are on, and otherwise shows its own header with "back".
+ */
 @Serializable
 @SerialName("toggles_panel")
-public data object TogglesPanelRoute : Route
+public data class TogglesPanelRoute(val isEmbedded: Boolean = false) : Route
 
 /** Type-safe local override operations. */
 public sealed interface ToggleOperation {

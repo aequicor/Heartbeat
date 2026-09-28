@@ -76,7 +76,10 @@ class StudioEngineIntegrationTest {
         val session = app.profileSessions.open(ProfileId("studio"))
         val services = session.graph as AiEngineTestAccessors
         val context = DefaultComponentContext(LifecycleRegistry().apply { resume() })
-        val host = (session.graph as ProfileNavigation).navigation.create(context, listOf(EngineConnectionsRoute))
+        val host = (session.graph as ProfileNavigation).navigation.create(
+            context,
+            listOf(EngineConnectionsRoute(isEmbedded = true)),
+        )
         host.navigator.navigate(ConnectEngineRoute(TestAdapter.engine))
         val wizard = checkNotNull(app.machines.find(ConnectWizardMachineKey))
         wizard.state.first { it is ConnectWizardState.ChoosingMethod }

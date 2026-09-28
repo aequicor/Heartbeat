@@ -10,7 +10,7 @@ import kotlin.test.assertTrue
 class NativeControlContrastTest {
     @Test
     fun `Material outlined controls use readable text and visible focus instead of pastel fills`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val controls = materialControlColors(colors)
             assertTrue(contrastRatio(controls.content, colors.surface) >= 4.5f)
             assertTrue(contrastRatio(controls.focusedBorder, colors.surface) >= 3f)
@@ -20,7 +20,7 @@ class NativeControlContrastTest {
 
     @Test
     fun `Fluent button and input overrides meet AA in light and dark`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             listOf(true, false).forEach { primary ->
                 val button = fluentButtonColor(colors, primary)
                 assertTrue(contrastRatio(button.contentColor, button.fillColor) >= 4.5f)
@@ -34,7 +34,7 @@ class NativeControlContrastTest {
 
     @Test
     fun `macOS accent label meets AA throughout native hover and pressed overlays`() {
-        listOf(HbColors.Light, HbColors.Dark).forEach { colors ->
+        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             listOf(Color.Transparent, colors.hoverOverlay, colors.pressedOverlay).forEach { target ->
                 for (step in 0..10) {
                     val overlay = target.copy(alpha = target.alpha * step / 10)

@@ -121,9 +121,13 @@ public data class Turn(
     val resolvedPermissions: Set<PermissionRequestId> = emptySet(),
 )
 
-/** Engine-offered decision; identifiers are validated against the outstanding request before delivery. */
+/**
+ * Engine-offered decision; identifiers are validated against the outstanding request before delivery.
+ * [isSkip] marks the option that declines a [PermissionRequest.input] without an answer; every other option of a
+ * request with input submits the answer.
+ */
 @Serializable
-public data class PermissionOption(val id: PermissionOptionId, val title: String)
+public data class PermissionOption(val id: PermissionOptionId, val title: String, val isSkip: Boolean = false)
 
 /** Pending action is authoritative state; replaying a historical notification never makes it pending again. */
 @Serializable
@@ -132,6 +136,10 @@ public data class PermissionRequest(
     val turn: TurnId,
     val title: String,
     val options: List<PermissionOption>,
+    /** Optional longer explanation shown under [title]. */
+    val description: String? = null,
+    /** Answer the engine expects together with the chosen option; null for a plain button choice. */
+    val input: PermissionInput? = null,
 ) {
     init {
         require(options.isNotEmpty())
@@ -139,6 +147,84 @@ public data class PermissionRequest(
     }
 }
 
+/** One selectable value of a choice input. */
+@Serializable
+public data class PermissionChoice(val id: String, val title: String)
+
+/**
+ * Structured answer requested by the engine. [PermissionRequest.options] stay the submit/skip actions;
+ * the answer travels in [PermissionDecision.answer].
+ */
+@Serializable
+public sealed interface PermissionInput {
+    /** Exactly one of [choices]. */
+    @Serializable
+    public data class SingleChoice(val choices: List<PermissionChoice>) : PermissionInput {
+        init {
+            require(choices.isNotEmpty())
+            require(choices.map { it.id }.distinct().size == choices.size)
+        }
+    }
+
+    /** Between [min] and [max] of [choices]. */
+    @Serializable
+    public data class MultiChoice(val choices: List<PermissionChoice>, val min: Int = 0, val max: Int = choices.size) :
+        PermissionInput {
+        init {
+            require(choices.isNotEmpty())
+            require(choices.map { it.id }.distinct().size == choices.size)
+            require(min in 0..max && max <= choices.size)
+        }
+    }
+
+    /** Free-form text. */
+    @Serializable
+    public data class FreeText(val placeholder: String? = null, val isMultiline: Boolean = false) : PermissionInput
+}
+
+/** Structured answer attached to a decision. */
+@Serializable
+public sealed interface PermissionAnswer {
+    /** Chosen [PermissionChoice.id]s. */
+    @Serializable
+    public data class Selected(val ids: List<String>) : PermissionAnswer
+
+    /** Entered text. */
+    @Serializable
+    public data class Text(val value: String) : PermissionAnswer
+}
+
 /** User response correlated to the original request and turn. */
 @Serializable
-public data class PermissionDecision(val turn: TurnId, val request: PermissionRequestId, val option: PermissionOptionId)
+public data class PermissionDecision(
+    val turn: TurnId,
+    val request: PermissionRequestId,
+    val option: PermissionOptionId,
+    /** Structured answer for [PermissionRequest.input]; null skips the input (or when there is none). */
+    val answer: PermissionAnswer? = null,
+)
+
+/**
+ * True when [decision] targets this request with an offered option and its [PermissionDecision.answer]
+ * fits [PermissionRequest.input]: without input no answer is allowed; with input a skip option
+ * ([PermissionOption.isSkip]) takes no answer and any other option requires an answer of the input kind.
+ */
+public fun PermissionRequest.accepts(decision: PermissionDecision): Boolean {
+    if (decision.turn != turn || decision.request != id) return false
+    val option = options.firstOrNull { it.id == decision.option } ?: return false
+    val expected = input ?: return decision.answer == null
+    val answer = decision.answer
+    return if (option.isSkip) answer == null else answer?.fits(expected) == true
+}
+
+private fun PermissionAnswer.fits(input: PermissionInput): Boolean = when (input) {
+    is PermissionInput.SingleChoice -> this is PermissionAnswer.Selected && ids.size == 1 && offered(input.choices)
+    is PermissionInput.MultiChoice -> this is PermissionAnswer.Selected && withinBounds(input) && offered(input.choices)
+    is PermissionInput.FreeText -> this is PermissionAnswer.Text
+}
+
+private fun PermissionAnswer.Selected.withinBounds(input: PermissionInput.MultiChoice): Boolean =
+    ids.size in input.min..input.max && ids.distinct().size == ids.size
+
+private fun PermissionAnswer.Selected.offered(choices: List<PermissionChoice>): Boolean =
+    ids.all { id -> choices.any { it.id == id } }

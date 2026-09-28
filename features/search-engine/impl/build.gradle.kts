@@ -10,6 +10,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.searchEngine.api)
+            implementation(projects.features.settings.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.secrets.api)
             implementation(projects.core.network.api)
@@ -28,6 +29,10 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.ktor.client.mock)
+        }
+        jvmTest.dependencies {
+            implementation(libs.compose.uiTest)
+            implementation(compose.desktop.currentOs)
         }
     }
 }

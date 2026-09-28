@@ -28,8 +28,6 @@ kotlin {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.compose.animation)
             implementation(libs.markdown)
-            implementation(libs.haze)
-            implementation(libs.haze.blur)
         }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)

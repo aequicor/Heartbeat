@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
@@ -12,12 +13,17 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 
-/** Navigation leaving the studio, provided by its component. */
+/**
+ * Navigation leaving the studio, provided by its component. With [onOpenSettings] the sidebar shows one
+ * "Settings" action; otherwise (unified settings off) it keeps the separate toggles, profile and connection actions.
+ */
 @Immutable
 internal data class StudioExits(
     val onBack: () -> Unit,
@@ -25,6 +31,8 @@ internal data class StudioExits(
     val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
     val onOpenResearch: ((String) -> Unit)? = null,
+    val questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    val onOpenSettings: (() -> Unit)? = null,
 )
 
 /** What a pane may offer in the current window layout. */

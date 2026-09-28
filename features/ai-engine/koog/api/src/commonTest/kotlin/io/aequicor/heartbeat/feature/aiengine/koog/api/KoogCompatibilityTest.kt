@@ -54,6 +54,22 @@ class KoogCompatibilityTest {
     }
 
     @Test
+    fun compatibleProvidersAcceptUserOriginsOverHttpsOrLoopbackOnly() {
+        listOf(KoogProvider.OpenAICompatible, KoogProvider.AnthropicCompatible).forEach { provider ->
+            val custom = AuthScope(provider.id, EndpointOrigin("https://llm.example:8443"))
+            assertEquals(provider, koogProvider(key.copy(scope = custom)))
+            listOf("http://localhost:8000", "http://127.0.0.1", "http://[::1]:4000").forEach { origin ->
+                assertEquals(provider, koogProvider(key.copy(scope = custom.copy(origin = EndpointOrigin(origin)))))
+            }
+            listOf("http://llm.example", "http://192.168.1.10:8000", "http://localhost.example").forEach { origin ->
+                assertNull(koogProvider(key.copy(scope = custom.copy(origin = EndpointOrigin(origin)))))
+            }
+            assertNull(koogProvider(AuthSource.NoAuth(info, custom)))
+        }
+        assertNull(koogProvider(key.copy(scope = scope.copy(origin = EndpointOrigin("https://llm.example")))))
+    }
+
+    @Test
     fun cliAndHelperSourcesAreNeverConsumed() {
         val location = AuthLocationId("external")
         assertNull(koogProvider(AuthSource.CliLogin(info, scope, AuthOwnerId("koog"), location)))

@@ -39,7 +39,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlin.math.roundToInt
 
 /**
- * Separates a native sticky header's visual layer from the fading, glass-captured scrolling content.
+ * Separates a native sticky header's visual layer from the fading scrolling content.
  * Fill this host with the lazy list using [state], and call the supplied header content from its
  * sticky slots. [header] must apply its modifier and render the same stateless surface for each key.
  * Native measurement and placement still control height, horizontal insets and section push-off.
@@ -61,10 +61,7 @@ public fun HbStickyHeaderHost(
         derivedStateOf { state.pinnedHeader(stickyHeaderKeyPrefix) }
     }
     val measurement = pinned?.let { measurements[it.key] }
-    val shadowOutset = maxOf(
-        HbTheme.dimensions.glassShadowRadius + HbTheme.dimensions.glassShadowOffset,
-        HbTheme.shadows.blurRadius + HbTheme.shadows.offset,
-    )
+    val shadowOutset = HbTheme.dimensions.popupShadowRadius + HbTheme.dimensions.popupShadowOffset
     // Until the first native measurement, leave its surface visible and defer the content mask.
     val fade = if (pinned == null || measurement != null) {
         Modifier.hbLazyEdgeFades(state, stickyHeaderKeyPrefix, overlapInsets)
@@ -77,8 +74,7 @@ public fun HbStickyHeaderHost(
             .scrollable(state, Orientation.Vertical, reverseDirection = true)
             .semantics { isTraversalGroup = true },
     ) {
-        // The source captures raw rows; the outer mask affects only their final viewport rendering.
-        Box(modifier = Modifier.fillMaxSize().then(fade).hbGlassSource()) {
+        Box(modifier = Modifier.fillMaxSize().then(fade)) {
             content { key ->
                 NativeStickyHeader(
                     headerKey = key,

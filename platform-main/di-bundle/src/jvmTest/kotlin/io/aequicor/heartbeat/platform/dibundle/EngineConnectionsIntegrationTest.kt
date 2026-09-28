@@ -68,10 +68,10 @@ class EngineConnectionsIntegrationTest {
         val session = app.profileSessions.open(ProfileId("p1"))
         val context = DefaultComponentContext(LifecycleRegistry().apply { resume() })
         val profile = (session.graph as ProfileNavigation).navigation
-            .create(context, initial = listOf(EngineConnectionsRoute), name = "profile")
+            .create(context, initial = listOf(EngineConnectionsRoute(isEmbedded = true)), name = "profile")
         profile.navigator.navigate(ConnectEngineRoute(EngineId("koog")))
         val routes = profile.stack.value.items.map { it.configuration.route }
-        assertEquals(listOf(EngineConnectionsRoute, ConnectEngineRoute(EngineId("koog"))), routes)
+        assertEquals(listOf(EngineConnectionsRoute(isEmbedded = true), ConnectEngineRoute(EngineId("koog"))), routes)
     }
 
     @Test

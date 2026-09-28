@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -31,8 +32,9 @@ public val PiEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.pi", "Встр
 
 /**
  * Static metadata; installation and credentials are checked separately.
- * Pi accepts only managed API keys with a known revision for the exact Anthropic, OpenAI and Google public API
- * origins; model ids are `provider/native-id`. Desktop only (Windows, macOS).
+ * Pi accepts only managed API keys with a known revision: for the exact Anthropic, OpenAI and Google public API
+ * origins, or for OpenAI-/Anthropic-compatible servers ([CompatibleProtocol]);
+ * model ids are `provider/native-id`. Desktop only (Windows, macOS).
  */
 public val PiDescriptor: EngineDescriptor = EngineDescriptor(
     id = PiEngineId,
@@ -65,6 +67,8 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
             ProviderInfo(ProviderId("google"), "Google"),
             EndpointOrigin("https://generativelanguage.googleapis.com"),
         ),
+        CompatibleProtocol.OpenAI.method,
+        CompatibleProtocol.Anthropic.method,
     ),
     isDefault = true,
     isLocalWorkspaceSupported = true,

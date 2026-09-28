@@ -35,6 +35,7 @@ internal class PiProcessLauncher(
     private val dispatchers: DispatcherProvider,
     private val secrets: SecretStore,
     private val searchBridge: SearchBridge,
+    private val catalog: PiCompatibleCatalog,
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
@@ -56,6 +57,29 @@ internal class PiProcessLauncher(
     suspend fun start(
         source: AuthSource.ManagedKey,
         workspace: String?,
+        event: suspend (JsonObject) -> Unit,
+        failed: suspend (EngineFailure) -> Unit,
+    ): PiConnection {
+        // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
+        val modelsJson = compatibleModelsJson(source)
+        return launch(source, workspace, modelsJson, event, failed)
+    }
+
+    /** `models.json` for a compatible route, or null for vendor routes Pi knows natively. */
+    private suspend fun compatibleModelsJson(source: AuthSource.ManagedKey): String? {
+        val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
+        val protocol = provider.compatible ?: return null
+        val secret = withContext(dispatchers.io) { secrets.read(SecretKey(source.secret.value)) }
+            ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
+        val key = secret.use { it.reveal { chars -> String(chars) } }
+        val models = catalog.models(protocol, source.scope, key, source.info.id)
+        return piModelsJson(provider, source.scope, models)
+    }
+
+    private suspend fun launch(
+        source: AuthSource.ManagedKey,
+        workspace: String?,
+        modelsJson: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
     ): PiConnection = withContext(NonCancellable + dispatchers.io) {
@@ -92,6 +116,7 @@ internal class PiProcessLauncher(
                 environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
             }
             extensions.forEach { installExtension(it.fileName.toString(), it) }
+            modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting bundled Pi process" }
             val started = builder.start()

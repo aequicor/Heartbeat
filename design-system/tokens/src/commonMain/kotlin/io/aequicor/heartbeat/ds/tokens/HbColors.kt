@@ -5,33 +5,35 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 
-/** Quiet pastel palette with readable semantic roles and translucent glass treatments. */
+/**
+ * The single palette of the application: quiet lavender accents on cool neutral surfaces.
+ * [Light] and [Dark] serve touch hosts; [DesktopLight] and [DesktopDark] are the neutral, opaque desktop presets
+ * of the studio that leave the accent to selection and deliberate actions. The theme picks one by host.
+ */
 @Immutable
 data class HbColors(
-    val brand: Color = Color(0xFFB8A4EA),
-    val primary: Color = Color(0xFFC0B3EF),
+    val brand: Color = Color(0xFF7560D5),
+    val primary: Color = Color(0xFFE2DBFF),
     val secondary: Color = Color(0xFFF2C1AB),
-    val background: Color = Color(0xFFE9EDF3),
-    val surface: Color = Color(0xFFE9EDF3),
+    val background: Color = Color(0xFFEAF3FA),
+    val surface: Color = Color(0xFFF5F8FC),
     val error: Color = Color(0xFFE6B1BE),
     val success: Color = Color(0xFFB4D7C5),
     val warning: Color = Color(0xFFE9D6A6),
-    val textPrimary: Color = Color(0xFF293247),
-    val dataViolet: Color = Color(0xFFCCBCEB),
-    val dataCyan: Color = Color(0xFFAED3DD),
-    val shadowLight: Color = Color(0xFFFFFFFF),
-    val shadowDark: Color = Color(0xFFBAC5D6),
+    val textPrimary: Color = Color(0xFF18203A),
+    val dataViolet: Color = Color(0xFFD9D1F6),
+    val dataCyan: Color = Color(0xFFBDDFEA),
     val isDark: Boolean = false,
 ) {
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
-    val syntaxKeyword: Color = if (isDark) Color(0xFFC5B6DF) else Color(0xFF654D92)
-    val syntaxString: Color = if (isDark) Color(0xFFA1C7B0) else Color(0xFF356953)
-    val syntaxNumber: Color = if (isDark) Color(0xFFD9BA95) else Color(0xFF85522F)
-    val syntaxComment: Color = if (isDark) Color(0xFFB3BDCD) else Color(0xFF546075)
-    val syntaxType: Color = if (isDark) Color(0xFFA5C2D5) else Color(0xFF315F82)
-    val syntaxFunction: Color = if (isDark) Color(0xFFD3B4CE) else Color(0xFF795076)
-    val syntaxAnnotation: Color = if (isDark) Color(0xFFD2C293) else Color(0xFF745D36)
-    val consoleSurface: Color = if (isDark) Color(0xFF202631) else Color(0xFF303642)
+    val syntaxKeyword: Color = if (isDark) Color(0xFFDDD2F4) else Color(0xFF654D92)
+    val syntaxString: Color = if (isDark) Color(0xFFB4D8C2) else Color(0xFF356953)
+    val syntaxNumber: Color = if (isDark) Color(0xFFE5C8A6) else Color(0xFF85522F)
+    val syntaxComment: Color = if (isDark) Color(0xFFC6CEDC) else Color(0xFF546075)
+    val syntaxType: Color = if (isDark) Color(0xFFB8D2E2) else Color(0xFF315F82)
+    val syntaxFunction: Color = if (isDark) Color(0xFFE2C6DD) else Color(0xFF795076)
+    val syntaxAnnotation: Color = if (isDark) Color(0xFFD2C293) else Color(0xFF6B552F)
+    val consoleSurface: Color = if (isDark) Color(0xFF17191F) else Color(0xFF303642)
     val consoleText: Color = Color(0xFFE4E8F0)
     val consoleMuted: Color = Color(0xFFA8B2C3)
     val consoleCommand: Color = Color(0xFFCBB8E8)
@@ -56,8 +58,12 @@ data class HbColors(
     val successContainer: Color = success.copy(alpha = 0.12f).compositeOver(surface)
     val warningContainer: Color = warning.copy(alpha = 0.12f).compositeOver(surface)
     val infoContainer: Color = dataCyan.copy(alpha = 0.12f).compositeOver(surface)
-    val buttonFill: Color = surface
-    val inputFill: Color = surface
+
+    /** Quiet fill of secondary buttons: a tint of the text color, never an outline. */
+    val buttonFill: Color = textPrimary.copy(alpha = 0.06f).compositeOver(surface)
+
+    /** Flat input fill; fields have no border or inner shadow, focus is shown by the ring. */
+    val inputFill: Color = textPrimary.copy(alpha = 0.04f).compositeOver(surface)
 
     /** Neutral selection remains distinct from hover without adding an outline. */
     val selectedContainer: Color = onSurface.copy(alpha = 0.10f).compositeOver(surface)
@@ -74,34 +80,57 @@ data class HbColors(
     val pressedOverlay: Color = onSurface.copy(alpha = 0.09f)
 
     /** Dims content behind a modal drawer or sheet. */
-    val scrim: Color = shadowDark.copy(alpha = if (isDark) 0.72f else 0.56f)
-    val glassHighlight: Color = Color.White.copy(alpha = if (isDark) 0.16f else 0.84f)
-    val glassBorder: Color = textPrimary.copy(alpha = if (isDark) 0.14f else 0.08f)
-    val glassShadow: Color = shadowDark.copy(alpha = if (isDark) 0.28f else 0.18f)
-    val glassTint: Color = surface.copy(alpha = if (isDark) 0.84f else 0.86f)
-    val glassBackdropLavender: Color = brand.copy(alpha = 0.08f)
-    val glassBackdropBlue: Color = dataCyan.copy(alpha = if (isDark) 0.06f else 0.10f)
-    val glassBackdropPeach: Color = secondary.copy(alpha = if (isDark) 0.04f else 0.07f)
+    val scrim: Color = Color.Black.copy(alpha = if (isDark) 0.56f else 0.32f)
 
-    /** Matching light and dark pastel surfaces with complementary highlights and shadows. */
+    /**
+     * Soft drop shadow of floating popups (menus, tooltips, dialogs) — the only elevated surfaces of the flat
+     * style: they overlap arbitrary content, so a hairline alone would not separate them.
+     */
+    val popupShadow: Color = Color.Black.copy(alpha = if (isDark) 0.40f else 0.12f)
+
+    /** Host presets: touch ([Light], [Dark]) and dense desktop ([DesktopLight], [DesktopDark]). */
     companion object {
         val Light = HbColors()
         val Dark = HbColors(
-            brand = Color(0xFFC2B4EE),
-            primary = Color(0xFFBDB0EC),
+            brand = Color(0xFFC0AFFC),
+            primary = Color(0xFFD2C5FF),
             secondary = Color(0xFFD9B4A6),
-            background = Color(0xFF272B36),
-            surface = Color(0xFF272B36),
+            background = Color(0xFF1C2432),
+            surface = Color(0xFF273243),
             error = Color(0xFFD79BAE),
             success = Color(0xFFA4CBB9),
             warning = Color(0xFFDAC78F),
-            textPrimary = Color(0xFFF1F0F7),
-            dataViolet = Color(0xFFC4AFDF),
-            dataCyan = Color(0xFFA3C5D1),
-            shadowLight = Color(0xFF393F4F),
-            shadowDark = Color(0xFF181B23),
+            textPrimary = Color(0xFFF1F3FC),
+            dataViolet = Color(0xFFB9A9E9),
+            dataCyan = Color(0xFF9CBCCA),
             isDark = true,
         )
+        val DesktopLight = Light.copy(
+            brand = Color(0xFF7B6D9A),
+            primary = Color(0xFFE9E5EF),
+            background = Color(0xFFFFFFFF),
+            surface = Color(0xFFFFFFFF),
+            textPrimary = Color(0xFF242426),
+            dataViolet = Color(0xFFBDB4CE),
+            dataCyan = Color(0xFFC0CDD1),
+        )
+        val DesktopDark = Dark.copy(
+            brand = Color(0xFFBAAFD0),
+            primary = Color(0xFFBFB3D4),
+            background = Color(0xFF202022),
+            surface = Color(0xFF242426),
+            textPrimary = Color(0xFFEEEEF0),
+            dataViolet = Color(0xFFBDB4CE),
+            dataCyan = Color(0xFFC0CDD1),
+        )
+
+        /** Preset of a host: dense neutral surfaces on desktop, touch surfaces elsewhere. */
+        fun forHost(isDark: Boolean, isDesktop: Boolean): HbColors = when {
+            isDesktop && isDark -> DesktopDark
+            isDesktop -> DesktopLight
+            isDark -> Dark
+            else -> Light
+        }
     }
 }
 

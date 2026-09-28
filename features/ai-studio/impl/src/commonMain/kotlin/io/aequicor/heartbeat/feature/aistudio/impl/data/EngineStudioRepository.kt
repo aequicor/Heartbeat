@@ -48,8 +48,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
-import io.aequicor.heartbeat.feature.aistudio.api.StudioPermission
-import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionOption
+import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
@@ -503,7 +502,12 @@ internal class EngineStudioRepository(
         active.features.requireFeature(CancelsTurns).cancel(turn.id)
     }
 
-    override suspend fun respond(sessionId: String, requestId: String, optionId: String) {
+    override suspend fun respond(
+        sessionId: String,
+        requestId: String,
+        optionId: String,
+        answer: StudioPermissionAnswer?,
+    ) {
         val active = handlesLock.withLock { handles[sessionId] }
             ?: rejectPermission("no open native session", requestId, optionId)
         val pending = active.state.value as? ActiveSessionState.AwaitingUserAction
@@ -515,7 +519,7 @@ internal class EngineStudioRepository(
         log.i { "Responding to pending engine permission" }
         active.features.requireFeature(
             RequestsPermissions,
-        ).respond(PermissionDecision(request.turn, request.id, option.id))
+        ).respond(PermissionDecision(request.turn, request.id, option.id, answer?.toFacade()))
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
@@ -526,14 +530,7 @@ internal class EngineStudioRepository(
 
     private suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.d { "Update pending permission projection" }
-        val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { request ->
-            StudioPermission(
-                id,
-                request.id.value,
-                request.title,
-                request.options.map { StudioPermissionOption(it.id.value, it.title) },
-            )
-        }
+        val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { it.toStudio(id) }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
         val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
         val isStopFailed = isStopRequested && state is ActiveSessionState.Unavailable && state.activeTurn != null

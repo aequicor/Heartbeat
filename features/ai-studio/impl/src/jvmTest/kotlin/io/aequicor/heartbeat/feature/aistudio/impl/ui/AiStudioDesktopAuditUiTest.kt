@@ -247,4 +247,5 @@ private val auditExits = StudioExits(
     onOpenProfileSettings = {},
     onOpenConnections = {},
     onOpenResearch = {},
+    onOpenSettings = {},
 )

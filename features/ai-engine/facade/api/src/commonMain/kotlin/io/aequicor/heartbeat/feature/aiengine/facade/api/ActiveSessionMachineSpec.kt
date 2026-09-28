@@ -156,9 +156,7 @@ private fun SessionSpecBuilder.permissionState() {
         }
         on<ActiveSessionIntent.Public.Decide>(guard = {
             intent.decision.turn == state.turn.id && intent.decision.request !in state.responding &&
-                state.requests.any { request ->
-                    request.id == intent.decision.request && request.options.any { it.id == intent.decision.option }
-                }
+                state.requests.any { request -> request.accepts(intent.decision) }
         }) {
             stay { state.copy(responding = state.responding + intent.decision.request) }
             effect { ActiveSessionEffect.Decide(intent.decision) }
