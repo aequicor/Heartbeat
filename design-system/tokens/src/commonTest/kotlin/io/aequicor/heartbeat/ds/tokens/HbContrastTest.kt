@@ -66,21 +66,6 @@ class HbContrastTest {
     }
 
     @Test
-    fun `glass tint protects both text levels over pastel content`() {
-        listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
-            val backdrops = listOf(colors.background, colors.primary, colors.secondary, colors.success, colors.dataCyan)
-            backdrops.forEach { backdrop ->
-                val glass = colors.glassTint.compositeOver(backdrop)
-                assertTrue(contrastRatio(colors.textPrimary, glass) >= 4.5f)
-                assertTrue(
-                    contrastRatio(colors.textSecondary, glass) >= 4.5f,
-                    "Glass secondary text fails AA over $backdrop (dark=${colors.isDark})",
-                )
-            }
-        }
-    }
-
-    @Test
     fun `semantic text meets WCAG AA in both themes`() {
         listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             val pairs = listOf(

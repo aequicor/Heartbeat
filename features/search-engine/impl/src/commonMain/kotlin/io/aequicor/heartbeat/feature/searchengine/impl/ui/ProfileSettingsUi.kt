@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.searchengine.impl.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -36,7 +38,6 @@ import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.secrets.SecretStorageInfo
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
@@ -134,7 +135,7 @@ private fun ProfileSettingsScreen(model: SearchSettingsModel, onBack: () -> Unit
     val state by produceState(SearchSettingsState(), model) {
         model.store.collect { states.collect { value = it } }
     }
-    HbGlassScene(modifier.fillMaxSize().testTag("profile-settings")) {
+    Box(modifier.fillMaxSize().testTag("profile-settings").background(HbTheme.colors.background)) {
         HbLazyColumn(Modifier.fillMaxSize().safeDrawingPadding()) {
             item {
                 HbColumn {

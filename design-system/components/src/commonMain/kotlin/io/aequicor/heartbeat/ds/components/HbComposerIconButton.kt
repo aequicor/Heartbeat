@@ -124,7 +124,7 @@ private fun composerButtonFill(isPrimary: Boolean, enabled: Boolean): Color {
     val colors = HbTheme.colors
     return when {
         isPrimary && enabled -> colors.primary
-        !isPrimary && HbTheme.visualStyle == HbVisualStyle.Glass -> Color.Transparent
+        !isPrimary && HbTheme.visualStyle == HbVisualStyle.Flat -> Color.Transparent
         else -> colors.buttonFill
     }
 }

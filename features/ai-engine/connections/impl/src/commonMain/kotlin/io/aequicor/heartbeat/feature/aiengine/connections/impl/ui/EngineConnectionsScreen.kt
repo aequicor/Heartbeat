@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,7 +23,6 @@ import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
@@ -97,7 +98,7 @@ internal fun EngineConnectionsContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("engine-connections")) {
+    Box(modifier.fillMaxSize().testTag("engine-connections").background(HbTheme.colors.background)) {
         HbColumn(Modifier.fillMaxSize().safeDrawingPadding().padding(HbTheme.spacing.xl)) {
             SettingsHeader(onAddEngine = { onAddConnection(null) }, onBack = onBack)
             SettingsStatus(state, onIntent)

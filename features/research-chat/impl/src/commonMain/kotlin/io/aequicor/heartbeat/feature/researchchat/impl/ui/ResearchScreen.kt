@@ -27,7 +27,6 @@ import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
@@ -66,7 +65,7 @@ internal fun ResearchScreenContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("research-screen")) {
+    Box(modifier.fillMaxSize().testTag("research-screen").background(HbTheme.colors.background)) {
         HbColumn(Modifier.fillMaxSize().imePadding(), gap = HbTheme.spacing.none) {
             if (state.hasError && state.phase == ResearchPhase.Ready) ResearchError(onIntent)
             when (state.phase) {

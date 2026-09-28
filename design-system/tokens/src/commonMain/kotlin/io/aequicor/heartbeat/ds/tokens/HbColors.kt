@@ -23,8 +23,6 @@ data class HbColors(
     val textPrimary: Color = Color(0xFF18203A),
     val dataViolet: Color = Color(0xFFD9D1F6),
     val dataCyan: Color = Color(0xFFBDDFEA),
-    val shadowLight: Color = Color(0xFFFFFFFF),
-    val shadowDark: Color = Color(0xFFB7C8DB),
     val isDark: Boolean = false,
 ) {
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
@@ -78,14 +76,13 @@ data class HbColors(
     val pressedOverlay: Color = onSurface.copy(alpha = 0.09f)
 
     /** Dims content behind a modal drawer or sheet. */
-    val scrim: Color = shadowDark.copy(alpha = if (isDark) 0.72f else 0.56f)
-    val glassHighlight: Color = Color.White.copy(alpha = if (isDark) 0.16f else 0.84f)
-    val glassBorder: Color = textPrimary.copy(alpha = if (isDark) 0.14f else 0.08f)
-    val glassShadow: Color = shadowDark.copy(alpha = if (isDark) 0.28f else 0.18f)
-    val glassTint: Color = surface.copy(alpha = if (isDark) 0.84f else 0.86f)
-    val glassBackdropLavender: Color = brand.copy(alpha = 0.08f)
-    val glassBackdropBlue: Color = dataCyan.copy(alpha = if (isDark) 0.06f else 0.10f)
-    val glassBackdropPeach: Color = secondary.copy(alpha = if (isDark) 0.04f else 0.07f)
+    val scrim: Color = Color.Black.copy(alpha = if (isDark) 0.56f else 0.32f)
+
+    /**
+     * Soft drop shadow of floating popups (menus, tooltips, dialogs) — the only elevated surfaces of the flat
+     * style: they overlap arbitrary content, so a hairline alone would not separate them.
+     */
+    val popupShadow: Color = Color.Black.copy(alpha = if (isDark) 0.40f else 0.12f)
 
     /** Host presets: touch ([Light], [Dark]) and dense desktop ([DesktopLight], [DesktopDark]). */
     companion object {
@@ -102,8 +99,6 @@ data class HbColors(
             textPrimary = Color(0xFFF1F3FC),
             dataViolet = Color(0xFFB9A9E9),
             dataCyan = Color(0xFF9CBCCA),
-            shadowLight = Color(0xFF393F4F),
-            shadowDark = Color(0xFF111924),
             isDark = true,
         )
         val DesktopLight = Light.copy(
@@ -114,7 +109,6 @@ data class HbColors(
             textPrimary = Color(0xFF242426),
             dataViolet = Color(0xFFBDB4CE),
             dataCyan = Color(0xFFC0CDD1),
-            shadowDark = Color(0xFFB8B8BD),
         )
         val DesktopDark = Dark.copy(
             brand = Color(0xFFBAAFD0),
@@ -124,8 +118,6 @@ data class HbColors(
             textPrimary = Color(0xFFEEEEF0),
             dataViolet = Color(0xFFBDB4CE),
             dataCyan = Color(0xFFC0CDD1),
-            shadowLight = Color(0xFF343436),
-            shadowDark = Color(0xFF101011),
         )
 
         /** Preset of a host: dense neutral surfaces on desktop, touch surfaces elsewhere. */

@@ -299,10 +299,9 @@ private val ChatFollowStateSaver = Saver<ChatFollowState, Boolean>(
 
 @Composable
 internal fun HbTranscriptSectionHeader(section: HbChatSection, modifier: Modifier = Modifier) {
-    HbGlassPanel(
+    Box(
         // The content mask also clears this lower gutter; hidden links must not receive its taps.
         modifier = modifier.pointerInput(Unit) { detectTapGestures { } }.padding(bottom = HbTheme.spacing.m),
-        shape = HbTheme.shapes.small,
     ) {
         Box(
             modifier = Modifier.fillMaxWidth()

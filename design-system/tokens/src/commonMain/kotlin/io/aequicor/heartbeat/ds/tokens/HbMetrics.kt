@@ -93,9 +93,9 @@ data class HbDimensions(
     val composerMenuMaxWidth: Dp = 360.dp,
     val composerMenuGutter: Dp = 16.dp,
     val composerMenuOffset: Dp = 8.dp,
-    val glassBlurRadius: Dp = 16.dp,
-    val glassShadowRadius: Dp = 12.dp,
-    val glassShadowOffset: Dp = 3.dp,
+    /** Blur and vertical offset of [HbColors.popupShadow]. */
+    val popupShadowRadius: Dp = 12.dp,
+    val popupShadowOffset: Dp = 4.dp,
     val transcriptEdgeFade: Dp = 32.dp,
     /** Width of the trailing fade that replaces an ellipsis on clipped single-line text. */
     val textOverflowFade: Dp = 24.dp,

@@ -11,6 +11,7 @@ import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -39,7 +40,6 @@ import io.aequicor.heartbeat.ds.adaptive.supportedPlatformUis
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPanel
@@ -63,7 +63,7 @@ public fun UIKitSandboxApp(
     modifier: Modifier = Modifier,
     initialPlatformUi: PlatformUi = PlatformUi.Material,
     initialDarkTheme: Boolean? = false,
-    initialVisualStyle: HbVisualStyle = HbVisualStyle.Glass,
+    initialVisualStyle: HbVisualStyle = HbVisualStyle.Flat,
 ) {
     val systemLanguage = Locale.current.language
     val state = remember {
@@ -84,7 +84,7 @@ public fun UIKitSandboxApp(
         val scope = rememberCoroutineScope()
         val chat = remember(scope) { DemoChatState(scope, copy) }
         HbTheme(darkTheme = isDark, platformUi = state.platformUi, visualStyle = state.visualStyle) {
-            HbGlassScene(modifier = modifier.fillMaxSize()) {
+            Box(modifier.fillMaxSize().background(HbTheme.colors.background)) {
                 HbBoxWithConstraints(
                     modifier = Modifier.fillMaxSize()
                         .safeDrawingPadding().imePadding(),
@@ -94,7 +94,7 @@ public fun UIKitSandboxApp(
                         maxHeight < HbTheme.dimensions.compactHeightBreakpoint
                     HbColumn(modifier = Modifier.fillMaxSize(), gap = HbTheme.elevation.none) {
                         HbColumn(
-                            modifier = Modifier.fillMaxWidth().background(HbTheme.colors.glassTint)
+                            modifier = Modifier.fillMaxWidth().background(HbTheme.colors.surface)
                                 .testTag("sandbox-header"),
                             gap = HbTheme.elevation.none,
                         ) {
@@ -195,7 +195,7 @@ private fun VisualStyleControl(state: SandboxState, modifier: Modifier = Modifie
     HbButton(
         text = hbString(if (isSoft) HbString.SoftUi else HbString.NativeUi),
         onClick = {
-            state.selectVisualStyle(if (isSoft) HbVisualStyle.Platform else HbVisualStyle.Glass)
+            state.selectVisualStyle(if (isSoft) HbVisualStyle.Platform else HbVisualStyle.Flat)
         },
         modifier = modifier,
         style = HbButtonStyle.Quiet,

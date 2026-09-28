@@ -31,7 +31,6 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
@@ -75,7 +74,7 @@ internal fun AiStudioContent(
     modifier: Modifier = Modifier,
     chatArea: ComposableComponent? = null,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("ai-studio")) {
+    Box(modifier.fillMaxSize().testTag("ai-studio").background(HbTheme.colors.background)) {
         Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
             Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                 when (state.phase) {

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,7 +24,6 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
@@ -131,7 +131,7 @@ internal fun ConnectWizardContent(
     onIntent: (ConnectWizardScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("connect-wizard")) {
+    Box(modifier.fillMaxSize().testTag("connect-wizard").background(HbTheme.colors.background)) {
         HbColumn(Modifier.fillMaxSize().safeDrawingPadding().padding(HbTheme.spacing.xl)) {
             WizardHeader(state)
             Box(Modifier.weight(1f).fillMaxWidth()) {

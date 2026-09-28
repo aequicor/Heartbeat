@@ -123,7 +123,7 @@ class HbStickyHeaderVisualTest {
         val image = captureToImage().toAwtImage()
         saveStickyHeaderPreview(if (isDark) "dark" else "light", image)
         val background = (if (isDark) HbColors.DesktopDark else HbColors.DesktopLight).background.toArgb()
-        assertShadowMatchesReference(image, bounds, background)
+        assertNoShadowBelowHeader(image, bounds, background)
         assertRoundedEdgeMatchesReference(image, bounds)
     }
 }
@@ -137,8 +137,7 @@ private fun StickyHeaderComparison(
     referenceBounds: Rect?,
 ) {
     CompositionLocalProvider(LocalDensity provides Density(1f)) {
-        HbTheme(darkTheme = isDark, visualStyle = HbVisualStyle.Glass, motion = HbMotion(isReducedMotion = true)) {
-            // No Haze scene: only alpha compositing and the actual header's shadow are under test.
+        HbTheme(darkTheme = isDark, visualStyle = HbVisualStyle.Flat, motion = HbMotion(isReducedMotion = true)) {
             Box(modifier = Modifier.fillMaxSize().background(HbTheme.colors.background)) {
                 HbChatTranscript(
                     timeline = timeline,
@@ -157,7 +156,7 @@ private fun StickyHeaderComparison(
     }
 }
 
-private fun assertShadowMatchesReference(image: BufferedImage, bounds: Rect, background: Int) {
+private fun assertNoShadowBelowHeader(image: BufferedImage, bounds: Rect, background: Int) {
     val left = bounds.right.roundToInt() - 48
     val right = bounds.right.roundToInt() - 12
     val top = bounds.bottom.roundToInt()
@@ -170,10 +169,11 @@ private fun assertShadowMatchesReference(image: BufferedImage, bounds: Rect, bac
             referenceEnergy += colorDistance(image.getRGB(x + 480, y), background)
         }
     }
-    assertTrue(referenceEnergy > 30, "The reference must contain a visible shadow, measured $referenceEnergy")
+    // The flat header casts no shadow; below it both copies show the plain backdrop.
+    assertTrue(referenceEnergy <= FLAT_EDGE_ENERGY, "The flat header must cast no shadow, measured $referenceEnergy")
     assertTrue(
-        actualEnergy >= referenceEnergy * 0.9 && actualEnergy <= referenceEnergy * 1.1,
-        "Pinned header shadow must survive the fade boundary: actual=$actualEnergy, reference=$referenceEnergy",
+        actualEnergy <= FLAT_EDGE_ENERGY,
+        "Pinned header must stay flat at the fade boundary: actual=$actualEnergy, reference=$referenceEnergy",
     )
 }
 
@@ -204,3 +204,5 @@ private fun saveStickyHeaderPreview(theme: String, image: BufferedImage) {
     check(directory.isDirectory || directory.mkdirs()) { "Cannot create preview directory" }
     check(ImageIO.write(image, "png", File(directory, "sticky-header-$theme.png"))) { "PNG encoder is unavailable" }
 }
+
+private const val FLAT_EDGE_ENERGY = 30L

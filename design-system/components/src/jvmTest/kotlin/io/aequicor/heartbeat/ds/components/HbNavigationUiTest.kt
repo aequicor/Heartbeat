@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -57,7 +58,7 @@ class HbNavigationUiTest {
             var clicks = 0
             setContent {
                 HbTheme {
-                    HbGlassScene {
+                    Box(Modifier.background(HbTheme.colors.background)) {
                         HbIconButton(HbIcons.Home, "Home", onClick = { clicks++ }, isSelected = true)
                         HbIconButton(
                             HbIcons.Archive,
@@ -82,7 +83,7 @@ class HbNavigationUiTest {
             var selected by mutableStateOf("")
             setContent {
                 HbTheme {
-                    HbGlassScene {
+                    Box(Modifier.background(HbTheme.colors.background)) {
                         Column {
                             HbNavigationItem(
                                 label = "First",
@@ -109,7 +110,7 @@ class HbNavigationUiTest {
             var isSelected by mutableStateOf(false)
             setContent {
                 HbTheme {
-                    HbGlassScene {
+                    Box(Modifier.background(HbTheme.colors.background)) {
                         HbNavigationItem(
                             "Session",
                             onClick = { isSelected = true },

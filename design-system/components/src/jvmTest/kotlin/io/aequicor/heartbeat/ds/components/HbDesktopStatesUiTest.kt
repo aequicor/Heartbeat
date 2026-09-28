@@ -91,7 +91,7 @@ class HbDesktopStatesUiTest {
 
     @Test
     fun `fields expose active focus for a mouse in every kit and theme`() {
-        focusCases().filter { it.style == HbVisualStyle.Glass }.forEach { case ->
+        focusCases().filter { it.style == HbVisualStyle.Flat }.forEach { case ->
             runSkikoComposeUiTest(size = Size(420f, 260f)) {
                 setContent { FocusHost(case) }
                 val field = onNodeWithTag("field")
@@ -115,7 +115,7 @@ class HbDesktopStatesUiTest {
     fun `former soft style leaves no shadow outside controls or fields`() {
         listOf(false, true).forEach { isDark ->
             runSkikoComposeUiTest(size = Size(420f, 260f)) {
-                val case = FocusCase(PlatformUi.MacOs, isDark, HbVisualStyle.Neumorphic)
+                val case = FocusCase(PlatformUi.MacOs, isDark, HbVisualStyle.Flat)
                 setContent { FocusHost(case) }
                 val image = captureToImage().toAwtImage()
                 listOf("button", "field").forEach { tag ->
@@ -135,7 +135,7 @@ private data class FocusCase(val platform: PlatformUi, val isDark: Boolean, val 
 
 private fun focusCases(): List<FocusCase> = PlatformUi.entries.flatMap { platform ->
     listOf(false, true).flatMap { isDark ->
-        listOf(HbVisualStyle.Glass, HbVisualStyle.Platform).map { FocusCase(platform, isDark, it) }
+        listOf(HbVisualStyle.Flat, HbVisualStyle.Platform).map { FocusCase(platform, isDark, it) }
     }
 }
 

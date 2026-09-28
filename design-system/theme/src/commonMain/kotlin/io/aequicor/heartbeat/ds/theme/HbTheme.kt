@@ -16,7 +16,6 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.ds.tokens.HbElevation
 import io.aequicor.heartbeat.ds.tokens.HbGradients
 import io.aequicor.heartbeat.ds.tokens.HbMotion
-import io.aequicor.heartbeat.ds.tokens.HbShadows
 import io.aequicor.heartbeat.ds.tokens.HbShapes
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
 import io.aequicor.heartbeat.ds.tokens.HbSurfaceColors
@@ -32,15 +31,17 @@ private val LocalHbElevation = staticCompositionLocalOf { HbElevation() }
 private val LocalHbDimensions = staticCompositionLocalOf { defaultHbDimensions() }
 private val LocalHbSurfaces = staticCompositionLocalOf { HbSurfaceColors.Light }
 private val LocalHbMotion = staticCompositionLocalOf { HbMotion() }
-private val LocalHbShadows = staticCompositionLocalOf { HbShadows.Light }
-private val LocalHbVisualStyle = staticCompositionLocalOf { HbVisualStyle.Glass }
+private val LocalHbVisualStyle = staticCompositionLocalOf { HbVisualStyle.Flat }
 private val log = Log.tag("HbTheme")
 private val fontLog = Log.tag("HbHostFont")
 
-/** A soft shared visual language or the operating system's native component family. */
+/**
+ * [Flat] is the one visual language of the application: the dense studio style drawn with Compose Foundation —
+ * opaque surfaces, quiet hover/pressed/selected fills without outlines, a keyboard-only focus ring and no glass,
+ * blur or neumorphic shadows. [Platform] renders controls with the native kit of the host for previews.
+ */
 enum class HbVisualStyle {
-    Glass,
-    Neumorphic,
+    Flat,
     Platform,
 }
 
@@ -97,11 +98,6 @@ object HbTheme {
         @ReadOnlyComposable
         get() = LocalHbMotion.current
 
-    val shadows: HbShadows
-        @Composable
-        @ReadOnlyComposable
-        get() = LocalHbShadows.current
-
     val visualStyle: HbVisualStyle
         @Composable
         @ReadOnlyComposable
@@ -135,14 +131,13 @@ fun rememberHostTypography(isDesktop: Boolean): HbTypography {
 fun HbTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     platformUi: PlatformUi = LocalPlatformUi.current,
-    visualStyle: HbVisualStyle = HbVisualStyle.Glass,
+    visualStyle: HbVisualStyle = HbVisualStyle.Flat,
     dimensions: HbDimensions = defaultHbDimensions(),
     typography: HbTypography = rememberHostTypography(dimensions.isDesktop),
     spacing: HbSpacing = HbSpacing(),
     shapes: HbShapes = if (dimensions.isDesktop) HbShapes.Desktop else HbShapes.Mobile,
     elevation: HbElevation = HbElevation(),
     motion: HbMotion = HbMotion(),
-    shadows: HbShadows = if (darkTheme) HbShadows.Dark else HbShadows.Light,
     content: @Composable () -> Unit,
 ) {
     val colors = HbColors.forHost(darkTheme, dimensions.isDesktop)
@@ -161,7 +156,6 @@ fun HbTheme(
         LocalHbDimensions provides dimensions,
         LocalHbSurfaces provides HbSurfaceColors.forHost(darkTheme, dimensions.isDesktop),
         LocalHbMotion provides motion,
-        LocalHbShadows provides shadows,
         LocalHbVisualStyle provides visualStyle,
         LocalPlatformUi provides platformUi,
     ) {

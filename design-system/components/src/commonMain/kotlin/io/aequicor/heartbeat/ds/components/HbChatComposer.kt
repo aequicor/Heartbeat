@@ -59,7 +59,7 @@ public enum class HbComposerLayout { Stacked, Inline, Panel }
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
  * independently of the send action. Menus in either slot open above the complete editor.
  * [layout] keeps the conventional stacked editor by default; [HbComposerLayout.Inline] pairs the
- * editor with its primary action in a rounded glass surface and places secondary controls below.
+ * editor with its primary action in one rounded flat surface and places secondary controls below.
  * [HbComposerLayout.Panel] keeps the editor above one integrated toolbar at every window width.
  */
 @Composable
@@ -187,34 +187,30 @@ private fun ComposerLayout(
         }
     }
     when (layout) {
-        HbComposerLayout.Stacked -> HbGlassPanel {
-            HbCard(
-                modifier = Modifier.fillMaxWidth().hbFocusOutline(isFocused, HbTheme.shapes.large, isTextInput = true),
-                contentPadding = HbTheme.spacing.l,
-            ) {
-                movableEditor(Modifier.fillMaxWidth())
-                movableToolbar(Modifier, HbComposerLayout.Stacked)
-            }
+        HbComposerLayout.Stacked -> HbCard(
+            modifier = Modifier.fillMaxWidth().hbFocusOutline(isFocused, HbTheme.shapes.large, isTextInput = true),
+            contentPadding = HbTheme.spacing.l,
+        ) {
+            movableEditor(Modifier.fillMaxWidth())
+            movableToolbar(Modifier, HbComposerLayout.Stacked)
         }
 
         HbComposerLayout.Inline -> {
             val shape = RoundedCornerShape(HbTheme.dimensions.cornerRadius)
             HbColumn(gap = HbTheme.spacing.xxs) {
-                HbGlassPanel(shape = shape) {
-                    HbPanel(
-                        modifier = Modifier.fillMaxWidth().hbFocusOutline(isFocused, shape, isTextInput = true),
-                        shape = shape,
+                HbPanel(
+                    modifier = Modifier.fillMaxWidth().hbFocusOutline(isFocused, shape, isTextInput = true),
+                    shape = shape,
+                ) {
+                    HbRow(
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
+                        gap = HbTheme.spacing.s,
                     ) {
-                        HbRow(
-                            modifier = Modifier.fillMaxWidth()
-                                .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
-                            gap = HbTheme.spacing.s,
-                        ) {
-                            movableEditor(
-                                Modifier.weight(1f).padding(start = HbTheme.spacing.m, top = HbTheme.spacing.s),
-                            )
-                            movableAction()
-                        }
+                        movableEditor(
+                            Modifier.weight(1f).padding(start = HbTheme.spacing.m, top = HbTheme.spacing.s),
+                        )
+                        movableAction()
                     }
                 }
                 movableToolbar(Modifier.padding(horizontal = HbTheme.spacing.m), HbComposerLayout.Inline)

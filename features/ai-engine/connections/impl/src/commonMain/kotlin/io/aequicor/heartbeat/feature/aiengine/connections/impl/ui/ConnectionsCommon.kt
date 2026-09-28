@@ -56,7 +56,7 @@ internal fun SelectableRow(
     HbPanel(
         modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget).clip(shape)
             .selectable(selected = isSelected, enabled = enabled, role = Role.RadioButton, onClick = onClick),
-        background = if (isSelected) HbTheme.colors.accentMuted else HbTheme.colors.glassTint,
+        background = if (isSelected) HbTheme.colors.accentMuted else HbTheme.colors.surface,
         shape = shape,
     ) {
         HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.xs, content = content)

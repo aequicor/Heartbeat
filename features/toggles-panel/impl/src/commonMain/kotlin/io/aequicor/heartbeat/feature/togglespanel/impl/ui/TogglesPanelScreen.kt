@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.togglespanel.impl.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,7 +20,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
-import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbSwitch
 import io.aequicor.heartbeat.ds.components.HbText
@@ -71,7 +72,7 @@ internal fun TogglesPanelContent(
     val groups = remember(state.rows, state.query, introDescription) {
         state.rows.filter { row -> matchesQuery(row, state.query.trim(), introDescription) }.groupBy { it.owner }
     }
-    HbGlassScene(modifier.fillMaxSize().testTag("toggles-panel")) {
+    Box(modifier.fillMaxSize().testTag("toggles-panel").background(HbTheme.colors.background)) {
         HbLazyColumn(Modifier.fillMaxSize().safeDrawingPadding().testTag("flags-list")) {
             item(key = "header") { TogglesHeader(state, onIntent, onBack) }
             panelStatus(state, groups.isEmpty(), onIntent)

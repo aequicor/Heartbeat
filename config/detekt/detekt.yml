@@ -307,4 +307,4 @@ Compose:
   CompositionLocalAllowlist:
     active: true
     # LocalNav*: core:navigation:compose passes host-wide rendering context (animations, shared transition scope) to nested hosts
-    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbShadows,LocalHbVisualStyle,LocalHbLocale,LocalGlassBackdrop,LocalComposerAnchor,LocalHbWindowScope,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes
