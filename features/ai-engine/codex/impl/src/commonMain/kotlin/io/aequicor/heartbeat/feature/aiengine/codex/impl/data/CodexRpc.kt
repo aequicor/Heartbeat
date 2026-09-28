@@ -38,7 +38,13 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
     }
 
     suspend fun initialize() {
-        request("initialize", json("clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json())))
+        request(
+            "initialize",
+            json(
+                "clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json()),
+                "capabilities" to json("experimentalApi" to JsonPrimitive(true)),
+            ),
+        )
         wire.write(json("method" to "initialized".json()))
     }
 

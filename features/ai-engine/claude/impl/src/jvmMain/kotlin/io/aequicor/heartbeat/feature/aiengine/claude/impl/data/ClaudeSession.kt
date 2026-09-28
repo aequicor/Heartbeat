@@ -157,7 +157,7 @@ internal class ClaudeSession(
         try {
             log.i { "Submitting Claude prompt" }
             val exit = transport.run(
-                claudeArguments(target.model, ref.nativeId, hasNativeSession),
+                claudeArguments(target.model, ref.nativeId, hasNativeSession, search = true),
                 submission.text,
                 route.workspace,
             ) {

@@ -52,6 +52,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -72,6 +73,7 @@ internal class DefaultKoogEngineAdapter(
     private val access: KoogAccess,
     private val records: KoogSessionRecords,
     private val cache: KoogSessionCache,
+    private val search: SearchEngine,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : KoogEngineAdapter {
     private val log = Log.tag("KoogEngine")
@@ -135,7 +137,7 @@ internal class DefaultKoogEngineAdapter(
             current?.close()
             access.checkEnabled()
             log.i { "Creating profile runtime" }
-            KoogRuntime(identity, access, records, profile.coroutineScope, cache).also {
+            KoogRuntime(identity, access, records, profile.coroutineScope, cache, search).also {
                 runtimes[identity.source] = it
             }
         }

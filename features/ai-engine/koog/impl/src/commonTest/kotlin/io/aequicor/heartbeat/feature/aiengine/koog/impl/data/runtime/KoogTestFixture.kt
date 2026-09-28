@@ -42,6 +42,9 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
+import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.Job
@@ -89,7 +92,13 @@ internal class KoogTestFixture(test: TestScope) {
             }
         },
     )
-    val adapter = DefaultKoogEngineAdapter(access, records, KoogSessionCache(profile), profile)
+    var searchResults = emptyList<SearchResult>()
+    val search = object : SearchEngine {
+        override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
+            searchResults
+        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
+    }
+    val adapter = DefaultKoogEngineAdapter(access, records, KoogSessionCache(profile), search, profile)
     val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)
 
     suspend fun runtime(): KoogRuntime = adapter.createRuntime(identity) as KoogRuntime

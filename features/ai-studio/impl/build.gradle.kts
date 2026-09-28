@@ -7,6 +7,7 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.core.di.ext)

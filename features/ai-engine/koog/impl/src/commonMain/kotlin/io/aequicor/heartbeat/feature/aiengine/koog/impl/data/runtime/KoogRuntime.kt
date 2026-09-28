@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
@@ -47,6 +48,7 @@ internal class KoogRuntime(
     private val records: KoogSessionRecords,
     private val scope: CoroutineScope,
     private val cache: KoogSessionCache,
+    private val search: SearchEngine,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -135,7 +137,7 @@ internal class KoogRuntime(
         snapshot.history.coverage = record.coverage
         snapshot.update(record.summary)
         cache.pin(record.summary.ref)
-        return KoogNativeSession(record, identity, access, records, scope, snapshot).also {
+        return KoogNativeSession(record, identity, access, records, scope, snapshot, search).also {
             it.onIdle = ::release
             sessions[record.summary.ref] = it
         }

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMod
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_profile_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_search
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sidebar_hide
@@ -65,6 +66,12 @@ internal fun StudioRail(
             contentDescription = stringResource(Res.string.rail_toggles),
             onClick = exits.onOpenToggles,
             modifier = Modifier.testTag("rail-toggles"),
+        )
+        HbIconButton(
+            icon = HbIcons.Settings,
+            contentDescription = stringResource(Res.string.rail_profile_settings),
+            onClick = exits.onOpenProfileSettings,
+            modifier = Modifier.testTag("rail-profile-settings"),
         )
     }
     val exit: @Composable () -> Unit = {

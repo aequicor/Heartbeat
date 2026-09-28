@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -15,9 +16,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
+import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -33,6 +36,23 @@ import kotlin.test.assertNotSame
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogRuntimeTest {
+    @Test
+    fun searchToolCallContinuesGenerationAndIsRecorded() = runTest {
+        val f = KoogTestFixture(this)
+        f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-1", "web_search", """{"query":"topic"}""", 0))
+        f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        f.executor.complete("Answer")
+        runCurrent()
+        assertEquals(2, f.executor.prompts.size)
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val items = session.features.require(SessionHistory).page().items
+        assertEquals(1, items.filterIsInstance<SessionItem.ToolCall>().size)
+        assertEquals(1, items.filterIsInstance<SessionItem.ToolResult>().size)
+    }
+
     @Test
     fun acceptedTurnOutlivesLeaseAndPreservesConversation() = runTest {
         val f = KoogTestFixture(this)

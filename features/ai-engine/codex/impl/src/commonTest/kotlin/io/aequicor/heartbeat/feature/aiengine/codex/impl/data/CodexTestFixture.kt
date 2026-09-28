@@ -27,12 +27,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.channels.Channel
@@ -89,7 +93,14 @@ internal class FakeWire : CodexWire {
     }
 }
 
-internal class Fixture(val test: TestScope) {
+internal class Fixture(
+    val test: TestScope,
+    val search: SearchEngine = object : SearchEngine {
+        override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
+            emptyList()
+        override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
+    },
+) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
         override val main = dispatcher
@@ -126,6 +137,7 @@ internal class Fixture(val test: TestScope) {
                     test.backgroundScope,
                 )
             },
+            search,
             profile,
         ),
     )

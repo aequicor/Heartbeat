@@ -310,10 +310,38 @@ internal class CodexSession(
 
             "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message, turn)
 
+            "item/tool/call" -> dynamicTool(message, turn)
+
             "serverRequest/resolved" -> resolved(params, turn)
 
             else -> if (message["id"] != null) rpc.reject(checkNotNull(message["id"]))
         }
+    }
+
+    private suspend fun dynamicTool(message: JsonObject, turn: Turn?) {
+        val id = message["id"] ?: protocolFailure()
+        val params = message.obj("params")
+        if (turn == null || params.text("turnId") != nativeTurn) {
+            rpc.respond(
+                id,
+                json(
+                    "success" to JsonPrimitive(false),
+                    "contentItems" to JsonArray(
+                        listOf(json("type" to "inputText".json(), "text" to "TurnUnavailable".json())),
+                    ),
+                ),
+            )
+            return
+        }
+        accept(turn)
+        rpc.respond(
+            id,
+            executeSearchTool(
+                runtime.host.search,
+                params.text("tool").orEmpty(),
+                params["arguments"] ?: JsonObject(emptyMap()),
+            ),
+        )
     }
 
     private fun correlate(params: JsonObject, turn: Turn?): TurnId? {

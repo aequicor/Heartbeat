@@ -22,6 +22,6 @@ internal fun KoogProvider.textModel(id: String): LLModel = LLModel(
     id = id,
     capabilities = buildList {
         add(LLMCapability.Completion)
-        if (this@textModel == KoogProvider.Anthropic) add(LLMCapability.Tools)
+        add(LLMCapability.Tools)
     },
 )

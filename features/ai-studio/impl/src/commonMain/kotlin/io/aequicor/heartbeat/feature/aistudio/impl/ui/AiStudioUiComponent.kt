@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStud
 internal class AiStudioUiComponent(private val component: AiStudioComponent) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        val exits = remember(component) { StudioExits(component::close, component::openToggles) }
+        val exits = remember(component) {
+            StudioExits(component::close, component::openToggles, component::openProfileSettings)
+        }
         AiStudioScreen(component.model, exits, modifier)
     }
 }

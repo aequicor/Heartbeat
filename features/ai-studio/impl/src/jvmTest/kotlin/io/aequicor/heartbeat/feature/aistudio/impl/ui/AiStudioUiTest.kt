@@ -48,7 +48,16 @@ class AiStudioUiTest {
     private val seed = studioSeed(now)
     private val workspace = AiStudioScreenState(phase = StudioPhase.Ready)
         .withWorkspace(StudioWorkspace(seed.projects, seed.sessions))
-    private val exits = StudioExits(onBack = {}, onOpenToggles = {})
+    private val exits = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = {})
+
+    @Test
+    fun `rail opens profile settings`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        var opened = false
+        val actions = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = { opened = true })
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, actions) } }
+        onNodeWithTag("rail-profile-settings").performClick()
+        assertTrue(opened)
+    }
 
     @Test
     fun `wide workspace shows the rail, grouped sessions and the open transcript`() =

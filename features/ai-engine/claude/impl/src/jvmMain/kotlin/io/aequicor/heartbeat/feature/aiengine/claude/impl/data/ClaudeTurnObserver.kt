@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -52,6 +54,8 @@ internal class ClaudeTurnObserver(
 
             "assistant" -> assistant(message)
 
+            "user" -> toolResults(message)
+
             "result" -> finish(message)
             // Unknown SDK events are not interpreted as success, authentication errors or permission grants.
         }
@@ -71,8 +75,40 @@ internal class ClaudeTurnObserver(
                 history.item(
                     turn.id,
                 ) { SessionItem.Message(it, MessageRole.Assistant, listOf(ContentPart.Text(value))) }
+            } else if (part.text("type") == "tool_use") {
+                val call = part.text("id") ?: protocolFailure()
+                history.item(turn.id) {
+                    SessionItem.ToolCall(
+                        it,
+                        ToolCallId(call),
+                        part.text("name").orEmpty(),
+                        part["input"]?.toString().orEmpty(),
+                        ToolCallStatus.Running,
+                    )
+                }
             } else {
                 history.item(turn.id) { SessionItem.UnsupportedItem(it, "claude.content") }
+            }
+        }
+    }
+
+    private fun toolResults(message: JsonObject) {
+        val body = message["message"] as? JsonObject ?: return
+        val content = body["content"] as? JsonArray ?: return
+        for (entry in content) {
+            val part = entry as? JsonObject
+            val call = part?.takeIf { it.text("type") == "tool_result" }?.text("tool_use_id")
+            if (part != null && call != null) {
+                val text = part.text("content") ?: (part["content"] as? JsonArray).orEmpty()
+                    .mapNotNull { (it as? JsonObject)?.text("text") }.joinToString("\n")
+                history.item(turn.id) {
+                    SessionItem.ToolResult(
+                        it,
+                        ToolCallId(call),
+                        listOf(ContentPart.Text(text)),
+                        if (part.text("is_error") == "true") EngineFailure.Unknown() else null,
+                    )
+                }
             }
         }
     }

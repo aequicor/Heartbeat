@@ -7,6 +7,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.koog.api)
+            implementation(projects.features.searchEngine.api)
             implementation(projects.core.common)
             implementation(projects.core.di.api)
             implementation(projects.core.logging)

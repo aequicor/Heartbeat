@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -31,6 +32,7 @@ import java.util.HexFormat
 internal class PiProcessLauncher(
     private val dispatchers: DispatcherProvider,
     private val secrets: SecretStore,
+    private val searchBridge: SearchBridge,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
 ) {
@@ -72,21 +74,20 @@ internal class PiProcessLauncher(
             "read,bash,edit,write"
         }
         val approval = agentDir.resolve(APPROVAL_EXTENSION)
-        val command = listOf(
-            executable.toString(), "--mode", "rpc", "--provider", provider.id,
-            // Only the bundled approval gate loads; discovered and configured extensions stay disabled.
-            "--session-dir", sessionDir.toString(), "--no-extensions", "-e", approval.toString(), "--no-skills",
-            // --no-approve refuses project-local trust-gated resources; it is not tool-call approval.
-            "--no-prompt-templates", "--no-context-files", "--no-themes", "--no-approve", "--tools", tools,
-        )
+        val searchExtension = agentDir.resolve(SEARCH_EXTENSION)
+        val command = piCommand(executable, provider.id, sessionDir, listOf(approval, searchExtension), tools)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         environment.keys.retainAll(SAFE_ENVIRONMENT)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
+        val endpoint = searchBridge.endpoint()
+        environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
+        environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
         var process: Process? = null
         try {
             installApprovalExtension(approval)
+            installExtension(SEARCH_EXTENSION, searchExtension)
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting bundled Pi process" }
             val started = builder.start()
@@ -110,7 +111,11 @@ internal class PiProcessLauncher(
     }
 
     private fun installApprovalExtension(target: Path) {
-        val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$APPROVAL_EXTENSION")
+        installExtension(APPROVAL_EXTENSION, target)
+    }
+
+    private fun installExtension(name: String, target: Path) {
+        val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$name")
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         source.use { Files.copy(it, target) }
     }
@@ -131,6 +136,7 @@ internal class PiProcessLauncher(
 
     private companion object {
         const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
+        const val SEARCH_EXTENSION = "heartbeat-search.ts"
         val SAFE_ENVIRONMENT = setOf(
             "PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "ComSpec",
             "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PATHEXT",
@@ -140,3 +146,28 @@ internal class PiProcessLauncher(
 
 internal fun fingerprint(value: String): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
+
+internal fun piCommand(
+    executable: Path,
+    provider: String,
+    sessionDir: Path,
+    extensions: List<Path>,
+    tools: String,
+): List<String> = listOf(
+    executable.toString(),
+    "--mode",
+    "rpc",
+    "--provider",
+    provider,
+    "--session-dir",
+    sessionDir.toString(),
+    "--no-extensions",
+) + extensions.flatMap { listOf("-e", it.toString()) } + listOf(
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--no-themes",
+    "--no-approve",
+    "--tools",
+    tools,
+)

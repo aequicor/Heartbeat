@@ -223,6 +223,7 @@ internal class CodexRuntime(
             put("approvalPolicy", APPROVAL_POLICY)
             put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
+            if (nativeId == null) put("dynamicTools", searchToolSpecs())
             if (nativeId != null) put("threadId", nativeId)
         }
     }

@@ -48,8 +48,12 @@ data class RootStart(
  * route) or that arrives while loading stays pending — also across process death — and is applied when a tree is
  * ready. Main thread only. Created once per platform root (`Activity`, desktop window, `UIViewController`).
  */
-class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph, private val start: RootStart) :
-    ComponentContext by context {
+class HeartbeatRoot(
+    context: ComponentContext,
+    private val graph: HeartbeatGraph,
+    private val start: RootStart,
+    private val localProfile: ProfileId? = null,
+) : ComponentContext by context {
 
     private val log = Log.tag("NAV")
     private val navigation = SlotNavigation<RootConfig>()
@@ -80,12 +84,22 @@ class HeartbeatRoot(context: ComponentContext, private val graph: HeartbeatGraph
     }
 
     private suspend fun restoreAndFollowSessions() {
-        try {
+        val restored = try {
             graph.profileSessions.restore()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.e(e) { "root: profile restore failed, continuing as guest" }
+            log.e(e) { "root: profile restore failed" }
+            null
+        }
+        if (restored == null && localProfile != null) {
+            try {
+                graph.profileSessions.open(localProfile)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.e(e) { "root: local profile could not be opened" }
+            }
         }
         graph.profileSessions.active.collect(::show)
     }

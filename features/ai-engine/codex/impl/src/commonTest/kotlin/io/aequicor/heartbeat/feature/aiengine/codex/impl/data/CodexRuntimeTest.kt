@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -18,12 +19,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
@@ -35,6 +40,35 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class CodexRuntimeTest {
+    @Test
+    fun `new threads register search tools and answer dynamic calls`() = runTest {
+        val fixture = Fixture(
+            this,
+            object : SearchEngine {
+                override suspend fun search(query: String, count: Int, native: EngineFeatures?) =
+                    listOf(SearchResult("https://example.com", "Example", "Snippet"))
+                override suspend fun fetch(url: String, native: EngineFeatures?) =
+                    ResourceContent(url, "Example", "Page")
+            },
+        )
+        val session = fixture.open()
+        val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+        val tools = params["dynamicTools"] as JsonArray
+        assertEquals(setOf("web_search", "web_fetch"), tools.map { (it as JsonObject).text("name") }.toSet())
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event(
+            "item/tool/call",
+            "turnId" to "native-turn".json(),
+            "tool" to "web_search".json(),
+            "arguments" to json("query" to "topic".json()),
+            id = JsonPrimitive(88),
+        )
+        runCurrent()
+        val response = fixture.wire.written.last { it["id"] == JsonPrimitive(88) }.obj("result")
+        assertEquals("true", response["success"].toString())
+        assertTrue(response.toString().contains("https://example.com"))
+    }
+
     @Test
     fun `send waits for acceptance and close only releases its lease`() = runTest {
         val fixture = Fixture(this)

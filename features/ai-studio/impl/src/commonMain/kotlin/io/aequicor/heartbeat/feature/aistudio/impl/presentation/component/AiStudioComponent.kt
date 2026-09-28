@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.navigation.NavTarget
 import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
+import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
 
 /** Lifecycle-bound navigation component rendering the feature screen. */
@@ -25,6 +26,12 @@ class AiStudioComponent(
     /** Opens the feature toggles panel above the studio; the studio keeps its state underneath. */
     fun openToggles() = navigator.navigate(
         TogglesPanelRoute,
+        NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
+    )
+
+    /** Opens profile-owned search provider settings. */
+    fun openProfileSettings() = navigator.navigate(
+        ProfileSettingsRoute,
         NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
     )
 
