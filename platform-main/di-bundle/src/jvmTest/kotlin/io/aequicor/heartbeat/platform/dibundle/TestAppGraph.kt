@@ -28,6 +28,8 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.impl.SecretsConfig
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpClientFactory
+import io.aequicor.heartbeat.feature.aiengine.acpinterface.api.AcpStdioTransportFactory
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import kotlinx.coroutines.yield
@@ -41,6 +43,8 @@ import java.nio.file.Files
  */
 @DependencyGraph(AppScope::class)
 interface TestAppGraph : HeartbeatGraph {
+    val acpClients: AcpClientFactory
+    val acpStdio: AcpStdioTransportFactory
     val scopes: ScopeFactory
 
     @ForScope(AppScope::class)

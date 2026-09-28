@@ -12,6 +12,7 @@ kotlin {
             api(projects.features.aiEngine.koog.api)
             implementation(projects.features.aiEngine.koog.impl)
             api(projects.core.common)
+            implementation(projects.features.aiEngine.acpInterface.impl)
             implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
@@ -38,6 +39,7 @@ kotlin {
             implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
+            implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
