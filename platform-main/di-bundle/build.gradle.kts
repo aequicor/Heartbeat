@@ -9,9 +9,13 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.features.aiEngine.koog.api)
+            implementation(projects.features.aiEngine.koog.impl)
             api(projects.features.aiEngine.claude.api)
             implementation(projects.features.aiEngine.claude.impl)
             api(projects.core.common)
+            implementation(projects.features.aiEngine.acpInterface.impl)
+            implementation(projects.features.aiEngine.codex.impl)
             api(projects.features.welcome.api)
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
@@ -37,6 +41,8 @@ kotlin {
             implementation(projects.core.featureToggles.impl)
         }
         jvmTest.dependencies {
+            implementation(projects.features.aiEngine.acpInterface.api)
+            implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.aiSessionEngineTransfer.api)
