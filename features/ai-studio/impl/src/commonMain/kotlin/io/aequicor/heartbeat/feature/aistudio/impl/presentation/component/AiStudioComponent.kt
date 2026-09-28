@@ -30,6 +30,9 @@ class AiStudioComponent(
     /** Whether the engine connection settings are offered. */
     val showsConnections: Flow<Boolean> = entries.showsConnections
 
+    /** Whether the profile search settings are offered. */
+    val showsProfileSettings: Flow<Boolean> = entries.showsProfileSettings
+
     /** Closes this navigation entry. */
     fun close() = navigator.close()
 
@@ -40,10 +43,10 @@ class AiStudioComponent(
     )
 
     /** Opens profile-owned search provider settings. */
-    fun openProfileSettings() = navigator.navigate(
-        ProfileSettingsRoute,
-        NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade),
-    )
+    fun openProfileSettings() {
+        log.i { "open profile settings" }
+        navigator.navigate(ProfileSettingsRoute, NavOptions(LaunchMode.SingleTop, NavTarget.Root, NavTransition.Fade))
+    }
 
     /** Opens the engine × connection × model settings of the active profile above the studio. */
     fun openConnections() {

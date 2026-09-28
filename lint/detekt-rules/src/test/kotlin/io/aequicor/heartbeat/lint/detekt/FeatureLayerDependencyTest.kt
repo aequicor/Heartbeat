@@ -10,7 +10,7 @@ class FeatureLayerDependencyTest {
     private val rule = FeatureLayerDependency(Config.empty)
 
     @Test
-    fun `search service settings UI may display its own contract values`() {
+    fun `service contract feature UI may display only its own contract values`() {
         assertEquals(
             0,
             rule.lint(
@@ -25,6 +25,14 @@ class FeatureLayerDependencyTest {
                     "import io.aequicor.heartbeat.feature.chat.api.ChatIntent",
             ).size,
         )
+        assertEquals(
+            1,
+            rule.lint(
+                "package io.aequicor.heartbeat.feature.searchengine.impl.ui\n" +
+                    "import io.aequicor.heartbeat.feature.chat.api.ChatIntent",
+            ).size,
+        )
+        assertTrue("searchengine" in FeatureLayer.SERVICE_CONTRACT_FEATURES)
     }
 
     @Test

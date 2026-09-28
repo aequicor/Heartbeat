@@ -50,7 +50,7 @@ class AiStudioUiTest {
     private val seed = studioSeed(now)
     private val workspace = AiStudioScreenState(phase = StudioPhase.Ready)
         .withWorkspace(StudioWorkspace(seed.projects, seed.sessions))
-    private val exits = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = {})
+    private val exits = StudioExits(onBack = {}, onOpenToggles = {})
 
     @Test
     fun `rail opens profile settings`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
@@ -59,6 +59,12 @@ class AiStudioUiTest {
         setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, actions) } }
         onNodeWithTag("rail-profile-settings").performClick()
         assertTrue(opened)
+    }
+
+    @Test
+    fun `rail hides profile settings while search tools are off`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
+        setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, exits) } }
+        onNodeWithTag("rail-profile-settings").assertDoesNotExist()
     }
 
     @Test

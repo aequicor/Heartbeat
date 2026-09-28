@@ -13,11 +13,12 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
     @Composable
     override fun Content(modifier: Modifier) {
         val isConnectionsShown by component.showsConnections.collectAsState(false)
-        val exits = remember(component, isConnectionsShown) {
+        val isProfileSettingsShown by component.showsProfileSettings.collectAsState(false)
+        val exits = remember(component, isConnectionsShown, isProfileSettingsShown) {
             StudioExits(
                 onBack = component::close,
                 onOpenToggles = component::openToggles,
-                onOpenProfileSettings = component::openProfileSettings,
+                onOpenProfileSettings = if (isProfileSettingsShown) component::openProfileSettings else null,
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
             )
         }

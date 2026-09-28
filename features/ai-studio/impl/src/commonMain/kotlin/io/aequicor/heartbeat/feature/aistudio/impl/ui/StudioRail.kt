@@ -69,12 +69,14 @@ internal fun StudioRail(
             onClick = exits.onOpenToggles,
             modifier = Modifier.testTag("rail-toggles"),
         )
-        HbIconButton(
-            icon = HbIcons.Settings,
-            contentDescription = stringResource(Res.string.rail_profile_settings),
-            onClick = exits.onOpenProfileSettings,
-            modifier = Modifier.testTag("rail-profile-settings"),
-        )
+        exits.onOpenProfileSettings?.let { openProfileSettings ->
+            HbIconButton(
+                icon = HbIcons.Settings,
+                contentDescription = stringResource(Res.string.rail_profile_settings),
+                onClick = openProfileSettings,
+                modifier = Modifier.testTag("rail-profile-settings"),
+            )
+        }
         exits.onOpenConnections?.let { openConnections ->
             HbIconButton(
                 icon = HbIcons.Link,

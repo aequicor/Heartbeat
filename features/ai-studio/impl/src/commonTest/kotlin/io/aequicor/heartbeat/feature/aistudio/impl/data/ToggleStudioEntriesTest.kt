@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -17,7 +18,8 @@ import kotlin.test.assertEquals
 class ToggleStudioEntriesTest {
     private val isEnabled = MutableStateFlow(true)
     private val sessions = FakeSessions()
-    private val entries = ToggleStudioEntries(FakeToggles(isEnabled), sessions)
+    private val isSearchEnabled = MutableStateFlow(false)
+    private val entries = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled), sessions)
 
     @Test
     fun `connections are offered only with the toggle on and a profile active`() = runTest {
@@ -27,14 +29,28 @@ class ToggleStudioEntriesTest {
         isEnabled.value = false
         assertEquals(false, entries.showsConnections.first())
     }
+
+    @Test
+    fun `profile settings are offered only with search tools on and a profile active`() = runTest {
+        sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
+        assertEquals(false, entries.showsProfileSettings.first())
+        isSearchEnabled.value = true
+        assertEquals(true, entries.showsProfileSettings.first())
+        sessions.active.value = null
+        assertEquals(false, entries.showsProfileSettings.first())
+    }
 }
 
-private class FakeToggles(private val connections: Flow<Boolean>) : FeatureToggles {
+private class FakeToggles(private val connections: Flow<Boolean>, private val search: Flow<Boolean>) : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> {
-        check(toggle == EngineConnectionsEnabled) { "unexpected toggle ${toggle.key}" }
-        // The only toggle read here is the Boolean connections flag checked above.
+        val flow = when (toggle) {
+            EngineConnectionsEnabled -> connections
+            SearchEngineTools -> search
+            else -> error("unexpected toggle ${toggle.key}")
+        }
+        // Both toggles read here are Boolean flags checked above.
         @Suppress("UNCHECKED_CAST")
-        return connections as Flow<T>
+        return flow as Flow<T>
     }
 
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()

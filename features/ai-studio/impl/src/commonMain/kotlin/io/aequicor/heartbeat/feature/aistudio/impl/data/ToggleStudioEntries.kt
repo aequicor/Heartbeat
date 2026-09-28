@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 
@@ -19,6 +20,11 @@ import kotlinx.coroutines.flow.combine
 internal class ToggleStudioEntries(toggles: FeatureToggles, sessions: ProfileSessions) : StudioEntries {
     override val showsConnections: Flow<Boolean> =
         combine(toggles.observe(EngineConnectionsEnabled), sessions.active) { isEnabled, session ->
+            isEnabled && session != null
+        }
+
+    override val showsProfileSettings: Flow<Boolean> =
+        combine(toggles.observe(SearchEngineTools), sessions.active) { isEnabled, session ->
             isEnabled && session != null
         }
 }

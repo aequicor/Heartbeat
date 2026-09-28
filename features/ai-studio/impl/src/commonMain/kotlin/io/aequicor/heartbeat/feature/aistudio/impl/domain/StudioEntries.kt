@@ -6,4 +6,7 @@ import kotlinx.coroutines.flow.Flow
 interface StudioEntries {
     /** Whether the engine connection settings can be opened. */
     val showsConnections: Flow<Boolean>
+
+    /** Whether the profile search settings can be opened. */
+    val showsProfileSettings: Flow<Boolean>
 }

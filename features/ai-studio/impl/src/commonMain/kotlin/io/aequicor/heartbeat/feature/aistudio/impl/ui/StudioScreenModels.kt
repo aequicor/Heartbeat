@@ -22,7 +22,7 @@ import kotlin.time.Duration
 internal data class StudioExits(
     val onBack: () -> Unit,
     val onOpenToggles: () -> Unit,
-    val onOpenProfileSettings: () -> Unit,
+    val onOpenProfileSettings: (() -> Unit)? = null,
     val onOpenConnections: (() -> Unit)? = null,
 )
 
