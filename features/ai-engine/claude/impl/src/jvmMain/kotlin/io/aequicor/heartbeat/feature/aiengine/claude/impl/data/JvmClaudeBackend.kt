@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
@@ -87,6 +88,16 @@ internal class JvmClaudeBackend(
             source.scope.origin.value == "https://api.anthropic.com"
 
     override fun authContext(context: EngineContext) = ClaudeEngine.AuthContext
+
+    /** No adapter-side route state: the Claude CLI login is resolved by the CLI itself. */
+    override suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        log.d { "bind ignored: no route state" }
+    }
+
+    /** No adapter-side route state, see [bind]. */
+    override suspend fun unbind(binding: EngineBindingId) {
+        log.d { "unbind ignored: no route state" }
+    }
 
     override suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo> {
         enabled()

@@ -1,4 +1,5 @@
 [versions]
+pi = "0.87.1" # SHA-256 of release assets: platform-main/desktop/build.gradle.kts (piChecksums)
 koog = "1.3.0"
 jna = "5.19.1"
 agp = "9.1.1"

@@ -44,6 +44,9 @@ lint/            detekt-rules — собственный набор правил
 > `core:network:{api,impl}`,
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
+> `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
+> за тоглами `ai.engines` + `ai.pi`, изменяющие вызовы инструментов — только после подтверждения пользователя;
+> на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`; платформенные входы подключены к root.
