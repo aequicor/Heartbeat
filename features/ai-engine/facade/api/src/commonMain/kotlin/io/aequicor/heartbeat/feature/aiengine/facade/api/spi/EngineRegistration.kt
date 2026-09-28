@@ -65,14 +65,19 @@ public interface EngineFactory {
      * implementation after [EngineRegistration.accepts] and toggle gates passed. Replacing a binding's source
      * retires runtimes of the previous source that no other binding uses.
      * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
+     * Adapters that resolve routes without their own state (for example CLI logins) keep the default no-op.
      */
-    public suspend fun bind(binding: EngineBindingId, source: AuthSource)
+    public suspend fun bind(binding: EngineBindingId, source: AuthSource) {
+        // No adapter-side route state by default.
+    }
 
     /**
      * Forgets the adapter-side route of [binding]; unknown bindings are ignored. Called only by the facade's
      * `EngineBindings` implementation. Retires runtimes of the removed source that no other binding uses.
      */
-    public suspend fun unbind(binding: EngineBindingId)
+    public suspend fun unbind(binding: EngineBindingId) {
+        // No adapter-side route state by default.
+    }
 
     /** Lists models visible through the exact source/context; source material is resolved inside trusted adapters. */
     public suspend fun discoverModels(source: AuthSource, context: EngineContext): List<ModelInfo>
