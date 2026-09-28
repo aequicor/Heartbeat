@@ -125,8 +125,8 @@ private fun ComposerMenuTrigger(
             enabled = enabled,
             fallbackSymbol = label,
             shape = HbTheme.shapes.small,
-            size = HbTheme.studioDimensions.composerActionSize,
-            background = HbTheme.studioColors.composerPill,
+            size = HbTheme.dimensions.composerActionSize,
+            background = HbTheme.surfaces.composerPill,
             iconSize = HbTheme.dimensions.iconSize,
             tooltipText = null,
         )

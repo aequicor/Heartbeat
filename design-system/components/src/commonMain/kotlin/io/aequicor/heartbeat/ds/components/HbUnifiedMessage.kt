@@ -43,8 +43,8 @@ private val messageLog = Log.tag("DS/Message")
 /** Indents measured wide content to the author while keeping narrow replies fully usable. */
 @Composable
 internal fun Modifier.hbUnifiedBodyIndent(): Modifier {
-    val inset = HbTheme.studioDimensions.headerAvatarSize + HbTheme.spacing.l
-    val minWidth = HbTheme.studioDimensions.messageBodyIndentMinWidth
+    val inset = HbTheme.dimensions.headerAvatarSize + HbTheme.spacing.l
+    val minWidth = HbTheme.dimensions.messageBodyIndentMinWidth
     return layout { measurable, constraints ->
         val insetPx = if (constraints.maxWidth >= minWidth.roundToPx()) inset.roundToPx() else 0
         val placeable = measurable.measure(constraints.offset(horizontal = -insetPx))
@@ -57,7 +57,7 @@ internal fun Modifier.hbUnifiedBodyIndent(): Modifier {
 /** Draws only the perimeter belonging to this lazy segment, never a line between adjacent segments. */
 @Composable
 internal fun Modifier.hbUnifiedMessageSurface(background: Color, hasTop: Boolean, hasBottom: Boolean): Modifier {
-    val radius = HbTheme.studioDimensions.messageCornerRadius
+    val radius = HbTheme.dimensions.messageCornerRadius
     val zero = HbTheme.spacing.none
     val shape = RoundedCornerShape(
         topStart = if (hasTop) radius else zero,
@@ -65,7 +65,7 @@ internal fun Modifier.hbUnifiedMessageSurface(background: Color, hasTop: Boolean
         bottomStart = if (hasBottom) radius else zero,
         bottomEnd = if (hasBottom) radius else zero,
     )
-    val outline = HbTheme.studioColors.outline
+    val outline = HbTheme.surfaces.outline
     val stroke = HbTheme.dimensions.borderWidth
     return background(background, shape).drawWithCache {
         val width = stroke.toPx()
@@ -90,7 +90,7 @@ internal fun Modifier.hbUnifiedMessageSurface(background: Color, hasTop: Boolean
 @Composable
 internal fun HbUnifiedMessageHeader(message: HbChatMessage, modifier: Modifier = Modifier) {
     HbRow(modifier.fillMaxWidth().testTag("message-header:${message.id}"), gap = HbTheme.spacing.l) {
-        HbStudioMark(Modifier.size(HbTheme.studioDimensions.headerAvatarSize))
+        HbStudioMark(Modifier.size(HbTheme.dimensions.headerAvatarSize))
         HbText(message.author, style = HbTheme.typography.label.copy(fontWeight = FontWeight.SemiBold))
         message.label?.let { HbText(it, style = HbTheme.typography.metadata, color = HbTheme.colors.textSecondary) }
     }
@@ -167,8 +167,8 @@ internal fun UnifiedToolPayload(
                 text = console.displayText,
                 spans = persistentListOf(),
                 foreground = HbTheme.colors.textPrimary,
-                modifier = Modifier.fillMaxWidth().background(HbTheme.studioColors.console)
-                    .padding(HbTheme.studioDimensions.toolPadding),
+                modifier = Modifier.fillMaxWidth().background(HbTheme.surfaces.console)
+                    .padding(HbTheme.dimensions.toolPadding),
             )
         } else if (!isUnified || body.row.section == null) {
             HbToolPayloadRow(body.row, labels = labels, onLinkClick = onLinkClick, isSelectionContainerRequired = false)
@@ -179,11 +179,11 @@ internal fun UnifiedToolPayload(
 @Composable
 @ReadOnlyComposable
 private fun Modifier.unifiedToolPayloadSurface(isLast: Boolean): Modifier {
-    val radius = HbTheme.studioDimensions.toolPadding
+    val radius = HbTheme.dimensions.toolPadding
     val zero = HbTheme.spacing.none
     val bottomRadius = if (isLast) radius else zero
     return fillMaxWidth().background(
-        HbTheme.studioColors.tool,
+        HbTheme.surfaces.tool,
         RoundedCornerShape(zero, zero, bottomRadius, bottomRadius),
     ).padding(start = radius, end = radius, bottom = bottomRadius)
 }

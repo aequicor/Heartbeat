@@ -116,8 +116,8 @@ class HbNavigationUiTest {
                             isSelected = isSelected,
                             supportingText = "Latest message",
                             leadingContent = { HbIcon(HbIcons.Chat, contentDescription = null) },
-                            selectedBackground = HbTheme.studioColors.selected,
-                            selectedForeground = HbTheme.studioColors.onSelected,
+                            selectedBackground = HbTheme.surfaces.selected,
+                            selectedForeground = HbTheme.surfaces.onSelected,
                         ) { isActive ->
                             if (isActive) HbIconButton(HbIcons.More, "Session actions", onClick = { actions++ })
                         }

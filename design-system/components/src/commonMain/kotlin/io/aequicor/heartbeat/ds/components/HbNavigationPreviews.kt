@@ -43,10 +43,10 @@ private fun NavigationPreviewContent() {
                 isSelected = true,
                 supportingText = "A two-line conversation preview",
                 leadingContent = {
-                    HbIcon(HbIcons.Chat, contentDescription = null, tint = HbTheme.studioColors.onSelected)
+                    HbIcon(HbIcons.Chat, contentDescription = null, tint = HbTheme.surfaces.onSelected)
                 },
-                selectedBackground = HbTheme.studioColors.selected,
-                selectedForeground = HbTheme.studioColors.onSelected,
+                selectedBackground = HbTheme.surfaces.selected,
+                selectedForeground = HbTheme.surfaces.onSelected,
             )
             HbRow(gap = HbTheme.spacing.xs) {
                 HbChip("heartbeat", icon = HbIcons.Folder, onClick = {})

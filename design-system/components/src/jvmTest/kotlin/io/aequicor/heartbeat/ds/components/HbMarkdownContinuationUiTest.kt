@@ -12,7 +12,6 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
@@ -38,7 +37,7 @@ class HbMarkdownContinuationUiTest {
             setContent {
                 CompositionLocalProvider(LocalDensity provides Density(1f)) {
                     HbTheme(darkTheme = false) {
-                        HbStudioTheme { HbChatTranscript(timeline, Modifier.fillMaxSize()) }
+                        HbChatTranscript(timeline, Modifier.fillMaxSize())
                     }
                 }
             }

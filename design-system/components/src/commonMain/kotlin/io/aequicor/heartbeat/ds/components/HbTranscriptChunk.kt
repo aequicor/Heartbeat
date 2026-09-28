@@ -232,7 +232,7 @@ private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color, isLas
 @Composable
 @ReadOnlyComposable
 private fun unifiedChunkPadding(chunk: HbTranscriptChunk): PaddingValues {
-    val inset = HbTheme.studioDimensions.messagePadding
+    val inset = HbTheme.dimensions.messagePadding
     val isPayload = chunk.body is HbTranscriptBody.ToolPayload
     val markdown = (chunk.body as? HbTranscriptBody.Markdown)?.block
     val isMarkdownContinuation = markdown != null && !markdown.isFirstSegment

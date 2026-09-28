@@ -29,19 +29,19 @@ internal fun ComposerPanelLayout(
     action: @Composable () -> Unit,
     editor: @Composable (Modifier) -> Unit,
 ) {
-    val shape = RoundedCornerShape(HbTheme.studioDimensions.cornerRadius)
+    val shape = RoundedCornerShape(HbTheme.dimensions.cornerRadius)
     HbColumn(
         modifier = Modifier.fillMaxWidth()
             .hbFocusOutline(isFocused, shape, isTextInput = true)
             .pointerInput(Unit) { detectTapGestures { } }
-            .background(HbTheme.studioColors.composer, shape)
-            .border(HbTheme.dimensions.borderWidth, HbTheme.studioColors.outline, shape)
+            .background(HbTheme.surfaces.composer, shape)
+            .border(HbTheme.dimensions.borderWidth, HbTheme.surfaces.outline, shape)
             .padding(HbTheme.spacing.m),
         gap = HbTheme.spacing.xs,
     ) {
         editor(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs, vertical = HbTheme.spacing.xs))
         HbBoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (!HbTheme.studioDimensions.isDesktop && maxWidth < HbTheme.dimensions.compactBreakpoint) {
+            if (!HbTheme.dimensions.isDesktop && maxWidth < HbTheme.dimensions.compactBreakpoint) {
                 HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
                     HbRow(
                         Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState()),

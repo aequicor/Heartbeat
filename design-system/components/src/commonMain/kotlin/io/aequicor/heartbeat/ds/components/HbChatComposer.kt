@@ -80,7 +80,7 @@ public fun HbChatComposer(
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
-    val isEnterSendingEnabled = HbTheme.studioDimensions.isDesktop
+    val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
     val isSendEnabled = enabled && !isStreaming && value.isNotBlank()
     val actionLabel = if (isStreaming) stopLabel else sendLabel
     val isActionEnabled = if (isStreaming) enabled else isSendEnabled
@@ -152,9 +152,9 @@ private fun ComposerPrimaryAction(
         enabled = enabled,
         isPrimary = !isStreaming,
         shape = if (isPanel || layout == HbComposerLayout.Stacked) HbTheme.shapes.small else CircleShape,
-        size = if (isPanel) HbTheme.studioDimensions.composerActionSize else HbTheme.dimensions.touchTarget,
-        background = if (isPanel && enabled) HbTheme.studioColors.composerAction else null,
-        tint = HbTheme.studioColors.onComposerAction.takeIf { isPanel && enabled },
+        size = if (isPanel) HbTheme.dimensions.composerActionSize else HbTheme.dimensions.touchTarget,
+        background = if (isPanel && enabled) HbTheme.surfaces.composerAction else null,
+        tint = HbTheme.surfaces.onComposerAction.takeIf { isPanel && enabled },
         iconSize = HbTheme.dimensions.iconSize,
     )
 }
@@ -198,7 +198,7 @@ private fun ComposerLayout(
         }
 
         HbComposerLayout.Inline -> {
-            val shape = RoundedCornerShape(HbTheme.studioDimensions.cornerRadius)
+            val shape = RoundedCornerShape(HbTheme.dimensions.cornerRadius)
             HbColumn(gap = HbTheme.spacing.xxs) {
                 HbGlassPanel(shape = shape) {
                     HbPanel(

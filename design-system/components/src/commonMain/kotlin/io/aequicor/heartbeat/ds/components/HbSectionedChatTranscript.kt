@@ -331,7 +331,7 @@ private fun HbTranscriptDateHeader(section: HbChatSection, modifier: Modifier = 
     Box(modifier.fillMaxWidth().padding(vertical = HbTheme.spacing.l), contentAlignment = Alignment.Center) {
         HbText(
             section.title,
-            Modifier.background(HbTheme.studioColors.header, HbTheme.shapes.small)
+            Modifier.background(HbTheme.surfaces.header, HbTheme.shapes.small)
                 .padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.xs).semantics { heading() },
             style = HbTheme.typography.caption,
             color = HbTheme.colors.textSecondary,

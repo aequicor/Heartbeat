@@ -13,7 +13,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
-import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,18 +26,16 @@ class HbComposerToggleUiTest {
         val changes = mutableListOf<Boolean>()
         setContent {
             HbTheme(darkTheme = false) {
-                HbStudioTheme {
-                    HbComposerToggle(
-                        label = "Исследование",
-                        isChecked = isChecked,
-                        onCheckedChange = {
-                            changes += it
-                            isChecked = it
-                        },
-                        modifier = Modifier.testTag("toggle"),
-                        icon = HbIcons.Library,
-                    )
-                }
+                HbComposerToggle(
+                    label = "Исследование",
+                    isChecked = isChecked,
+                    onCheckedChange = {
+                        changes += it
+                        isChecked = it
+                    },
+                    modifier = Modifier.testTag("toggle"),
+                    icon = HbIcons.Library,
+                )
             }
         }
         onNodeWithText("Исследование").assertExists()
