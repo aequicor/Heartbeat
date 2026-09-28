@@ -12,21 +12,20 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Transport to one native Pi process; see Pi `docs/rpc.md` for the JSONL protocol. */
 internal interface PiConnection {
@@ -61,7 +60,8 @@ internal class PiRpc(
     private val writes = Mutex()
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
 
-    @Volatile private var isClosed = false
+    private val closed = AtomicBoolean(false)
+    private val isClosed get() = closed.get()
 
     @Volatile private var closeRegistration: DisposableHandle? = null
 
@@ -88,14 +88,16 @@ internal class PiRpc(
         try {
             log.d { "Pi command: $type" }
             write(JsonObject(fields + mapOf("id" to JsonPrimitive(id), "type" to JsonPrimitive(type))))
-            val response = withTimeout(commandTimeoutMillis) { result.await() }
-            if (response["success"]?.jsonPrimitive?.booleanOrNull != true) {
+            val response = withTimeoutOrNull(commandTimeoutMillis) { result.await() } ?: run {
+                log.w(EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))) {
+                    "Pi command timed out: $type"
+                }
+                piFailure(EngineFailure.Transport(TransportFailureReason.Timeout))
+            }
+            if ((response["success"] as? JsonPrimitive)?.booleanOrNull != true) {
                 piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
             }
             return response["data"] as? JsonObject ?: JsonObject(emptyMap())
-        } catch (e: TimeoutCancellationException) {
-            log.w(e) { "Pi command timed out: $type" }
-            piFailure(EngineFailure.Transport(TransportFailureReason.Timeout))
         } finally {
             pending.remove(id)
         }
@@ -108,22 +110,25 @@ internal class PiRpc(
     }
 
     override fun close() {
-        if (isClosed) return
-        isClosed = true
+        terminate(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+    }
+
+    /** Fails in-flight commands with [failure], then destroys the process tree before closing its input. */
+    private fun terminate(failure: EngineFailure): Boolean {
+        if (!closed.compareAndSet(false, true)) return false
         closeRegistration?.dispose()
-        pending.values.forEach {
-            it.completeExceptionally(EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)))
-        }
+        pending.values.forEach { it.completeExceptionally(EngineException(failure)) }
         pending.clear()
+        val descendants = process.descendants().use { it.toList() }
+        descendants.asReversed().forEach { it.destroyForcibly() }
+        process.destroy()
+        if (process.isAlive) process.destroyForcibly()
         try {
             writer.close()
         } catch (e: IOException) {
             log.w(e) { "Pi input already closed" }
         }
-        val descendants = process.descendants().use { it.toList() }
-        descendants.asReversed().forEach { it.destroyForcibly() }
-        process.destroy()
-        if (process.isAlive) process.destroyForcibly()
+        return true
     }
 
     private suspend fun write(record: JsonObject) {
@@ -145,21 +150,18 @@ internal class PiRpc(
         var failure: EngineFailure = EngineFailure.Engine(EngineFailureReason.Crashed)
         try {
             process.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                while (true) {
+                while (!isClosed) {
                     val line = reader.readLine() ?: break
                     dispatch(line)
                 }
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             log.w(e) { "Pi protocol reader failed" }
             failure = EngineFailure.Transport(TransportFailureReason.ProtocolViolation)
         }
-        if (!isClosed) {
-            close()
-            fail(failure)
-        }
+        if (terminate(failure)) failed(failure)
     }
 
     private suspend fun dispatch(line: String) {
@@ -194,12 +196,6 @@ internal class PiRpc(
         } catch (e: IOException) {
             log.w(e) { "Pi diagnostic stream closed" }
         }
-    }
-
-    private suspend fun fail(failure: EngineFailure) {
-        pending.values.forEach { it.completeExceptionally(EngineException(failure)) }
-        pending.clear()
-        failed(failure)
     }
 
     private companion object {

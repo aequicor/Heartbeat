@@ -53,7 +53,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
 
 internal typealias PiConnector =
@@ -90,6 +89,10 @@ internal class PiSession(
     // Native transcript path, used only to reattach a restarted process; never logged.
     private var sessionFile: String? = null
     private var isHandleClosed = false
+    private var isReleased = false
+
+    // Callbacks of a replaced or failed process are ignored once a newer connection generation exists.
+    private var generation = 0
     private var isTurnStarted = false
     private var isCommandPending = false
     private var pendingEffect: ActiveSessionEffect? = null
@@ -133,11 +136,11 @@ internal class PiSession(
         ),
     )
 
-    suspend fun start(factory: PiConnector) {
+    suspend fun start(factory: PiConnector): Unit = withContext(dispatchers.main) {
         var isStarted = false
         try {
             connector = factory
-            withContext(NonCancellable) { connection = factory(::event, ::failed) }
+            withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
             rpc().command("set_model", modelFields(target.model))
             val snapshot = rpc().command("get_state")
@@ -260,7 +263,9 @@ internal class PiSession(
             machine.send(ActiveSessionIntent.Internal.Released)
             handle.close()
             isHandleClosed = true
-            if (turn == null) release()
+            // Nobody can answer approvals of a detached handle; declining them lets the native turn settle.
+            dismissApprovals()
+            if (turn == null || connection?.isOpen != true) release()
         }
     }
 
@@ -285,12 +290,23 @@ internal class PiSession(
     }
 
     private fun release() {
-        val active = connection ?: return
+        if (isReleased) return
+        isReleased = true
+        connection?.let {
+            log.i { "Releasing Pi process of a closed session" }
+            it.close()
+        }
         connection = null
-        log.i { "Releasing Pi process of a closed session" }
-        active.close()
         profileClose.dispose()
         released(this)
+    }
+
+    private suspend fun open(factory: PiConnector): PiConnection {
+        val current = ++generation
+        return factory(
+            { record -> withContext(dispatchers.main) { if (current == generation) event(record) } },
+            { failure -> withContext(dispatchers.main) { if (current == generation) failed(failure) } },
+        )
     }
 
     /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
@@ -304,12 +320,19 @@ internal class PiSession(
         val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         log.i { "Restarting Pi process for session recovery" }
-        val fresh = factory(::event, ::failed)
-        connection = fresh
-        val switched = fresh.command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
-        if (switched["cancelled"]?.jsonPrimitive?.booleanOrNull == true) {
-            piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+        val fresh = open(factory)
+        try {
+            val switched = fresh.command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
+            if ((switched["cancelled"] as? JsonPrimitive)?.booleanOrNull == true) {
+                piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+            }
+        } catch (e: EngineException) {
+            // Never keep a process that sits on a different transcript than this handle.
+            log.w(e) { "Pi session recovery could not reattach the transcript" }
+            fresh.close()
+            throw e
         }
+        connection = fresh
         return fresh
     }
 
@@ -332,8 +355,7 @@ internal class PiSession(
                 is ActiveSessionEffect.Submit -> submit(effect)
 
                 is ActiveSessionEffect.Cancel -> {
-                    permissions.keys.toList().forEach { dismiss(it.value) }
-                    permissions.clear()
+                    dismissApprovals()
                     if (turn?.id == effect.turn) rpc().command("abort")
                     cancellationAck?.complete(Unit)
                 }
@@ -343,8 +365,8 @@ internal class PiSession(
                 // synchronize() owns the response barrier.
                 is ActiveSessionEffect.Release -> Unit
 
-                // close() owns the release barrier.
-                is ActiveSessionEffect.Decide -> decide(effect.decision)
+                // close() owns the release barrier; decisions bypass handoff through decide().
+                is ActiveSessionEffect.Decide -> Unit
             }
         } catch (e: CancellationException) {
             throw e
@@ -382,6 +404,14 @@ internal class PiSession(
             is ActiveSessionEffect.Recheck, ActiveSessionEffect.Release, is ActiveSessionEffect.Decide -> turn?.id
         }
         if (turn?.id == affected) failed(failure)
+        if (effect is ActiveSessionEffect.Submit && (!isDelivered || original is EngineFailure.Request)) {
+            // Pi never accepted this prompt, so no agent_settled will release the turn.
+            if (turn?.id == effect.turn.id) {
+                turn = null
+                isTurnStarted = false
+            }
+            if (isHandleClosed) release()
+        }
     }
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
         try {
@@ -450,12 +480,20 @@ internal class PiSession(
         val fields = try {
             message?.let { Json.parseToJsonElement(it) as? JsonObject }
         } catch (e: SerializationException) {
-            // Built by the bundled extension, so a parse failure is a protocol bug; the request stays blocked.
-            log.w(e) { "Malformed Pi approval request" }
+            // Parser messages quote the input, which contains the command; the request stays blocked.
+            log.w(EngineException(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))) {
+                "Malformed Pi approval request: ${e::class.simpleName.orEmpty()}"
+            }
             null
         } ?: return null
         val tool = fields.string("toolName")?.takeIf { it.isNotBlank() } ?: return null
-        val target = fields.string("target").orEmpty().take(APPROVAL_TARGET_LIMIT)
+        val raw = fields.string("target").orEmpty()
+        if (raw.length > APPROVAL_TARGET_LIMIT) {
+            // Approving a partially shown command is not consent; the tool call is blocked instead.
+            log.w { "Pi tool call is too long to show for approval; blocking it" }
+            return null
+        }
+        val target = visible(raw)
         return PermissionRequest(
             PermissionRequestId(id),
             turn,
@@ -471,7 +509,7 @@ internal class PiSession(
     }
 
     private suspend fun answer(decision: PermissionDecision) {
-        if (permissions[decision.request] == null) return
+        permissions.remove(decision.request) ?: return
         try {
             val isAllowed = decision.option == AllowOption
             rpc().send(
@@ -483,7 +521,6 @@ internal class PiSession(
                     ),
                 ),
             )
-            permissions.remove(decision.request)
             // Pi does not acknowledge dialog answers; handing the answer to the process resolves the request.
             machine.send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
             log.i { if (isAllowed) "Pi tool call allowed by user" else "Pi tool call denied by user" }
@@ -494,6 +531,12 @@ internal class PiSession(
             decisions.remove(decision.request)
             if (turn?.id == decision.turn) failed(e.failure)
         }
+    }
+
+    private suspend fun dismissApprovals() {
+        val pending = permissions.keys.toList()
+        permissions.clear()
+        pending.forEach { dismiss(it.value) }
     }
 
     /** Declines a dialog nobody can answer; for an approval this blocks the tool call. */
@@ -542,6 +585,9 @@ internal class PiSession(
     }
 
     private suspend fun reconcile(snapshot: JsonObject) {
+        if (snapshot.string("sessionId") != nativeRef?.nativeId) {
+            piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+        }
         val model = snapshot["model"] as? JsonObject
             ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         val provider = model.string("provider")
@@ -550,8 +596,8 @@ internal class PiSession(
             piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
         }
         target = target.copy(model = ModelId("$provider/$id"))
-        val isBusy = snapshot["isStreaming"]?.jsonPrimitive?.booleanOrNull == true ||
-            snapshot["isCompacting"]?.jsonPrimitive?.booleanOrNull == true
+        val isBusy = (snapshot["isStreaming"] as? JsonPrimitive)?.booleanOrNull == true ||
+            (snapshot["isCompacting"] as? JsonPrimitive)?.booleanOrNull == true
         val remembered = turn
         if (isBusy && remembered == null) piFailure(EngineFailure.Session(SessionFailureReason.Changed))
         val completed = if (!isBusy && remembered != null) {
@@ -569,13 +615,17 @@ internal class PiSession(
         if (completed != null) {
             journal.finished(completed.turn, completed.outcome)
             turn = null
+            permissions.clear()
+            decisions.clear()
         }
     }
 
     private companion object {
         // Must match APPROVAL_TITLE in resources/pi/heartbeat-approval.ts.
         const val APPROVAL_TITLE = "heartbeat.tool-approval"
-        const val APPROVAL_TARGET_LIMIT = 500
+        const val APPROVAL_TARGET_LIMIT = 4_000
+        const val HEX_RADIX = 16
+        const val HEX_DIGITS = 4
         val DIALOG_METHODS = setOf("select", "confirm", "input", "editor")
         val AllowOption = PermissionOptionId("allow")
         val DenyOption = PermissionOptionId("deny")
@@ -584,6 +634,24 @@ internal class PiSession(
     /** The prompt never reached Pi, so the failure is definite rather than an unknown delivery. */
     private class PromptNotSentException(val failure: EngineFailure, cause: EngineException) :
         Exception(failure.code, cause)
+
+    /** Makes line breaks, control and bidirectional formatting characters visible in the approval text. */
+    private fun visible(text: String): String = buildString {
+        text.forEach { char ->
+            when {
+                char == '\n' -> append("\\n")
+
+                char == '\r' -> append("\\r")
+
+                char == '\t' -> append("\\t")
+
+                Character.isISOControl(char) || Character.getType(char) == Character.FORMAT.toInt() ->
+                    append("\\u").append(char.code.toString(HEX_RADIX).padStart(HEX_DIGITS, '0'))
+
+                else -> append(char)
+            }
+        }
+    }
 
     private fun ensureOpen() {
         if (state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed) {

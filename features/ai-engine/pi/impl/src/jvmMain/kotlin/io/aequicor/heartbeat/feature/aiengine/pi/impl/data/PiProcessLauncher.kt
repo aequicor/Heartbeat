@@ -20,6 +20,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
@@ -70,7 +71,7 @@ internal class PiProcessLauncher(
         } else {
             "read,bash,edit,write"
         }
-        val approval = installApprovalExtension(agentDir)
+        val approval = agentDir.resolve(APPROVAL_EXTENSION)
         val command = listOf(
             executable.toString(), "--mode", "rpc", "--provider", provider.id,
             // Only the bundled approval gate loads; discovered and configured extensions stay disabled.
@@ -83,33 +84,35 @@ internal class PiProcessLauncher(
         environment.keys.retainAll(SAFE_ENVIRONMENT)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
+        var process: Process? = null
         try {
+            installApprovalExtension(approval)
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
             log.i { "Starting bundled Pi process" }
-            val process = builder.start()
-            process.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-            val rpc = PiRpc(process, profile.coroutineScope, dispatchers, event, failed)
+            val started = builder.start()
+            process = started
+            started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
+            val rpc = PiRpc(started, profile.coroutineScope, dispatchers, event, failed)
             rpc.closeWith(profile.onClose(rpc::close))
             rpc
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            deleteTree(agentDir)
             log.w(EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))) {
                 "Pi startup failed: ${e::class.simpleName.orEmpty()}"
             }
+            // A process that started before the failure is destroyed; its exit hook removes the directory.
+            process?.destroyForcibly() ?: deleteTree(agentDir)
             piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         } finally {
             environment.remove(provider.variable)
         }
     }
 
-    private fun installApprovalExtension(agentDir: Path): Path {
-        val target = agentDir.resolve(APPROVAL_EXTENSION)
+    private fun installApprovalExtension(target: Path) {
         val source = PiProcessLauncher::class.java.getResourceAsStream("/pi/$APPROVAL_EXTENSION")
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         source.use { Files.copy(it, target) }
-        return target
     }
 
     private fun deleteTree(directory: Path) {
@@ -119,6 +122,10 @@ internal class PiProcessLauncher(
             }
         } catch (e: IOException) {
             log.w(e) { "Pi runtime directory cleanup failed" }
+        } catch (e: UncheckedIOException) {
+            log.w(e) { "Pi runtime directory cleanup failed" }
+        } catch (e: SecurityException) {
+            log.w(e) { "Pi runtime directory cleanup was denied" }
         }
     }
 

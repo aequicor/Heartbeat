@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,12 +67,15 @@ internal class PiRuntime(
         val session = prepare(request)
         // Process startup runs outside the lock so close() and other creations are not blocked by it.
         session.first.start { event, failed -> processes.start(source, session.second, event, failed) }
-        mutex.withLock {
-            if (isClosed) {
-                session.first.shutdown()
-                piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        // A started process must be registered or shut down even if the caller is cancelled meanwhile.
+        withContext(NonCancellable) {
+            mutex.withLock {
+                if (isClosed) {
+                    session.first.shutdown()
+                    piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+                }
+                sessions += session.first
             }
-            sessions += session.first
         }
         return session.first
     }

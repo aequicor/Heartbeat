@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
@@ -270,7 +271,89 @@ class PiSessionTest {
         fixture.session.shutdown()
     }
 
-    private suspend fun TestScope.fixture(validate: suspend () -> Unit = {}): Fixture {
+    @Test
+    fun `close after a rejected prompt releases the process`() = runTest {
+        val fixture = fixture()
+        fixture.connection.promptAck.completeExceptionally(
+            EngineException(EngineFailure.Request(RequestFailureReason.Invalid)),
+        )
+        assertFailsWith<EngineException> { fixture.session.send(prompt("rejected")) }
+        fixture.session.close()
+        assertTrue(fixture.connection.closed)
+        assertEquals(listOf(fixture.session), fixture.released)
+    }
+
+    @Test
+    fun `failed transcript reattachment never keeps the restarted process`() = runTest {
+        val fixture = fixture { index, connection ->
+            if (index == 1) {
+                connection.switchFailure = EngineException(
+                    EngineFailure.Request(RequestFailureReason.Invalid),
+                )
+            }
+        }
+        fixture.connection.isOpen = false
+        fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        assertFailsWith<EngineException> { fixture.session.synchronize() }
+        assertTrue(fixture.connections[1].closed)
+        fixture.session.synchronize()
+        assertEquals(3, fixture.connections.size)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `a restarted process on another transcript is rejected`() = runTest {
+        val fixture = fixture { index, connection -> if (index == 1) connection.sessionId = "other" }
+        fixture.connection.isOpen = false
+        fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        val failure = assertFailsWith<EngineException> { fixture.session.synchronize() }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `callbacks of a replaced process are ignored`() = runTest {
+        val fixture = fixture()
+        val stale = fixture.connection
+        stale.isOpen = false
+        stale.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        fixture.session.synchronize()
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        stale.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        stale.event(record("""{"type":"agent_start"}"""))
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `closing while an approval is pending declines it and releases after the turn settles`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn()
+        fixture.connection.event(approval("ui-4"))
+        fixture.session.close()
+        assertEquals(listOf(answer("ui-4", "cancelled", true)), fixture.connection.sent)
+        assertFalse(fixture.connection.closed)
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        assertTrue(fixture.connection.closed)
+    }
+
+    @Test
+    fun `approval text shows hidden characters and oversized commands are blocked`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn()
+        fixture.connection.event(approval("ui-5", "ls\n‮rm -rf"))
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: ls\\n\\u202erm -rf", awaiting.requests.single().title)
+        fixture.connection.event(approval("ui-6", "x".repeat(4_001)))
+        assertEquals(listOf(answer("ui-6", "cancelled", true)), fixture.connection.sent)
+        fixture.session.shutdown()
+    }
+
+    private suspend fun TestScope.fixture(
+        validate: suspend () -> Unit = {},
+        configure: (Int, FakeConnection) -> Unit = { _, _ -> },
+    ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
             override val main: CoroutineDispatcher = dispatcher
@@ -297,6 +380,7 @@ class PiSessionTest {
             FakeConnection().also {
                 it.event = event
                 it.failed = failed
+                configure(connections.size, it)
                 connections += it
             }
         }
@@ -310,10 +394,24 @@ class PiSessionTest {
         return turn
     }
 
-    private fun approval(id: String) = record(
-        """{"type":"extension_ui_request","id":"$id","method":"confirm","title":"heartbeat.tool-approval",
-           "message":"{\"toolCallId\":\"c1\",\"toolName\":\"bash\",\"target\":\"ls -la\"}"}""",
-    )
+    private fun approval(id: String, target: String = "ls -la"): JsonObject {
+        val message = JsonObject(
+            mapOf(
+                "toolCallId" to JsonPrimitive("c1"),
+                "toolName" to JsonPrimitive("bash"),
+                "target" to JsonPrimitive(target),
+            ),
+        )
+        return JsonObject(
+            mapOf(
+                "type" to JsonPrimitive("extension_ui_request"),
+                "id" to JsonPrimitive(id),
+                "method" to JsonPrimitive("confirm"),
+                "title" to JsonPrimitive("heartbeat.tool-approval"),
+                "message" to JsonPrimitive(message.toString()),
+            ),
+        )
+    }
 
     private fun answer(id: String, field: String, value: Boolean) = JsonObject(
         mapOf(
@@ -344,12 +442,16 @@ private class FakeConnection : PiConnection {
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
     var closed = false
+    var sessionId = "native"
+    var switchFailure: EngineException? = null
     override var isOpen = true
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
         commands += type
         this.fields += fields
         return when (type) {
             "get_state" -> state()
+
+            "switch_session" -> switchFailure?.let { throw it } ?: JsonObject(emptyMap())
 
             "prompt" -> promptAck.await()
 
@@ -373,7 +475,7 @@ private class FakeConnection : PiConnection {
     }
 
     private fun state() = Json.parseToJsonElement(
-        """{"sessionId":"native","sessionFile":"native.jsonl","isStreaming":false,
+        """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":false,
            "model":{"provider":"anthropic","id":"test"}}""",
     ).jsonObject
 }

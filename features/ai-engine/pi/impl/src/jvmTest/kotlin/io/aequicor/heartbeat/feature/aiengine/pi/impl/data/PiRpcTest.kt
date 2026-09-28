@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -79,6 +81,16 @@ class PiRpcTest {
     }
 
     @Test
+    fun `a crash fails in-flight commands with the crash`() = runTest {
+        val process = FakeProcess()
+        val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {})
+        val failure = async(Dispatchers.Default) { assertFailsWith<EngineException> { rpc.command("get_state") } }
+        awaitReal { while (process.written().isEmpty()) delay(POLL_MILLIS) }
+        process.finishOutput()
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), awaitReal { failure.await() }.failure)
+    }
+
+    @Test
     fun `close fails pending commands and later commands immediately`() = runTest {
         val process = FakeProcess()
         val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {})
@@ -93,6 +105,7 @@ class PiRpcTest {
 
     private companion object {
         const val AWAIT_MILLIS = 5_000L
+        const val POLL_MILLIS = 10L
     }
 }
 
@@ -110,6 +123,8 @@ private class FakeProcess : Process() {
     }
 
     fun finishOutput() = feed.close()
+
+    fun written(): String = synchronized(stdin) { stdin.toString(Charsets.UTF_8) }
 
     override fun getOutputStream(): OutputStream = stdin
     override fun getInputStream(): InputStream = stdout
