@@ -24,7 +24,10 @@ import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
+import io.aequicor.heartbeat.ds.components.HbIconButton
+import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbLoadingState
+import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
@@ -42,6 +45,7 @@ import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.Toggle
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenIntent
 import io.aequicor.heartbeat.feature.togglespanel.impl.presentation.store.TogglesPanelScreenState
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.Res
+import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_back
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_default_value
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_description
 import io.aequicor.heartbeat.feature.togglespanel.impl.resources.flags_dismiss
@@ -93,7 +97,18 @@ internal fun TogglesPanelContent(
         gap = HbTheme.spacing.none,
     ) {
         if (onBack != null) {
-            StandaloneHeader(stringResource(Res.string.flags_title), onBack)
+            HbPaneHeader(
+                stringResource(Res.string.flags_title),
+                leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+                navigation = {
+                    HbIconButton(
+                        HbIcons.ArrowLeft,
+                        stringResource(Res.string.flags_back),
+                        onBack,
+                        Modifier.testTag("flags-back"),
+                    )
+                },
+            )
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             HbLazyColumn(
