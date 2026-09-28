@@ -84,6 +84,7 @@ internal class FakeEngineFacade : EngineFacade {
     var discovered: List<String> = listOf("gpt-a", "gpt-b")
     var availability: EngineAvailability = EngineAvailability.Available
     var connectFailure: EngineFailure? = null
+    var disconnectFailure: Exception? = null
     val calls = mutableListOf<String>()
 
     override val engines: EngineCatalog = object : EngineCatalog {
@@ -114,6 +115,7 @@ internal class FakeEngineFacade : EngineFacade {
 
         override suspend fun disconnect(binding: EngineBindingId) {
             calls += "disconnect"
+            disconnectFailure?.let { throw it }
             bindingsState.update { all -> all.filterNot { it.id == binding } }
         }
 

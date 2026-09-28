@@ -168,6 +168,18 @@ class ConnectionEffectsTest {
     }
 
     @Test
+    fun `rollback keeps the source while its binding could not be removed`() = runTest {
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
+        val connection = (wizardScope.intents.single() as ConnectWizardIntent.Internal.Connected).connection
+        facade.disconnectFailure = IllegalStateException("runtime busy")
+        wizard.handle(ConnectWizardEffect.Rollback(connection), wizardScope)
+        assertEquals(1, facade.bindingsState.value.size)
+        assertTrue(sources.forgotten.isEmpty())
+        assertEquals(ConnectWizardIntent.Internal.RolledBack, wizardScope.intents.last())
+    }
+
+    @Test
     fun `disconnect keeps a source another binding still uses`() = runTest {
         val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
         wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)

@@ -36,7 +36,7 @@ lint/            detekt-rules — собственный набор правил
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
 > Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
 > «движок × подключение × модель», тогл `ai.engine_connections`) поверх `EngineFacade` и `AuthSources`; экраны показывают
-> движки, объявившие `connectionMethods`.
+> только движки, объявившие `connectionMethods`, — продовые адаптеры их пока не объявляют, каталог пуст.
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
