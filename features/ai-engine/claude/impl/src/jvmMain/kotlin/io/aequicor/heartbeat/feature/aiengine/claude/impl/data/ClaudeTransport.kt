@@ -90,7 +90,11 @@ internal class ProcessClaudeTransport(
             val exit = reader.await()
             // After an early stop the child may still block the input write; killing it releases the writer.
             process.destroyForcibly()
-            writer.await()
+            closeInput(process)
+            val writeFailure = writer.await()
+            if (writeFailure != null && input.isNotEmpty()) {
+                throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+            }
             log.d { "Claude CLI operation ended exit=$exit" }
             exit
         } finally {
@@ -100,14 +104,16 @@ internal class ProcessClaudeTransport(
     }
 
     /** A child that stops reading stdin still reports its own exit code and frames. */
-    private fun writeInput(process: Process, input: String, closeInput: Boolean) {
+    private fun writeInput(process: Process, input: String, closeInput: Boolean): IOException? {
         val stream = process.outputStream.bufferedWriter(Charsets.UTF_8)
-        try {
+        return try {
             stream.write(input)
             stream.flush()
             if (closeInput) stream.close()
+            null
         } catch (e: IOException) {
             log.w(e.redacted()) { "Claude process stopped reading input" }
+            e
         }
     }
 

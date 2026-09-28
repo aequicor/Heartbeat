@@ -155,7 +155,7 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `shutdown after result preserves terminal outcome without duplicate events`() = runTest {
+    fun `shutdown before process exit records one unknown outcome`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { args, line ->
             val id = args.last().substringAfter('=')
@@ -172,17 +172,16 @@ class ClaudeRuntimeTest {
         send.await()
         runtime.close()
         val closed = assertIs<ActiveSessionState.Unavailable>(session.state.value)
-        assertEquals(TurnOutcome.Completed, closed.lastTurn?.outcome)
+        assertEquals(TurnOutcome.Unknown, closed.lastTurn?.outcome)
         val events = history.watch(checkpoint).toList()
         assertEquals(1, events.filterIsInstance<SessionEvent.TurnFinished>().size)
     }
 
     @Test
-    fun `failure before any session frame rejects the prompt and keeps the session usable`() = runTest {
+    fun `failure before any session frame leaves delivery unknown`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val runtime = fixture.runtime()
         val session = runtime.create(CreateSessionRequest(testTarget))
-        val normal = fixture.transport.generation
         val missing = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
         fixture.transport.generation = { _, _ -> throw EngineException(missing) }
         val rejected = async {
@@ -190,17 +189,12 @@ class ClaudeRuntimeTest {
         }
         runCurrent()
         assertEquals(missing, rejected.await().failure)
-        assertIs<ActiveSessionState.Ready>(session.state.value)
-        fixture.transport.generation = normal
-        val retried = async { session.features.available(SendsPrompts).send(prompt("retry")) }
-        runCurrent()
-        retried.await()
-        assertTrue(fixture.transport.calls.last().any { it == "--session-id=${session.ref.nativeId}" })
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
         runtime.close()
     }
 
     @Test
-    fun `next prompt waits for the finished turn process and then resumes`() = runTest {
+    fun `result keeps the turn running until its process exits`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val exit = CompletableDeferred<Unit>()
         fixture.transport.generation = { args, line ->
@@ -215,11 +209,11 @@ class ClaudeRuntimeTest {
         val first = async { session.features.available(SendsPrompts).send(prompt()) }
         runCurrent()
         first.await()
+        assertIs<ActiveSessionState.Running>(session.state.value)
+        exit.complete(Unit)
+        runCurrent()
         assertIs<ActiveSessionState.Ready>(session.state.value)
         val second = async { session.features.available(SendsPrompts).send(prompt("second")) }
-        runCurrent()
-        assertTrue(second.isActive)
-        exit.complete(Unit)
         runCurrent()
         second.await()
         assertTrue(fixture.transport.calls.last().any { it == "--resume=${session.ref.nativeId}" })
@@ -227,7 +221,7 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `a finished turn whose process never exits reports busy after the settle bound`() = runTest {
+    fun `a result whose process never exits remains running and rejects a new prompt`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         fixture.transport.generation = { args, line ->
             val id = args.last().substringAfter('=')
@@ -240,6 +234,7 @@ class ClaudeRuntimeTest {
         val first = async { session.features.available(SendsPrompts).send(prompt()) }
         runCurrent()
         first.await()
+        assertIs<ActiveSessionState.Running>(session.state.value)
         val busy = assertFailsWith<EngineException> {
             session.features.available(SendsPrompts).send(prompt("second"))
         }
@@ -262,9 +257,41 @@ class ClaudeRuntimeTest {
         runCurrent()
         assertEquals(RequestFailureReason.OutcomeUnknown, assertIs<EngineFailure.Request>(send.await().failure).reason)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        val cannotResume = assertFailsWith<EngineException> {
+            session.features.available(ReconcilesSession).synchronize()
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), cannotResume.failure)
+        assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        runtime.close()
+    }
+
+    @Test
+    fun `a result followed by transport failure never publishes completion`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val afterResult = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            val id = args.last().substringAfter('=')
+            line(initFrame(id))
+            line(resultFrame(id))
+            afterResult.complete(Unit)
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        val history = session.features.available(SessionHistory)
+        val checkpoint = history.page().checkpoint
+        val send = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        send.await()
+        afterResult.await()
+        runCurrent()
+        val unavailable = assertIs<ActiveSessionState.Unavailable>(session.state.value)
+        assertEquals(TurnOutcome.Unknown, unavailable.lastTurn?.outcome)
         session.features.available(ReconcilesSession).synchronize()
         assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
         runtime.close()
+        val finished = history.watch(checkpoint).toList().filterIsInstance<SessionEvent.TurnFinished>()
+        assertEquals(listOf(TurnOutcome.Unknown), finished.map { it.outcome })
     }
 
     @Test

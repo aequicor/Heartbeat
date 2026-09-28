@@ -55,12 +55,14 @@ class ClaudeProcessTest {
     }
 
     @Test
-    fun `early stop does not wait for a child that never reads its input`() = runTest {
+    fun `early stop reports an incomplete input write`() = runTest {
         val program = Files.createTempFile("claude-sleeper", ".java")
         Files.writeString(program, SLEEPER_PROGRAM)
         try {
-            val exit = transport().run(listOf(program.toString()), LARGE_INPUT) { true }
-            assertEquals(0, exit)
+            val failure = assertFailsWith<EngineException> {
+                transport().run(listOf(program.toString()), LARGE_INPUT) { true }
+            }
+            assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), failure.failure)
         } finally {
             Files.deleteIfExists(program)
         }

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -30,6 +31,8 @@ internal class ClaudeTurnObserver(
         private set
     var hasSession: Boolean = false
         private set
+    var hasMatchingSession: Boolean = false
+        private set
     var isFinished: Boolean = false
         private set
     private var isAccepted = false
@@ -40,6 +43,7 @@ internal class ClaudeTurnObserver(
         // Any session frame proves the CLI started a native turn, so a mismatch is an ambiguous delivery.
         if (session != null) hasSession = true
         if (session != null && session != ref.nativeId) protocolFailure()
+        if (session != null) hasMatchingSession = true
         if (isFinished) return
         when (message.text("type")) {
             "system" -> if (message.text("subtype") == "init") {
@@ -88,8 +92,19 @@ internal class ClaudeTurnObserver(
         }
         isFinished = true
         turn = turn.copy(outcome = outcome)
+    }
+
+    /** Publish the result only after stdin was fully written and the process ended. */
+    fun complete() {
+        val outcome = turn.outcome ?: return
         history.publish { SessionEvent.TurnFinished(it, turn.id, outcome) }
         update(ActiveSessionState.Ready(turn))
+    }
+
+    fun writeFailed() {
+        val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id)
+        history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Unknown) }
+        update(ActiveSessionState.Unavailable(failure, lastTurn = turn.copy(outcome = TurnOutcome.Unknown)))
     }
 
     private fun accept() {
