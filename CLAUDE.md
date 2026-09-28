@@ -31,6 +31,8 @@ lint/            detekt-rules — собственный набор правил
 > Адаптер `koog:{api,impl}` (OpenAI, Anthropic, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
 > подключён в DI, включение — тогл `ai.koog` (по умолчанию false).
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
+> `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
+> частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.
 > Общий runtime фасада, хранилища каталога и UI подключения пока не реализованы.
 > ACP v1: `features:ai-engine:acp-interface:{api,impl}` — общий клиент JSON-RPC, сессии, updates, permissions;
 > stdio на Desktop, явный отказ запуска desktop-процессов на мобильных платформах. Конкретные движки подключаются отдельно.
