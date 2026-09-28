@@ -1,0 +1,61 @@
+name: Close fixed issues
+
+# When a PR is merged into master, github-actions[bot] closes the issues it names with
+# `Closes|Fixes|Resolves #N` (in the PR description or any of its commits) and leaves a link to the PR.
+# A partial fix is marked `Refs #N` / `Part of #N`: the issue stays open and only gets a comment;
+# the bot does not close an issue marked partial anywhere in the PR. Do not mix
+# full and partial markers for one issue: GitHub may close it independently.
+# Covers commits and squash/rebase merges that GitHub's own keywords miss.
+# pull_request_target: runs the default-branch workflow; PR code is never checked out,
+# PR text is passed through env only.
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [master]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  close:
+    name: Close issues fixed by the PR
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      SHA: ${{ github.event.pull_request.merge_commit_sha }}
+      BODY: ${{ github.event.pull_request.body }}
+    steps:
+      - name: Close and reference issues
+        run: |
+          set -euo pipefail
+          text="$(printf '%s\n' "$BODY"; gh pr view "$PR" --json commits --jq '.commits[] | .messageHeadline + "\n" + .messageBody')"
+          ids() { grep -oiE "\b($1)[: ]+#[0-9]+" <<<"$text" | grep -oE '[0-9]+$' | sort -un || true; }
+          verbs='close[sd]?|fix(e[sd])?|resolve[sd]?'
+          refs="$(ids "refs?|part of|partial(ly)? ($verbs)")"
+          text="$(sed -E "s/\b(partial(ly)?|part of)[: ]+(($verbs)[: ]+)?#[0-9]+//Ig" <<<"$text")"
+          closes="$(ids "$verbs")"
+          if [ -n "$refs" ]; then
+            closes="$(grep -vxF -f <(printf '%s\n' "$refs") <<<"$closes" || true)"
+          fi
+          for n in $closes; do
+            [ "$n" = "$PR" ] && continue
+            state="$(gh issue view "$n" --json state --jq .state 2>/dev/null || echo MISSING)"
+            if [ "$state" = "OPEN" ]; then
+              gh issue close "$n" --reason completed --comment "Исправлено в #$PR ($SHA)."
+              echo "closed #$n"
+            else
+              echo "skip #$n: $state"
+            fi
+          done
+          for n in $refs; do
+            if [ "$(gh issue view "$n" --json state --jq .state 2>/dev/null || echo MISSING)" = "OPEN" ]; then
+              gh issue comment "$n" --body "Частично исправлено в #$PR ($SHA); issue остаётся открытой."
+              echo "referenced #$n"
+            fi
+          done
