@@ -6,18 +6,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchMessageUi
+import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchPartUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchPhase
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchQuestionUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchResourceUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenIntent
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenState
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchSessionUi
+import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchToolStatus
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResourceKindUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResourceScopeUi
 import kotlinx.collections.immutable.persistentListOf
@@ -29,6 +34,53 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class ResearchUiTest {
     @Test
+    fun `research tools and exposed reasoning expand within one answer and survive streaming updates`() =
+        runSkikoComposeUiTest(size = Size(900f, 900f)) {
+            var answer by mutableStateOf(
+                ResearchMessageUi(
+                    "answer",
+                    false,
+                    "Before\n\nAfter",
+                    parts = persistentListOf(
+                        ResearchPartUi.Text("intro", "Before"),
+                        ResearchPartUi.Reasoning("thinking", "Plan\n\nInspect every cited page"),
+                        ResearchPartUi.Tool("search", "web_search", ResearchToolStatus.Running, "Observed result"),
+                        ResearchPartUi.Text("final", "After"),
+                    ),
+                    isStreaming = true,
+                ),
+            )
+            setContent {
+                HbTheme(darkTheme = false) {
+                    ResearchTranscript(researchUiSample().copy(messages = persistentListOf(answer)))
+                }
+            }
+            onNodeWithText("Inspect every cited page").assertDoesNotExist()
+            onNodeWithText("Observed result").assertDoesNotExist()
+            onNodeWithText("Plan").performClick()
+            onNodeWithText("web_search").performClick()
+            onNodeWithText("Inspect every cited page").assertIsDisplayed()
+            onNodeWithText("Observed result").assertIsDisplayed()
+            onAllNodesWithTag("message-header:answer").assertCountEquals(1)
+            onAllNodesWithTag("message-footer:answer").assertCountEquals(1)
+            runOnIdle {
+                answer = answer.copy(
+                    text = "Before\n\nFinal answer",
+                    parts = persistentListOf(
+                        answer.parts[0],
+                        answer.parts[1],
+                        ResearchPartUi.Tool("search", "web_search", ResearchToolStatus.Complete, "Observed result"),
+                        ResearchPartUi.Text("final", "Final answer"),
+                    ),
+                    isStreaming = false,
+                )
+            }
+            onNodeWithText("Observed result").assertIsDisplayed()
+            onNodeWithText("Final answer").assertIsDisplayed()
+            onAllNodesWithTag("message-footer:answer").assertCountEquals(1)
+        }
+
+    @Test
     fun `wide research shows sessions questions transcript and selected shared sources`() =
         runSkikoComposeUiTest(size = Size(1440f, 900f)) {
             val intents = mutableListOf<ResearchScreenIntent>()
@@ -39,8 +91,12 @@ class ResearchUiTest {
             onNodeWithTag("research-source-shared").assertIsDisplayed()
             onNodeWithTag("research-source-local").assertDoesNotExist()
             onNodeWithTag("research-source-selected-shared").performClick()
+            onNodeWithTag("research-attach-source").performClick()
             assertEquals(
-                listOf<ResearchScreenIntent>(ResearchScreenIntent.SetResourceSelected("shared", false)),
+                listOf(
+                    ResearchScreenIntent.SetResourceSelected("shared", false),
+                    ResearchScreenIntent.ShowResourceDialog(true),
+                ),
                 intents,
             )
             save("research-wide-light", captureToImage().toAwtImage())

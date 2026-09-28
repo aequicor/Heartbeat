@@ -49,4 +49,15 @@
     <string name="research_pdf_model_hint">Для PDF нужна модель OpenAI или Anthropic с поддержкой PDF.</string>
     <string name="research_cancel">Отмена</string>
     <string name="research_add">Добавить</string>
+    <string name="research_notice">Уведомление</string>
+    <string name="research_reasoning">Размышление</string>
+    <string name="research_expand_tool">Показать подробности</string>
+    <string name="research_collapse_tool">Скрыть подробности</string>
+    <string name="research_tool_pending">Ожидает</string>
+    <string name="research_tool_running">Выполняется</string>
+    <string name="research_tool_complete">Готово</string>
+    <string name="research_tool_failed">Ошибка</string>
+    <string name="research_tool_cancelled">Отменено</string>
+    <string name="research_copy_answer">Копировать ответ</string>
+    <string name="research_copied_answer">Ответ скопирован</string>
 </resources>

@@ -49,4 +49,15 @@
     <string name="research_pdf_model_hint">PDF files require an OpenAI or Anthropic model with PDF support.</string>
     <string name="research_cancel">Cancel</string>
     <string name="research_add">Add</string>
+    <string name="research_notice">Notice</string>
+    <string name="research_reasoning">Reasoning</string>
+    <string name="research_expand_tool">Show details</string>
+    <string name="research_collapse_tool">Hide details</string>
+    <string name="research_tool_pending">Pending</string>
+    <string name="research_tool_running">Running</string>
+    <string name="research_tool_complete">Complete</string>
+    <string name="research_tool_failed">Failed</string>
+    <string name="research_tool_cancelled">Cancelled</string>
+    <string name="research_copy_answer">Copy answer</string>
+    <string name="research_copied_answer">Answer copied</string>
 </resources>

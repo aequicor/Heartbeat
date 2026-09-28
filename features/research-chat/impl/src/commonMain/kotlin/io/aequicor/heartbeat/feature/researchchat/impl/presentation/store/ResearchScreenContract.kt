@@ -35,7 +35,35 @@ internal data class ResearchResourceUi(
 )
 
 @Immutable
-internal data class ResearchMessageUi(val id: String, val isUser: Boolean, val text: String)
+internal data class ResearchMessageUi(
+    val id: String,
+    val isUser: Boolean,
+    val text: String,
+    val parts: ImmutableList<ResearchPartUi> = persistentListOf(),
+    val isStreaming: Boolean = false,
+    val isNotice: Boolean = false,
+)
+
+internal enum class ResearchToolStatus { Pending, Running, Complete, Failed, Cancelled }
+
+/** Ordered visible content only; attachments remain in the explicitly selected source catalog. */
+@Immutable
+internal sealed interface ResearchPartUi {
+    val id: String
+
+    /** User-visible answer prose at its original position. */
+    @Immutable
+    data class Text(override val id: String, val text: String) : ResearchPartUi
+
+    /** Reasoning content explicitly exposed by the engine, never inferred from protocol events. */
+    @Immutable
+    data class Reasoning(override val id: String, val text: String) : ResearchPartUi
+
+    /** An actual invocation whose result updates its original position in the answer. */
+    @Immutable
+    data class Tool(override val id: String, val title: String, val status: ResearchToolStatus, val output: String) :
+        ResearchPartUi
+}
 
 /** Input drafts follow question identities; all research state is projected from the machine. */
 @Immutable

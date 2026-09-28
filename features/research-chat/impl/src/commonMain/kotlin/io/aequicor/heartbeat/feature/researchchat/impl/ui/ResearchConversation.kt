@@ -15,15 +15,11 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbChatComposer
-import io.aequicor.heartbeat.ds.components.HbChatMessage
-import io.aequicor.heartbeat.ds.components.HbChatRole
-import io.aequicor.heartbeat.ds.components.HbChatTranscript
+import io.aequicor.heartbeat.ds.components.HbComposerIconButton
+import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbIcon
-import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
-import io.aequicor.heartbeat.ds.components.HbMessageKind
-import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -33,19 +29,14 @@ import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.Resear
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenState
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.Res
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_add_source
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_assistant
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_composer_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_chat
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_hint
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_jump_latest
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_question
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_session
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_previous_run_failed
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_send
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_stop
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_streaming
-import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_you
-import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -99,11 +90,12 @@ internal fun ResearchConversation(
                 sendLabel = stringResource(Res.string.research_send),
                 stopLabel = stringResource(Res.string.research_stop),
                 modifier = Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("research-composer"),
+                layout = HbComposerLayout.Panel,
                 placeholder = stringResource(Res.string.research_composer_hint),
                 isStreaming = state.isRunning,
                 enabled = state.isEditable || state.isRunning,
                 leadingContent = {
-                    HbIconButton(
+                    HbComposerIconButton(
                         icon = HbIcons.Paperclip,
                         contentDescription = stringResource(Res.string.research_add_source),
                         onClick = { onIntent(ResearchScreenIntent.ShowResourceDialog(true)) },
@@ -114,32 +106,6 @@ internal fun ResearchConversation(
             )
         }
     }
-}
-
-@Composable
-private fun ResearchTranscript(state: ResearchScreenState, modifier: Modifier = Modifier) {
-    val user = stringResource(Res.string.research_you)
-    val assistant = stringResource(Res.string.research_assistant)
-    val messages = state.messages.mapIndexed { index, message ->
-        HbChatMessage(
-            id = message.id,
-            author = if (message.isUser) user else assistant,
-            text = message.text,
-            role = if (message.isUser) HbChatRole.User else HbChatRole.Assistant,
-            kind = if (message.isUser) HbMessageKind.Text else HbMessageKind.Markdown,
-            status = if (state.isRunning && index == state.messages.lastIndex && !message.isUser) {
-                HbMessageStatus.Streaming
-            } else {
-                HbMessageStatus.Complete
-            },
-        )
-    }.toImmutableList()
-    HbChatTranscript(
-        messages = messages,
-        modifier = modifier.testTag("research-transcript"),
-        streamingLabel = stringResource(Res.string.research_streaming),
-        jumpToLatestLabel = stringResource(Res.string.research_jump_latest),
-    )
 }
 
 @Composable

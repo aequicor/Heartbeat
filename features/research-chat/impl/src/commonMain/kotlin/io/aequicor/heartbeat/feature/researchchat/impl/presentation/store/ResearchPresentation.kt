@@ -1,8 +1,5 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
-import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatState
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
@@ -19,6 +16,9 @@ private fun ResearchScreenState.reflectReady(state: ResearchChatState.Ready): Re
     val session = state.session
     val question = state.question
     val selected = if (session != null && question != null) session.selectedResources(question) else emptyList()
+    // Source preparation may be running before any new native content exists; the old answer is complete.
+    val isAnswerStreaming = state.isRunning && question != null &&
+        question.pendingSegmentStart?.let { it < question.items.size } == true
     return copy(
         phase = ResearchPhase.Ready,
         sessions = state.workspace.sessions.map { ResearchSessionUi(it.id, it.title, it.id == state.sessionId) }
@@ -45,16 +45,7 @@ private fun ResearchScreenState.reflectReady(state: ResearchChatState.Ready): Re
                 selected.any { source -> source.id == it.id },
             )
         }.toImmutableList(),
-        messages = question?.items.orEmpty().asSequence().filterIsInstance<SessionItem.Message>().mapNotNull { item ->
-            val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-            text.takeIf { it.isNotBlank() }?.let {
-                ResearchMessageUi(
-                    item.info.id.value,
-                    item.role == MessageRole.User,
-                    it,
-                )
-            }
-        }.toImmutableList(),
+        messages = question?.items.orEmpty().toResearchMessages(isAnswerStreaming),
         sessionTitle = session?.title.orEmpty(),
         questionTitle = question?.title.orEmpty(),
         questionId = question?.id,

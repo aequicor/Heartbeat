@@ -29,11 +29,13 @@ import io.aequicor.heartbeat.ds.components.HbGlassScene
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
+import io.aequicor.heartbeat.ds.components.HbStudioBackdrop
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
+import io.aequicor.heartbeat.ds.theme.HbStudioTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchPhase
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenIntent
@@ -61,18 +63,22 @@ internal fun ResearchScreenContent(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    HbGlassScene(modifier.fillMaxSize().testTag("research-screen")) {
-        HbColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), gap = HbTheme.spacing.none) {
-            ResearchHeader(onBack)
-            if (state.hasError && state.phase == ResearchPhase.Ready) ResearchError(onIntent)
-            when (state.phase) {
-                ResearchPhase.Ready -> ResearchWorkspace(state, onIntent, Modifier.weight(1f))
+    HbStudioTheme {
+        HbGlassScene(modifier.fillMaxSize().testTag("research-screen")) {
+            HbStudioBackdrop(Modifier.fillMaxSize(), isAmbient = true) {
+                HbColumn(Modifier.fillMaxSize().safeDrawingPadding().imePadding(), gap = HbTheme.spacing.none) {
+                    ResearchHeader(onBack)
+                    if (state.hasError && state.phase == ResearchPhase.Ready) ResearchError(onIntent)
+                    when (state.phase) {
+                        ResearchPhase.Ready -> ResearchWorkspace(state, onIntent, Modifier.weight(1f))
 
-                ResearchPhase.Loading, ResearchPhase.Disabled, ResearchPhase.Error ->
-                    ResearchStatus(state.phase, onIntent, Modifier.weight(1f))
+                        ResearchPhase.Loading, ResearchPhase.Disabled, ResearchPhase.Error ->
+                            ResearchStatus(state.phase, onIntent, Modifier.weight(1f))
+                    }
+                }
             }
+            if (state.isResourceDialogOpen) ResearchResourceDialog(state, onIntent)
         }
-        if (state.isResourceDialogOpen) ResearchResourceDialog(state, onIntent)
     }
 }
 

@@ -158,9 +158,9 @@ internal suspend fun loadSelectedSources(
     return session.copy(resources = session.resources.map { loaded[it.id] ?: it })
 }
 
-/** Attachments live in the source catalog, not in every projected transcript message. */
+/** Attachments live in the source catalog; answer prose and explicitly exposed reasoning remain in history. */
 internal fun SessionItem.withoutAttachments(): SessionItem = if (this is SessionItem.Message) {
-    copy(parts = parts.filterIsInstance<ContentPart.Text>())
+    copy(parts = parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning })
 } else {
     this
 }

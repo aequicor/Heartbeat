@@ -20,6 +20,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ResearchPresentationTest {
     private val target = EngineTarget(EngineId("koog"), EngineBindingId("binding"), ModelId("model"))
@@ -50,6 +51,32 @@ class ResearchPresentationTest {
         val screen = ResearchScreenState(drafts = persistentMapOf("q" to "first", "q2" to "second"))
         assertEquals("first", screen.reflectResearch(ready).draft)
         assertEquals("second", screen.reflectResearch(ready.copy(questionId = "q2")).draft)
+    }
+
+    @Test
+    fun `preparing a followup never marks the previous completed answer as streaming`() {
+        val previous = SessionItem.Message(
+            ItemInfo(ItemId("old-answer"), 1, 0),
+            MessageRole.Assistant,
+            listOf(ContentPart.Text("Completed answer")),
+        )
+        val preparing = question.copy(items = listOf(previous), pendingSegmentStart = 1)
+        fun screen(current: ResearchQuestion): ResearchScreenState = ResearchScreenState().reflectResearch(
+            ready.copy(workspace = ResearchWorkspace(listOf(session.copy(questions = listOf(current))), setOf("q"))),
+        )
+        assertFalse(screen(preparing).messages.single().isStreaming)
+        val prompt = previous.copy(
+            info = ItemInfo(ItemId("new-prompt"), 0, 0),
+            role = MessageRole.User,
+            parts = listOf(ContentPart.Text("Follow-up")),
+        )
+        val partial = previous.copy(
+            info = ItemInfo(ItemId("new-answer"), 1, 0),
+            parts = listOf(ContentPart.Text("New answer")),
+        )
+        val streamed = screen(preparing.copy(items = listOf(previous, prompt, partial))).messages
+        assertFalse(streamed.first().isStreaming)
+        assertTrue(streamed.last().isStreaming)
     }
 
     @Test

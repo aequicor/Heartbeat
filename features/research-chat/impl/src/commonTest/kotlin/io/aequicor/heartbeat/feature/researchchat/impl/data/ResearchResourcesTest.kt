@@ -150,6 +150,31 @@ class ResearchResourcesTest {
     }
 
     @Test
+    fun `saved answer preserves exposed reasoning without replaying it as user context`() {
+        val answer = SessionItem.Message(
+            info("reply", 0),
+            MessageRole.Assistant,
+            listOf(
+                ContentPart.Reasoning("EXPOSED REASONING"),
+                ContentPart.Text("Visible answer"),
+                ContentPart.Image(ResourceRef("data:image/png;base64,AAAA", "image/png")),
+            ),
+        )
+        val saved = answer.withoutAttachments() as SessionItem.Message
+        assertEquals(
+            listOf(ContentPart.Reasoning("EXPOSED REASONING"), ContentPart.Text("Visible answer")),
+            saved.parts,
+        )
+        val context = session.promptParts(first.copy(items = listOf(saved)), "Continue")
+            .filterIsInstance<ContentPart.Resource>().joinToString("\n") {
+                Base64.decode(it.resource.id.substringAfter(',')).decodeToString()
+            }
+        assertTrue(context.contains("Visible answer"))
+        assertFalse(context.contains("EXPOSED REASONING"))
+        assertFalse(context.contains("AAAA"))
+    }
+
+    @Test
     fun `reusing discovered website loads full body before supplying source to another question`() = runTest {
         val unloaded = source.copy(text = "")
         val state = session.attach(first.id, unloaded, ResearchResourceScope.Question)
