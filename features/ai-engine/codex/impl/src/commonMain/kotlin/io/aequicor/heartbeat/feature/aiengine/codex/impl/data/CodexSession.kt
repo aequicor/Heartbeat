@@ -90,6 +90,7 @@ internal class CodexSession(
                 )
             }
             if (machine.state.value !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
+            validateReasoningEffort(request)
             val turn = Turn(TurnId(Uuid.random().toString()), request.id, target)
             val accepted = CompletableDeferred<TurnId>()
             submissions[turn.id] = accepted
@@ -102,6 +103,14 @@ internal class CodexSession(
             return accepted.await()
         } finally {
             submitLock.unlock()
+        }
+    }
+
+    private suspend fun validateReasoningEffort(request: PromptRequest) {
+        val effort = request.reasoningEffort ?: return
+        val model = runtime.models(target.binding).firstOrNull { it.target == target }
+        if (effort !in model?.reasoningEfforts.orEmpty()) {
+            fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
     }
 
@@ -229,7 +238,7 @@ internal class CodexSession(
         )
         val response = rpc.request(
             "turn/start",
-            json("threadId" to ref.nativeId.json(), "model" to target.model.value.json(), "input" to input),
+            codexTurnParams(ref.nativeId, target.model.value, input, effect.request.reasoningEffort),
         )
         val id = response.obj("turn").text("id") ?: protocolFailure()
         nativeTurns[id] = effect.turn.id
@@ -327,6 +336,8 @@ internal class CodexSession(
             "item/started", "item/completed" -> history.nativeItem(params.obj("item"), turnId)
 
             "item/agentMessage/delta" -> history.delta(params, turnId)
+
+            "item/reasoning/summaryTextDelta" -> history.reasoningDelta(params, turnId)
 
             "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message, turn)
 

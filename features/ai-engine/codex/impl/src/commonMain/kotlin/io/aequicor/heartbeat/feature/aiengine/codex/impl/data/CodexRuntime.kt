@@ -133,6 +133,8 @@ internal class CodexRuntime(
                 ModelInfo(
                     EngineTarget(identity.engine, binding, ModelId(model.text("model") ?: protocolFailure())),
                     model.text("displayName").orEmpty(),
+                    reasoningEfforts = model.reasoningEfforts(),
+                    defaultReasoningEffort = model.text("defaultReasoningEffort"),
                 )
             }
             cursor = response.text("nextCursor")

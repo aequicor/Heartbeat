@@ -97,6 +97,10 @@ public data class ModelInfo(
     val title: String,
     val features: Set<EngineFeatureId> = emptySet(),
     val contextLimitTokens: Long? = null,
+    /** Native effort identifiers confirmed by this route's model catalog; empty means no selectable effort. */
+    val reasoningEfforts: List<String> = emptyList(),
+    /** Native default, when the catalog advertises it. Null leaves the runtime's configured default unchanged. */
+    val defaultReasoningEffort: String? = null,
 )
 
 /** Fixed credential/workspace route. The model actually used is recorded separately for each turn. */

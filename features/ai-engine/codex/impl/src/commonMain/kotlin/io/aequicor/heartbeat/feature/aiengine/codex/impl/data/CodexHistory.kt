@@ -33,6 +33,7 @@ internal class CodexHistory : SessionHistory {
     private val generation = Uuid.random().toString()
     private var sequence = 0L
     private val items = linkedMapOf<ItemId, SessionItem>()
+    private val reasoning = CodexReasoning()
 
     /** [floor] is the last sequence lost to truncation; checkpoints below it cannot be replayed. */
     private data class Journal(val floor: Long, val events: List<SessionEvent>)
@@ -169,6 +170,8 @@ internal class CodexHistory : SessionHistory {
             },
         )
 
+        "reasoning" -> reasoningMessage(info, reasoning.snapshot(info.id, native))
+
         "commandExecution", "dynamicToolCall" -> SessionItem.ToolCall(
             info,
             ToolCallId(info.id.value),
@@ -218,6 +221,27 @@ internal class CodexHistory : SessionHistory {
             turn,
         )
     }
+
+    fun reasoningDelta(native: JsonObject, turn: TurnId?) {
+        val id = ItemId(native.text("itemId") ?: protocolFailure())
+        val old = items[id]
+        val info = ItemInfo(
+            id,
+            old?.info?.position ?: items.size.toLong(),
+            (old?.info?.revision ?: -1) + 1,
+            turn ?: old?.info?.turn,
+        )
+        val item = reasoningMessage(info, reasoning.append(id, native))
+        items[id] = item
+        publish { SessionEvent.ItemUpserted(it, item) }
+    }
+
+    private fun reasoningMessage(info: ItemInfo, parts: List<ContentPart.Reasoning>): SessionItem =
+        if (parts.isEmpty()) {
+            SessionItem.UnsupportedItem(info, "reasoning")
+        } else {
+            SessionItem.Message(info, MessageRole.Assistant, parts)
+        }
 
     private fun toolStatus(status: String?): ToolCallStatus = when (status) {
         "completed" -> ToolCallStatus.Succeeded

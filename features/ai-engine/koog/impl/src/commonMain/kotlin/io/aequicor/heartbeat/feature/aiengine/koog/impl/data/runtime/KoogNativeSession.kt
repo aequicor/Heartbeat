@@ -162,7 +162,7 @@ internal class KoogNativeSession(
         // Re-checked under the lock: the lease may have been released while this call waited for it.
         checkLease(lease)
         if (current !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
-        if (record.lastTurn?.request == request.id) {
+        if (record.lastTurn?.request == request.id || request.reasoningEffort != null) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
         val connection = access.route(route.binding, identity)
@@ -316,50 +316,39 @@ internal class KoogNativeSession(
             0,
             turn.id,
         )
-        val texts = mutableMapOf<Int, String>()
+        val content = KoogStreamParts()
         val calls = mutableListOf<StreamFrame.ToolCallComplete>()
         var revision = 0L
         var isEnded = false
         client.executor.executeStreaming(input, model, tools).collect { frame ->
-            val hasChanged = when (frame) {
-                is StreamFrame.TextDelta -> {
-                    texts[frame.index ?: 0] = texts[frame.index ?: 0].orEmpty() + frame.text
-                    true
-                }
-
-                is StreamFrame.TextComplete -> {
-                    texts[frame.index ?: 0] = frame.text
-                    true
-                }
-
+            when (frame) {
                 is StreamFrame.ToolCallComplete -> {
                     calls += frame
-                    false
                 }
 
                 is StreamFrame.End -> {
                     isEnded = true
-                    false
                 }
 
+                is StreamFrame.TextDelta,
+                is StreamFrame.TextComplete,
                 is StreamFrame.ToolCallDelta,
                 is StreamFrame.ReasoningDelta,
                 is StreamFrame.ReasoningComplete,
-                -> false
+                -> Unit
             }
-            if (hasChanged) {
+            if (content.append(frame)) {
                 revision++
-                val text = texts.keys.sorted().joinToString("") { texts.getValue(it) }
                 val message = SessionItem.Message(
                     info.copy(revision = revision),
                     MessageRole.Assistant,
-                    listOf(ContentPart.Text(text)),
+                    content.parts,
                 )
                 history.append { SessionEvent.ItemUpserted(it, message) }
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return SearchRound(texts.keys.sorted().joinToString("") { texts.getValue(it) }, calls)
+        return SearchRound(content.text, calls)
     }
 
     private suspend fun recordSearchCall(turn: Turn, call: StreamFrame.ToolCallComplete): HandledSearchCall {

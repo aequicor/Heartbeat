@@ -120,6 +120,7 @@ internal class Fixture(
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
     var threadTurns: List<JsonObject> = emptyList()
+    var modelList: List<JsonObject> = emptyList()
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
             message,
@@ -163,6 +164,8 @@ internal class Fixture(
         wire.handler = { message ->
             when (message.text("method")) {
                 "account/read" -> wire.reply(message, json("account" to account))
+
+                "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
                 "thread/start", "thread/resume" -> wire.reply(
                     message,

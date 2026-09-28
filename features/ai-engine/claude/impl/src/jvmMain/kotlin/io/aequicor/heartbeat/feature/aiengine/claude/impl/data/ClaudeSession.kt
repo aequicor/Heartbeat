@@ -387,7 +387,7 @@ private fun promptText(request: PromptRequest): String {
         throw EngineException(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
     }
     val text = request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-    if (text.isBlank() || text.length > MAX_PROMPT_CHARS) {
+    if (text.isBlank() || text.length > MAX_PROMPT_CHARS || request.reasoningEffort != null) {
         throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
     }
     return text

@@ -161,9 +161,7 @@ internal class PiSession(
                 if (isCommandPending || state.value !is ActiveSessionState.Ready) {
                     piFailure(EngineFailure.Session(SessionFailureReason.Busy))
                 }
-                if (request.parts.any { it !is ContentPart.Text }) {
-                    piFailure(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
-                }
+                validatePromptRequest(request)
                 val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 val result = CompletableDeferred<TurnId>()
                 val previous = Triple(turn, acceptance, isTurnStarted)
@@ -185,6 +183,15 @@ internal class PiSession(
             }
         }
         accepted.await()
+    }
+
+    private fun validatePromptRequest(request: PromptRequest) {
+        if (request.parts.any { it !is ContentPart.Text }) {
+            piFailure(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
+        }
+        if (request.reasoningEffort != null) {
+            piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
+        }
     }
 
     override suspend fun cancel(turn: TurnId): Unit = withContext(dispatchers.main) {
