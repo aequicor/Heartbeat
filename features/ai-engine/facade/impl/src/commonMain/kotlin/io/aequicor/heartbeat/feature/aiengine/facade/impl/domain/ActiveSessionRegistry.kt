@@ -12,10 +12,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -26,7 +28,10 @@ class ActiveSessionRegistry : BindingUsage {
     private val log = Log.tag("ActiveSessions")
     private val handles = MutableStateFlow(emptyList<ActiveSession>())
     private val guard = Mutex()
-    private val locks = mutableMapOf<SessionRef, Mutex>()
+    private val locks = mutableMapOf<SessionRef, SessionLock>()
+
+    /** Number of per-session locks currently held or awaited; exposed for leak tests. */
+    internal suspend fun lockCount(): Int = guard.withLock { locks.size }
 
     /** Registers an opened handle. */
     fun add(handle: ActiveSession) {
@@ -72,9 +77,28 @@ class ActiveSessionRegistry : BindingUsage {
         }
     }
 
-    /** Runs [block] exclusively for the native session [ref]. */
-    suspend fun <T> exclusive(ref: SessionRef, block: suspend () -> T): T =
-        guard.withLock { locks.getOrPut(ref) { Mutex() } }.withLock { block() }
+    /**
+     * Runs [block] exclusively for the native session [ref]. The per-session lock is reference-counted under
+     * [guard] and dropped once no caller holds or awaits it, so the map does not grow for the profile lifetime.
+     */
+    suspend fun <T> exclusive(ref: SessionRef, block: suspend () -> T): T {
+        val lock = guard.withLock { locks.getOrPut(ref) { SessionLock() }.also { it.users++ } }
+        try {
+            return lock.mutex.withLock { block() }
+        } finally {
+            withContext(NonCancellable) {
+                guard.withLock {
+                    lock.users--
+                    if (lock.users == 0) locks.remove(ref)
+                }
+            }
+        }
+    }
+
+    private class SessionLock {
+        val mutex = Mutex()
+        var users = 0
+    }
 }
 
 /** Profile-wide rules shared by every handle: toggles, route rechecks, cross-handle serialization and ids. */
