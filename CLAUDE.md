@@ -27,9 +27,10 @@ lint/            detekt-rules — собственный набор правил
 
 > Текущее состояние: шаблон перенесён в `platform-main` — `shared` (общий вход, iOS framework `Shared`), `android`, `desktop`,
 > Xcode-проект `ios`; пакеты `io.aequicor.heartbeat.platform.*`, applicationId `io.aequicor` сохранён.
-> Контракты AI-движков: `features:ai-engine:facade:api` и `authenticator:api`. Подключение движков — `features:ai-engine:connections`
-> (визард «движок → авторизация → модели» и пространство «движок × подключение × модель», тогл `ai.engine_connections`);
-> реализации фасада и реестра `AuthSources` пока нет — до их появления экраны показывают пустой каталог.
+> Контракты AI-движков: `features:ai-engine:facade:api` и `authenticator:api`; локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
+> Подключение движков — `features:ai-engine:connections` (визард «движок → авторизация → модели» и пространство
+> «движок × подключение × модель», тогл `ai.engine_connections`); общего runtime фасада и реестра `AuthSources` пока нет —
+> до их появления экраны показывают пустой каталог.
 > `features:ai-session-engine-transfer:{api,impl}` — перенос сессии на другой движок (handoff-транскрипт, цепочка сегментов
 > логической беседы в profile KV); машина в ProfileScope создаётся лениво, `EngineFacade` — опциональная зависимость, UI нет.
 > Готово: `build-logic` (`heartbeat.detekt`, `heartbeat.kmp.library`, `heartbeat.metro`, `heartbeat.room`), `core:logging`, `core:common`,
