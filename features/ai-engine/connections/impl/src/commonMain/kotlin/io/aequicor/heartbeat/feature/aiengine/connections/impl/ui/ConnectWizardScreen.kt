@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,12 +13,21 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
@@ -147,8 +157,25 @@ internal fun ConnectWizardContent(
     onIntent: (ConnectWizardScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(focus) {
+        // Wait until the focus target is attached and laid out.
+        withFrameNanos { }
+        focus.requestFocus()
+    }
     Box(
-        modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("connect-wizard"),
+        modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("connect-wizard")
+            // Esc is the wizard's own back: a step back or a rollback of a created connection, never a plain pop.
+            .onKeyEvent {
+                if (it.key == Key.Escape && it.type == KeyEventType.KeyUp) {
+                    onIntent(ConnectWizardScreenIntent.SystemBack)
+                    true
+                } else {
+                    false
+                }
+            }
+            .focusRequester(focus)
+            .focusable(),
         contentAlignment = Alignment.TopCenter,
     ) {
         HbColumn(
