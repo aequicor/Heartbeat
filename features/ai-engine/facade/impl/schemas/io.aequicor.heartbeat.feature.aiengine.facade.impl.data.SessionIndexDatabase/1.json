@@ -1,0 +1,174 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "5956020cd326353438ed88463d499efd",
+    "entities": [
+      {
+        "tableName": "sessions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ref_key` TEXT NOT NULL, `engine` TEXT NOT NULL, `source` TEXT NOT NULL, `title` TEXT, `workspace` TEXT, `is_heartbeat` INTEGER NOT NULL, `is_archived` INTEGER NOT NULL, `sort_updated` INTEGER NOT NULL, `sort_created` INTEGER NOT NULL, `seen_generation` INTEGER, `summary` TEXT NOT NULL, PRIMARY KEY(`ref_key`))",
+        "fields": [
+          {
+            "fieldPath": "refKey",
+            "columnName": "ref_key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "engine",
+            "columnName": "engine",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "workspace",
+            "columnName": "workspace",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "isHeartbeat",
+            "columnName": "is_heartbeat",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isArchived",
+            "columnName": "is_archived",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortUpdated",
+            "columnName": "sort_updated",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sortCreated",
+            "columnName": "sort_created",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seenGeneration",
+            "columnName": "seen_generation",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ref_key"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sessions_engine_source",
+            "unique": false,
+            "columnNames": [
+              "engine",
+              "source"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sessions_engine_source` ON `${TABLE_NAME}` (`engine`, `source`)"
+          },
+          {
+            "name": "index_sessions_sort_updated_ref_key",
+            "unique": false,
+            "columnNames": [
+              "sort_updated",
+              "ref_key"
+            ],
+            "orders": [
+              "DESC",
+              "ASC"
+            ],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sessions_sort_updated_ref_key` ON `${TABLE_NAME}` (`sort_updated` DESC, `ref_key` ASC)"
+          },
+          {
+            "name": "index_sessions_sort_created_ref_key",
+            "unique": false,
+            "columnNames": [
+              "sort_created",
+              "ref_key"
+            ],
+            "orders": [
+              "DESC",
+              "ASC"
+            ],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sessions_sort_created_ref_key` ON `${TABLE_NAME}` (`sort_created` DESC, `ref_key` ASC)"
+          }
+        ]
+      },
+      {
+        "tableName": "coverage",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `discovery` TEXT NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "discovery",
+            "columnName": "discovery",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      },
+      {
+        "tableName": "meta",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`key` TEXT NOT NULL, `value` INTEGER NOT NULL, PRIMARY KEY(`key`))",
+        "fields": [
+          {
+            "fieldPath": "key",
+            "columnName": "key",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "value",
+            "columnName": "value",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "key"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '5956020cd326353438ed88463d499efd')"
+    ]
+  }
+}

@@ -62,9 +62,9 @@ public interface EngineFactory {
 
     /**
      * Stores the adapter-side route of [binding] to [source]. Intended caller is the facade's `EngineBindings`
-     * implementation, after [EngineRegistration.accepts] and toggle gates passed; that runtime does not exist yet,
-     * so no production code calls this today. Replacing a binding's source retires runtimes of the previous source
-     * that no other binding uses.
+     * implementation, after [EngineRegistration.accepts] and toggle gates passed, before the binding is saved;
+     * it is also repeated when an existing binding is reconnected, so it must be idempotent.
+     * Replacing a binding's source retires runtimes of the previous source that no other binding uses.
      * Throws [io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException] when the adapter rejects the route.
      * Abstract on purpose: an adapter without route state (for example a CLI login) states that explicitly.
      */

@@ -24,6 +24,8 @@ kotlin {
             implementation(projects.features.welcome.impl)
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.togglesPanel.impl)
+            implementation(projects.features.aiEngine.authenticator.impl)
+            implementation(projects.features.aiEngine.facade.impl)
             implementation(projects.features.aiSessionEngineTransfer.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
@@ -51,6 +53,8 @@ kotlin {
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.aiSessionEngineTransfer.api)
             implementation(projects.core.di.ext)
+            implementation(projects.features.aiEngine.authenticator.api)
+            implementation(projects.features.aiEngine.facade.api)
             implementation(libs.kotlinx.serialization.json)
         }
     }

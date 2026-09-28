@@ -6,6 +6,8 @@ plugins {
 kotlin {
     sourceSets {
         commonMain.dependencies {
+            api(projects.core.secrets.api)
+            api(libs.kotlinx.coroutines.core)
             api(libs.kotlinx.serialization.core)
         }
         commonTest.dependencies {

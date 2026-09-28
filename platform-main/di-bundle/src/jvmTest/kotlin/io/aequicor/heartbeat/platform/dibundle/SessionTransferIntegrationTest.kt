@@ -88,7 +88,7 @@ class SessionTransferIntegrationTest {
     }
 
     @Test
-    fun `without an installed facade an enabled transfer reports the engine as unavailable`() = runTest {
+    fun `an enabled transfer to an unregistered engine reports it as unavailable`() = runTest {
         toggles.toggleControl.setOverride(AiEngines, true)
         toggles.toggleControl.setOverride(SessionEngineTransfer, true)
 
