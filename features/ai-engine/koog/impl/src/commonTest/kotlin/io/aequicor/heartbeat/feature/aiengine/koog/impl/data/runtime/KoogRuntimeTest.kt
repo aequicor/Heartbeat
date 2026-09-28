@@ -47,10 +47,42 @@ class KoogRuntimeTest {
         f.executor.complete("Answer")
         runCurrent()
         assertEquals(2, f.executor.prompts.size)
+        assertEquals(koogSearchTools, f.executor.tools.first())
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
         val items = session.features.require(SessionHistory).page().items
         assertEquals(1, items.filterIsInstance<SessionItem.ToolCall>().size)
         assertEquals(1, items.filterIsInstance<SessionItem.ToolResult>().size)
+    }
+
+    @Test
+    fun searchToolsAreNotSentWhenToggleIsOffOrModelLacksTools() = runTest {
+        val f = KoogTestFixture(this)
+        f.isSearchEnabled = false
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request("first"))
+        f.executor.complete()
+        runCurrent()
+        f.isSearchEnabled = true
+        f.modelSupportsTools = false
+        session.features.require(SendsPrompts).send(f.request("second"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf(emptyList(), emptyList()), f.executor.tools)
+    }
+
+    @Test
+    fun toolRoundLimitFailsTheTurn() = runTest {
+        val f = KoogTestFixture(this)
+        f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        repeat(8) { round ->
+            f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-$round", "web_search", "{\"query\":\"q\"}", 0))
+            f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        }
+        runCurrent()
+        val outcome = assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome
+        assertIs<TurnOutcome.Failed>(outcome)
     }
 
     @Test

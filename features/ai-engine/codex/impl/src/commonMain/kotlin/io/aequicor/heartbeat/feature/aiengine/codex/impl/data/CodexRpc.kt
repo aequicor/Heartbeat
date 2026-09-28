@@ -37,13 +37,18 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         }
     }
 
-    suspend fun initialize() {
+    /** [experimentalApi] opts into dynamic tools; without it the handshake is the stable one. */
+    suspend fun initialize(experimentalApi: Boolean = false) {
         request(
             "initialize",
-            json(
-                "clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json()),
-                "capabilities" to json("experimentalApi" to JsonPrimitive(true)),
-            ),
+            if (experimentalApi) {
+                json(
+                    "clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json()),
+                    "capabilities" to json("experimentalApi" to JsonPrimitive(true)),
+                )
+            } else {
+                json("clientInfo" to json("name" to "heartbeat".json(), "version" to "0.1.0".json()))
+            },
         )
         wire.write(json("method" to "initialized".json()))
     }

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -67,6 +68,42 @@ class CodexRuntimeTest {
         val response = fixture.wire.written.last { it["id"] == JsonPrimitive(88) }.obj("result")
         assertEquals("true", response["success"].toString())
         assertTrue(response.toString().contains("https://example.com"))
+    }
+
+    @Test
+    fun `disabled search toggle starts threads without dynamic tools`() = runTest {
+        val fixture = Fixture(this, searchTools = false)
+        fixture.open()
+        val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+        assertFalse("dynamicTools" in params)
+    }
+
+    @Test
+    fun `slow tool call does not block events and is cancelled with its turn`() = runTest {
+        val fixture = Fixture(
+            this,
+            object : SearchEngine {
+                override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
+                    awaitCancellation()
+                override suspend fun fetch(url: String, native: EngineFeatures?) = awaitCancellation()
+            },
+        )
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.event(
+            "item/tool/call",
+            "turnId" to "native-turn".json(),
+            "tool" to "web_search".json(),
+            "arguments" to json("query" to "topic".json()),
+            id = JsonPrimitive(89),
+        )
+        runCurrent()
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        val response = fixture.wire.written.last { it["id"] == JsonPrimitive(89) }.obj("result")
+        assertEquals("false", response["success"].toString())
+        assertTrue(response.toString().contains("Cancelled"))
     }
 
     @Test

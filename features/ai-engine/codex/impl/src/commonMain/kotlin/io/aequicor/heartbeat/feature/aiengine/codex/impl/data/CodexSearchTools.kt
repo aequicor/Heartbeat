@@ -61,7 +61,7 @@ internal suspend fun executeSearchTool(search: SearchEngine, tool: String, argum
         val output = when (tool) {
             "web_search" -> {
                 val query = (args["query"] as? JsonPrimitive)?.content.orEmpty()
-                val count = (args["count"] as? JsonPrimitive)?.intOrNull ?: 5
+                val count = ((args["count"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT)
                 val results = search.search(query, count)
                 JsonArray(
                     results.map { result ->
@@ -99,6 +99,12 @@ internal suspend fun executeSearchTool(search: SearchEngine, tool: String, argum
 }
 
 private fun toolFailure(reason: String): JsonObject = toolResult(false, reason)
+
+/** Failed dynamic tool result that carries only a safe reason code. */
+internal fun toolFailureResult(reason: String): JsonObject = toolFailure(reason)
+
+private const val DEFAULT_COUNT = 5
+private const val MAX_COUNT = 20
 
 private fun toolResult(success: Boolean, text: String): JsonObject = buildJsonObject {
     put("success", success)

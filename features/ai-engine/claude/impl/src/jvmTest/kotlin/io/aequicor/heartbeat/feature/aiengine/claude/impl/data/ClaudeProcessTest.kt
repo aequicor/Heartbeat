@@ -18,8 +18,10 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -220,6 +222,9 @@ class ClaudeProcessTest {
             assertTrue("http://127.0.0.1:4321/mcp" in contents)
             assertTrue("Bearer bridge-token" in contents)
             assertFalse("querit" in contents.lowercase())
+            if ("posix" in FileSystems.getDefault().supportedFileAttributeViews()) {
+                assertEquals("rw-------", PosixFilePermissions.toString(Files.getPosixFilePermissions(config)))
+            }
         } finally {
             Files.deleteIfExists(config)
         }

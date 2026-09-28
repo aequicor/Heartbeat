@@ -13,7 +13,7 @@ class PiSearchRegistrationTest {
             Path.of("pi"),
             "anthropic",
             Path.of("sessions"),
-            listOf(Path.of("runtime", "heartbeat-approval.ts"), Path.of("runtime", "heartbeat-search.ts")),
+            piExtensions(Path.of("runtime"), searchTools = true),
             "read,edit",
         )
         assertTrue("--no-extensions" in arguments)
@@ -23,6 +23,10 @@ class PiSearchRegistrationTest {
                 Path.of("runtime", "heartbeat-search.ts").toString(),
             ),
             arguments.windowed(2).filter { it.first() == "-e" }.map { it.last() },
+        )
+        assertEquals(
+            listOf(Path.of("runtime", "heartbeat-approval.ts")),
+            piExtensions(Path.of("runtime"), searchTools = false),
         )
         val extension = assertNotNull(javaClass.getResourceAsStream("/pi/heartbeat-search.ts"))
         extension.use { stream ->

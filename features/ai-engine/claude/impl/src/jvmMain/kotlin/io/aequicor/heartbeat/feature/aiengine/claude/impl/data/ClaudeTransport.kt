@@ -23,8 +23,10 @@ import kotlinx.serialization.json.put
 import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
+import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
@@ -83,11 +85,7 @@ internal class ProcessClaudeTransport(
         closeInput: Boolean,
         line: suspend (String) -> Boolean,
     ): Int {
-        val bridgeConfig = if (SEARCH_BRIDGE_MARKER in arguments) {
-            claudeSearchConfig(searchBridge.endpoint())
-        } else {
-            null
-        }
+        val bridgeConfig = if (SEARCH_BRIDGE_MARKER in arguments) searchConfig() else null
         val effectiveArguments = bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
         try {
             val process = start(processBuilder(effectiveArguments, workspace))
@@ -100,6 +98,16 @@ internal class ProcessClaudeTransport(
         } finally {
             bridgeConfig?.let(Files::deleteIfExists)
         }
+    }
+
+    /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
+    private fun searchConfig(): Path = try {
+        claudeSearchConfig(searchBridge.endpoint())
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "Search bridge config could not be prepared" }
+        throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
     }
 
     private suspend fun communicate(
@@ -221,7 +229,28 @@ internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint): Path {
             },
         )
     }
-    return Files.createTempFile("heartbeat-mcp-", ".json").also { Files.writeString(it, config.toString()) }
+    // The file carries the bridge bearer: owner-only before any content is written, removed on JVM exit too.
+    val file = ownerOnlyTempFile("heartbeat-mcp-", ".json")
+    Files.writeString(file, config.toString())
+    return file
+}
+
+internal fun ownerOnlyTempFile(prefix: String, suffix: String): Path {
+    val isPosix = "posix" in FileSystems.getDefault().supportedFileAttributeViews()
+    val file = if (isPosix) {
+        val ownerOnly = PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))
+        Files.createTempFile(prefix, suffix, ownerOnly)
+    } else {
+        Files.createTempFile(prefix, suffix).also { path ->
+            val handle = path.toFile()
+            handle.setReadable(false, false)
+            handle.setWritable(false, false)
+            handle.setReadable(true, true)
+            handle.setWritable(true, true)
+        }
+    }
+    file.toFile().deleteOnExit()
+    return file
 }
 
 /**

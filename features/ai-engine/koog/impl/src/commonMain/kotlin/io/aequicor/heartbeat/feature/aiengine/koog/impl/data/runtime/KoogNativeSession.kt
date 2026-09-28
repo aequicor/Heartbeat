@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
+import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
+import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
@@ -37,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
@@ -191,15 +194,16 @@ internal class KoogNativeSession(
         publish(ActiveSessionState.Running(turn))
         val provider = requireNotNull(koogProvider(connection.source))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider.textModel(model.value))
+            runTurn(turn, client, provider, model.value)
         }
         return turn.id
     }
 
-    private suspend fun runTurn(turn: Turn, client: KoogClient, model: LLModel) {
+    private suspend fun runTurn(turn: Turn, client: KoogClient, provider: KoogProvider, model: String) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            generate(turn, client, model)
+            val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
+            generate(turn, client, provider.textModel(model, tools = tools.isNotEmpty()), tools)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -227,15 +231,33 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel) {
+    /**
+     * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
+     * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
+     */
+    private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
+        if (!access.searchToolsEnabled()) return false
+        if (provider != KoogProvider.Ollama) return true
+        return try {
+            client.models().firstOrNull { it.id == model }?.capabilities?.contains(LLMCapability.Tools) == true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.sanitized()) { "Model capabilities unavailable; search tools disabled for this turn" }
+            false
+        }
+    }
+
+    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: List<ToolDescriptor>) {
         log.i { "Starting provider stream" }
         var input = initialPrompt()
         repeat(MAX_TOOL_ROUNDS) { _ ->
-            val round = streamRound(turn, client, model, input)
+            val round = streamRound(turn, client, model, input, tools)
             if (round.calls.isEmpty()) return
             val results = round.calls.map { call -> recordSearchCall(turn, call) }
             input = continuePrompt(input, round.text, results)
         }
+        log.w { "Search tool round limit reached ($MAX_TOOL_ROUNDS)" }
         fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
     }
 
@@ -269,7 +291,13 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun streamRound(turn: Turn, client: KoogClient, model: LLModel, input: Prompt): SearchRound {
+    private suspend fun streamRound(
+        turn: Turn,
+        client: KoogClient,
+        model: LLModel,
+        input: Prompt,
+        tools: List<ToolDescriptor>,
+    ): SearchRound {
         val info = ItemInfo(
             ItemId(Uuid.random().toString()),
             history.items.size.toLong(),
@@ -280,7 +308,7 @@ internal class KoogNativeSession(
         val calls = mutableListOf<StreamFrame.ToolCallComplete>()
         var revision = 0L
         var isEnded = false
-        client.executor.executeStreaming(input, model, koogSearchTools).collect { frame ->
+        client.executor.executeStreaming(input, model, tools).collect { frame ->
             val hasChanged = when (frame) {
                 is StreamFrame.TextDelta -> {
                     texts[frame.index ?: 0] = texts[frame.index ?: 0].orEmpty() + frame.text

@@ -28,8 +28,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -53,6 +57,9 @@ internal class CodexSession(
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
     private val permissions = mutableMapOf<PermissionRequestId, Pair<JsonElement, PermissionRequest>>()
     private val finished = mutableSetOf<TurnId>()
+
+    /** Running dynamic tool calls per turn; cancelled when the turn is interrupted or finishes. */
+    private val toolJobs = mutableMapOf<TurnId, Job>()
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(ActiveSessionMachineKey(Uuid.random().toString()), ActiveSessionState.Ready()),
         scope,
@@ -180,18 +187,10 @@ internal class CodexSession(
         when (effect) {
             is ActiveSessionEffect.Submit -> submit(effect)
 
-            is ActiveSessionEffect.Cancel -> rpc.request(
-                "turn/interrupt",
-                json(
-                    "threadId" to ref.nativeId.json(),
-                    "turnId" to
-                        (
-                            nativeTurns.entries.firstOrNull {
-                                it.value == effect.turn
-                            }?.key ?: protocolFailure()
-                        ).json(),
-                ),
-            )
+            is ActiveSessionEffect.Cancel -> {
+                cancelTools(effect.turn)
+                interrupt(effect)
+            }
 
             is ActiveSessionEffect.Decide -> {
                 val id = permissions[effect.decision.request]?.first ?: protocolFailure()
@@ -202,6 +201,21 @@ internal class CodexSession(
 
             ActiveSessionEffect.Release -> machine.send(ActiveSessionIntent.Internal.Released)
         }
+    }
+
+    private suspend fun interrupt(effect: ActiveSessionEffect.Cancel) {
+        rpc.request(
+            "turn/interrupt",
+            json(
+                "threadId" to ref.nativeId.json(),
+                "turnId" to
+                    (
+                        nativeTurns.entries.firstOrNull {
+                            it.value == effect.turn
+                        }?.key ?: protocolFailure()
+                    ).json(),
+            ),
+        )
     }
 
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
@@ -266,6 +280,7 @@ internal class CodexSession(
         }
         nativeTurn = null
         permissions.clear()
+        active?.let { cancelTools(it.id) }
         machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
         completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
     }
@@ -318,30 +333,46 @@ internal class CodexSession(
         }
     }
 
+    /**
+     * Answers a dynamic tool call without blocking the server-message loop: the search runs in a child job of the
+     * turn, so deltas and approvals keep flowing and interrupting the turn cancels the search.
+     */
     private suspend fun dynamicTool(message: JsonObject, turn: Turn?) {
         val id = message["id"] ?: protocolFailure()
         val params = message.obj("params")
         if (turn == null || params.text("turnId") != nativeTurn) {
-            rpc.respond(
-                id,
-                json(
-                    "success" to JsonPrimitive(false),
-                    "contentItems" to JsonArray(
-                        listOf(json("type" to "inputText".json(), "text" to "TurnUnavailable".json())),
-                    ),
-                ),
-            )
+            rpc.respond(id, toolFailureResult("TurnUnavailable"))
             return
         }
         accept(turn)
-        rpc.respond(
-            id,
-            executeSearchTool(
-                runtime.host.search,
-                params.text("tool").orEmpty(),
-                params["arguments"] ?: JsonObject(emptyMap()),
-            ),
-        )
+        val tool = params.text("tool").orEmpty()
+        val arguments = params["arguments"] ?: JsonObject(emptyMap())
+        val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
+        scope.coroutineScope.launch(parent) {
+            val result = try {
+                executeSearchTool(runtime.host.search, tool, arguments)
+            } catch (e: CancellationException) {
+                log.i { "Codex tool call cancelled with its turn" }
+                withContext(NonCancellable) { respondQuietly(id, toolFailureResult("Cancelled")) }
+                throw e
+            }
+            respondQuietly(id, result)
+        }
+    }
+
+    private suspend fun respondQuietly(id: JsonElement, result: JsonObject) {
+        try {
+            rpc.respond(id, result)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // The connection is gone; the turn itself reports the failure.
+            log.w(e) { "Codex tool response not delivered" }
+        }
+    }
+
+    private fun cancelTools(turn: TurnId) {
+        toolJobs.remove(turn)?.cancel()
     }
 
     private fun correlate(params: JsonObject, turn: Turn?): TurnId? {
@@ -356,6 +387,7 @@ internal class CodexSession(
 
     private suspend fun complete(id: TurnId, native: JsonObject) {
         if (!finished.add(id)) return
+        cancelTools(id)
         val outcome = outcome(native)
         currentTurn()?.takeIf { it.id == id }?.let { accept(it) }
         machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))

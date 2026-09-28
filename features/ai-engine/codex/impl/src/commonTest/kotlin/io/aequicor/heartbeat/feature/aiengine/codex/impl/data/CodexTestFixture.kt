@@ -100,6 +100,7 @@ internal class Fixture(
             emptyList()
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
     },
+    searchTools: Boolean = true,
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -141,6 +142,7 @@ internal class Fixture(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),
         rpc,
         environment,
+        searchTools,
     )
     init {
         wire.handler = { message ->

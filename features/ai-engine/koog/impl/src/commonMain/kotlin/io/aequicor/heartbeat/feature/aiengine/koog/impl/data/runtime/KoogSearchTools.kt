@@ -41,7 +41,7 @@ internal suspend fun executeKoogSearch(search: SearchEngine, call: StreamFrame.T
             "web_search" -> JsonArray(
                 search.search(
                     args.string("query"),
-                    args.integer("count") ?: 5,
+                    (args.integer("count") ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT),
                 ).map { result ->
                     buildJsonObject {
                         put("url", result.url)
@@ -71,6 +71,9 @@ internal suspend fun executeKoogSearch(search: SearchEngine, call: StreamFrame.T
         searchLog.w(e) { "Search tool failed" }
         KoogSearchResult("Unavailable", true)
     }
+
+private const val DEFAULT_COUNT = 5
+private const val MAX_COUNT = 20
 
 private fun JsonObject.string(name: String) = (this[name] as? JsonPrimitive)?.content.orEmpty()
 private fun JsonObject.integer(name: String) = (this[name] as? JsonPrimitive)?.intOrNull

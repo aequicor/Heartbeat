@@ -4,6 +4,7 @@ import ai.koog.agents.core.tools.ToolDescriptor
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.ModerationResult
 import ai.koog.prompt.executor.model.PromptExecutor
+import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.streaming.StreamFrame
@@ -44,6 +45,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogRecord
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.KoogSessionRecords
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -69,12 +71,15 @@ internal class KoogTestFixture(test: TestScope) {
         CoroutineScope(test.backgroundScope.coroutineContext + Job(test.backgroundScope.coroutineContext.job)),
     )
     var isEnabled = true
+    var isSearchEnabled = true
+    var modelSupportsTools = true
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
     val secrets = FakeSecrets()
     private val toggles = object : FeatureToggles {
         @Suppress("UNCHECKED_CAST") // Fixture only supplies boolean switches.
-        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isEnabled as T
+        override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
+            (if (toggle == SearchEngineTools) isSearchEnabled else isEnabled) as T
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
     }
     val access = KoogAccess(
@@ -87,7 +92,8 @@ internal class KoogTestFixture(test: TestScope) {
                 opens++
                 return KoogClient(executor) {
                     beforeModels()
-                    listOf(LLModel(provider.llmProvider, "test-model"))
+                    val capabilities = if (modelSupportsTools) listOf(LLMCapability.Tools) else emptyList()
+                    listOf(LLModel(provider.llmProvider, "test-model", capabilities))
                 }
             }
         },
@@ -137,11 +143,13 @@ internal class FakeRecords : KoogSessionRecords {
 internal class FakeExecutor : PromptExecutor() {
     val frames = Channel<StreamFrame>(Channel.UNLIMITED)
     val prompts = mutableListOf<Prompt>()
+    val tools = mutableListOf<List<ToolDescriptor>>()
     var closed = 0
     var failure: Exception? = null
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
             prompts += prompt
+            this@FakeExecutor.tools += tools
             failure?.let { throw it }
             do {
                 val frame = frames.receive()
