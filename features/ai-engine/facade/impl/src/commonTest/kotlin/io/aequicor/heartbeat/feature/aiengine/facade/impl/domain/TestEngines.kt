@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +69,7 @@ internal class FakeEngineFactory : EngineFactory {
     var modelsFailure: Exception? = null
     var runtime: (RuntimeIdentity) -> EngineRuntime = { error("no runtime in this test") }
     val createdRuntimes = mutableListOf<RuntimeIdentity>()
+    var createGate: CompletableDeferred<Unit>? = null
     val routes = mutableMapOf<EngineBindingId, AuthSource>()
 
     override suspend fun checkRequirements(): EngineAvailability {
@@ -101,6 +103,7 @@ internal class FakeEngineFactory : EngineFactory {
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime {
+        createGate?.await()
         createdRuntimes += identity
         return runtime(identity)
     }

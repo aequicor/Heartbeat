@@ -26,7 +26,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SourceDiscovery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -69,13 +71,14 @@ class SessionLauncherTest {
     private val index = RecordingSessionIndex()
     private val source = FakeSessionSource()
     private lateinit var pool: RuntimePool
+    private val factory = FakeEngineFactory()
 
     private fun TestScope.launcher(
         features: Set<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId> =
             setOf(CreatesSessions.id, AttachesSessions.id),
         supports: Boolean = true,
     ): Triple<RouteFixture, SessionLauncher, FacadeCapabilities> {
-        val factory = FakeEngineFactory().apply { runtime = { FakeRuntime(it, supports).also { r -> runtimes += r } } }
+        val factory = factory.apply { runtime = { FakeRuntime(it, supports).also { r -> runtimes += r } } }
         val fixture = RouteFixture(this, factory, registration(factory, sources = listOf(source), features = features))
         val enabled = EnabledEngines(fixture.registry, fixture.toggles, backgroundScope)
         lateinit var capabilities: FacadeCapabilities
@@ -213,6 +216,21 @@ class SessionLauncherTest {
 
         assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), error.failure)
         assertEquals(1, runtimes.size)
+        assertEquals(1, runtimes.single().closes)
+    }
+
+    @Test
+    fun `a runtime created for a cancelled request is closed, not leaked`() = runTest {
+        val (fixture, launcher, _) = launcher()
+        val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
+        val request = launch { launcher.create(CreateSessionRequest(fixture.target)) }
+        runCurrent()
+
+        request.cancel()
+        gate.complete(Unit)
+        runCurrent()
+
+        assertTrue(request.isCancelled)
         assertEquals(1, runtimes.single().closes)
     }
 }

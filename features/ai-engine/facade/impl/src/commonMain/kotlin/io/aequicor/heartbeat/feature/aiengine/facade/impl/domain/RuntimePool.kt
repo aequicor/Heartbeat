@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -53,12 +55,10 @@ class RuntimePool(
         if (current != null) retire(current, key)
         mutex.withLock { ensureOpen(identity.engine) }
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
-        val created = adapterCall(log, "createRuntime") {
-            withContext(context.io) { resolved.registration.factory.value.createRuntime(identity) }
-        }
+        val created = create(resolved)
         if (created.identity != identity) {
             log.e { "runtime reported another identity engine=${identity.engine.value}" }
-            closeQuietly(created)
+            withContext(NonCancellable) { closeQuietly(created) }
             fail(EngineFailure.Unknown())
         }
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
@@ -71,6 +71,30 @@ class RuntimePool(
             fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
         return created
+    }
+
+    /**
+     * Creation is not interrupted by cancellation, and a runtime the adapter already started reaches the pool or is
+     * closed here: `withContext` drops its result when the caller was cancelled meanwhile, so it is captured inside.
+     */
+    private suspend fun create(resolved: ResolvedRoute): EngineRuntime {
+        val identity = resolved.identity
+        var started: EngineRuntime? = null
+        try {
+            val created = adapterCall(log, "createRuntime") {
+                withContext(NonCancellable + context.io) {
+                    resolved.registration.factory.value.createRuntime(identity).also { started = it }
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            return created
+        } catch (e: CancellationException) {
+            started?.let {
+                log.i { "runtime created for a cancelled request, closing engine=${identity.engine.value}" }
+                withContext(NonCancellable) { closeQuietly(it) }
+            }
+            throw e
+        }
     }
 
     private suspend fun retire(current: EngineRuntime, key: Pair<EngineId, AuthSourceId>) {
@@ -102,7 +126,8 @@ class RuntimePool(
             runtimes.values.toList().also { runtimes.clear() }
         }
         log.i { "close runtimes count=${all.size}" }
-        all.forEach { closeQuietly(it) }
+        // Already unregistered: every one is closed even if shutdown is cancelled midway.
+        withContext(NonCancellable) { all.forEach { closeQuietly(it) } }
     }
 
     private suspend fun closeQuietly(runtime: EngineRuntime) {
