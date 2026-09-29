@@ -26,12 +26,27 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * Uses the same Foundation rendering in Material, Fluent and macOS themes, like Markdown.
  */
 @Composable
-public fun HbDiffView(text: String, modifier: Modifier = Modifier, labels: HbToolLabels = HbToolLabels()) {
+public fun HbDiffView(
+    text: String,
+    modifier: Modifier = Modifier,
+    labels: HbToolLabels = HbToolLabels(),
+    isSelectionContainerRequired: Boolean = true,
+) {
     val chunks = remember(text) { chunkHbDiff(text) }
     HbColumn(modifier = modifier.fillMaxWidth(), gap = HbTheme.elevation.none) {
         chunks.forEachIndexed { index, chunk ->
             key(index) {
-                SelectionContainer {
+                if (isSelectionContainerRequired) {
+                    SelectionContainer {
+                        HbDiffChunkContent(
+                            chunk,
+                            modifier = Modifier.padding(
+                                top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
+                            ),
+                            labels = labels,
+                        )
+                    }
+                } else {
                     HbDiffChunkContent(
                         chunk,
                         modifier = Modifier.padding(
