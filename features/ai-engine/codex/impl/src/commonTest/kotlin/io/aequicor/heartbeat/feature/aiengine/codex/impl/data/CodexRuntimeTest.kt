@@ -313,6 +313,28 @@ class CodexRuntimeTest {
     }
 
     @Test
+    fun `resumed turns with summarized items report partial history`() = runTest {
+        val fixture = Fixture(this)
+        fixture.resumedTurns = JsonArray(
+            listOf(
+                json("id" to "full-turn".json(), "itemsView" to "full".json(), "items" to JsonArray(emptyList())),
+                json(
+                    "id" to "summary-turn".json(),
+                    "itemsView" to "summary".json(),
+                    "items" to JsonArray(
+                        listOf(json("id" to "answer".json(), "type" to "agentMessage".json(), "text" to "hi".json())),
+                    ),
+                ),
+            ),
+        )
+        val session = fixture.runtime.attach(fixture.storedRef(), ResumeSessionRequest(fixture.target))
+        val page = session.feature(SessionHistory).page()
+        assertEquals(listOf("answer"), page.items.map { it.info.id.value })
+        assertEquals(HistoryCoverage.Partial, page.coverage)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `new thread covers the whole history`() = runTest {
         val fixture = Fixture(this)
         assertEquals(HistoryCoverage.Complete, fixture.open().feature(SessionHistory).page().coverage)
