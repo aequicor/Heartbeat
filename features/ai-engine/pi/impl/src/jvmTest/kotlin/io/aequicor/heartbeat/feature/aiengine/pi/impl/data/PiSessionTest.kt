@@ -41,7 +41,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
@@ -110,6 +112,19 @@ class PiSessionTest {
             listOf("off", "low", "medium", "high", "xhigh"),
             model("""{"reasoning":true,"thinkingLevelMap":{"minimal":null,"xhigh":"max"}}"""),
         )
+        assertEquals(
+            listOf("off", PI_THINKING_ON),
+            model("""{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":false}}"""),
+        )
+        assertEquals(
+            listOf("low", "medium", "xhigh"),
+            model(
+                """{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":true},
+                "thinkingLevelMap":{"off":null,"minimal":null,"high":null,"xhigh":"xhigh"}}""",
+            ),
+        )
+        assertEquals("medium", piThinkingLevel(PI_THINKING_ON))
+        assertEquals("low", piThinkingLevel("low"))
     }
 
     @Test
@@ -155,6 +170,26 @@ class PiSessionTest {
         assertEquals(turn, ready.lastTurn?.id)
         assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resumed session starts pi on the stored transcript`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "native")
+        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        assertEquals(listOf("switch_session", "set_model", "get_state"), fixture.connection.commands)
+        assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
+        assertEquals(ref, fixture.session.ref)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resume never adopts a different native session`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "stored")
+        val error = assertFailsWith<EngineException> {
+            fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
     }
 
     @Test
@@ -273,6 +308,32 @@ class PiSessionTest {
         runCurrent()
         assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
         assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `full trust answers every tool approval without the user`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.Full)
+        fixture.connection.event(approval("ui-t1"))
+        fixture.connection.event(approval("ui-t2", tool = "write"))
+        assertEquals(
+            listOf(answer("ui-t1", "confirmed", true), answer("ui-t2", "confirmed", true)),
+            fixture.connection.sent,
+        )
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `edit trust allows file edits and still asks before commands`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.AutoEdits)
+        fixture.connection.event(approval("ui-e1", tool = "edit"))
+        fixture.connection.event(approval("ui-e2"))
+        assertEquals(listOf(answer("ui-e1", "confirmed", true)), fixture.connection.sent)
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: ls -la", awaiting.requests.single().title)
         fixture.session.shutdown()
     }
 
@@ -487,6 +548,7 @@ class PiSessionTest {
 
     private suspend fun TestScope.fixture(
         validate: suspend () -> Unit = {},
+        transcript: PiTranscript? = null,
         configure: (Int, FakeConnection) -> Unit = { _, _ -> },
     ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -511,29 +573,32 @@ class PiSessionTest {
             { released += it },
         )
         val connections = mutableListOf<FakeConnection>()
-        session.start { event, failed ->
-            FakeConnection().also {
-                it.event = event
-                it.failed = failed
-                configure(connections.size, it)
-                connections += it
-            }
-        }
+        session.start(
+            { event, failed ->
+                FakeConnection().also {
+                    it.event = event
+                    it.failed = failed
+                    configure(connections.size, it)
+                    connections += it
+                }
+            },
+            transcript,
+        )
         return Fixture(session, connections, released)
     }
 
-    private suspend fun Fixture.runningTurn(): TurnId {
+    private suspend fun Fixture.runningTurn(trust: TrustLevel? = null): TurnId {
         connection.promptAck.complete(JsonObject(emptyMap()))
-        val turn = session.send(prompt("tool"))
+        val turn = session.send(prompt("tool").copy(trust = trust))
         connection.event(record("""{"type":"agent_start"}"""))
         return turn
     }
 
-    private fun approval(id: String, target: String = "ls -la"): JsonObject {
+    private fun approval(id: String, target: String = "ls -la", tool: String = "bash"): JsonObject {
         val message = JsonObject(
             mapOf(
                 "toolCallId" to JsonPrimitive("c1"),
-                "toolName" to JsonPrimitive("bash"),
+                "toolName" to JsonPrimitive(tool),
                 "target" to JsonPrimitive(target),
             ),
         )

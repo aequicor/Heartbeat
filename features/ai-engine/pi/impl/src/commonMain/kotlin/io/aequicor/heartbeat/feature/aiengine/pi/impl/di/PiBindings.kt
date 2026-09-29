@@ -25,6 +25,9 @@ public object PiToggleBindings {
     public fun toggle(): FeatureToggle<*> = PiEnabled
 }
 
+/** 1: compatible models inherit thinking levels of Pi's own catalog; 2: on/off-only thinking is reported as such. */
+private const val PI_MODEL_CATALOG_REVISION = 2
+
 /** Profile-owned lazy adapter registration and the public Pi configuration, both backed by one [PiAdapter]. */
 @BindingContainer
 @ContributesTo(ProfileScope::class)
@@ -34,7 +37,7 @@ public object PiRegistrationBindings {
     @IntoSet
     @SingleIn(ProfileScope::class)
     internal fun registration(adapter: Lazy<PiAdapter>): EngineRegistration =
-        EngineRegistration(PiDescriptor, PiAuthOwner, adapter)
+        EngineRegistration(PiDescriptor, PiAuthOwner, adapter, modelCatalogRevision = PI_MODEL_CATALOG_REVISION)
 
     /** Exposes only the configuration contract of the profile's adapter; the SPI stays internal. */
     @Provides

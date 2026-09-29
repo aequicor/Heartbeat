@@ -110,4 +110,43 @@ class PiCompatibleCatalogTest {
         assertEquals("https://llm.example", provider.getValue("baseUrl").jsonPrimitive.content)
         assertEquals("anthropic-messages", provider.getValue("api").jsonPrimitive.content)
     }
+
+    @Test
+    fun `compatible models inherit thinking metadata of Pi catalog models at the same API base`() {
+        val qwen = Json.parseToJsonElement(
+            """{"id":"qwen3.8-max","name":"Qwen3.8 Max","api":"openai-completions","provider":"qwen-token-plan",
+            "baseUrl":"https://llm.example/v1/","reasoning":true,"compat":{"thinkingFormat":"qwen"},
+            "thinkingLevelMap":{"off":null,"low":"low"},"contextWindow":1000000,"cost":{"input":1}}""",
+        ).jsonObject
+        val elsewhere = Json.parseToJsonElement(
+            """{"id":"m2","api":"openai-completions","baseUrl":"https://other.example/v1","reasoning":true}""",
+        ).jsonObject
+        val anthropic = Json.parseToJsonElement(
+            """{"id":"m2","api":"anthropic-messages","baseUrl":"https://llm.example/v1","reasoning":true}""",
+        ).jsonObject
+        val catalog = listOf(qwen, elsewhere, anthropic)
+        val known = piBuiltinModelsAt(catalog, "openai-completions", "https://llm.example/v1")
+        assertEquals(setOf("qwen3.8-max"), known.keys)
+
+        val json = piModelsJson(
+            PiProvider.OpenAiCompatible,
+            openAiScope,
+            listOf(PiCompatibleModel("qwen3.8-max", null), PiCompatibleModel("m2", null)),
+            known,
+        )
+        val models = Json.parseToJsonElement(json).jsonObject.getValue("providers").jsonObject
+            .getValue("openai-compatible").jsonObject.getValue("models").jsonArray.map { it.jsonObject }
+        val inherited = models.first()
+        assertEquals("qwen", inherited.getValue("compat").jsonObject.getValue("thinkingFormat").jsonPrimitive.content)
+        assertEquals("true", inherited.getValue("reasoning").jsonPrimitive.content)
+        assertFalse("cost" in inherited || "provider" in inherited || "name" in inherited)
+        assertEquals(setOf("id"), models.last().keys)
+    }
+
+    @Test
+    fun `catalog probe unlocks Pi providers with a placeholder key only`() {
+        val providers = Json.parseToJsonElement(piCatalogProbeJson()).jsonObject.getValue("providers").jsonObject
+        assertEquals(PiCatalogProviders.toSet(), providers.keys)
+        assertTrue(providers.values.all { it.jsonObject.keys == setOf("apiKey") })
+    }
 }

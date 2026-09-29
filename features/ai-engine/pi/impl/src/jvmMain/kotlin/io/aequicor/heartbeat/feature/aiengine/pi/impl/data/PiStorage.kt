@@ -40,6 +40,25 @@ internal class PiStorage(private val storageRoot: StorageRoot, private val legac
         return root().resolve(fingerprint(profileId)).normalize()
     }
 
+    /**
+     * Pi names transcripts `<timestamp>_<session id>.jsonl` directly in `--session-dir` ([directory]).
+     * Returns the newest match for [nativeId], or null when there is none or the directory cannot be read.
+     */
+    fun transcript(directory: Path, nativeId: String): String? {
+        if (!NativeId.matches(nativeId) || !Files.isDirectory(directory)) return null
+        return try {
+            Files.newDirectoryStream(directory, "*_$nativeId.jsonl").use { files ->
+                files.filter(Files::isRegularFile).maxOfOrNull { it.fileName.toString() }
+            }?.let { directory.resolve(it).toString() }
+        } catch (e: IOException) {
+            log.w(e) { "Pi transcripts could not be listed" }
+            null
+        } catch (e: UncheckedIOException) {
+            log.w(e) { "Pi transcripts could not be listed" }
+            null
+        }
+    }
+
     private fun removeLegacy() {
         if (!isLegacyChecked.compareAndSet(false, true)) return
         val legacy = legacyRoot
@@ -58,6 +77,12 @@ internal class PiStorage(private val storageRoot: StorageRoot, private val legac
         }
     }
 }
+
+/** Pi native session ids are UUIDs; anything else never reaches a file-system pattern. */
+private val NativeId = Regex("[A-Za-z0-9-]{1,64}")
+
+/** Directory passed to Pi as `--session-dir` inside a profile's Pi directory. */
+internal fun sessionDirectory(profileRoot: Path): Path = profileRoot.resolve("sessions")
 
 private fun defaultLegacyPiRoot(): Path =
     Path.of(System.getProperty("user.home"), ".heartbeat", "pi").toAbsolutePath().normalize()

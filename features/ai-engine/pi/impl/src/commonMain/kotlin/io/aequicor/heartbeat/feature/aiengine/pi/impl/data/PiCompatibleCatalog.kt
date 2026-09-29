@@ -21,6 +21,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -113,11 +114,17 @@ internal fun parseCompatibleModels(text: String): List<PiCompatibleModel> {
 
 /**
  * Pi `models.json` declaring [provider] at the API base of [scope]. The key is never written: Pi interpolates
- * [COMPATIBLE_KEY_VARIABLE] from the process environment.
+ * [COMPATIBLE_KEY_VARIABLE] from the process environment. A model Pi's own catalog serves at the same API base
+ * ([builtin], see [piBuiltinModelsAt]) inherits its reasoning, thinking levels, compatibility and limits: an
+ * undeclared model is not a reasoning model for Pi, so it would offer no thinking levels.
  */
-internal fun piModelsJson(provider: PiProvider, scope: AuthScope, models: List<PiCompatibleModel>): String {
+internal fun piModelsJson(
+    provider: PiProvider,
+    scope: AuthScope,
+    models: List<PiCompatibleModel>,
+    builtin: Map<String, JsonObject> = emptyMap(),
+): String {
     val protocol = requireNotNull(provider.compatible)
-    val base = scope.origin.value + protocol.apiBase(scope)
     return buildJsonObject {
         put(
             "providers",
@@ -125,17 +132,8 @@ internal fun piModelsJson(provider: PiProvider, scope: AuthScope, models: List<P
                 put(
                     provider.id,
                     buildJsonObject {
-                        when (protocol) {
-                            CompatibleProtocol.OpenAI -> {
-                                put("baseUrl", base)
-                                put("api", "openai-completions")
-                            }
-
-                            CompatibleProtocol.Anthropic -> {
-                                put("baseUrl", base)
-                                put("api", "anthropic-messages")
-                            }
-                        }
+                        put("baseUrl", piCompatibleBaseUrl(protocol, scope))
+                        put("api", protocol.piApi())
                         put("apiKey", "\$$COMPATIBLE_KEY_VARIABLE")
                         put(
                             "models",
@@ -145,6 +143,7 @@ internal fun piModelsJson(provider: PiProvider, scope: AuthScope, models: List<P
                                         buildJsonObject {
                                             put("id", model.id)
                                             model.name?.let { put("name", it) }
+                                            builtin[model.id]?.let(::putInherited)
                                         },
                                     )
                                 }
@@ -156,5 +155,63 @@ internal fun piModelsJson(provider: PiProvider, scope: AuthScope, models: List<P
         )
     }.toString()
 }
+
+/** API base Pi calls for a compatible [scope]. */
+internal fun piCompatibleBaseUrl(protocol: CompatibleProtocol, scope: AuthScope): String =
+    scope.origin.value + protocol.apiBase(scope)
+
+/** Pi `api` of a compatible [CompatibleProtocol]. */
+internal fun CompatibleProtocol.piApi(): String = when (this) {
+    CompatibleProtocol.OpenAI -> "openai-completions"
+    CompatibleProtocol.Anthropic -> "anthropic-messages"
+}
+
+/**
+ * Models of Pi's own catalog (`get_available_models` objects) served by [api] at [baseUrl], by model id.
+ * Trailing slashes are ignored; the first provider declaring a model wins.
+ */
+internal fun piBuiltinModelsAt(catalog: List<JsonObject>, api: String, baseUrl: String): Map<String, JsonObject> {
+    val base = baseUrl.trimEnd('/')
+    return catalog.asSequence()
+        .filter { it.text("api") == api && it.text("baseUrl")?.trimEnd('/') == base }
+        .mapNotNull { model -> model.text("id")?.let { it to model } }
+        .distinctBy { it.first }
+        .toMap()
+}
+
+/**
+ * `models.json` of a catalog probe: Pi lists a built-in provider only when it has a key, so each provider of
+ * [PiCatalogProviders] gets a placeholder that is never sent anywhere.
+ */
+internal fun piCatalogProbeJson(): String = buildJsonObject {
+    put(
+        "providers",
+        buildJsonObject {
+            PiCatalogProviders.forEach { id -> put(id, buildJsonObject { put("apiKey", CATALOG_PROBE_KEY) }) }
+        },
+    )
+}.toString()
+
+/**
+ * Built-in Pi providers with a fixed OpenAI-/Anthropic-compatible API base, which a compatible route may target
+ * directly. Unknown ids are ignored by Pi, so the list may lag behind the bundled version without harm.
+ */
+internal val PiCatalogProviders = listOf(
+    "baseten", "cerebras", "groq", "huggingface", "kimi-coding", "minimax", "minimax-cn", "moonshotai",
+    "moonshotai-cn", "nvidia", "opencode", "opencode-go", "openrouter", "qwen-token-plan", "qwen-token-plan-cn",
+    "qwen-token-plan-individual", "together", "xiaomi", "xiaomi-token-plan-ams", "xiaomi-token-plan-cn",
+    "xiaomi-token-plan-sgp", "zai", "zai-coding-cn",
+)
+
+/** Model fields a compatible model inherits from Pi's catalog; identity, name and cost stay the server's. */
+private val PiInheritedFields = listOf("reasoning", "thinkingLevelMap", "compat", "contextWindow", "maxTokens", "input")
+
+private fun JsonObjectBuilder.putInherited(known: JsonObject) {
+    PiInheritedFields.forEach { field -> known[field]?.let { put(field, it) } }
+}
+
+private const val CATALOG_PROBE_KEY = "heartbeat-catalog-probe"
+
+private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 private const val ANTHROPIC_VERSION = "2023-06-01"

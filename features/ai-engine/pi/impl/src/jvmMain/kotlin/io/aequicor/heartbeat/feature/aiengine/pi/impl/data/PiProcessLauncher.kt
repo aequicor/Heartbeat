@@ -36,6 +36,7 @@ internal class PiProcessLauncher(
     private val secrets: SecretStore,
     private val searchBridge: SearchBridge,
     private val catalog: PiCompatibleCatalog,
+    private val builtin: PiBuiltinCatalog,
     private val toggles: FeatureToggles,
     private val storage: PiStorage,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
@@ -62,6 +63,14 @@ internal class PiProcessLauncher(
         secret.use { it.reveal { chars -> fingerprint(String(chars)) } }
     }
 
+    /** Stored transcript of the native session [nativeId] of this profile, or null when Pi has none. */
+    suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
+        val owner = stores.owner as? StorageOwner.Profile ?: return@withContext null
+        storage.transcript(sessionDirectory(storage.profileRoot(owner.id.value)), nativeId).also {
+            log.d { if (it == null) "Pi transcript not found" else "Pi transcript found" }
+        }
+    }
+
     suspend fun start(
         source: AuthSource.ManagedKey,
         workspace: String?,
@@ -81,7 +90,17 @@ internal class PiProcessLauncher(
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         val key = secret.use { it.reveal { chars -> String(chars) } }
         val models = catalog.models(protocol, source.scope, key, source.info.id)
-        return piModelsJson(provider, source.scope, models)
+        val known = builtinCatalog()
+        val inherited = piBuiltinModelsAt(known, protocol.piApi(), piCompatibleBaseUrl(protocol, source.scope))
+        log.d { "Compatible route inherits Pi catalog metadata for ${models.count { it.id in inherited }} models" }
+        return piModelsJson(provider, source.scope, models, inherited)
+    }
+
+    /** Pi's own catalog, or nothing when the executable or profile storage is unavailable. */
+    private suspend fun builtinCatalog(): List<JsonObject> {
+        val executable = executable()?.takeIf { Files.isRegularFile(it) } ?: return emptyList()
+        val owner = stores.owner as? StorageOwner.Profile ?: return emptyList()
+        return builtin.models(executable, storage.profileRoot(owner.id.value).resolve("runtime"))
     }
 
     private suspend fun launch(
@@ -101,14 +120,10 @@ internal class PiProcessLauncher(
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         // Per-process agent configuration; removed when the process exits.
         val agentDir = Files.createTempDirectory(Files.createDirectories(root.resolve("runtime")), "pi-")
-        val sessionDir = Files.createDirectories(root.resolve("sessions"))
+        val sessionDir = Files.createDirectories(sessionDirectory(root))
         val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
-        val tools = if (System.getProperty("os.name").startsWith("Windows")) {
-            "read,powershell,edit,write"
-        } else {
-            "read,bash,edit,write"
-        }
         val areSearchToolsEnabled = toggles.get(SearchEngineTools)
+        val tools = piTools(areSearchToolsEnabled)
         val extensions = piExtensions(agentDir, areSearchToolsEnabled)
         val command = piCommand(executable, provider.id, sessionDir, extensions, tools)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
@@ -177,6 +192,16 @@ internal class PiProcessLauncher(
 
 internal fun fingerprint(value: String): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
+
+/** Pi's `--tools` allowlist: extension tools must be listed explicitly or Pi disables them. */
+internal fun piTools(searchTools: Boolean): String {
+    val base = if (System.getProperty("os.name").startsWith("Windows")) {
+        "read,powershell,edit,write"
+    } else {
+        "read,bash,edit,write"
+    }
+    return if (searchTools) "$base,web_search,web_fetch" else base
+}
 
 /** The approval gate always loads; the search extension only while `search.engine_tools` is on. */
 internal fun piExtensions(agentDir: Path, searchTools: Boolean): List<Path> = buildList {
