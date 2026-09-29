@@ -59,20 +59,33 @@ internal class PiJournal : SessionHistory {
      */
     fun restore(messages: List<JsonObject>) = synchronized(lock) {
         check(items.isEmpty()) { "Pi history is already populated" }
-        val results = messages.filter { it.string("role") == "toolResult" }
-            .associate { it.string("toolCallId") to (it.string("isError") == "true") }
-        messages.forEach { message ->
+        val statuses = settled(messages)
+        messages.forEachIndexed { index, message ->
             publish(PiMessages.message(message, info(items.size, null)))
-            PiMessages.tools(message).forEach { tool ->
-                val status = when (results[tool.string("id")]) {
-                    null -> ToolCallStatus.Cancelled
-                    true -> ToolCallStatus.Failed
-                    false -> ToolCallStatus.Succeeded
-                }
-                publish(toolCall(tool, null, status))
+            PiMessages.tools(message).forEachIndexed { call, tool ->
+                publish(toolCall(tool, null, statuses[index to call] ?: ToolCallStatus.Cancelled))
             }
         }
         log.i { "Pi history restored: ${items.size} items" }
+    }
+
+    /**
+     * Outcomes of the stored tool calls, keyed by message and call index. A result settles the latest earlier
+     * unanswered call with its id: providers may reuse ids such as `call_0` across turns.
+     */
+    private fun settled(messages: List<JsonObject>): Map<Pair<Int, Int>, ToolCallStatus> {
+        val unanswered = mutableMapOf<String, MutableList<Pair<Int, Int>>>()
+        val statuses = mutableMapOf<Pair<Int, Int>, ToolCallStatus>()
+        messages.forEachIndexed { index, message ->
+            PiMessages.tools(message).forEachIndexed { call, tool ->
+                unanswered.getOrPut(requireNotNull(tool.string("id"))) { mutableListOf() } += index to call
+            }
+            if (message.string("role") != "toolResult") return@forEachIndexed
+            val call = message.string("toolCallId")?.let { unanswered[it]?.removeLastOrNull() } ?: return@forEachIndexed
+            val isFailed = message.string("isError") == "true"
+            statuses[call] = if (isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
+        }
+        return statuses
     }
 
     fun started(turn: Turn) = synchronized(lock) {

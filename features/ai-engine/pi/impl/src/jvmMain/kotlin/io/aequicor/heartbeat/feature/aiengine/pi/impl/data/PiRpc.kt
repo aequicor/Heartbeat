@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import java.io.IOException
 import java.nio.file.Path
 import java.util.UUID
@@ -209,4 +210,4 @@ internal class PiRpc(
     }
 }
 
-internal fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.content
+internal fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull

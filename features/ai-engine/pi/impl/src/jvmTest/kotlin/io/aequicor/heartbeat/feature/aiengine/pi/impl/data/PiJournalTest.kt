@@ -143,5 +143,31 @@ class PiJournalTest {
         assertFailsWith<IllegalStateException> { journal.restore(emptyList()) }
     }
 
+    @Test
+    fun `reused tool ids settle the call they answer`() = runTest {
+        val journal = PiJournal()
+        journal.restore(
+            Json.parseToJsonElement(
+                """[
+                {"role":"assistant","content":[{"type":"toolCall","id":"call_0","name":"read","arguments":{}}]},
+                {"role":"toolResult","toolCallId":"call_0","content":"file","isError":false},
+                {"role":"assistant","content":[{"type":"toolCall","id":"call_0","name":"bash","arguments":{}}]}
+                ]""",
+            ).jsonArray.map { it.jsonObject },
+        )
+        journal.record(
+            record(
+                """{"type":"message_end","message":{"role":"assistant",
+                "content":[{"type":"toolCall","id":"call_0","name":"edit","arguments":{}}]}}""",
+            ),
+            TurnId("t"),
+        )
+        journal.record(record("""{"type":"tool_execution_end","toolCallId":"call_0","isError":true}"""), TurnId("t"))
+        assertEquals(
+            listOf(ToolCallStatus.Succeeded, ToolCallStatus.Cancelled, ToolCallStatus.Failed),
+            journal.page().items.filterIsInstance<SessionItem.ToolCall>().map { it.status },
+        )
+    }
+
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject
 }

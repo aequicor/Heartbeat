@@ -48,11 +48,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.contentOrNull
 import java.util.UUID
 
 internal typealias PiConnector =
@@ -745,23 +743,3 @@ private suspend fun PiConnection.reattach(file: String): PiConnection = apply {
         piFailure(EngineFailure.Session(SessionFailureReason.Changed))
     }
 }
-
-/**
- * Messages on the active branch of the native session this connection sits on, oldest first. Read from
- * `get_entries`: `get_messages` holds only the model context, which after a compaction starts at its summary.
- */
-private suspend fun PiConnection.storedMessages(): List<JsonObject> {
-    val stored = command("get_entries")
-    val entries = (stored["entries"] as? JsonArray ?: storedViolation())
-        .mapNotNull { it as? JsonObject }
-        .associateBy { it.string("id") }
-    val leaf = (stored["leafId"] as? JsonPrimitive)?.contentOrNull?.let { entries[it] ?: storedViolation() }
-    return generateSequence(leaf) { entry -> entry.string("parentId")?.let(entries::get) }
-        .take(entries.size)
-        .toList()
-        .asReversed()
-        .filter { it.string("type") == "message" }
-        .mapNotNull { it["message"] as? JsonObject }
-}
-
-private fun storedViolation(): Nothing = piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
