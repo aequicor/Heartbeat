@@ -104,9 +104,16 @@ sealed interface StudioMessage {
     /** The user stopped the run after [elapsed]. */
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : StudioMessage
 
-    /** The run ended with an error; details are in the log. */
-    data class Failed(override val id: String, override val createdAt: Instant) : StudioMessage
+    /** The run ended with an error of [kind]; details are in the log. */
+    data class Failed(
+        override val id: String,
+        override val createdAt: Instant,
+        val kind: RunFailureKind = RunFailureKind.Unknown,
+    ) : StudioMessage
 }
+
+/** User-facing class of a failed run; native error text is never shown. */
+enum class RunFailureKind { Limit, Context, Authentication, Network, Unknown }
 
 /** A model offered by the studio composer. */
 data class StudioModel(

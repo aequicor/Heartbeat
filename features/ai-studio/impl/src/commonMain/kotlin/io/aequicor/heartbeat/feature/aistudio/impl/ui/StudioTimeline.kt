@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.ds.components.HbToolBlock
 import io.aequicor.heartbeat.ds.components.HbToolCall
 import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
@@ -35,7 +36,7 @@ internal data class TimelineLabels(
     val agent: String,
     val studio: String,
     val stoppedTemplate: String,
-    val failed: String,
+    val failed: FailureLabels,
     val durations: DurationLabels,
     val promptAppearance: HbMessageAppearance = HbMessageAppearance(tone = HbTone.Brand),
     val replyAppearance: HbMessageAppearance = HbMessageAppearance(),
@@ -45,6 +46,24 @@ internal data class TimelineLabels(
     val calendar: StudioCalendar = StudioCalendar(),
     val isGroupedByDate: Boolean = false,
 )
+
+/** Failed-run notices, one per [FailureUi]. */
+@Immutable
+internal data class FailureLabels(
+    val unknown: String,
+    val limit: String = unknown,
+    val context: String = unknown,
+    val authentication: String = unknown,
+    val network: String = unknown,
+) {
+    fun of(kind: FailureUi): String = when (kind) {
+        FailureUi.Limit -> limit
+        FailureUi.Context -> context
+        FailureUi.Authentication -> authentication
+        FailureUi.Network -> network
+        FailureUi.Unknown -> unknown
+    }
+}
 
 /** Templates of elapsed-time labels: seconds only, and minutes with seconds. */
 @Immutable
@@ -179,7 +198,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
     is MessageUi.Failed -> HbChatMessage(
         id = id,
         author = labels.studio,
-        text = labels.failed,
+        text = labels.failed.of(kind),
         role = HbChatRole.System,
         kind = HbMessageKind.Notice,
         appearance = HbMessageAppearance(tone = HbTone.Danger),

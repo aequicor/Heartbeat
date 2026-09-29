@@ -103,6 +103,9 @@ sealed interface ReplyPartUi {
     }
 }
 
+/** Screen-level class of a failed run, mirroring the domain failure kind. */
+enum class FailureUi { Limit, Context, Authentication, Network, Unknown }
+
 /** One transcript entry as the screen shows it. */
 @Immutable
 sealed interface MessageUi {
@@ -138,7 +141,11 @@ sealed interface MessageUi {
     data class Stopped(override val id: String, override val createdAt: Instant, val elapsed: Duration) : MessageUi
 
     /** The run failed. */
-    data class Failed(override val id: String, override val createdAt: Instant) : MessageUi
+    data class Failed(
+        override val id: String,
+        override val createdAt: Instant,
+        val kind: FailureUi = FailureUi.Unknown,
+    ) : MessageUi
 }
 
 internal val DefaultSettingsUi: SettingsUi = DefaultRunSettings.toUi()
@@ -201,7 +208,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
 
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
 
-    is StudioMessage.Failed -> MessageUi.Failed(id, createdAt)
+    is StudioMessage.Failed -> MessageUi.Failed(id, createdAt, FailureUi.valueOf(kind.name))
 }
 
 private fun StudioToolRun.toUi(): ToolUi = ToolUi(

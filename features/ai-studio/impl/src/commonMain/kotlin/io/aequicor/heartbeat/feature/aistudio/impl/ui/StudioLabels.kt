@@ -17,6 +17,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copied
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.message_copy
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.reasoning_title
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_auth
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_context
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_limit
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.run_failed_network
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopped_after
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.tool_cancelled
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.tool_collapse
@@ -41,7 +45,13 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         agent = stringResource(Res.string.author_agent),
         studio = stringResource(Res.string.author_studio),
         stoppedTemplate = stringResource(Res.string.stopped_after),
-        failed = stringResource(Res.string.run_failed),
+        failed = FailureLabels(
+            unknown = stringResource(Res.string.run_failed),
+            limit = stringResource(Res.string.run_failed_limit),
+            context = stringResource(Res.string.run_failed_context),
+            authentication = stringResource(Res.string.run_failed_auth),
+            network = stringResource(Res.string.run_failed_network),
+        ),
         durations = durationLabels(),
         promptAppearance = HbMessageAppearance(
             background = HbTheme.surfaces.outgoing,

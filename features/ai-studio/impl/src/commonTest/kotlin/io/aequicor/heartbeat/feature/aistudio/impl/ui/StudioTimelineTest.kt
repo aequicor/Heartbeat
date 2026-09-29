@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import io.aequicor.heartbeat.ds.components.HbMessagePart
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbToolStatus
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
 import kotlinx.collections.immutable.persistentListOf
@@ -21,7 +22,7 @@ class StudioTimelineTest {
         agent = "Agent",
         studio = "Studio",
         stoppedTemplate = "Stopped after %1\$s",
-        failed = "Failed",
+        failed = FailureLabels(unknown = "Failed", limit = "Limit"),
         durations = durations,
     )
     private val prompt = MessageUi.Prompt("m1", Instant.fromEpochSeconds(0), "Fix the build")
@@ -44,6 +45,16 @@ class StudioTimelineTest {
 
         val completed = cache.update(listOf(thinking.copy(isStreaming = false)), labels).messages.single()
         assertEquals(HbToolStatus.Complete, assertIs<HbMessagePart.Tool>(completed.parts.single()).call.status)
+    }
+
+    @Test
+    fun `failed runs show the notice of their failure class`() {
+        val at = Instant.fromEpochSeconds(0)
+        val messages = TimelineCache().update(
+            listOf(MessageUi.Failed("f1", at, FailureUi.Limit), MessageUi.Failed("f2", at)),
+            labels,
+        ).messages
+        assertEquals(listOf("Limit", "Failed"), messages.map { it.text })
     }
 
     @Test
