@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
@@ -41,6 +42,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -178,20 +181,39 @@ class PiSessionTest {
     fun `resumed session starts pi on the stored transcript`() = runTest {
         val ref = SessionRef(PiEngineId, PiSessionSource, "native")
         val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
-        assertEquals(listOf("switch_session", "set_model", "get_state"), fixture.connection.commands)
+        assertEquals(listOf("switch_session", "get_entries", "set_model", "get_state"), fixture.connection.commands)
         assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
+        val history = assertIs<FeatureAccess.Available<SessionHistory>>(
+            fixture.session.features.resolve(SessionHistory),
+        ).feature.page(HistoryPageRequest())
+        // The whole active branch: compacted messages stay, the abandoned branch and the summary do not.
+        assertEquals(
+            listOf("Stored", "Reply", "Later"),
+            history.items.map { item ->
+                assertIs<SessionItem.Message>(item).parts.joinToString { (it as ContentPart.Text).text }
+            },
+        )
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         fixture.session.shutdown()
     }
 
     @Test
-    fun `resume never adopts a different native session`() = runTest {
-        val ref = SessionRef(PiEngineId, PiSessionSource, "stored")
-        val error = assertFailsWith<EngineException> {
-            fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+    fun `resume never adopts a different native session or an unreadable transcript`() = runTest {
+        val opened = mutableListOf<FakeConnection>()
+        fun stored(nativeId: String) = PiTranscript(SessionRef(PiEngineId, PiSessionSource, nativeId), "stored.jsonl")
+        val changed = assertFailsWith<EngineException> {
+            fixture(transcript = stored("stored")) { _, connection -> opened += connection }
         }
-        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), changed.failure)
+        val unreadable = assertFailsWith<EngineException> {
+            fixture(transcript = stored("native")) { _, connection ->
+                connection.entries = "{}"
+                opened += connection
+            }
+        }
+        assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), unreadable.failure)
+        assertEquals(listOf(true, true), opened.map { it.closed })
     }
 
     @Test
@@ -728,6 +750,13 @@ private class FakeConnection : PiConnection {
     var closed = false
     var sessionId = "native"
     var switchFailure: EngineException? = null
+    var entries = """{"leafId":"later","entries":[
+        {"type":"message","id":"stored","parentId":null,"message":{"role":"user","content":"Stored"}},
+        {"type":"message","id":"reply","parentId":"stored",
+            "message":{"role":"assistant","content":[{"type":"text","text":"Reply"}]}},
+        {"type":"message","id":"abandoned","parentId":"stored","message":{"role":"user","content":"Abandoned"}},
+        {"type":"compaction","id":"summary","parentId":"reply","summary":"Earlier"},
+        {"type":"message","id":"later","parentId":"summary","message":{"role":"user","content":"Later"}}]}"""
     var sendFailure: EngineException? = null
     override var isOpen = true
     override val workingDirectory: Path = TestWorkspace
@@ -738,6 +767,8 @@ private class FakeConnection : PiConnection {
             "get_state" -> state()
 
             "switch_session" -> switchFailure?.let { throw it } ?: JsonObject(emptyMap())
+
+            "get_entries" -> Json.parseToJsonElement(entries).jsonObject
 
             "prompt" -> promptAck.await()
 

@@ -162,7 +162,7 @@ internal class PiSession(
             connector = factory
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
-            transcript?.let { reattach(rpc(), it.file) }
+            val stored = transcript?.let { rpc().reattach(it.file).storedMessages() }
             rpc().command("set_model", modelFields(target.model))
             val snapshot = rpc().command("get_state")
             val nativeId = snapshot.string("sessionId")
@@ -171,6 +171,8 @@ internal class PiSession(
             if (transcript != null && transcript.ref.nativeId != nativeId) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
+            // The journal only observes live events; a resumed session starts from the stored conversation.
+            stored?.let(journal::restore)
             nativeRef = SessionRef(route.engine, PiSessionSource, nativeId)
             sessionFile = snapshot.string("sessionFile")
             nativeThinking = snapshot.string("thinkingLevel")
@@ -363,7 +365,7 @@ internal class PiSession(
         log.i { "Restarting Pi process for session recovery" }
         val fresh = open(factory)
         try {
-            reattach(fresh, file)
+            fresh.reattach(file)
         } catch (e: EngineException) {
             // Never keep a process that sits on a different transcript than this handle.
             log.w(e) { "Pi session recovery could not reattach the transcript" }
@@ -372,14 +374,6 @@ internal class PiSession(
         }
         connection = fresh
         return fresh
-    }
-
-    /** Switches [target] to the native transcript [file]; Pi reports a refused switch as `cancelled`. */
-    private suspend fun reattach(target: PiConnection, file: String) {
-        val switched = target.command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
-        if ((switched["cancelled"] as? JsonPrimitive)?.booleanOrNull == true) {
-            piFailure(EngineFailure.Session(SessionFailureReason.Changed))
-        }
     }
 
     private fun prepare(effect: ActiveSessionEffect) {
@@ -740,4 +734,12 @@ internal class PiSession(
 
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
+}
+
+/** Switches this connection to the native transcript [file]; Pi reports a refused switch as `cancelled`. */
+private suspend fun PiConnection.reattach(file: String): PiConnection = apply {
+    val switched = command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
+    if ((switched["cancelled"] as? JsonPrimitive)?.booleanOrNull == true) {
+        piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+    }
 }
