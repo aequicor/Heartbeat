@@ -55,6 +55,7 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.CheckUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardModel
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenAction
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ConnectWizardScreenIntent
@@ -80,6 +81,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_mo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_search_clear
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_models_selected
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_base_url_hint
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_check
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_check_passed
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_checking
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_cli_hint
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connect
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_connecting
@@ -109,6 +113,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_step_models
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.wizard_title
 import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
@@ -369,6 +374,7 @@ private fun MethodForm(
                     Modifier.testTag("wizard-form-error"),
                 )
             }
+            CheckResult(state.check)
             state.failure?.let { FailurePanel(it) }
         }
     }
@@ -405,6 +411,22 @@ private fun KeyField(
             style = HbButtonStyle.Ghost,
             size = HbButtonSize.Small,
         )
+    }
+}
+
+/** Outcome of the explicit connection check; nothing while no check was made for the current form. */
+@Composable
+private fun CheckResult(check: CheckUi?, modifier: Modifier = Modifier) {
+    when (check) {
+        null, CheckUi.Running -> Unit
+
+        is CheckUi.Succeeded -> HbText(
+            stringResource(Res.string.wizard_check_passed, check.models),
+            modifier.testTag("wizard-check-passed"),
+            style = HbTheme.typography.caption,
+        )
+
+        is CheckUi.Failed -> FailurePanel(check.failure, modifier.testTag("wizard-check-failed"))
     }
 }
 
@@ -552,7 +574,14 @@ private fun WizardFooter(
                 enabled = !state.isBusy,
             )
             HbButton(
-                stringResource(if (state.isBusy) Res.string.wizard_connecting else Res.string.wizard_connect),
+                stringResource(state.checkLabel()),
+                { onIntent(ConnectWizardScreenIntent.CheckConnection) },
+                Modifier.testTag("wizard-check"),
+                style = HbButtonStyle.Secondary,
+                enabled = !state.isBusy && state.selectedMethod != null,
+            )
+            HbButton(
+                stringResource(state.connectLabel()),
                 { onIntent(ConnectWizardScreenIntent.Connect) },
                 Modifier.testTag("wizard-connect"),
                 enabled = !state.isBusy && state.selectedMethod != null,
@@ -568,6 +597,12 @@ private fun WizardFooter(
         }
     }
 }
+
+private fun ConnectWizardScreenState.checkLabel(): StringResource =
+    if (check == CheckUi.Running) Res.string.wizard_checking else Res.string.wizard_check
+
+private fun ConnectWizardScreenState.connectLabel(): StringResource =
+    if (isBusy && check != CheckUi.Running) Res.string.wizard_connecting else Res.string.wizard_connect
 
 @Composable
 private fun HostField(

@@ -79,4 +79,7 @@
     <string name="settings_dismiss">Скрыть</string>
     <string name="conn_models_search_clear">Очистить поиск</string>
     <string name="settings_disconnect_title">Отключить подключение?</string>
+    <string name="wizard_check">Проверить подключение</string>
+    <string name="wizard_checking">Проверка…</string>
+    <string name="wizard_check_passed">Подключение работает · доступно моделей: %1$d</string>
 </resources>

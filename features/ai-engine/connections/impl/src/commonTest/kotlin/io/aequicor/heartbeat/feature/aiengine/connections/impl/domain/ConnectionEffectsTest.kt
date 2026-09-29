@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffect
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionOperation
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEffect
@@ -92,6 +93,20 @@ class ConnectionEffectsTest {
         }
         assertEquals(failure, error.failure)
         assertTrue(sources.state.value.isEmpty())
+        assertFailsWith<IllegalStateException> { key.reveal { } }
+    }
+
+    @Test
+    fun `a connection check discovers models and keeps nothing`() = runTest {
+        val key = Secret("sk-test".toCharArray())
+        val credential = CredentialInput.ApiKey("Work", ApiKeyMethod.origin, key)
+        wizard.handle(ConnectWizardEffect.CheckConnection(KoogId, ApiKeyMethod, credential), wizardScope)
+        assertEquals(
+            listOf<ConnectWizardIntent>(ConnectWizardIntent.Internal.ConnectionChecked(ConnectionCheck.Succeeded(2))),
+            wizardScope.intents,
+        )
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertFailsWith<IllegalStateException> { key.reveal { } }
     }
 

@@ -79,4 +79,7 @@
     <string name="settings_dismiss">Dismiss</string>
     <string name="conn_models_search_clear">Clear search</string>
     <string name="settings_disconnect_title">Disconnect this connection?</string>
+    <string name="wizard_check">Check connection</string>
+    <string name="wizard_checking">Checking…</string>
+    <string name="wizard_check_passed">Connection works · models available: %1$d</string>
 </resources>

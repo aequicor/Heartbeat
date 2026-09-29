@@ -32,7 +32,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
  * | ChoosingEngine | EnginesFailed | | stay (failure) | |
  * | ChoosingEngine | Retry | has failure | ChoosingEngine (re-entry) | ObserveEngines |
  * | ChoosingEngine | ChooseEngine | engine connectable | ChoosingMethod | |
- * | ChoosingMethod | Connect | method of the engine accepts credential | Connecting | Connect |
+ * | ChoosingMethod | CheckConnection | accepts credential, no check running | stay (check Running) | CheckConnection |
+ * | ChoosingMethod | ConnectionChecked | check running | stay (check result) | |
+ * | ChoosingMethod | Connect | accepts credential, no check running | Connecting | Connect |
  * | ChoosingMethod | Back / Dismiss | | ChoosingEngine | ObserveEngines |
  * | Connecting | Connected | | ChoosingModels | DiscoverModels |
  * | Connecting | ConnectFailed | | ChoosingMethod (failure) | |
@@ -86,7 +88,17 @@ public val ConnectWizardMachineSpec:
             on<Public.Dismiss> { cancel() }
         }
         state<ChoosingMethod> {
-            on<Public.Connect>(guard = { state.engine.method(intent.method)?.accepts(intent.credential) == true }) {
+            on<Public.CheckConnection>(guard = { state.isReadyFor(intent.method, intent.credential) }) {
+                stay { state.copy(failure = null, check = ConnectionCheck.Running) }
+                effect {
+                    val method = requireNotNull(state.engine.method(intent.method))
+                    ConnectWizardEffect.CheckConnection(state.engine.descriptor.id, method, intent.credential)
+                }
+            }
+            on<Internal.ConnectionChecked>(guard = { state.check == ConnectionCheck.Running }) {
+                stay { state.copy(check = intent.result) }
+            }
+            on<Public.Connect>(guard = { state.isReadyFor(intent.method, intent.credential) }) {
                 goto<Connecting> { Connecting(state.engine, intent.method) }
                 effect {
                     val method = requireNotNull(state.engine.method(intent.method))
@@ -171,6 +183,7 @@ public val ConnectWizardMachineSpec:
             when (effect) {
                 ObserveEngines -> Internal.EnginesFailed(failure)
                 is ConnectWizardEffect.Connect -> Internal.ConnectFailed(failure)
+                is ConnectWizardEffect.CheckConnection -> Internal.ConnectionChecked(ConnectionCheck.Failed(failure))
                 is ConnectWizardEffect.DiscoverModels -> Internal.ModelsFailed(failure)
                 is ConnectWizardEffect.SaveModels -> Internal.SaveFailed(failure)
                 is ConnectWizardEffect.Rollback -> Internal.RolledBack
@@ -199,3 +212,6 @@ private fun List<EngineInfo>?.connectable(engine: EngineId): EngineInfo? =
 
 private fun EngineInfo.method(id: ConnectionMethodId): ConnectionMethod? =
     descriptor.connectionMethods.firstOrNull { it.id == id }
+
+private fun ChoosingMethod.isReadyFor(method: ConnectionMethodId, credential: CredentialInput): Boolean =
+    check != ConnectionCheck.Running && engine.method(method)?.accepts(credential) == true

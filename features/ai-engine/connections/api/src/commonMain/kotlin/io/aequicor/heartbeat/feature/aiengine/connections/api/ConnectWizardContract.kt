@@ -52,6 +52,18 @@ public fun ConnectionMethod.accepts(credential: CredentialInput): Boolean = cred
 /** Binding created by the wizard together with the source it owns until the wizard completes. */
 public data class NewConnection(val binding: EngineBindingId, val source: AuthSourceId)
 
+/** Result of an explicit connection check on the method step. */
+public sealed interface ConnectionCheck {
+    /** The temporary connection is being created and queried. */
+    public data object Running : ConnectionCheck
+
+    /** The provider answered; [models] is the number of models it offered. */
+    public data class Succeeded(val models: Int) : ConnectionCheck
+
+    /** The check failed; nothing was kept. */
+    public data class Failed(val failure: EngineFailure) : ConnectionCheck
+}
+
 /** Steps of the wizard. The wizard never keeps typed keys in its state. */
 public sealed interface ConnectWizardState : MachineState {
     /** Not started. */
@@ -67,8 +79,15 @@ public sealed interface ConnectWizardState : MachineState {
         val failure: EngineFailure? = null,
     ) : ConnectWizardState
 
-    /** Step 2: provider and authentication method of [engine]; [failure] explains a rejected connection attempt. */
-    public data class ChoosingMethod(val engine: EngineInfo, val failure: EngineFailure? = null) : ConnectWizardState
+    /**
+     * Step 2: provider and authentication method of [engine]; [failure] explains a rejected connection attempt,
+     * [check] is the last explicit connection check.
+     */
+    public data class ChoosingMethod(
+        val engine: EngineInfo,
+        val failure: EngineFailure? = null,
+        val check: ConnectionCheck? = null,
+    ) : ConnectWizardState
 
     /** Creating the source and the binding. */
     public data class Connecting(val engine: EngineInfo, val method: ConnectionMethodId) : ConnectWizardState
@@ -116,6 +135,12 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Creates the connection. An ignored request leaves the key with the sender, who closes it. */
         public data class Connect(val method: ConnectionMethodId, val credential: CredentialInput) : Public
 
+        /**
+         * Checks the credential without keeping a connection: models are discovered through a temporary one that is
+         * removed afterwards. An ignored request leaves the key with the sender, who closes it.
+         */
+        public data class CheckConnection(val method: ConnectionMethodId, val credential: CredentialInput) : Public
+
         /** Returns from the method step to the engine step. */
         public data object Back : Public
 
@@ -155,6 +180,9 @@ public sealed interface ConnectWizardIntent : MachineIntent {
         /** Nothing was created. */
         public data class ConnectFailed(val failure: EngineFailure) : Internal
 
+        /** Result of [Public.CheckConnection]; never [ConnectionCheck.Running]. */
+        public data class ConnectionChecked(val result: ConnectionCheck) : Internal
+
         /** Models reachable through the connection. */
         public data class ModelsLoaded(val models: List<ModelInfo>) : Internal
 
@@ -180,6 +208,16 @@ public sealed interface ConnectWizardEffect : MachineEffect {
     /** Probes installation, creates the source and binds it; removes the source again if binding fails. */
     public data class Connect(val engine: EngineId, val method: ConnectionMethod, val credential: CredentialInput) :
         ConnectWizardEffect
+
+    /**
+     * Probes installation, connects temporarily, discovers models and always removes the temporary connection.
+     * A failure is reported as [ConnectionCheck.Failed] rather than thrown.
+     */
+    public data class CheckConnection(
+        val engine: EngineId,
+        val method: ConnectionMethod,
+        val credential: CredentialInput,
+    ) : ConnectWizardEffect
 
     /** Explicit model discovery through the new binding. */
     public data class DiscoverModels(val engine: EngineId, val binding: EngineBindingId) : ConnectWizardEffect

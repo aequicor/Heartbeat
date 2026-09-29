@@ -8,18 +8,23 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardEffect
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Engine-side services of the connection screens. */
@@ -32,17 +37,30 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
 
     override suspend fun handle(effect: ConnectWizardEffect, machine: EffectScope<ConnectWizardIntent>) {
         when (effect) {
-            ConnectWizardEffect.ObserveEngines -> services.facade.engines.state.collect {
-                machine.send(ConnectWizardIntent.Internal.EnginesChanged(it))
+            ConnectWizardEffect.ObserveEngines -> coroutineScope {
+                // Observation never probes, so the wizard checks every engine once to show real availability.
+                launch { probeEngines() }
+                services.facade.engines.state.collect {
+                    machine.send(ConnectWizardIntent.Internal.EnginesChanged(it))
+                }
             }
 
             is ConnectWizardEffect.Connect -> {
                 val connection = try {
-                    connect(effect)
+                    connect(effect.engine, effect.method, effect.credential)
                 } finally {
                     (effect.credential as? CredentialInput.ApiKey)?.key?.close()
                 }
                 deliver(connection, machine)
+            }
+
+            is ConnectWizardEffect.CheckConnection -> {
+                val models = try {
+                    check(effect)
+                } finally {
+                    (effect.credential as? CredentialInput.ApiKey)?.key?.close()
+                }
+                machine.send(ConnectWizardIntent.Internal.ConnectionChecked(ConnectionCheck.Succeeded(models)))
             }
 
             is ConnectWizardEffect.DiscoverModels -> {
@@ -66,21 +84,50 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         }
     }
 
-    private suspend fun connect(effect: ConnectWizardEffect.Connect): NewConnection {
-        log.i { "connect engine=${effect.engine.value} method=${effect.method.id.value}" }
-        val availability = services.facade.engines.refresh(effect.engine).availability
+    private suspend fun probeEngines() {
+        services.facade.engines.state.value.forEach { info ->
+            val engine = info.descriptor.id
+            try {
+                services.facade.engines.refresh(engine)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: EngineException) {
+                log.w(e) { "engine probe failed engine=${engine.value}" }
+            }
+        }
+    }
+
+    /** Discovers models through a temporary connection that is removed whatever the outcome. */
+    private suspend fun check(effect: ConnectWizardEffect.CheckConnection): Int {
+        log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
+        val connection = connect(effect.engine, effect.method, effect.credential)
+        try {
+            val count = services.facade.models.refresh(effect.engine, connection.binding).models.size
+            log.i { "connection check passed models=$count" }
+            return count
+        } finally {
+            withContext(NonCancellable) { rollback(connection) }
+        }
+    }
+
+    private suspend fun connect(
+        engine: EngineId,
+        method: ConnectionMethod,
+        credential: CredentialInput,
+    ): NewConnection {
+        log.i { "connect engine=${engine.value} method=${method.id.value}" }
+        val availability = services.facade.engines.refresh(engine).availability
         availability.failure()?.let { throw EngineException(it) }
-        val credential = effect.credential
         val key = (credential as? CredentialInput.ApiKey)?.key
         val source = services.sources.create(
-            effect.method,
+            method,
             credential.label,
             credential.origin,
             key,
             credential.basePath,
         )
-        val binding = bindOrForget(effect, source.info.id)
-        log.i { "connected engine=${effect.engine.value}" }
+        val binding = bindOrForget(engine, source.info.id)
+        log.i { "connected engine=${engine.value}" }
         return NewConnection(binding.id, source.info.id)
     }
 
@@ -101,10 +148,10 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
     }
 
     /** Binds [source]; a binding that fails or is cancelled must not leave the new source behind. */
-    private suspend fun bindOrForget(effect: ConnectWizardEffect.Connect, source: AuthSourceId): EngineBinding {
+    private suspend fun bindOrForget(engine: EngineId, source: AuthSourceId): EngineBinding {
         var isBound = false
         try {
-            return services.facade.bindings.connect(effect.engine, source).also { isBound = true }
+            return services.facade.bindings.connect(engine, source).also { isBound = true }
         } finally {
             if (!isBound) {
                 log.w { "binding not created, forgetting the new source" }

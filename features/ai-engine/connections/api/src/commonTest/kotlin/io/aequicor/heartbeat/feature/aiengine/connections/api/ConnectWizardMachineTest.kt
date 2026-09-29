@@ -101,6 +101,24 @@ class ConnectWizardMachineTest {
     }
 
     @Test
+    fun `a connection check runs once and keeps the method step`() {
+        val lan = CredentialInput.Existing("LAN", EndpointOrigin("http://192.168.1.5:11434"))
+        val running = ChoosingMethod(koog, check = ConnectionCheck.Running)
+        spec.assertTransition(
+            ChoosingMethod(koog, failure),
+            Public.CheckConnection(local.id, lan),
+            running,
+            effects = listOf(ConnectWizardEffect.CheckConnection(koog.descriptor.id, local, lan)),
+        )
+        spec.assertIgnored(running, Public.CheckConnection(local.id, lan))
+        spec.assertIgnored(running, Public.Connect(local.id, lan))
+        spec.assertIgnored(ChoosingMethod(koog), Public.CheckConnection(local.id, lan.copy(label = " ")))
+        val passed = ConnectionCheck.Succeeded(3)
+        spec.assertTransition(running, Internal.ConnectionChecked(passed), ChoosingMethod(koog, check = passed))
+        spec.assertIgnored(ChoosingMethod(koog), Internal.ConnectionChecked(passed))
+    }
+
+    @Test
     fun `connect requires a credential fitting the method`() {
         Secret("sk".toCharArray()).use { key ->
             val credential = CredentialInput.ApiKey("Work", apiKey.origin, key)

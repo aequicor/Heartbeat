@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardOutput
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardState
+import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectionCheck
 import io.aequicor.heartbeat.feature.aiengine.connections.api.CredentialInput
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.ConnectWizardScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
@@ -47,6 +48,19 @@ enum class WizardStep { Engine, Method, Models, Done }
 /** Form validation problems found before the machine is asked to connect. */
 enum class FormError { MissingKey, InvalidOrigin, InsecureOrigin }
 
+/** Outcome of the explicit connection check, shown under the form until it is edited. */
+@Immutable
+sealed interface CheckUi {
+    /** The check is running. */
+    data object Running : CheckUi
+
+    /** The provider answered with [models] models. */
+    data class Succeeded(val models: Int) : CheckUi
+
+    /** The check failed. */
+    data class Failed(val failure: FailureUi) : CheckUi
+}
+
 /** Typed key; never rendered back, never printed. */
 @Immutable
 data class SecretText(val value: String = "") {
@@ -68,6 +82,7 @@ data class ConnectWizardScreenState(
     val selectedMethod: String? = null,
     val form: CredentialForm = CredentialForm(),
     val formError: FormError? = null,
+    val check: CheckUi? = null,
     val models: ImmutableList<ModelRowUi>? = null,
     val modelQuery: String = "",
     val isBusy: Boolean = true,
@@ -100,6 +115,9 @@ sealed interface ConnectWizardScreenIntent : MVIIntent {
 
     /** Creates the connection from the form. */
     data object Connect : ConnectWizardScreenIntent
+
+    /** Checks the form's credential without keeping a connection. */
+    data object CheckConnection : ConnectWizardScreenIntent
 
     /** Filters models. */
     data class SearchModels(val query: String) : ConnectWizardScreenIntent
@@ -173,15 +191,19 @@ class ConnectWizardModel(
                 is ConnectWizardScreenIntent.SelectMethod -> updateState { selectMethod(intent.id) }
 
                 is ConnectWizardScreenIntent.EditLabel ->
-                    updateState { copy(form = form.copy(label = intent.value), formError = null) }
+                    updateState { copy(form = form.copy(label = intent.value), formError = null, check = null) }
 
                 is ConnectWizardScreenIntent.EditOrigin ->
-                    updateState { copy(form = form.copy(origin = intent.value), formError = null) }
+                    updateState { copy(form = form.copy(origin = intent.value), formError = null, check = null) }
 
                 is ConnectWizardScreenIntent.EditKey ->
-                    updateState { copy(form = form.copy(key = SecretText(intent.value)), formError = null) }
+                    updateState {
+                        copy(form = form.copy(key = SecretText(intent.value)), formError = null, check = null)
+                    }
 
-                ConnectWizardScreenIntent.Connect -> connect()
+                ConnectWizardScreenIntent.Connect -> submit(isCheck = false)
+
+                ConnectWizardScreenIntent.CheckConnection -> submit(isCheck = true)
 
                 is ConnectWizardScreenIntent.SearchModels -> updateState { copy(modelQuery = intent.query) }
 
@@ -209,24 +231,29 @@ class ConnectWizardModel(
         store.start(scope.coroutineScope)
     }
 
-    /** Validates the form, hands the key to the machine as an owned Secret, and clears it from the screen. */
+    /**
+     * Validates the form and hands the key to the machine as an owned Secret. Connecting clears the key from the
+     * screen; a check keeps it, so the user can connect right after.
+     */
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PipelineContext<
         ConnectWizardScreenState,
         ConnectWizardScreenIntent,
         ConnectWizardScreenAction,
-    >.connect() {
+    >.submit(
+        isCheck: Boolean,
+    ) {
         val choosing = machine.state.value as? ConnectWizardState.ChoosingMethod
         if (choosing == null) {
-            log.w { "connect ignored: not on the method step" }
+            log.w { "submit ignored: not on the method step" }
             return
         }
         var screen = ConnectWizardScreenState()
         withState { screen = this }
         val method = choosing.engine.descriptor.connectionMethods.firstOrNull { it.id.value == screen.selectedMethod }
         if (method == null) {
-            log.w { "connect ignored: no method selected" }
+            log.w { "submit ignored: no method selected" }
             return
         }
         val request = screen.form.toRequest(method)
@@ -238,17 +265,21 @@ class ConnectWizardModel(
         val key = (credential as? CredentialInput.ApiKey)?.key
         var isHandedOver = false
         val result = try {
-            sendTo(machine, ConnectWizardIntent.Public.Connect(method.id, credential))
-                .also { isHandedOver = it == SendResult.Accepted }
+            val intent = if (isCheck) {
+                ConnectWizardIntent.Public.CheckConnection(method.id, credential)
+            } else {
+                ConnectWizardIntent.Public.Connect(method.id, credential)
+            }
+            sendTo(machine, intent).also { isHandedOver = it == SendResult.Accepted }
         } finally {
             if (!isHandedOver) key?.close()
         }
         if (!isHandedOver) {
-            log.w { "connect request not accepted result=$result" }
+            log.w { "submit not accepted check=$isCheck result=$result" }
         } else {
             // The effect closes the key; closing again when the wizard scope ends covers an effect that never ran.
             key?.let { sentKeys += it }
-            updateState { copy(form = form.copy(key = SecretText())) }
+            if (!isCheck) updateState { copy(form = form.copy(key = SecretText())) }
         }
     }
 }
@@ -295,7 +326,7 @@ internal fun CredentialForm.toRequest(method: ConnectionMethod): FormCheck {
 
 private fun ConnectWizardScreenState.selectMethod(id: String): ConnectWizardScreenState {
     val row = methods.firstOrNull { it.id == id } ?: return this
-    return copy(selectedMethod = id, form = CredentialForm(row.provider, row.origin), formError = null)
+    return copy(selectedMethod = id, form = CredentialForm(row.provider, row.origin), formError = null, check = null)
 }
 
 internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): ConnectWizardScreenState = when (state) {
@@ -307,6 +338,7 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
         selectedMethod = null,
         form = CredentialForm(),
         formError = null,
+        check = null,
         engines = state.engines?.map { it.toRow() }?.toImmutableList(),
         isBusy = state.engines == null && state.failure == null,
         isCancelAllowed = true,
@@ -314,10 +346,16 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
     )
 
     is ConnectWizardState.ChoosingMethod -> withMethods(state.engine.descriptor.title, state.engine.methods())
-        .copy(step = WizardStep.Method, isBusy = false, isCancelAllowed = true, failure = state.failure?.toUi())
+        .copy(
+            step = WizardStep.Method,
+            isBusy = state.check == ConnectionCheck.Running,
+            isCancelAllowed = true,
+            failure = state.failure?.toUi(),
+            check = state.check?.toUi(),
+        )
 
     is ConnectWizardState.Connecting -> withMethods(state.engine.descriptor.title, state.engine.methods())
-        .copy(step = WizardStep.Method, isBusy = true, isCancelAllowed = false, failure = null)
+        .copy(step = WizardStep.Method, isBusy = true, isCancelAllowed = false, failure = null, check = null)
 
     is ConnectWizardState.ChoosingModels -> copy(
         step = WizardStep.Models,
@@ -340,6 +378,12 @@ internal fun ConnectWizardScreenState.reflect(state: ConnectWizardState): Connec
 
     is ConnectWizardState.Finished, ConnectWizardState.Cancelled ->
         copy(step = WizardStep.Done, isBusy = true, isCancelAllowed = false)
+}
+
+private fun ConnectionCheck.toUi(): CheckUi = when (this) {
+    ConnectionCheck.Running -> CheckUi.Running
+    is ConnectionCheck.Succeeded -> CheckUi.Succeeded(models)
+    is ConnectionCheck.Failed -> CheckUi.Failed(failure.toUi())
 }
 
 private fun EngineInfo.methods(): List<MethodRowUi> = descriptor.connectionMethods.map { it.toRow() }
