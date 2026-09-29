@@ -165,8 +165,8 @@ class ManagedActiveSession(
     private inner class Sender : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
             log.i { "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" }
-            val appliesTrust = parts.native.features.resolve(AppliesTrustLevels) != FeatureAccess.Unsupported
-            if (request.trust != null && !appliesTrust) {
+            val isTrustApplied = parts.native.features.resolve(AppliesTrustLevels) != FeatureAccess.Unsupported
+            if (request.trust != null && !isTrustApplied) {
                 log.w { "trust level refused: engine=${ref.engine.value} does not apply trust levels" }
                 fail(InvalidRequest)
             }
