@@ -132,7 +132,8 @@ internal class PiProcessLauncher(
         val areSearchToolsEnabled = toggles.get(SearchEngineTools)
         val tools = piTools(areSearchToolsEnabled)
         val extensions = piExtensions(agentDir, areSearchToolsEnabled)
-        val command = piCommand(executable, provider.id, sessionDir, extensions, tools)
+        // The user opened the workspace folder explicitly, so its instructions and skills may load.
+        val command = piCommand(executable, provider.id, sessionDir, extensions, tools, isProject = workspace != null)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         environment.keys.retainAll(SAFE_ENVIRONMENT)
@@ -232,12 +233,22 @@ internal fun piExtensions(agentDir: Path, searchTools: Boolean): List<Path> = bu
 private const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
 private const val SEARCH_EXTENSION = "heartbeat-search.ts"
 
+/**
+ * Pi's command line. Extensions stay limited to the explicitly bundled ones (`--no-extensions` keeps
+ * discovered, project and package extensions out), and templates and themes never load.
+ *
+ * A session bound to a project runs project-aware: the folder the user opened in Heartbeat grants project
+ * trust (`--approve`), so Pi reads the project's context files (`AGENTS.md`/`CLAUDE.md`, which load
+ * regardless of trust) and its skills (`.agents/skills/`, `.pi/skills`), as content only. A session
+ * without a project keeps the fully hermetic flag set and discovers nothing.
+ */
 internal fun piCommand(
     executable: Path,
     provider: String,
     sessionDir: Path,
     extensions: List<Path>,
     tools: String,
+    isProject: Boolean = false,
 ): List<String> = listOf(
     executable.toString(),
     "--mode",
@@ -247,12 +258,15 @@ internal fun piCommand(
     "--session-dir",
     sessionDir.toString(),
     "--no-extensions",
-) + extensions.flatMap { listOf("-e", it.toString()) } + listOf(
-    "--no-skills",
-    "--no-prompt-templates",
-    "--no-context-files",
-    "--no-themes",
-    "--no-approve",
-    "--tools",
-    tools,
-)
+) + extensions.flatMap { listOf("-e", it.toString()) } +
+    if (isProject) {
+        listOf("--approve")
+    } else {
+        listOf("--no-approve", "--no-skills", "--no-context-files")
+    } +
+    listOf(
+        "--no-prompt-templates",
+        "--no-themes",
+        "--tools",
+        tools,
+    )
