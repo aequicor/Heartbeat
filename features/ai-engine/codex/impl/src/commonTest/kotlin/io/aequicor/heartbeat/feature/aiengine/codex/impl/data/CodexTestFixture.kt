@@ -120,6 +120,9 @@ internal class Fixture(
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
     var threadTurns: List<JsonObject> = emptyList()
+
+    /** Native turns of a resumed thread; null omits them from the response. */
+    var resumedTurns: JsonArray? = JsonArray(emptyList())
     var modelList: List<JsonObject> = emptyList()
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
@@ -167,9 +170,18 @@ internal class Fixture(
 
                 "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
-                "thread/start", "thread/resume" -> wire.reply(
+                "thread/start" -> wire.reply(
                     message,
                     json("thread" to json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
+                )
+
+                "thread/resume" -> wire.reply(
+                    message,
+                    json(
+                        "thread" to JsonObject(
+                            listOfNotNull("id" to "thread".json(), resumedTurns?.let { "turns" to it }).toMap(),
+                        ),
+                    ),
                 )
 
                 "thread/read" -> wire.reply(

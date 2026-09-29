@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -309,8 +310,11 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
     }
 
-    fun load(turns: List<JsonElement>) {
-        for (value in turns) {
+    /** Seeds the history with the native [turns]; null when the native response did not carry them. */
+    fun load(turns: List<JsonElement>?, isNew: Boolean) {
+        history.coverage = if (isNew || turns != null) HistoryCoverage.Complete else HistoryCoverage.Partial
+        log.d { "Loading native thread history turns=${turns?.size ?: "unknown"} coverage=${history.coverage}" }
+        for (value in turns.orEmpty()) {
             val turn = value as? JsonObject ?: protocolFailure()
             val id = TurnId(turn.text("id") ?: protocolFailure())
             (turn["items"] as? JsonArray).orEmpty().forEach {

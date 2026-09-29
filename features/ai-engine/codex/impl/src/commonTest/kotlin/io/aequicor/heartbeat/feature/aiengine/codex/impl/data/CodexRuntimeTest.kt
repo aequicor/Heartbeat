@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -263,6 +265,52 @@ class CodexRuntimeTest {
     }
 
     @Test
+    fun `resumed thread seeds its native turns and covers the whole history`() = runTest {
+        val fixture = Fixture(this)
+        fixture.resumedTurns = JsonArray(
+            listOf(
+                json(
+                    "id" to "stored-turn".json(),
+                    "status" to "completed".json(),
+                    "items" to JsonArray(
+                        listOf(
+                            json(
+                                "id" to "prompt".json(),
+                                "type" to "userMessage".json(),
+                                "content" to JsonArray(listOf(json("text" to "hi".json()))),
+                            ),
+                            json("id" to "answer".json(), "type" to "agentMessage".json(), "text" to "hello".json()),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val session = fixture.runtime.attach(fixture.storedRef(), ResumeSessionRequest(fixture.target))
+        val page = session.feature(SessionHistory).page()
+        assertEquals(listOf("prompt", "answer"), page.items.map { it.info.id.value })
+        assertEquals(HistoryCoverage.Complete, page.coverage)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `resumed thread without native turns reports partial history`() = runTest {
+        val fixture = Fixture(this)
+        fixture.resumedTurns = null
+        val session = fixture.runtime.attach(fixture.storedRef(), ResumeSessionRequest(fixture.target))
+        val page = session.feature(SessionHistory).page()
+        assertEquals(emptyList(), page.items)
+        assertEquals(HistoryCoverage.Partial, page.coverage)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `new thread covers the whole history`() = runTest {
+        val fixture = Fixture(this)
+        assertEquals(HistoryCoverage.Complete, fixture.open().feature(SessionHistory).page().coverage)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `ambiguous start never adopts an unmapped running turn`() = runTest {
         val fixture = Fixture(this)
         fixture.onTurn = { }
@@ -477,6 +525,8 @@ class CodexRuntimeTest {
         assertTrue(fixture.runtime.isClosed)
         assertIs<ActiveSessionState.Unavailable>(session.state.value)
     }
+
+    private fun Fixture.storedRef() = SessionRef(target.engine, environment.config.historySource, "thread")
 
     private companion object {
         const val INTERRUPT_TIMEOUT = 31_000L

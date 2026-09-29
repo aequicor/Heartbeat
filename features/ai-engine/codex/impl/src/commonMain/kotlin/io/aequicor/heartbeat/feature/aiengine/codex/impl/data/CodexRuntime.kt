@@ -193,8 +193,8 @@ internal class CodexRuntime(
         val id = thread.text("id") ?: protocolFailure()
         if (nativeId != null && nativeId != id) protocolFailure()
         if (thread.text("modelProvider")?.let { it != "openai" } == true) protocolFailure()
-        val turns = (thread["turns"] as? JsonArray).orEmpty()
-        validateIdle(thread, turns)
+        val turns = thread["turns"] as? JsonArray
+        validateIdle(thread, turns.orEmpty())
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
             route,
@@ -203,7 +203,7 @@ internal class CodexRuntime(
             rpc,
         )
         try {
-            session.load(turns)
+            session.load(turns, isNew = nativeId == null)
         } catch (e: EngineException) {
             session.shutdown(e.failure)
             throw e
