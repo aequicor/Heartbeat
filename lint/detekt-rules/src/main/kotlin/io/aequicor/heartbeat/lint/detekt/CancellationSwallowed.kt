@@ -82,7 +82,7 @@ class CancellationSwallowed(config: Config) :
         for (clause in expression.catchClauses) {
             val type = clause.typeName()
             if (type == CANCELLATION) return // handled before any generic catch
-            if (type !in cancellationCatchingTypes) continue
+            if (type == null || type !in cancellationCatchingTypes) continue
             if (!clause.restoresCancellation()) {
                 report(
                     Finding(
@@ -112,9 +112,9 @@ class CancellationSwallowed(config: Config) :
     private fun KtCatchClause.restoresCancellation(): Boolean {
         val body = catchBody ?: return false
         val name = catchParameter?.name?.takeUnless { it == "_" }
-        val rethrows = name != null && body.rethrows(name)
+        val isRethrown = name != null && body.rethrows(name)
         val checks = body.collectDescendantsOfType<KtCallExpression> { it.calleeName() in cancellationChecks }
-        return rethrows || checks.isNotEmpty()
+        return isRethrown || checks.isNotEmpty()
     }
 
     private fun KtCatchClause.typeName(): String? =

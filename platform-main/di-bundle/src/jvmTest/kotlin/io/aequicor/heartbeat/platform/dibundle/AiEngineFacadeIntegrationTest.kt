@@ -72,13 +72,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.declaresCompatibleProviders
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hasCompatibleProviders
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
-import io.aequicor.heartbeat.feature.aiengine.facade.api.supportsCompatibleProviders
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import kotlinx.coroutines.Dispatchers
@@ -349,7 +349,7 @@ class AiEngineFacadeIntegrationTest {
     fun everyNonVendorEngineAcceptsCompatibleProviders() = runTest {
         val accessors = app.profileSessions.open(ProfileId("compatible")).graph as AiEngineTestAccessors
         val nonVendor = accessors.engineRegistrations.map { it.descriptor }
-            .filter { it.family.supportsCompatibleProviders }
+            .filter { it.family.hasCompatibleProviders }
         assertTrue(nonVendor.isNotEmpty())
         nonVendor.forEach { descriptor ->
             assertTrue(declaresCompatibleProviders(descriptor), "${descriptor.id.value} lacks compatible providers")

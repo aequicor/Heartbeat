@@ -82,6 +82,7 @@ class RuntimePool(
     private suspend fun create(resolved: ResolvedRoute): EngineRuntime {
         val identity = resolved.identity
         var started: EngineRuntime? = null
+        var isHandedOver = false
         try {
             val created = adapterCall(log, "createRuntime") {
                 withContext(NonCancellable + context.io) {
@@ -89,13 +90,15 @@ class RuntimePool(
                 }
             }
             currentCoroutineContext().ensureActive()
+            isHandedOver = true
             return created
-        } catch (e: CancellationException) {
-            started?.let {
+        } finally {
+            // Once the adapter started it, only cancellation keeps the runtime from reaching the caller.
+            val orphan = started?.takeUnless { isHandedOver }
+            if (orphan != null) {
                 log.i { "runtime created for a cancelled request, closing engine=${identity.engine.value}" }
-                withContext(NonCancellable) { closeQuietly(it) }
+                withContext(NonCancellable) { closeQuietly(orphan) }
             }
-            throw e
         }
     }
 

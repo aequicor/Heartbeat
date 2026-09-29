@@ -149,7 +149,7 @@ private fun SettingsBody(state: SearchSettingsState, onIntent: (SearchSettingsIn
         val label = stringResource(Res.string.prefer_native)
         HbSettingsRow(label, description = stringResource(Res.string.prefer_native_hint)) {
             HbSwitch(
-                settings.preferNative,
+                settings.isNativePreferred,
                 { onIntent(SearchSettingsIntent.PreferNative(it)) },
                 label,
                 Modifier.testTag("prefer-native"),

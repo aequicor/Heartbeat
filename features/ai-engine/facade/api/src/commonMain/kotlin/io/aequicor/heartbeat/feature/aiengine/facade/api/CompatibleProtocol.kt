@@ -56,9 +56,9 @@ public enum class CompatibleProtocol(public val provider: ProviderInfo, public v
  * of all protocols and accept their sources, including a custom base path; vendor CLIs are bound to their vendor.
  * The rule is checked over the whole engine graph by the `di-bundle` integration tests.
  */
-public val EngineFamily.supportsCompatibleProviders: Boolean get() = this != EngineFamily.Vendor
+public val EngineFamily.hasCompatibleProviders: Boolean get() = this != EngineFamily.Vendor
 
-/** Whether [descriptor] declares every compatible method as required by [supportsCompatibleProviders]. */
+/** Whether [descriptor] declares every compatible method as required by [hasCompatibleProviders]. */
 public fun declaresCompatibleProviders(descriptor: EngineDescriptor): Boolean =
     CompatibleProtocol.entries.all { it.method in descriptor.connectionMethods }
 

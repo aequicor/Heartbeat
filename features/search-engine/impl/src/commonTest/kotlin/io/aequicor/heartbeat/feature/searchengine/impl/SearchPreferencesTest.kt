@@ -38,12 +38,12 @@ class SearchPreferencesTest {
 
         val second = SearchPreferences(MemoryStores("second"), MemorySecrets())
         assertFalse(second.read().search.hasKey)
-        assertTrue(second.read().preferNative)
+        assertTrue(second.read().isNativePreferred)
 
         val reopened = SearchPreferences(firstStores, firstSecrets)
         assertEquals("https://search.example", reopened.read().search.host)
         assertEquals("https://contents.example", reopened.read().contents.host)
-        assertFalse(reopened.read().preferNative)
+        assertFalse(reopened.read().isNativePreferred)
         assertTrue(reopened.read().search.hasKey)
         assertTrue(reopened.read().contents.hasKey)
         assertEquals(

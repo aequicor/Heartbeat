@@ -130,7 +130,13 @@ public fun koogProvider(source: AuthSource): KoogProvider? = KoogProvider.entrie
         (provider.isOriginEditable || source.scope.basePath == null) &&
         when (provider) {
             KoogProvider.Ollama -> source is AuthSource.NoAuth
-            else -> source is AuthSource.ManagedKey
+
+            KoogProvider.OpenAI,
+            KoogProvider.Anthropic,
+            KoogProvider.AlibabaQwen,
+            KoogProvider.OpenAICompatible,
+            KoogProvider.AnthropicCompatible,
+            -> source is AuthSource.ManagedKey
         }
 }
 

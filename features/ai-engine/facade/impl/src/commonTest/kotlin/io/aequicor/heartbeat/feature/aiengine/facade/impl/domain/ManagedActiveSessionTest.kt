@@ -310,4 +310,49 @@ class ManagedActiveSessionTest {
         assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), error.failure)
         assertTrue(sent.isEmpty())
     }
+
+    @Test
+    fun `a command still running when the profile scope ends fails as ProfileClosed`() = runTest {
+        val commands = CoroutineScope(coroutineContext + Job(coroutineContext[Job]))
+        val native = FakeNativeSession().apply { closeGate = kotlinx.coroutines.CompletableDeferred() }
+        val effects = ActiveSessionEffects(native, commands)
+        val sent = mutableListOf<ActiveSessionIntent>()
+
+        val releasing = async {
+            assertFailsWith<EngineException> { effects.handle(ActiveSessionEffect.Release, recording(sent)) }
+        }
+        runCurrent()
+        assertEquals(1, native.closes)
+        commands.cancel()
+        runCurrent()
+
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), releasing.await().failure)
+        assertTrue(sent.isEmpty())
+    }
+
+    @Test
+    fun `a native failure coinciding with the end of the profile scope is reported as itself`() = runTest {
+        val commands = CoroutineScope(coroutineContext + Job(coroutineContext[Job]))
+        val invalid = EngineFailure.Request(RequestFailureReason.Invalid)
+        val native = FakeNativeSession().apply {
+            onSend = { commands.cancel() }
+            sendFailure = EngineException(invalid)
+        }
+        val effects = ActiveSessionEffects(native, commands)
+        val sent = mutableListOf<ActiveSessionIntent>()
+        val request = prompt("r1")
+        val submit = ActiveSessionEffect.Submit(request, Turn(TurnId("t1"), request.id, TestTarget))
+
+        val error = assertFailsWith<EngineException> { effects.handle(submit, recording(sent)) }
+
+        assertEquals(invalid, error.failure)
+        assertTrue(sent.isEmpty())
+    }
+
+    private fun recording(sent: MutableList<ActiveSessionIntent>) = object : EffectScope<ActiveSessionIntent> {
+        override suspend fun send(intent: ActiveSessionIntent): SendResult {
+            sent += intent
+            return SendResult.Accepted
+        }
+    }
 }
