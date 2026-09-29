@@ -19,8 +19,11 @@ import java.nio.file.InvalidPathException
 import java.nio.file.LinkOption
 import java.nio.file.Path
 
-/** A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name and the command or path. */
-internal data class PiApprovalCall(val tool: String, val target: String)
+/**
+ * A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name, the command or path shown to the
+ * user and, for `edit` / `write`, the absolute [path] the extension pinned in the call; null when it was not pinned.
+ */
+internal data class PiApprovalCall(val tool: String, val target: String, val path: String? = null)
 
 /** Option that lets Pi run an approved tool; any other answer blocks it. */
 internal val PiApprovalAllow = PermissionOptionId("allow")
@@ -31,7 +34,7 @@ private val EditTools = setOf("edit", "write")
 private const val GIT_DIRECTORY = ".git"
 private const val FILE_SCHEME = "file:"
 
-// Spaces Pi replaces with a plain space before resolving a tool path (`normalizePath` in its path utilities).
+// Spaces Pi replaces with a plain space before resolving a tool path; the extension never pins such a path.
 private val UnicodeSpaces = Regex("[\\u00A0\\u2000-\\u200A\\u202F\\u205F\\u3000]")
 private const val APPROVAL_TARGET_LIMIT = 4_000
 private const val HEX_RADIX = 16
@@ -39,27 +42,32 @@ private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
 
 /**
- * Whether this level answers the approval of [call] without the user. A file edit counts only inside [workspace],
- * the working directory of the process. Blocking IO: resolves symbolic links of the target.
+ * Whether this level answers the approval of [call] without the user. A file edit counts only when its path was
+ * pinned and lies inside [workspace], the working directory of the process. Blocking IO: resolves symbolic links.
  */
 internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean = when (this) {
     TrustLevel.Ask -> false
-    TrustLevel.AutoEdits -> call.tool in EditTools && workspace != null && isWorkspaceEdit(call.target, workspace)
+
+    TrustLevel.AutoEdits -> {
+        val path = call.path
+        call.tool in EditTools && workspace != null && path != null && isWorkspaceEdit(path, workspace)
+    }
+
     TrustLevel.Full -> true
 }
 
 /**
- * Whether Pi writes [target] inside [workspace] and outside its `.git` directory, whose hooks and config run
- * commands. The path is normalized as Pi's `resolveToCwd` does: Unicode spaces become plain spaces and a leading
- * `@` is dropped. Home-relative (`~`) and `file:` URL targets, which Pi turns into other absolute paths, are never
- * workspace edits.
+ * Whether the pinned absolute [path] lies inside [workspace] and outside its `.git` directory, whose hooks and config
+ * run commands. Pi writes a pinned path unchanged; anything relative or in a form Pi rewrites is never an edit here.
  */
-internal fun isWorkspaceEdit(target: String, workspace: Path): Boolean {
-    val path = target.replace(UnicodeSpaces, " ").removePrefix("@")
-    if (path.isBlank() || path.startsWith("~") || path.startsWith(FILE_SCHEME, ignoreCase = true)) return false
+internal fun isWorkspaceEdit(path: String, workspace: Path): Boolean {
+    val isRewritten = path.startsWith("~") || path.startsWith("@") || path.startsWith(FILE_SCHEME, ignoreCase = true)
+    if (path.isBlank() || isRewritten || UnicodeSpaces.containsMatchIn(path)) return false
     return try {
+        val target = Path.of(path)
+        if (!target.isAbsolute) return false
         val root = workspace.toRealPath()
-        val real = realPath(root.resolve(path).normalize())
+        val real = realPath(target.normalize())
         real.startsWith(root) && root.relativize(real).none { it.toString().equals(GIT_DIRECTORY, ignoreCase = true) }
     } catch (e: IOException) {
         // A dangling link or an unreadable parent: the user decides instead.
@@ -93,7 +101,7 @@ internal fun approvalCall(message: String?): PiApprovalCall? {
         null
     } ?: return null
     val tool = fields.string("toolName")?.takeIf { it.isNotBlank() } ?: return null
-    return PiApprovalCall(tool, fields.string("target").orEmpty())
+    return PiApprovalCall(tool, fields.string("target").orEmpty(), fields.string("path"))
 }
 
 /** The user-facing request; null blocks a call whose target is too long to show in full. */

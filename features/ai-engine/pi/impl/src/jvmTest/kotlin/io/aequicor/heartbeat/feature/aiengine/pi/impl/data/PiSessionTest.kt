@@ -331,7 +331,8 @@ class PiSessionTest {
     fun `edit trust allows file edits and still asks before commands`() = runTest {
         val fixture = fixture()
         fixture.runningTurn(TrustLevel.AutoEdits)
-        fixture.connection.event(approval("ui-e1", tool = "edit"))
+        val notes = TestWorkspace.resolve("notes.md").toString()
+        fixture.connection.event(approval("ui-e1", target = notes, tool = "edit", path = notes))
         fixture.connection.event(approval("ui-e2"))
         assertEquals(listOf(answer("ui-e1", "confirmed", true)), fixture.connection.sent)
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
@@ -344,10 +345,12 @@ class PiSessionTest {
         val fixture = fixture()
         fixture.runningTurn(TrustLevel.AutoEdits)
         val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
-        fixture.connection.event(approval("ui-o1", target = outside, tool = "write"))
-        fixture.connection.event(approval("ui-o2", target = ".git/hooks/pre-commit", tool = "write"))
+        val hook = TestWorkspace.resolve(".git/hooks/pre-commit").toString()
+        fixture.connection.event(approval("ui-o1", target = outside, tool = "write", path = outside))
+        fixture.connection.event(approval("ui-o2", target = hook, tool = "write", path = hook))
+        // Paths Pi rewrites are not pinned by the extension and always reach the user.
         fixture.connection.event(approval("ui-o3", target = "~/.zshrc", tool = "edit"))
-        fixture.connection.event(approval("ui-o4", target = "file://$outside", tool = "write"))
+        fixture.connection.event(approval("ui-o4", target = "notes.md", tool = "write"))
         assertTrue(fixture.connection.sent.isEmpty())
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals(4, awaiting.requests.size)
@@ -379,12 +382,13 @@ class PiSessionTest {
     }
 
     @Test
-    fun `workspace edits are normalized as pi resolves tool paths`() {
+    fun `only pinned absolute paths inside the workspace are edits`() {
         val workspace = TestWorkspace
-        assertTrue(isWorkspaceEdit("src/Main.kt", workspace))
-        assertTrue(isWorkspaceEdit("@src/Main.kt", workspace))
+        assertTrue(isWorkspaceEdit(workspace.resolve("src/Main.kt").toString(), workspace))
         assertTrue(isWorkspaceEdit(workspace.resolve("new.txt").toString(), workspace))
-        assertFalse(isWorkspaceEdit("../sibling.txt", workspace))
+        assertFalse(isWorkspaceEdit(workspace.resolve("../sibling.txt").toString(), workspace))
+        assertFalse(isWorkspaceEdit("src/Main.kt", workspace))
+        assertFalse(isWorkspaceEdit("@${workspace.resolve("new.txt")}", workspace))
         assertFalse(isWorkspaceEdit("file://${workspace.resolve("new.txt")}", workspace))
         assertFalse(isWorkspaceEdit("FILE:///etc/hosts", workspace))
         assertFalse(isWorkspaceEdit("@~/.zshrc", workspace))
@@ -399,7 +403,7 @@ class PiSessionTest {
         if (!Files.isSymbolicLink(escape)) {
             Files.createSymbolicLink(escape, TestWorkspace.parent).toFile().deleteOnExit()
         }
-        assertFalse(isWorkspaceEdit("escape/file.txt", TestWorkspace))
+        assertFalse(isWorkspaceEdit(escape.resolve("file.txt").toString(), TestWorkspace))
     }
 
     @Test
@@ -659,13 +663,18 @@ class PiSessionTest {
         return turn
     }
 
-    private fun approval(id: String, target: String = "ls -la", tool: String = "bash"): JsonObject {
+    private fun approval(
+        id: String,
+        target: String = "ls -la",
+        tool: String = "bash",
+        path: String? = null,
+    ): JsonObject {
         val message = JsonObject(
             mapOf(
                 "toolCallId" to JsonPrimitive("c1"),
                 "toolName" to JsonPrimitive(tool),
                 "target" to JsonPrimitive(target),
-            ),
+            ) + listOfNotNull(path?.let { "path" to JsonPrimitive(it) }),
         )
         return JsonObject(
             mapOf(
