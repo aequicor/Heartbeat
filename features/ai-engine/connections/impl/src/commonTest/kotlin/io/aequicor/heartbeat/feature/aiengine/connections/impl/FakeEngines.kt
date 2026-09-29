@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -84,6 +85,9 @@ internal class FakeEngineFacade : EngineFacade {
     var discovered: List<String> = listOf("gpt-a", "gpt-b")
     var availability: EngineAvailability = EngineAvailability.Available
     var connectFailure: EngineFailure? = null
+    var discoverFailure: EngineFailure? = null
+    var refreshFailure: EngineFailure? = null
+    var connectGate: CompletableDeferred<Unit>? = null
     var disconnectFailure: Exception? = null
     val calls = mutableListOf<String>()
 
@@ -92,6 +96,7 @@ internal class FakeEngineFacade : EngineFacade {
 
         override suspend fun refresh(engine: EngineId): EngineInfo {
             calls += "refresh"
+            refreshFailure?.let { throw EngineException(it) }
             return engineInfo(bindingsState.value, availability)
         }
 
@@ -103,6 +108,7 @@ internal class FakeEngineFacade : EngineFacade {
 
         override suspend fun connect(engine: EngineId, source: AuthSourceId, priority: Int): EngineBinding {
             calls += "connect"
+            connectGate?.await()
             connectFailure?.let { throw EngineException(it) }
             val binding = EngineBinding(EngineBindingId("binding-${bindingsState.value.size + 1}"), engine, source)
             bindingsState.update { it + binding }
@@ -128,6 +134,7 @@ internal class FakeEngineFacade : EngineFacade {
 
         override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
             calls += "discover"
+            discoverFailure?.let { throw EngineException(it) }
             val snapshot = ModelCatalogSnapshot(discovered.map { modelInfo(binding, it) }, Observation(isStale = false))
             snapshotOf(binding).value = snapshot
             return snapshot

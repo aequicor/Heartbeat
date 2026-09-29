@@ -56,6 +56,7 @@ class CodexRuntimeTest {
         val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
         val tools = params["dynamicTools"] as JsonArray
         assertEquals(setOf("web_search", "web_fetch"), tools.map { (it as JsonObject).text("name") }.toSet())
+        assertEquals("live", params.obj("config").text("web_search"))
         session.feature(SendsPrompts).send(Prompt)
         fixture.event(
             "item/tool/call",
@@ -76,6 +77,7 @@ class CodexRuntimeTest {
         fixture.open()
         val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
         assertFalse("dynamicTools" in params)
+        assertFalse("config" in params)
     }
 
     @Test

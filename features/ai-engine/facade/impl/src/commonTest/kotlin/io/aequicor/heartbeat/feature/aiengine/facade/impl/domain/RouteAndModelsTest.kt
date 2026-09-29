@@ -26,6 +26,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 
@@ -171,5 +172,23 @@ class RouteAndModelsTest {
         models.refresh(TestEngine, fixture.binding.id)
         // The stale entry of the earlier removal was dropped on write; only the refreshed binding is cached.
         assertEquals(listOf(fixture.binding.id), cache.entries.value.map { it.binding })
+    }
+
+    @Test
+    fun `entries of another adapter catalog revision are rediscovered once`() = runTest {
+        val factory = FakeEngineFactory()
+        val fixture = RouteFixture(this, factory, registration(factory, modelCatalogRevision = 1))
+        val cache = FakeModelCache()
+        val old = ModelInfo(fixture.target, "Old")
+        cache.entries.value = listOf(CachedModels(TestEngine, fixture.binding.id, listOf(old), fixture.clock.now))
+        val models = ModelCatalogService(cache, fixture.routes, fixture.context)
+        val fresh = ModelInfo(fixture.target, "Fresh", reasoningEfforts = listOf("low"))
+        factory.models = listOf(fresh)
+
+        val observed = models.observe(TestEngine, fixture.binding.id)
+        val upgraded = observed.first { it.models == listOf(fresh) }
+
+        assertEquals(1, cache.entries.value.single().revision)
+        assertFalse(upgraded.observation.isStale)
     }
 }

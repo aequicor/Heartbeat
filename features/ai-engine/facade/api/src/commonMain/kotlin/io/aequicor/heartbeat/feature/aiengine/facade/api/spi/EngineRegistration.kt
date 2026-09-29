@@ -37,6 +37,12 @@ public class EngineRegistration(
     public val factory: Lazy<EngineFactory>,
     public val sessionSources: List<EngineSessionSource> = emptyList(),
     public val authenticators: Set<AuthenticatorId> = emptySet(),
+    /**
+     * Version of what [EngineFactory.discoverModels] reports. An adapter bumps it when discovery starts reporting
+     * different model data (for example reasoning levels); cached discoveries of another revision are refreshed
+     * automatically instead of waiting for the user.
+     */
+    public val modelCatalogRevision: Int = 0,
 ) {
     init {
         require(sessionSources.all { it.source.engine == descriptor.id }) { "Foreign engine session source" }

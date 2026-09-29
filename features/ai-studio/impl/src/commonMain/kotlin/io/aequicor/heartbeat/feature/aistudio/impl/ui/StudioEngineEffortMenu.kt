@@ -16,24 +16,23 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_high
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_medium
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_very_high
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
 
-/** Only engine-advertised options are selectable; native identifiers are round-tripped unchanged. */
+/**
+ * Only engine-advertised options are selectable. Levels are shown and round-tripped exactly as the provider names
+ * them, never translated: the same identifiers appear in the provider's documentation and CLI.
+ */
 @Composable
 internal fun EngineEffortMenu(model: ModelUi, selected: String?, onIntent: (AiStudioScreenIntent) -> Unit) {
     var isOpen by remember(model.id) { mutableStateOf(false) }
     val automatic = stringResource(Res.string.effort_default)
     val actions = listOf(HbComposerAction(DEFAULT_EFFORT, automatic, isSelected = selected == null)) +
         model.reasoningEfforts.map {
-            HbComposerAction("$EFFORT_PREFIX$it", nativeEffortLabel(it), isSelected = selected == it)
+            HbComposerAction("$EFFORT_PREFIX$it", it, isSelected = selected == it)
         }
     HbComposerMenuButton(
-        label = (selected ?: model.defaultReasoningEffort)?.let { nativeEffortLabel(it) } ?: automatic,
+        label = selected ?: model.defaultReasoningEffort ?: automatic,
         actions = actions.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
@@ -47,16 +46,6 @@ internal fun EngineEffortMenu(model: ModelUi, selected: String?, onIntent: (AiSt
         icon = HbIcons.Sparkles,
         style = HbComposerMenuStyle.AccentPill,
     )
-}
-
-/** Familiar budgets are localized; new provider identifiers remain visible instead of being guessed or discarded. */
-@Composable
-private fun nativeEffortLabel(id: String): String = when (id) {
-    "low" -> stringResource(Res.string.effort_low)
-    "medium" -> stringResource(Res.string.effort_medium)
-    "high" -> stringResource(Res.string.effort_high)
-    "xhigh" -> stringResource(Res.string.effort_very_high)
-    else -> id
 }
 
 private const val DEFAULT_EFFORT = "default"

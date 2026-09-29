@@ -230,9 +230,10 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.SelectEngineEffort -> selectEngineEffort(pipeline, intent)
 
-            is AiStudioScreenIntent.SelectApproval -> updateSettings(
-                pipeline,
-            ) { copy(approval = intent.approval.toDomain()) }
+            is AiStudioScreenIntent.SelectApproval -> {
+                log.i { "select approval: ${intent.approval}" }
+                updateSettings(pipeline) { copy(approval = intent.approval.toDomain()) }
+            }
         }
     }
 

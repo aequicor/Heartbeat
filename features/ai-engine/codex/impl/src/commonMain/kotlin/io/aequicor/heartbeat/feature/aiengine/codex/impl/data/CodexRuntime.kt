@@ -240,6 +240,8 @@ internal class CodexRuntime(
             put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
             if (nativeId == null && tools) put("dynamicTools", searchToolSpecs())
+            // Codex's hosted web search runs next to the dynamic tools; the model picks either.
+            if (tools) put("config", buildJsonObject { put("web_search", WEB_SEARCH_MODE) })
             if (nativeId != null) put("threadId", nativeId)
         }
     }
@@ -306,5 +308,8 @@ internal class CodexRuntime(
         // app-server v2 wire spellings (AskForApproval, SandboxMode), not the Rust variant names.
         const val APPROVAL_POLICY = "untrusted"
         const val SANDBOX_MODE = "read-only"
+
+        /** Live hosted search; `cached` would answer from OpenAI's index snapshot only. */
+        const val WEB_SEARCH_MODE = "live"
     }
 }

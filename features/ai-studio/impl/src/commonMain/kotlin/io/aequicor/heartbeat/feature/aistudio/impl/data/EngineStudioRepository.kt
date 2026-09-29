@@ -41,10 +41,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
@@ -299,11 +301,13 @@ internal class EngineStudioRepository(
                 }
                 val permissions = launch { active.state.collect { updatePermissions(id, it) } }
                 try {
-                    log.i { "Submitting prompt length=${prompt.length}" }
+                    val trust = settings.approval.trustFor(offeredModels.value, target)
+                    log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
                     val turn = submit(
                         active,
                         prompt,
                         efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
+                        trust,
                     )
                     if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
@@ -356,11 +360,17 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun submit(active: ActiveSession, prompt: String, reasoningEffort: String?): TurnId {
+    private suspend fun submit(
+        active: ActiveSession,
+        prompt: String,
+        reasoningEffort: String?,
+        trust: TrustLevel?,
+    ): TurnId {
         val request = PromptRequest(
             RequestId(Uuid.random().toString()),
             listOf(ContentPart.Text(prompt)),
             reasoningEffort = reasoningEffort,
+            trust = trust,
         )
         return try {
             active.features.requireFeature(SendsPrompts).send(request)
@@ -439,8 +449,9 @@ internal class EngineStudioRepository(
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
                 .resume(ResumeSessionRequest(target, workspace))
         }
-        persistReference(id, target, active)
+        // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
+        persistReference(id, target, active)
         active
     }
 
@@ -455,7 +466,12 @@ internal class EngineStudioRepository(
             log.e(e) { "Could not persist the native session reference; closing the session" }
             throw e
         } finally {
-            if (!isPersisted) withContext(NonCancellable) { closeOrphan(active) }
+            if (!isPersisted) {
+                withContext(NonCancellable) {
+                    handlesLock.withLock { if (handles[id] === active) handles.remove(id) }
+                    closeOrphan(active)
+                }
+            }
         }
     }
 
@@ -641,4 +657,14 @@ private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
     is ActiveSessionState.Interrupting -> turn
     is ActiveSessionState.Unavailable -> activeTurn
     is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+}
+
+/** Trust level of a turn on [target]: only engines applying trust levels receive one. */
+internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =
+    toTrust().takeIf { offered.isTrustSupported(target) }
+
+private fun ApprovalMode.toTrust(): TrustLevel = when (this) {
+    ApprovalMode.Ask -> TrustLevel.Ask
+    ApprovalMode.AutoEdits -> TrustLevel.AutoEdits
+    ApprovalMode.AutoApprove -> TrustLevel.Full
 }

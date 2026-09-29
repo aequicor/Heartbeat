@@ -53,7 +53,7 @@ lint/            detekt-rules — собственный набор правил
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
 > (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; MSI при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/main.wxs`)
-> за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`), изменяющие вызовы инструментов — только после подтверждения пользователя;
+> за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`), изменяющие вызовы инструментов — по уровню доверия хода (`TrustLevel` в `facade:api`: спрашивать / авто-правки / полное доверие, выбор в композере ai-studio), иначе после подтверждения пользователя;
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
