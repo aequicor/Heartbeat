@@ -2,7 +2,11 @@ package io.aequicor.heartbeat.feature.searchengine.impl
 
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
@@ -21,6 +25,8 @@ import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class LocalSearchBridgeTest {
@@ -109,6 +115,47 @@ class LocalSearchBridgeTest {
         }
     }
 
+    @Test fun `attached native features reach the engine and detach removes them`() {
+        val profile = TestScope()
+        val captured = mutableListOf<EngineFeatures?>()
+        val bridge = LocalSearchBridge(
+            object : SearchEngine {
+                override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+                    captured += native
+                    return listOf(SearchResult("https://example.com", "Example", "Snippet"))
+                }
+                override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent {
+                    captured += native
+                    return ResourceContent(url, "Example", "Page")
+                }
+            },
+            profile,
+        )
+        try {
+            val endpoint = bridge.endpoint()
+            val body = """{"name":"web_fetch","arguments":{"url":"https://example.com"}}"""
+            post(endpoint.origin, "/execute", body, endpoint.token)
+            assertNull(captured.single())
+
+            // An attachment without the feature must not hide a later attachment that provides it.
+            val empty = bridge.attach(noFeatures)
+            val reader = object : NativeWebFetch {
+                override suspend fun fetch(url: String) = ResourceContent(url, null, "direct")
+            }
+            val attachment = bridge.attach(featuresOf(NativeWebFetch to reader))
+            post(endpoint.origin, "/execute", body, endpoint.token)
+            val routed = assertNotNull(captured.last())
+            assertTrue(routed.resolve(NativeWebFetch) is FeatureAccess.Available)
+
+            attachment.detach()
+            empty.detach()
+            post(endpoint.origin, "/execute", body, endpoint.token)
+            assertNull(captured.last())
+        } finally {
+            profile.close()
+        }
+    }
+
     @Test fun `server stops when the profile closes and never restarts`() {
         val profile = TestScope()
         val bridge = LocalSearchBridge(engine { _, _ -> }, profile)
@@ -117,6 +164,18 @@ class LocalSearchBridgeTest {
         assertFailsWith<IOException> { post(endpoint.origin, "/execute", "{}", endpoint.token) }
         assertFailsWith<IllegalStateException> { bridge.endpoint() }
     }
+}
+
+private val noFeatures = object : EngineFeatures {
+    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = FeatureAccess.Unsupported
+}
+
+@Suppress("UNCHECKED_CAST") // The stored instance type is checked against the requested key's contract.
+private fun featuresOf(vararg entries: Pair<EngineFeatureKey<*>, EngineFeature>) = object : EngineFeatures {
+    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+        entries.firstOrNull { it.first == key && key.type.isInstance(it.second) }
+            ?.let { FeatureAccess.Available(it.second as F) }
+            ?: FeatureAccess.Unsupported
 }
 
 private fun engine(onSearch: (String, Int) -> Unit) = object : SearchEngine {

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import io.aequicor.heartbeat.feature.searchengine.api.SearchFailure
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
+import io.aequicor.heartbeat.feature.searchengine.api.isPublicWebUrl
 import kotlinx.coroutines.CancellationException
 
 /** Profile-owned routing: a callable native feature is preferred, with one provider fallback. */
@@ -31,7 +32,7 @@ internal class RoutedSearchEngine(private val preferences: SearchOptions, privat
             if (feature != null) {
                 try {
                     val result = feature.search(query, count)
-                    val usable = result.filter { validResourceUrl(it.url) }.take(count)
+                    val usable = result.filter { isPublicWebUrl(it.url) }.take(count)
                     if (usable.isNotEmpty()) return usable
                     log.w { "Native search returned no usable URLs" }
                 } catch (e: CancellationException) {
@@ -45,13 +46,13 @@ internal class RoutedSearchEngine(private val preferences: SearchOptions, privat
     }
 
     override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent {
-        if (!validResourceUrl(url)) throw SearchException(SearchFailure.InvalidInput)
+        if (!isPublicWebUrl(url)) throw SearchException(SearchFailure.InvalidInput)
         if (preferences.nativePreferred()) {
             val feature = (native?.resolve(NativeWebFetch) as? FeatureAccess.Available)?.feature
             if (feature != null) {
                 try {
                     val result = feature.fetch(url)
-                    if (validResourceUrl(result.url) && result.text.isNotBlank()) return result
+                    if (isPublicWebUrl(result.url) && result.text.isNotBlank()) return result
                     log.w { "Native page reader returned no usable content" }
                 } catch (e: CancellationException) {
                     throw e

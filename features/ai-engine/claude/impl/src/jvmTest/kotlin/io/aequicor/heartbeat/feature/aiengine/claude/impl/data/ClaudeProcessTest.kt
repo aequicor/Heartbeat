@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -43,6 +45,7 @@ class ClaudeProcessTest {
             ClaudeConfiguration(executable = executable),
             object : SearchBridge {
                 override fun endpoint() = SearchBridgeEndpoint("http://127.0.0.1:1", "test")
+                override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
             },
         )
     }
