@@ -58,6 +58,9 @@ val preparePiRuntime = piTarget?.let { target ->
     }
 }
 
+// A plain IDE main() launch builds classes only; preparing Pi here lets that launch find it (see Main.kt).
+preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task) } }
+
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
@@ -75,6 +78,13 @@ compose.desktop {
 // Compose bundles Hot Reload; keep its launchers on the same development-only entry point as run.
 tasks.withType<ComposeHotRun>().configureEach {
     mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+    // Hot Reload does not pass Compose app resources; attach the bundled Pi runtime the same way run does.
+    preparePiRuntime?.let { task ->
+        dependsOn(task)
+        // A configuration-time path: the Hot Reload argfile task resolves JVM arguments before tasks run.
+        val resourcesDir = layout.buildDirectory.dir("generated/piResources/common").get().asFile.absolutePath
+        systemProperty("compose.application.resources.dir", resourcesDir)
+    }
 }
 
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
