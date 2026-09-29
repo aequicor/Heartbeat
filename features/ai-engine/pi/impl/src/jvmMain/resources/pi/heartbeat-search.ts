@@ -27,7 +27,11 @@ export default function (pi: ExtensionAPI) {
   });
   pi.registerTool({
     name: "web_fetch", label: "Read web page",
-    description: "Read the text content of one URL.",
+    description:
+      "Read the text content of one URL. On failure returns one line: " +
+      "`web_fetch failed: <category> ... — url=<url>`; categories: http_error (with HTTP status and a short " +
+      "body snippet), network_error, timeout, redirect_loop, invalid_redirect, unsupported_content_type, " +
+      "too_large, empty_response, invalid_url.",
     parameters: Type.Object({ url: Type.String() }),
     async execute(_id, params, signal) { return call("web_fetch", params, signal); },
   });

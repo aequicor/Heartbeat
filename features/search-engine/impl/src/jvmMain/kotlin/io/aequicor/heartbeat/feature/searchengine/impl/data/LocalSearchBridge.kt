@@ -313,11 +313,15 @@ internal class LocalSearchBridge(
         throw e
     } catch (e: SearchException) {
         log.w(e) { "Search tool failed" }
-        e.failure.name to false
+        toolFailure(name, e) to false
     } catch (e: Exception) {
         log.w(e) { "Search tool failed" }
         "Unavailable" to false
     }
+
+    /** Model-facing failure text: the structured one-line verdict, or the typed failure name. */
+    private fun toolFailure(tool: String, error: SearchException): String =
+        error.details?.let { "$tool failed: $it" } ?: error.failure.name
 
     private fun mcpTools(): JsonArray = JsonArray(
         listOf(

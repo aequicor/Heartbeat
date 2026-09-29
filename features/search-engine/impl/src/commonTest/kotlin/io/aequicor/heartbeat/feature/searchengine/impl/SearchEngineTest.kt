@@ -136,6 +136,58 @@ class SearchEngineTest {
         )
     }
 
+    @Test fun `structured native verdict wins over a provider failure`() = runTest {
+        val verdict = "http_error 404 Not Found — url=https://example.com/a — body: \"404: Not Found\""
+        val router = RoutedSearchEngine(
+            options,
+            api {
+                calls++
+                respond("{}", HttpStatusCode.ServiceUnavailable)
+            },
+        )
+        val native = features(
+            fetch = object : NativeWebFetch {
+                override suspend fun fetch(url: String): ResourceContent = throw SearchException(
+                    SearchFailure.Unavailable,
+                    verdict,
+                )
+            },
+        )
+        val error = assertFailsWith<SearchException> { router.fetch("https://example.com/a", native) }
+        assertEquals(SearchFailure.Unavailable, error.failure)
+        assertEquals(verdict, error.details)
+        assertEquals(1, calls)
+    }
+
+    @Test fun `unstructured native failure keeps the provider verdict`() = runTest {
+        val router = RoutedSearchEngine(options, api { respond("{}", HttpStatusCode.ServiceUnavailable) })
+        val native = features(
+            fetch = object : NativeWebFetch {
+                override suspend fun fetch(url: String): ResourceContent = throw SearchException(SearchFailure.Timeout)
+            },
+        )
+        assertEquals(
+            SearchFailure.Unavailable,
+            assertFailsWith<SearchException> { router.fetch("https://example.com", native) }.failure,
+        )
+    }
+
+    @Test fun `non-public fetch urls carry a structured reason`() = runTest {
+        val router = RoutedSearchEngine(
+            options,
+            api {
+                calls++
+                respond(CONTENTS_RESPONSE, headers = jsonHeaders)
+            },
+        )
+        val error = assertFailsWith<SearchException> { router.fetch("http://127.0.0.1:8080/admin") }
+        assertEquals(SearchFailure.InvalidInput, error.failure)
+        assertEquals(
+            "invalid_url — url=http://127.0.0.1:8080/admin — not a public http(s) address",
+            error.details,
+        )
+    }
+
     @Test fun `fetch rejects local, private and non-http addresses before any request`() = runTest {
         val router = RoutedSearchEngine(
             options,
