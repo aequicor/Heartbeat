@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -51,7 +52,13 @@ public fun HbMarkdown(
     val blocks = remember(source) { parseHbMarkdown(source) }
     HbLazyColumn(modifier = modifier.heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight), gap = HbTheme.spacing.s) {
         items(blocks, key = { it.id }, contentType = { it.kind }) { block ->
-            HbMarkdownBlockContent(block, foreground = foreground, onLinkClick = onLinkClick)
+            // Each block owns its own SelectionContainer so text nodes register locally.
+            // This prevents the outer SelectionContainer (e.g. in HbChatMessageBubble) from
+            // seeing lazy items that may be decomposed during scroll, which would crash with
+            // "layouts are not part of the same hierarchy" in SelectionRegistrarImpl.sort().
+            SelectionContainer {
+                HbMarkdownBlockContent(block, foreground = foreground, onLinkClick = onLinkClick)
+            }
         }
     }
 }
