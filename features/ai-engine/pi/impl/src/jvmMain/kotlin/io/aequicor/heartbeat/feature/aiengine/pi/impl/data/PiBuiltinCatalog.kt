@@ -50,7 +50,7 @@ internal class PiBuiltinCatalog(
             Files.writeString(directory.resolve("models.json"), piCatalogProbeJson())
             val builder = ProcessBuilder(probeCommand(executable)).directory(directory.toFile())
             val environment = builder.environment()
-            environment.keys.retainAll(SAFE_PROBE_ENVIRONMENT)
+            retainPiEnvironment(environment)
             environment["PI_CODING_AGENT_DIR"] = directory.toString()
             environment["PI_OFFLINE"] = "1"
             environment["PI_SKIP_VERSION_CHECK"] = "1"
@@ -95,13 +95,6 @@ internal class PiBuiltinCatalog(
         } catch (e: SecurityException) {
             log.w(e) { "Pi catalog probe directory cleanup was denied" }
         }
-    }
-
-    private companion object {
-        val SAFE_PROBE_ENVIRONMENT = setOf(
-            "PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "ComSpec",
-            "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PATHEXT",
-        )
     }
 }
 
