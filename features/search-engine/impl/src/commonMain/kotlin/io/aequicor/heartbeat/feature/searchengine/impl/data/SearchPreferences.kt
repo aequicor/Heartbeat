@@ -83,7 +83,7 @@ internal class SearchPreferences(
                 // A pasted key often carries surrounding whitespace, which the service rejects as a bad key forever.
                 val normalized = key.reveal { chars -> chars.trimmed() }
                 if (normalized.isEmpty()) throw SearchException(SearchFailure.InvalidInput)
-                secrets.write(identifier, Secret(normalized))
+                Secret(normalized).use { trimmed -> secrets.write(identifier, trimmed) }
                 secrets.bind(usage, identifier)
             }
         }
