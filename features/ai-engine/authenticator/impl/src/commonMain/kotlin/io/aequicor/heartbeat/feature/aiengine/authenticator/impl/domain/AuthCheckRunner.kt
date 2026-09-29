@@ -90,11 +90,12 @@ class AuthCheckRunner(
     /** Keeps [check] only while it describes [current]; a late answer for an old revision never overwrites. */
     private fun record(check: AuthCheck, current: AuthRevision?): AuthCheck {
         log.i { "verdict source=${check.source.value} verdict=${check.verdict} stale=${check.isStale}" }
-        val relevant = when (current) {
-            null -> check.verdict == AuthVerdict.SourceUnavailable
-            else -> check.revision == current
+        val isRelevant = if (current == null) {
+            check.verdict == AuthVerdict.SourceUnavailable
+        } else {
+            check.revision == current
         }
-        if (relevant) {
+        if (isRelevant) {
             observations.update { it + ((check.source to check.context) to check) }
         } else {
             log.i { "verdict outdated by a revision change, not recorded source=${check.source.value}" }
