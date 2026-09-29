@@ -89,7 +89,10 @@ public interface SearchConfiguration {
     public suspend fun check(operation: SearchOperation)
 }
 
-/** Safe classification of a search failure; external response bodies and secrets are never exposed. */
+/**
+ * Safe classification of a search failure. Secrets are never exposed, neither as a failure name
+ * nor inside [SearchException.details]; response bodies appear there only as a short sanitized snippet.
+ */
 public enum class SearchFailure {
     NotConfigured,
     InvalidInput,
@@ -101,7 +104,17 @@ public enum class SearchFailure {
     Unavailable,
 }
 
-/** Typed expected search failure. */
-public class SearchException(public val failure: SearchFailure) : Exception(failure.name)
+/**
+ * Typed expected search failure.
+ *
+ * [details] — optional one-line diagnostic of a web tool failure, built by the reader that saw it, in the
+ * stable wire format `<category>[ <status or cause>] — url=<requested url>[ — <extra>]`. The category comes
+ * from a fixed set: `http_error`, `network_error`, `timeout`, `redirect_loop`, `invalid_redirect`,
+ * `unsupported_content_type`, `too_large`, `empty_response`, `invalid_url`. Text bodies are quoted only as a
+ * short whitespace-collapsed snippet; binary bodies — only as type and size. When present, details become the
+ * exception message, so logs and tool errors show the real cause instead of a bare failure name.
+ */
+public class SearchException(public val failure: SearchFailure, public val details: String? = null) :
+    Exception(details ?: failure.name)
 
 public const val DEFAULT_QUERIT_HOST: String = "https://api.querit.ai"
