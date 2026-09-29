@@ -8,6 +8,7 @@ import java.nio.file.Files
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -50,6 +51,19 @@ class KoogShellToolTest {
         val result = tool.run(args(detached, timeout = 60))
         assertTrue("done" in result.text, result.text)
         assertTrue(elapsedSeconds(started) < QUICK_SECONDS)
+    }
+
+    @Test
+    fun outputAfterExitIsReadForBoundedTimeOnly() {
+        val ms = 1_000_000L
+        assertEquals(null, drainOutcome(isAlive = true, read = 10, sinceExitNanos = 0, isPastDeadline = false))
+        assertEquals(false, drainOutcome(isAlive = true, read = 10, sinceExitNanos = 0, isPastDeadline = true))
+        assertEquals(true, drainOutcome(isAlive = true, read = -1, sinceExitNanos = 0, isPastDeadline = false))
+        // A detached child writing without pauses cannot keep the command running past the limit.
+        assertEquals(null, drainOutcome(isAlive = false, read = 10, sinceExitNanos = 500 * ms, isPastDeadline = false))
+        assertEquals(true, drainOutcome(isAlive = false, read = 10, sinceExitNanos = 2_001 * ms, isPastDeadline = true))
+        assertEquals(null, drainOutcome(isAlive = false, read = 0, sinceExitNanos = 100 * ms, isPastDeadline = false))
+        assertEquals(true, drainOutcome(isAlive = false, read = 0, sinceExitNanos = 201 * ms, isPastDeadline = false))
     }
 
     @Test

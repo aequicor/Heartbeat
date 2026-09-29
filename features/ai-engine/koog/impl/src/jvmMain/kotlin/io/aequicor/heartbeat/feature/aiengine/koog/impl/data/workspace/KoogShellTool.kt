@@ -23,7 +23,8 @@ import java.util.concurrent.TimeUnit
 /**
  * Runs one shell command in the project root: PowerShell on Windows, `/bin/sh` elsewhere. Always mutating: a
  * command can do anything the user can. Secrets-looking environment variables are not inherited, stdin is closed,
- * the process tree is killed on timeout or turn cancellation, and output is truncated for the model.
+ * the process tree is killed on timeout or turn cancellation, and output is truncated for the model. Children
+ * detached from the shell (build daemons, `cmd &`) outlive the command; their output is read only briefly after exit.
  */
 internal class KoogShellTool(
     private val root: ProjectRoot,
@@ -130,24 +131,14 @@ internal class KoogShellTool(
             while (hasExited == null) {
                 val read = readAvailable(input, buffer)
                 val now = System.nanoTime()
-                if (read == 0 && exitedAt == 0L && !process.isAlive) exitedAt = now
-                hasExited = settled(process, read, now, deadline, exitedAt)
+                val isAlive = process.isAlive
+                if (exitedAt == 0L && !isAlive) exitedAt = now
+                hasExited = drainOutcome(isAlive, read, now - exitedAt, now > deadline)
                 if (hasExited == null) {
                     if (read == 0) delay(POLL_MILLIS) else yield()
                 }
             }
             return hasExited
-        }
-
-        /**
-         * Whether draining is over: true at end of output or once the process exited and its pipe stayed quiet for
-         * a moment (a detached child may still hold it), false on timeout, null to keep reading.
-         */
-        private fun settled(process: Process, read: Int, now: Long, deadline: Long, exitedAt: Long): Boolean? = when {
-            read < 0 -> true
-            process.isAlive -> if (now > deadline) false else null
-            exitedAt != 0L && now - exitedAt > TimeUnit.MILLISECONDS.toNanos(EXIT_GRACE_MILLIS) -> true
-            else -> null
         }
 
         /** Reads what is available without blocking: the byte count, 0 when nothing is ready, -1 at end of output. */
@@ -192,9 +183,29 @@ internal class KoogShellTool(
         const val TAIL_BYTES = 16_000
         const val BUFFER_BYTES = 4096
         const val POLL_MILLIS = 20L
-        const val EXIT_GRACE_MILLIS = 200L
         val SECRET_PARTS = listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
 
         fun isSecretName(name: String): Boolean = name.uppercase().let { upper -> SECRET_PARTS.any { it in upper } }
     }
+}
+
+private const val EXIT_GRACE_MILLIS = 200L
+private const val AFTER_EXIT_LIMIT_MILLIS = 2_000L
+
+/**
+ * Whether draining a command's output is over: true at end of output or once the process exited and its pipe stayed
+ * quiet for a moment, false on timeout, null to keep reading. A detached child may hold the pipe and keep writing
+ * after the shell exited, so output after exit is collected for a bounded time only.
+ *
+ * @param isAlive whether the command process still runs.
+ * @param read bytes read by the last poll, 0 when nothing was ready, -1 at end of output.
+ * @param sinceExitNanos time since the process was first seen exited; meaningless while it is alive.
+ * @param isPastDeadline whether the command's time limit has passed.
+ */
+internal fun drainOutcome(isAlive: Boolean, read: Int, sinceExitNanos: Long, isPastDeadline: Boolean): Boolean? = when {
+    read < 0 -> true
+    isAlive -> if (isPastDeadline) false else null
+    sinceExitNanos > TimeUnit.MILLISECONDS.toNanos(AFTER_EXIT_LIMIT_MILLIS) -> true
+    read == 0 && sinceExitNanos > TimeUnit.MILLISECONDS.toNanos(EXIT_GRACE_MILLIS) -> true
+    else -> null
 }
