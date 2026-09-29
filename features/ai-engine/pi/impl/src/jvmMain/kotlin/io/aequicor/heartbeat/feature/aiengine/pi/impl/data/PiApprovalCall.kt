@@ -101,6 +101,7 @@ internal fun approvalCall(message: String?): PiApprovalCall? {
         null
     } ?: return null
     val tool = fields.string("toolName")?.takeIf { it.isNotBlank() } ?: return null
+    // Field names must match the request built in resources/pi/heartbeat-approval.ts.
     return PiApprovalCall(tool, fields.string("target").orEmpty(), fields.string("path"))
 }
 

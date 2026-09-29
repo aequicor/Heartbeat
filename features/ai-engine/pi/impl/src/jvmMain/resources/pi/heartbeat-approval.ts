@@ -17,7 +17,7 @@ const APPROVAL_TITLE = "heartbeat.tool-approval";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 const EDIT_TOOLS = new Set(["edit", "write"]);
 // Pi's path normalization replaces these spaces and rewrites `@`, `~`, `file:` and, on Windows, `/c/` shell paths.
-const UNICODE_SPACES = /[  -   　]/;
+const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
 
 function isRewrittenByPi(path: string): boolean {
