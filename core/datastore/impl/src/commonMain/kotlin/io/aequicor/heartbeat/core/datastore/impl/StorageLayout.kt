@@ -4,6 +4,7 @@ import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import okio.ByteString.Companion.encodeUtf8
 import okio.Path

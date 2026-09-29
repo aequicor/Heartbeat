@@ -16,7 +16,7 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.StringKey
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.StorageMaintenance
-import io.aequicor.heartbeat.core.datastore.impl.StorageRoot
+import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory

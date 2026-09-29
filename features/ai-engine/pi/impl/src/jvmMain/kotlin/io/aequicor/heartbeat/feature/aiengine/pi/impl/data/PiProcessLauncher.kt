@@ -37,6 +37,7 @@ internal class PiProcessLauncher(
     private val searchBridge: SearchBridge,
     private val catalog: PiCompatibleCatalog,
     private val toggles: FeatureToggles,
+    private val storage: PiStorage,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
 ) {
@@ -88,7 +89,7 @@ internal class PiProcessLauncher(
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
         val owner = stores.owner as? StorageOwner.Profile
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        val root = piProfileRoot(owner.id.value)
+        val root = storage.profileRoot(owner.id.value)
         val secret = secrets.read(SecretKey(source.secret.value))
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         // Per-process agent configuration; removed when the process exits.

@@ -90,6 +90,63 @@ afterEvaluate {
     }
 }
 
+// The MSI uninstaller removes the uninstalling user's app data (including bundled Pi data), see packaging/windows/main.wxs.
+// Compose always passes its own (empty on Windows) --resource-dir last and jpackage honours the last one, so after
+// Compose packages, the MSI is rebuilt from the createDistributable app image with packaging/windows as the resource dir.
+// macOS DMG has no uninstaller, so app data there is removed only by the user.
+val appImageOnlyOptions = setOf(
+    "--input", "--runtime-image", "--main-jar", "--main-class", "--java-options", "--arguments",
+    "--add-modules", "--icon", "--resource-dir",
+)
+tasks.withType<AbstractJPackageTask>().configureEach {
+    if (targetFormat == TargetFormat.Msi) {
+        val packagingDir = layout.projectDirectory.dir("packaging/windows").asFile
+        val buildTmp = layout.buildDirectory.dir("compose/tmp").get().asFile
+        val skippedOptions = appImageOnlyOptions.toSet()
+        val distributable = tasks.named<AbstractJPackageTask>(
+            if (name.contains("Release")) "createReleaseDistributable" else "createDistributable",
+        )
+        val appImageRoot = distributable.flatMap { it.destinationDir }
+        val appName = packageName
+        dependsOn(distributable)
+        inputs.dir(packagingDir).withPropertyName("windowsPackaging")
+        doLast {
+            val task = this as AbstractJPackageTask
+            fun quoted(file: File) = "\"" + file.absolutePath.replace("\\", "\\\\") + "\""
+            val args = buildTmp.resolve("${task.name}.args.txt").readLines().filter { it.isNotBlank() }
+            val patched = buildList {
+                var index = 0
+                while (index < args.size) {
+                    val option = args[index]
+                    val hasValue = index + 1 < args.size && !args[index + 1].startsWith("--")
+                    when {
+                        option in skippedOptions -> index += if (hasValue) 2 else 1
+                        else -> {
+                            add(option)
+                            index++
+                        }
+                    }
+                }
+                add("--app-image")
+                add(quoted(appImageRoot.get().asFile.resolve(appName.get())))
+                add("--resource-dir")
+                add(quoted(packagingDir))
+            }
+            val patchedFile = buildTmp.resolve("${task.name}.heartbeat.args.txt")
+            patchedFile.writeText(patched.joinToString(System.lineSeparator()))
+            task.destinationDir.get().asFile.listFiles { file -> file.extension == "msi" }?.forEach { it.delete() }
+            val jpackage = File(task.javaHome.get(), "bin/jpackage.exe")
+            val builder = ProcessBuilder(jpackage.absolutePath, "@" + patchedFile.absolutePath).redirectErrorStream(true)
+            val env = builder.environment()
+            val pathKey = env.keys.firstOrNull { it.equals("PATH", ignoreCase = true) } ?: "PATH"
+            env[pathKey] = task.wixToolsetDir.get().asFile.absolutePath + File.pathSeparator + env[pathKey].orEmpty()
+            val process = builder.start()
+            val output = process.inputStream.bufferedReader().readText()
+            check(process.waitFor() == 0) { "jpackage failed to build the Heartbeat MSI: $output" }
+        }
+    }
+}
+
 // Compose copies app resources without their executable bits. Repair the app image before installers consume it.
 // Keep the installation read-only at runtime: changing a bundled executable after installation is unnecessary.
 if (piTarget != null && piOs != "windows") {

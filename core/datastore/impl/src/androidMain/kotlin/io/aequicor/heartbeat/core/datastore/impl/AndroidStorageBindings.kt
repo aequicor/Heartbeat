@@ -6,6 +6,7 @@ import androidx.room.RoomDatabase
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.datastore.StorageRoot
 
 /** App-private internal storage (`Context.filesDir`), removed with the app. */
 @ContributesBinding(AppScope::class)
