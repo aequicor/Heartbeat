@@ -27,6 +27,9 @@ internal interface KoogTool {
     /** Human-readable subject of the call (path, command) shown in the approval request. */
     fun target(args: JsonObject): String = ""
 
+    /** Optional details under [target] in the approval request, e.g. the text a file edit inserts. */
+    fun details(args: JsonObject): String? = null
+
     /**
      * Executes the call; expected failures (bad input, missing file) are results with [KoogToolResult.isFailed],
      * never exceptions. [CancellationException][kotlinx.coroutines.CancellationException] propagates.
