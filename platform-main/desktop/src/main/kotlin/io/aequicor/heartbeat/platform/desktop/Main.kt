@@ -36,8 +36,9 @@ fun main() {
 /** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
 internal fun launchHeartbeat(isDevelopment: Boolean) {
     val classes = checkoutClasses()
-    // Launches from the checkout's compiled classes print every level; any jar, installed or not, logs as release.
-    Log.init(isDebug = isDevelopment || classes.getOrNull() != null)
+    // Launches from the checkout's compiled classes log from DEBUG up; any jar, installed or not, logs as release.
+    // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.
+    Log.init(isDebug = isDevelopment || classes.getOrNull() != null, isTrace = isTraceRequested())
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
@@ -81,6 +82,11 @@ private fun openSettingsOnShortcut(event: KeyEvent, root: HeartbeatRoot): Boolea
 }
 
 private const val SETTINGS_LINK = "heartbeat://settings"
+
+/** Whether deep tracing (`VERBOSE`) was requested through `heartbeat.trace` or `HEARTBEAT_TRACE`. */
+private fun isTraceRequested(): Boolean = System.getProperty("heartbeat.trace")?.toBooleanStrictOrNull()
+    ?: System.getenv("HEARTBEAT_TRACE")?.toBooleanStrictOrNull()
+    ?: false
 
 /**
  * Class directory this entry point was loaded from, or null when it runs from a jar. Only IDE and Gradle

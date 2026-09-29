@@ -265,7 +265,8 @@ private fun ComposerEditor(
     HbEditableText(
         value = value,
         onValueChange = {
-            log.d { "composer draft changed length=${it.length}" }
+            // One keystroke is visible through the store's DraftChanged intent; keep the raw stream at V.
+            log.v { "composer draft changed length=${it.length}" }
             onValueChange(it)
         },
         modifier = modifier.semantics { if (accessibleLabel.isNotBlank()) contentDescription = accessibleLabel },

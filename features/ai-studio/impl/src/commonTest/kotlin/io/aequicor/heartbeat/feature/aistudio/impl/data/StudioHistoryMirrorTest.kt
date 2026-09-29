@@ -38,6 +38,7 @@ class StudioHistoryMirrorTest {
         val follow = launch { mirror.follow("chat", history) }
         runCurrent()
         follow.cancel()
+        runCurrent()
 
         assertEquals(listOf("old-prompt", "old-answer", "new-prompt", "new-answer"), ids())
         history.items = listOf(message("new-prompt", 0), message("new-answer", 1, "final"))
@@ -69,6 +70,7 @@ class StudioHistoryMirrorTest {
         val follow = launch { mirror.follow("chat", history) }
         runCurrent()
         follow.cancel()
+        runCurrent()
 
         assertEquals(listOf("old", "b"), ids())
     }

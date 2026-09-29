@@ -45,7 +45,7 @@ internal object ConsoleEncodingProbe {
     @JvmStatic
     fun main(args: Array<String>) {
         check(Charset.defaultCharset() == Charset.forName("windows-1251"))
-        Log.init(isDebug = true)
+        Log.init(isDebug = true, isTrace = true)
         val log = Log.tag("Проверка")
         val message = "Привет, мир! Ёж 🦔"
         log.v { message }

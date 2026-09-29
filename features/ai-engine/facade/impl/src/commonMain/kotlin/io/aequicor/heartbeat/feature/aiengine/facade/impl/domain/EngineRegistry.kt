@@ -21,7 +21,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 
 /**
@@ -63,6 +65,9 @@ class EnabledEngines(val registry: EngineRegistry, toggles: EngineToggles, scope
         registry.all.filter { toggles.isEnabled(it.descriptor) }.mapTo(mutableSetOf()) { it.descriptor.id }
     }
 
+    @Volatile
+    private var isStateLoaded = false
+
     /** Enabled engine ids; empty until toggles are read. */
     val state: StateFlow<Set<EngineId>> = if (registry.all.isEmpty()) {
         MutableStateFlow(emptySet())
@@ -71,11 +76,17 @@ class EnabledEngines(val registry: EngineRegistry, toggles: EngineToggles, scope
             registry.all.map { registration ->
                 toggles.observe(registration.descriptor).map { on -> registration.descriptor.id.takeIf { on } }
             },
-        ) { ids -> ids.filterNotNull().toSet() }.stateIn(scope, SharingStarted.Eagerly, emptySet())
+        ) { ids -> ids.filterNotNull().toSet() }
+            .onEach { isStateLoaded = true }
+            .stateIn(scope, SharingStarted.Eagerly, emptySet())
     }
 
-    /** Enabled engine ids read from the toggles now; never the empty placeholder of an unread state. */
-    suspend fun current(): Set<EngineId> = read()
+    /**
+     * Enabled engine ids; never the empty placeholder of an unread state. Reads the eagerly collected [state]
+     * once it has emitted, so hot paths (session open, capability checks) do not re-read every toggle from
+     * storage on each call; before the first emission the toggles are read directly.
+     */
+    suspend fun current(): Set<EngineId> = if (isStateLoaded) state.value else read()
 }
 
 /** Toggle gate of engines: the global AI-engine flag combined with the engine's own flag. */

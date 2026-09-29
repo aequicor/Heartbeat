@@ -41,6 +41,18 @@ import kotlinx.coroutines.launch
 
 private val timelineLog = Log.tag("DS/SectionedTranscript")
 
+/** Logs the timeline size once per distinct pair of counts; streaming rewrites only the tail. */
+private class TimelineChangeLog {
+    private var counts = -1 to -1
+
+    fun log(messageCount: Int, itemCount: Int) {
+        val next = messageCount to itemCount
+        if (next == counts) return
+        counts = next
+        timelineLog.d { "timeline updated messages=${next.first} rows=${next.second}" }
+    }
+}
+
 /**
  * Chronological, sectioned chat with pinned headers and individually virtualized message chunks.
  * Prepare [timeline] outside composition. Streaming only replaces the tail; history retains stable keys.
@@ -88,12 +100,14 @@ public fun HbChatTranscript(
     val isReducedMotion = HbTheme.motion.isReducedMotion
     val latestItemCountHolder = rememberUpdatedState(displayedItemCount)
     val latestItemCount by latestItemCountHolder
+    // Streaming rewrites the tail on every revision; the log marks real growth, not each rewrite.
+    val timelineChangeLog = remember { TimelineChangeLog() }
 
     LaunchedEffect(state) {
         state.trackTimelineFollow(followStateHolder, followingScrollHolder, atLatestHolder, latestItemCountHolder)
     }
     LaunchedEffect(state, timeline.latestMessage, timeline.itemCount, contentPadding, showSectionHeaders) {
-        timelineLog.d { "timeline updated messages=${timeline.messageCount} rows=${timeline.itemCount}" }
+        timelineChangeLog.log(timeline.messageCount, timeline.itemCount)
         if (timeline.messageCount == 0) followState = ChatFollowState()
         if (timeline.itemCount > 0 && followState.shouldScrollOnUpdate(state.isScrollInProgress)) {
             isFollowingScroll = true

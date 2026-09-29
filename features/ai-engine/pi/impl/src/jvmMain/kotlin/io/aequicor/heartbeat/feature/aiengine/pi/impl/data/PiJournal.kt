@@ -226,7 +226,8 @@ internal class PiJournal : SessionHistory {
         val next = version.value + 1
         events += event(HistoryCheckpoint(token(next)))
         if (events.size > REPLAY_LIMIT) events.removeFirst()
-        log.d { "Pi history revision: $next" }
+        // Streaming appends a revision per chunk; one line per stride keeps the console readable.
+        if (next % REVISION_LOG_STRIDE == 0L) log.d { "Pi history revision: $next" }
         version.value = next
     }
 
@@ -240,6 +241,7 @@ internal class PiJournal : SessionHistory {
     private companion object {
         const val REPLAY_LIMIT = 512
         const val CURSOR_FIELDS = 3
+        const val REVISION_LOG_STRIDE = 100L
     }
 }
 

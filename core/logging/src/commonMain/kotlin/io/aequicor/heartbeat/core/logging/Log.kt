@@ -62,10 +62,17 @@ public class Log private constructor(private val tag: String) {
         /**
          * Configures output. Called once by the platform entry point before the DI graph is built;
          * calling it again replaces the previous configuration.
+         *
+         * Debug builds log from `DEBUG` up — the console stays readable while streaming; `isTrace` adds the
+         * `VERBOSE` level (state diffs, engine internals, lifecycle callbacks) for deep debugging.
          */
-        public fun init(isDebug: Boolean, sinks: List<LogSink> = emptyList()) {
+        public fun init(isDebug: Boolean, isTrace: Boolean = false, sinks: List<LogSink> = emptyList()) {
             Napier.takeLogarithm()
-            minLevel = if (isDebug) LogLevel.VERBOSE else LogLevel.INFO
+            minLevel = when {
+                isTrace -> LogLevel.VERBOSE
+                isDebug -> LogLevel.DEBUG
+                else -> LogLevel.INFO
+            }
             if (isDebug) Napier.base(platformDebugAntilog())
             sinks.forEach { Napier.base(SinkAntilog(it)) }
         }

@@ -61,16 +61,15 @@ class SessionCatalogService(
     }
 
     override suspend fun get(ref: SessionRef): EngineSession {
-        log.i { "open stored session engine=${ref.engine.value} source=${ref.source.value}" }
         val registration = registry.require(ref.engine)
         if (ref.engine !in enabled.current()) fail(EngineUnavailable)
         val source = registry.source(ref)
         val stored = if (source != null) {
             adapterCall(log, "get") { source.get(ref) }
+                // A real native session is opened; the indexed fallback only reads the index, which logs itself.
+                .also { log.i { "open stored session engine=${ref.engine.value} source=${ref.source.value}" } }
         } else {
-            val known = index.find(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound))
-            log.i { "open stored session from index engine=${ref.engine.value}" }
-            IndexedSession(known)
+            IndexedSession(index.find(ref) ?: fail(EngineFailure.Session(SessionFailureReason.NotFound)))
         }
         return openStored(registration, stored)
     }

@@ -6,6 +6,8 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.core.featuretoggles.ToggleSource
+import io.aequicor.heartbeat.core.featuretoggles.ToggleState
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -14,11 +16,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * [FeatureToggles]: a local override, otherwise the default. Resolved values are logged at `D`.
- * A storage failure never reaches feature code: the toggle reads as its default (`W`) and observation retries.
+ * [FeatureToggles]: a local override, otherwise the default. A resolved value is logged at `D` when it
+ * changes, not on every read — hot paths resolve toggles per call. A storage failure never reaches feature
+ * code: the toggle reads as its default (`W`) and observation retries.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -27,6 +32,8 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
     FeatureToggles {
 
     private val log = Log.tag(FT_LOG_TAG)
+    private val loggedStates = mutableMapOf<String, Pair<Any?, ToggleSource>>()
+    private val loggedStatesLock = Mutex()
 
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> {
         registry.verify(toggle)
@@ -39,7 +46,7 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
                 delay(OBSERVE_RETRY_DELAY)
                 true
             }
-            .onEach { log.d { "${toggle.key} = ${it.value} (${it.source})" } }
+            .onEach { logResolved(toggle, it) { key, value, source -> "$key = $value ($source)" } }
             .map { it.value }
             .distinctUntilChanged()
     }
@@ -54,8 +61,19 @@ internal class DataStoreFeatureToggles(private val registry: ToggleRegistry, pri
             log.w(e) { "${toggle.key}: overrides are unavailable, using the default" }
             toggle.stateOf(null)
         }
-        log.d { "get ${toggle.key} -> ${state.value} (${state.source})" }
+        logResolved(toggle, state) { key, value, source -> "get $key -> $value ($source)" }
         return state.value
+    }
+
+    /** Logs the resolution once per distinct value and source, so repeated reads stay silent. */
+    private suspend fun <T : Any> logResolved(
+        toggle: FeatureToggle<T>,
+        state: ToggleState<T>,
+        message: (String, T, ToggleSource) -> String,
+    ) {
+        val next = state.value to state.source
+        val isChanged = loggedStatesLock.withLock { loggedStates.put(toggle.key, next) != next }
+        if (isChanged) log.d { message(toggle.key, state.value, state.source) }
     }
 
     private companion object {

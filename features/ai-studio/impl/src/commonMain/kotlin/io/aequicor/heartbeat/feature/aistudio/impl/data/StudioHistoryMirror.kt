@@ -8,9 +8,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Replays native item revisions without persisting opaque page or watch cursors.
@@ -27,39 +37,107 @@ internal class StudioHistoryMirror(
 ) {
     private val log = Log.tag("StudioHistoryMirror")
 
+    private companion object {
+        /** Streamed revisions coalesce into one record write per window; the final flush never waits for it. */
+        val WRITE_COALESCE = 250.milliseconds
+    }
+
     suspend fun refresh(id: String, history: SessionHistory): HistoryCheckpoint = load(id, history).checkpoint
 
     suspend fun follow(id: String, history: SessionHistory) {
         while (currentCoroutineContext().isActive) {
             val snapshot = load(id, history)
-            val window = snapshot.window.toMutableSet()
-            val revisions = read(id).associate { it.info.id to it.info.revision }.toMutableMap()
-            var isInvalidated = false
-            history.watch(snapshot.checkpoint).takeWhile { event ->
-                isInvalidated = event is SessionEvent.HistoryInvalidated
-                return@takeWhile !isInvalidated
-            }.collect { event ->
-                when (event) {
-                    is SessionEvent.ItemUpserted -> if (event.item.info.revision >
-                        (revisions[event.item.info.id] ?: -1)
-                    ) {
-                        revisions[event.item.info.id] = event.item.info.revision
-                        window += event.item.info.id
-                        update(id) { copy(items = items.upsert(event.item, window)) }
-                    }
+            val session = StreamSession(id, history, snapshot, read(id))
+            try {
+                session.stream()
+            } finally {
+                // The stop (turn end, invalidation, cancellation) flushes what the last window did not.
+                withContext(NonCancellable) { session.flush() }
+            }
+            check(session.isInvalidated) { "History stream ended without invalidation" }
+        }
+    }
 
-                    is SessionEvent.ItemRemoved -> if (event.revision > (revisions[event.item] ?: -1)) {
-                        revisions[event.item] = event.revision
-                        window -= event.item
-                        update(id) { copy(items = items.filterNot { it.info.id == event.item }) }
-                    }
+    /**
+     * Coalescing mirror of one watch stream: streamed revisions accumulate in memory and reach the record
+     * in one write per [WRITE_COALESCE] window (plus a final flush), so a token burst does not rewrite
+     * the stored transcript on every revision.
+     */
+    private inner class StreamSession(
+        val id: String,
+        private val history: SessionHistory,
+        snapshot: Snapshot,
+        stored: List<SessionItem>,
+    ) {
+        private val checkpoint = snapshot.checkpoint
+        private val window = snapshot.window.toMutableSet()
+        private val revisions = stored.associate { it.info.id to it.info.revision }.toMutableMap()
+        private val upserts = LinkedHashMap<ItemId, SessionItem>()
+        private val removals = mutableSetOf<ItemId>()
+        private val lock = Mutex()
 
-                    is SessionEvent.HistoryInvalidated, is SessionEvent.PermissionRequested,
-                    is SessionEvent.TurnStarted, is SessionEvent.TurnFinished,
-                    -> Unit
+        var isInvalidated = false
+            private set
+
+        suspend fun stream() = coroutineScope {
+            val events = Channel<SessionEvent>(Channel.UNLIMITED)
+            launch { produce(events) }
+            // The timer, not the next event, drives the flush: a finished burst still reaches the record
+            // within one window, and virtual-time tests observe the transcript without waiting for wall clock.
+            launch {
+                while (currentCoroutineContext().isActive) {
+                    delay(WRITE_COALESCE)
+                    flush()
                 }
             }
-            check(isInvalidated) { "History stream ended without invalidation" }
+            for (event in events) accept(event)
+        }
+
+        private suspend fun produce(events: SendChannel<SessionEvent>) {
+            history.watch(checkpoint).takeWhile { event ->
+                isInvalidated = event is SessionEvent.HistoryInvalidated
+                return@takeWhile !isInvalidated
+            }.collect { events.send(it) }
+            events.close()
+        }
+
+        private fun apply(event: SessionEvent) {
+            when (event) {
+                is SessionEvent.ItemUpserted -> if (event.item.info.revision >
+                    (revisions[event.item.info.id] ?: -1)
+                ) {
+                    revisions[event.item.info.id] = event.item.info.revision
+                    window += event.item.info.id
+                    removals.remove(event.item.info.id)
+                    upserts[event.item.info.id] = event.item
+                }
+
+                is SessionEvent.ItemRemoved -> if (event.revision > (revisions[event.item] ?: -1)) {
+                    revisions[event.item] = event.revision
+                    window -= event.item
+                    upserts.remove(event.item)
+                    removals += event.item
+                }
+
+                is SessionEvent.HistoryInvalidated, is SessionEvent.PermissionRequested,
+                is SessionEvent.TurnStarted, is SessionEvent.TurnFinished,
+                -> Unit
+            }
+        }
+
+        /** Buffers one streamed revision under the session lock. */
+        private suspend fun accept(event: SessionEvent) = lock.withLock { apply(event) }
+
+        /** Applies the accumulated batch in a single record write under the session lock; clears both queues. */
+        suspend fun flush() = lock.withLock {
+            if (upserts.isEmpty() && removals.isEmpty()) return@withLock
+            update(id) {
+                var next = if (removals.isEmpty()) items else items.filterNot { it.info.id in removals }
+                upserts.values.forEach { item -> next = next.upsert(item, window) }
+                copy(items = next)
+            }
+            upserts.clear()
+            removals.clear()
         }
     }
 
