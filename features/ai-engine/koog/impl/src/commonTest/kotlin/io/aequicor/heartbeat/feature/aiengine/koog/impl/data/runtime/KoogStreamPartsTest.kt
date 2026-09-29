@@ -46,4 +46,28 @@ class KoogStreamPartsTest {
 
         assertEquals(listOf(ContentPart.Reasoning("a\n\nb")), parts.parts)
     }
+
+    @Test
+    fun `a complete reasoning frame replaces the streamed reasoning and its summary`() {
+        val parts = KoogStreamParts()
+        val complete = StreamFrame.ReasoningComplete(id = "r", content = listOf("a", "b"), summary = null, index = 0)
+
+        assertTrue(parts.append(StreamFrame.ReasoningDelta(text = "think", summary = null, index = 0)))
+        assertTrue(parts.append(complete))
+        assertEquals(listOf(ContentPart.Reasoning("a\n\nb")), parts.parts)
+
+        parts.append(StreamFrame.ReasoningDelta(text = null, summary = "draft", index = 0))
+        parts.append(complete.copy(summary = listOf("final")))
+        assertEquals(listOf(ContentPart.Reasoning("final")), parts.parts)
+    }
+
+    @Test
+    fun `frames without content are not updates and a missing index is block zero`() {
+        val parts = KoogStreamParts()
+
+        assertTrue(parts.append(StreamFrame.TextDelta("a", index = null)))
+        assertTrue(parts.append(StreamFrame.TextDelta("b", index = 0)))
+        assertFalse(parts.append(StreamFrame.End()))
+        assertEquals(listOf(ContentPart.Text("ab")), parts.parts)
+    }
 }

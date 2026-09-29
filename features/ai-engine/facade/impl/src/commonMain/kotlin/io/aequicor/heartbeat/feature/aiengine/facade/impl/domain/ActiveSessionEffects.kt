@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
@@ -110,14 +111,16 @@ class ActiveSessionEffects(private val native: ActiveSession, commands: Coroutin
      * Once the handoff scope ended (handle released or profile closed) the command is refused as a domain
      * failure: the cancellation of that foreign scope must not escape from a still-running effect.
      */
+    @OptIn(ExperimentalCoroutinesApi::class) // getCompletionExceptionOrNull: experimental only by annotation
     private suspend fun <T> handOff(operation: String, block: suspend () -> T): T {
         if (!handOffJob.isActive) fail(closedFailure(operation))
         val command = handOffs.async { logged(operation, block) }
-        // join throws only on our own cancellation (state left); a command the ended handoff scope did not let
-        // complete is translated (logged already recorded a native failure), anything else is rethrown by await.
+        // join throws only on our own cancellation (state left). Only a command cancelled by the ended handoff scope
+        // is translated; the command's own failure, even one coinciding with that end, is rethrown by await.
         command.join()
-        if (command.isCancelled && !handOffJob.isActive) {
-            log.w { "native $operation dropped, handoff scope ended" }
+        val cause = command.getCompletionExceptionOrNull()
+        if (cause is CancellationException && !handOffJob.isActive) {
+            log.w(cause) { "native $operation dropped, handoff scope ended" }
             fail(closedFailure(operation))
         }
         return command.await()

@@ -32,6 +32,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -387,7 +388,11 @@ internal class CodexSession(
     }
 
     private fun answerCancelled(id: JsonElement) {
-        log.i { "Codex tool call cancelled with its turn" }
+        if (!scope.coroutineScope.isActive) {
+            log.i { "Codex tool call dropped unanswered: session closed" }
+            return
+        }
+        log.i { "Codex tool call cancelled, answering Cancelled" }
         scope.coroutineScope.launch { respondQuietly(id, toolFailureResult("Cancelled")) }
     }
 

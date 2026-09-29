@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.lint.detekt
 
 import dev.detekt.api.Config
+import dev.detekt.test.TestConfig
 import dev.detekt.test.lint
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
@@ -21,6 +22,18 @@ class SwallowedErrorTest {
 
         val findings = rule.lint(code)
         assertEquals(5, findings.size, findings.joinToString(" | ") { it.entity.signature + ": " + it.message })
+    }
+
+    @Test
+    fun `accepts a log call without the throwable when the error reference is not required`() {
+        val relaxed = SwallowedError(TestConfig("isErrorReferenceRequired" to false))
+        val code = """
+            fun a() { try { load() } catch (e: IOException) { log.e { "failed" } } }
+            fun b() { try { load() } catch (_: IOException) { log.e { "failed" } } }
+        """.trimIndent()
+
+        assertEquals(0, relaxed.lint(code).size)
+        assertEquals(2, rule.lint(code).size)
     }
 
     @Test

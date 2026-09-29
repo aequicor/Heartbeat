@@ -153,6 +153,9 @@ internal class FakeNativeSession(
     val cancelled = mutableListOf<TurnId>()
     val decisions = mutableListOf<PermissionDecision>()
     var sendFailure: Exception? = null
+
+    /** Runs inside the native send before anything else, e.g. to end a scope while the command is in flight. */
+    var onSend: () -> Unit = {}
     var acceptOnSend = true
 
     /** Whether the published native turn carries the request id (adapters may not correlate). */
@@ -174,6 +177,7 @@ internal class FakeNativeSession(
             SendsPrompts.id to available(
                 object : SendsPrompts {
                     override suspend fun send(request: PromptRequest): TurnId {
+                        onSend()
                         sendFailure?.let { throw it }
                         sent += request
                         val id = TurnId("native-${sent.size}")
