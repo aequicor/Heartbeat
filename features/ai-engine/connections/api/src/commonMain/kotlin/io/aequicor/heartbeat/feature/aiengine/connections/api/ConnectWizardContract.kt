@@ -211,7 +211,7 @@ public sealed interface ConnectWizardEffect : MachineEffect {
 
     /**
      * Probes installation, connects temporarily, discovers models and always removes the temporary connection.
-     * A failure is reported as [ConnectionCheck.Failed] rather than thrown.
+     * The handler throws on failure; the machine turns the thrown failure into [ConnectionCheck.Failed].
      */
     public data class CheckConnection(
         val engine: EngineId,

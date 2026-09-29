@@ -80,7 +80,7 @@ public data class PromptRequest(
     val reasoningEffort: String? = null,
     /**
      * How the engine answers its own tool approvals during this turn; null preserves the engine's default.
-     * Send it only to engines that declare [AppliesTrustLevels]; others do not interpret it.
+     * Sessions that do not declare [AppliesTrustLevels] reject a non-null value before acceptance.
      */
     val trust: TrustLevel? = null,
 ) {
@@ -91,7 +91,7 @@ public data class PromptRequest(
     override fun toString(): String = "PromptRequest(id=$id, parts=${parts.size})"
 }
 
-/** How much the user trusts the agent with actions that have side effects. Read-only actions never ask. */
+/** How much the user trusts the agent with actions that have side effects. */
 @Serializable
 public enum class TrustLevel {
     /** Every action with side effects waits for an explicit user decision. */

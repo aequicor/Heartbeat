@@ -45,6 +45,7 @@ val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
 if (piTarget == null) {
     logger.warn("Pi runtime is not available for $piOsName/$piArchName; the desktop app is built without it")
 }
+val piResourcesDir = layout.buildDirectory.dir("generated/piResources")
 val preparePiRuntime = piTarget?.let { target ->
     tasks.register<PreparePiRuntime>("preparePiRuntime") {
         version.set(libs.versions.pi)
@@ -54,7 +55,7 @@ val preparePiRuntime = piTarget?.let { target ->
         offline.set(gradle.startParameter.isOffline)
         fallbackLicense.set(layout.projectDirectory.file("pi/LICENSE"))
         cacheDirectory.set(gradle.gradleUserHomeDir.resolve("caches/heartbeat/pi"))
-        outputDirectory.set(layout.buildDirectory.dir("generated/piResources"))
+        outputDirectory.set(piResourcesDir)
     }
 }
 
@@ -82,7 +83,7 @@ tasks.withType<ComposeHotRun>().configureEach {
     preparePiRuntime?.let { task ->
         dependsOn(task)
         // A configuration-time path: the Hot Reload argfile task resolves JVM arguments before tasks run.
-        val resourcesDir = layout.buildDirectory.dir("generated/piResources/common").get().asFile.absolutePath
+        val resourcesDir = piResourcesDir.get().dir("common").asFile.absolutePath
         systemProperty("compose.application.resources.dir", resourcesDir)
     }
 }

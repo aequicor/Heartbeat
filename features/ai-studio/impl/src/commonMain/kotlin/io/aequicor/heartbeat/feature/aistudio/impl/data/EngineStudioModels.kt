@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
@@ -37,6 +38,7 @@ internal fun EngineFacade.observeStudioModels(
                         label,
                         engine.descriptor.isLocalWorkspaceSupported,
                         isTrustSupported = AppliesTrustLevels.id in engine.descriptor.declaredFeatures,
+                        isModelSwitchSupported = SwitchesModels.id in engine.descriptor.declaredFeatures,
                     )
                 }
             }
@@ -53,6 +55,7 @@ internal fun studioModel(
     connectionName: String,
     isLocalProjectSupported: Boolean,
     isTrustSupported: Boolean = false,
+    isModelSwitchSupported: Boolean = false,
 ): StudioModel {
     val shortName = info?.title?.takeIf(String::isNotBlank) ?: target.model.value
     return StudioModel(
@@ -64,6 +67,7 @@ internal fun studioModel(
         reasoningEfforts = info?.reasoningEfforts.orEmpty(),
         defaultReasoningEffort = info?.defaultReasoningEffort,
         isTrustSupported = isTrustSupported,
+        isModelSwitchSupported = isModelSwitchSupported,
     )
 }
 

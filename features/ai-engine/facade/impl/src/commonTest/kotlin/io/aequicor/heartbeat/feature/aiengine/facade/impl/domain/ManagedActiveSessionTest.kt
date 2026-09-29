@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -92,6 +93,20 @@ class ManagedActiveSessionTest {
         native.finish()
         runCurrent()
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `a trust level is refused by a session that does not apply trust levels`() = runTest {
+        val native = FakeNativeSession()
+        val (session, _) = open(RouteFixture(this), native)
+
+        val failure = assertFailsWith<EngineException> {
+            session.sender().send(prompt("r1").copy(trust = TrustLevel.Full))
+        }
+
+        assertEquals(EngineFailure.Request(RequestFailureReason.Invalid), failure.failure)
+        assertTrue(native.sent.isEmpty())
+        assertIs<ActiveSessionState.Ready>(session.state.value)
     }
 
     @Test

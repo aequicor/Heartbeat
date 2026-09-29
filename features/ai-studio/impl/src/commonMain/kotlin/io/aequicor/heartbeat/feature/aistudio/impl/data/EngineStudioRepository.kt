@@ -301,12 +301,13 @@ internal class EngineStudioRepository(
                 }
                 val permissions = launch { active.state.collect { updatePermissions(id, it) } }
                 try {
-                    log.i { "Submitting prompt length=${prompt.length}" }
+                    val trust = settings.approval.trustFor(offeredModels.value, target)
+                    log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
                     val turn = submit(
                         active,
                         prompt,
                         efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
-                        settings.approval.toTrust().takeIf { offeredModels.value.isTrustSupported(target) },
+                        trust,
                     )
                     if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
@@ -657,6 +658,10 @@ private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
     is ActiveSessionState.Unavailable -> activeTurn
     is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
 }
+
+/** Trust level of a turn on [target]: only engines applying trust levels receive one. */
+internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =
+    toTrust().takeIf { offered.isTrustSupported(target) }
 
 private fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.Ask -> TrustLevel.Ask

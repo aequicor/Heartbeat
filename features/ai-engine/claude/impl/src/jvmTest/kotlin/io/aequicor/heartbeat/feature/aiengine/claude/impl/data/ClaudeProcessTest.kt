@@ -224,7 +224,6 @@ class ClaudeProcessTest {
             assertEquals(
                 listOf(
                     "WebSearch",
-                    "WebFetch",
                     "mcp__heartbeat_search__web_search",
                     "mcp__heartbeat_search__web_fetch",
                 ),

@@ -111,7 +111,7 @@ class ModelCatalogService(
         return snapshot(entry)
     }
 
-    /** Rediscovers an outdated entry once per binding and process; a failure keeps the old entry. */
+    /** Rediscovers an outdated entry once per binding for the profile session; a failure keeps the old entry. */
     private fun upgrade(engine: EngineId, binding: EngineBindingId) {
         val key = engine to binding
         if (key in upgrades.getAndUpdate { it + key }) return

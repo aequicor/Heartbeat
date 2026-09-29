@@ -42,7 +42,7 @@ enum class ApprovalUi { Ask, AutoEdits, AutoApprove }
 
 /**
  * A model offered by the composer. [connectionKey] names its engine connection: a running chat may switch only
- * between models sharing it; null for scripted demo models.
+ * between models sharing it; null for scripted demo models and engines that cannot switch a session's model.
  */
 @Immutable
 data class ModelUi(
@@ -82,7 +82,7 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     shortName,
     reasoningEfforts.toImmutableList(),
     defaultReasoningEffort,
-    studioModelTarget(id)?.let { "${it.engine}/${it.binding}" },
+    studioModelTarget(id)?.takeIf { isModelSwitchSupported }?.let { "${it.engine.value}/${it.binding.value}" },
     isTrustSupported,
 )
 

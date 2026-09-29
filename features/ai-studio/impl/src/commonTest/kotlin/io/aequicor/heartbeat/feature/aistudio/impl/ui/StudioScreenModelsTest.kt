@@ -106,6 +106,18 @@ class StudioScreenModelsTest {
     }
 
     @Test
+    fun `existing project chat also offers the models of its connection when the engine switches them`() {
+        val models = persistentListOf(
+            ModelUi("pi-a", "Pi A", isLocalProjectSupported = true, connectionKey = "pi/key"),
+            ModelUi("pi-b", "Pi B", isLocalProjectSupported = true, connectionKey = "pi/key"),
+            ModelUi("pi-c", "Pi C", isLocalProjectSupported = true, connectionKey = "pi/other"),
+            ModelUi("codex", "Codex", isLocalProjectSupported = true),
+        )
+        val restored = state.copy(models = models, sessions = persistentListOf(session.copy(modelId = "pi-a")))
+        assertEquals(listOf("pi-a", "pi-b"), restored.paneContent(restored.panes.first()).models.map { it.id })
+    }
+
+    @Test
     fun `pane content resolves the session project and the rename of its header only`() {
         val renaming = state.copy(sidebar = SidebarUi(renaming = RenameUi("s", "New", paneOrigin(0))))
         val content = renaming.paneContent(renaming.panes.first())

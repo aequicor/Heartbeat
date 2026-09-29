@@ -72,11 +72,33 @@ class StudioDataTest {
     }
 
     @Test
+    fun `allowing file edits lets the demo agent edit without pushing a branch`() = runTest {
+        val request = AgentRequest(
+            prompt = "Спланируй фичу",
+            history = emptyList(),
+            settings = DefaultRunSettings.copy(approval = ApprovalMode.AutoEdits),
+            project = null,
+        )
+        val events = ScriptedStudioAgent().run(request).toList()
+        assertTrue(events.any { it is AgentEvent.ToolFinished && it.diff != null })
+        assertTrue(events.none { it is AgentEvent.BranchCreated })
+    }
+
+    @Test
+    fun `turns ask for approval unless the user picks another mode`() {
+        assertEquals(ApprovalMode.Ask, DefaultRunSettings.approval)
+    }
+
+    @Test
     fun `asking for approval keeps the agent read only and low effort skips exploration`() = runTest {
         val request = AgentRequest(
             prompt = "Проведи ревью",
             history = emptyList(),
-            settings = DefaultRunSettings.copy(effort = ReasoningEffort.Low, modelId = StudioModels.last().id),
+            settings = DefaultRunSettings.copy(
+                effort = ReasoningEffort.Low,
+                modelId = StudioModels.last().id,
+                approval = ApprovalMode.Ask,
+            ),
             project = null,
         )
         val events = ScriptedStudioAgent().run(request).toList()

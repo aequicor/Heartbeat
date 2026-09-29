@@ -5,8 +5,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class EngineStudioModelOptionsTest {
@@ -31,5 +35,23 @@ class EngineStudioModelOptionsTest {
         assertEquals(listOf("high"), advertised.reasoningEfforts(target))
         assertEquals(emptyList(), advertised.reasoningEfforts(target.copy(binding = EngineBindingId("other"))))
         assertEquals(emptyList(), advertised.reasoningEfforts(target.copy(model = ModelId("other"))))
+    }
+
+    @Test
+    fun `approval modes reach only engines that apply trust levels`() {
+        val trusted = listOf(studioModel(target, null, "Engine", "Connection", true, isTrustSupported = true))
+        assertEquals(TrustLevel.Ask, ApprovalMode.Ask.trustFor(trusted, target))
+        assertEquals(TrustLevel.AutoEdits, ApprovalMode.AutoEdits.trustFor(trusted, target))
+        assertEquals(TrustLevel.Full, ApprovalMode.AutoApprove.trustFor(trusted, target))
+        val untrusted = listOf(studioModel(target, null, "Engine", "Connection", true))
+        assertNull(ApprovalMode.AutoApprove.trustFor(untrusted, target))
+        assertNull(ApprovalMode.AutoApprove.trustFor(trusted, target.copy(binding = EngineBindingId("other"))))
+    }
+
+    @Test
+    fun `only engines switching a session's model share a connection key`() {
+        val switching = studioModel(target, null, "Engine", "Connection", true, isModelSwitchSupported = true)
+        assertEquals("engine/connection", switching.toUi().connectionKey)
+        assertNull(studioModel(target, null, "Engine", "Connection", true).toUi().connectionKey)
     }
 }

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.logging.Log
 import java.io.IOException
 import java.io.UncheckedIOException
+import java.nio.file.DirectoryIteratorException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
@@ -54,6 +55,9 @@ internal class PiStorage(private val storageRoot: StorageRoot, private val legac
             log.w(e) { "Pi transcripts could not be listed" }
             null
         } catch (e: UncheckedIOException) {
+            log.w(e) { "Pi transcripts could not be listed" }
+            null
+        } catch (e: DirectoryIteratorException) {
             log.w(e) { "Pi transcripts could not be listed" }
             null
         }

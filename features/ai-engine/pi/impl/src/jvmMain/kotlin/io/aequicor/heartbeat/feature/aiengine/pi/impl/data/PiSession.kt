@@ -522,7 +522,7 @@ internal class PiSession(
 
     private suspend fun approval(id: String, message: String?) {
         val call = approvalCall(message)
-        if (call != null && isTrusted(call)) {
+        if (call != null && isTrusted(call) && canAnswerAlone()) {
             allow(id, call.tool)
         } else {
             val active = turn
@@ -547,7 +547,16 @@ internal class PiSession(
         }
     }
 
-    private fun isTrusted(call: PiApprovalCall): Boolean = turn != null && !isHandleClosed && trust.covers(call.tool)
+    /** Whether the trust of the running turn covers [call]; nothing is trusted while the turn is interrupted. */
+    private suspend fun isTrusted(call: PiApprovalCall): Boolean {
+        if (!canAnswerAlone()) return false
+        val level = trust
+        val workspace = connection?.workingDirectory
+        return withContext(dispatchers.io) { level.covers(call, workspace) }
+    }
+
+    private fun canAnswerAlone(): Boolean =
+        turn != null && !isHandleClosed && machine.state.value !is ActiveSessionState.Interrupting
 
     /** Answers an approval the turn's trust covers; Pi runs the tool as if the user allowed it. */
     private suspend fun allow(id: String, tool: String) {

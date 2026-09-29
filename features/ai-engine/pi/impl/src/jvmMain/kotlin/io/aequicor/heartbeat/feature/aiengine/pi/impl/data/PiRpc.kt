@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import java.io.IOException
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -31,6 +32,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal interface PiConnection {
     /** False once the process exited, the reader failed or [close] was called. */
     val isOpen: Boolean
+
+    /** Working directory of the process: the only place where trusted file edits are applied. */
+    val workingDirectory: Path?
 
     /** Sends a correlated command and returns its `data`; a timeout fails only this command. */
     suspend fun command(type: String, fields: JsonObject = JsonObject(emptyMap())): JsonObject
@@ -54,6 +58,7 @@ internal class PiRpc(
     private val event: suspend (JsonObject) -> Unit,
     private val failed: suspend (EngineFailure) -> Unit,
     private val commandTimeoutMillis: Long = COMMAND_TIMEOUT,
+    override val workingDirectory: Path? = null,
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()

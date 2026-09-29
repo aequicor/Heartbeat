@@ -24,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -97,16 +99,24 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         }
     }
 
-    /** Discovers models through a temporary connection that is removed whatever the outcome. */
+    /**
+     * Discovers models through a temporary connection that is removed whatever the outcome. The wizard may be left
+     * mid-check, so creating the connection is not cancellable: what was written is always known and removed.
+     */
     private suspend fun check(effect: ConnectWizardEffect.CheckConnection): Int {
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
-        val connection = connect(effect.engine, effect.method, effect.credential)
+        var created: NewConnection? = null
         try {
+            val connection = withContext(NonCancellable) {
+                connect(effect.engine, effect.method, effect.credential).also { created = it }
+            }
+            // A wizard left while connecting stops here; `finally` removes what was created.
+            currentCoroutineContext().ensureActive()
             val count = services.facade.models.refresh(effect.engine, connection.binding).models.size
             log.i { "connection check passed models=$count" }
             return count
         } finally {
-            withContext(NonCancellable) { rollback(connection) }
+            created?.let { withContext(NonCancellable) { rollback(it) } }
         }
     }
 

@@ -64,6 +64,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -335,6 +337,43 @@ class PiSessionTest {
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals("bash: ls -la", awaiting.requests.single().title)
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `edit trust asks before writes outside the workspace or into git metadata`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.AutoEdits)
+        val outside = Files.createTempDirectory("pi-outside").resolve("profile").toString()
+        fixture.connection.event(approval("ui-o1", target = outside, tool = "write"))
+        fixture.connection.event(approval("ui-o2", target = ".git/hooks/pre-commit", tool = "write"))
+        fixture.connection.event(approval("ui-o3", target = "~/.zshrc", tool = "edit"))
+        assertTrue(fixture.connection.sent.isEmpty())
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals(3, awaiting.requests.size)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `an explicit ask level leaves file edits to the user`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.Ask)
+        fixture.connection.event(approval("ui-a1", target = "notes.md", tool = "edit"))
+        assertTrue(fixture.connection.sent.isEmpty())
+        assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `workspace edits resolve links so a link cannot lead outside`() {
+        val workspace = Files.createTempDirectory("pi-links")
+        val outside = Files.createTempDirectory("pi-escape")
+        Files.createSymbolicLink(workspace.resolve("escape"), outside)
+        assertTrue(isWorkspaceEdit("src/Main.kt", workspace))
+        assertTrue(isWorkspaceEdit("@src/Main.kt", workspace))
+        assertTrue(isWorkspaceEdit(workspace.resolve("new.txt").toString(), workspace))
+        assertFalse(isWorkspaceEdit("escape/file.txt", workspace))
+        assertFalse(isWorkspaceEdit("../sibling.txt", workspace))
+        assertFalse(isWorkspaceEdit("", workspace))
     }
 
     @Test
@@ -640,6 +679,8 @@ class PiSessionTest {
     }
 }
 
+private val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
+
 private class FakeConnection : PiConnection {
     var event: suspend (JsonObject) -> Unit = {}
     var failed: suspend (EngineFailure) -> Unit = {}
@@ -654,6 +695,7 @@ private class FakeConnection : PiConnection {
     var switchFailure: EngineException? = null
     var sendFailure: EngineException? = null
     override var isOpen = true
+    override val workingDirectory: Path = TestWorkspace
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
         commands += type
         this.fields += fields

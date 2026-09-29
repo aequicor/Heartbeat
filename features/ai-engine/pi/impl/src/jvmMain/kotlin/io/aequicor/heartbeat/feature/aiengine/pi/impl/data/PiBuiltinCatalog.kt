@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -39,27 +40,28 @@ internal class PiBuiltinCatalog(
         models ?: probe(executable, runtimeRoot).also { if (it.isNotEmpty()) models = it }
     }
 
-    private suspend fun probe(executable: Path, runtimeRoot: Path): List<JsonObject> {
+    private suspend fun probe(executable: Path, runtimeRoot: Path): List<JsonObject> = withContext(dispatchers.io) {
         log.i { "Reading the bundled Pi model catalog" }
-        val agentDir = withContext(dispatchers.io) {
-            Files.createTempDirectory(Files.createDirectories(runtimeRoot), "pi-catalog-").also {
-                Files.writeString(it.resolve("models.json"), piCatalogProbeJson())
-            }
-        }
+        var agentDir: Path? = null
         var connection: PiRpc? = null
-        return try {
-            val builder = ProcessBuilder(probeCommand(executable)).directory(agentDir.toFile())
+        try {
+            val directory = Files.createTempDirectory(Files.createDirectories(runtimeRoot), "pi-catalog-")
+            agentDir = directory
+            Files.writeString(directory.resolve("models.json"), piCatalogProbeJson())
+            val builder = ProcessBuilder(probeCommand(executable)).directory(directory.toFile())
             val environment = builder.environment()
             environment.keys.retainAll(SAFE_PROBE_ENVIRONMENT)
-            environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
+            environment["PI_CODING_AGENT_DIR"] = directory.toString()
             environment["PI_OFFLINE"] = "1"
             environment["PI_SKIP_VERSION_CHECK"] = "1"
-            val process = withContext(dispatchers.io) { builder.start() }
-            process.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-            val rpc = PiRpc(process, profile.coroutineScope, dispatchers, {}, { failure ->
-                log.w(EngineException(failure)) { "Pi catalog probe failed" }
-            })
-            connection = rpc
+            // Not cancellable once started: the connection must exist so that `finally` stops the process.
+            val rpc = withContext(NonCancellable) {
+                val process = builder.start()
+                process.onExit().whenComplete { _, _ -> deleteTree(directory) }
+                PiRpc(process, profile.coroutineScope, dispatchers, {}, { failure ->
+                    log.w(EngineException(failure)) { "Pi catalog probe failed" }
+                }).also { connection = it }
+            }
             val catalog = (rpc.command("get_available_models")["models"] as? JsonArray).orEmpty()
                 .mapNotNull { it as? JsonObject }
             log.i { "Bundled Pi catalog read: ${catalog.size} models" }
@@ -72,9 +74,12 @@ internal class PiBuiltinCatalog(
         } catch (e: IOException) {
             log.w(e) { "Pi catalog probe could not start" }
             emptyList()
+        } catch (e: SecurityException) {
+            log.w(e) { "Pi catalog probe was denied" }
+            emptyList()
         } finally {
             // A started process removes its directory on exit; one that never started leaves only models.json.
-            connection?.close() ?: deleteTree(agentDir)
+            connection?.close() ?: agentDir?.let(::deleteTree)
         }
     }
 
@@ -87,6 +92,8 @@ internal class PiBuiltinCatalog(
             log.w(e) { "Pi catalog probe directory cleanup failed" }
         } catch (e: UncheckedIOException) {
             log.w(e) { "Pi catalog probe directory cleanup failed" }
+        } catch (e: SecurityException) {
+            log.w(e) { "Pi catalog probe directory cleanup was denied" }
         }
     }
 

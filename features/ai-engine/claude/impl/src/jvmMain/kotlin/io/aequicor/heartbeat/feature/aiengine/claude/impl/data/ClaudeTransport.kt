@@ -241,7 +241,10 @@ internal class ProcessClaudeTransport(
     }
 }
 
-/** The CLI's own `WebSearch` / `WebFetch` stay available next to the bridge tools; the model picks either. */
+/**
+ * The CLI's own `WebSearch` runs at the provider and stays available next to the bridge tools. Its `WebFetch`
+ * would fetch from this device without the bridge's public-host check, so pages are read only through the bridge.
+ */
 internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
     arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it == "--tools=" } + listOf(
         "--tools=$CLAUDE_SEARCH_TOOLS",
@@ -329,4 +332,4 @@ private val HOST_ENVIRONMENT = setOf(
 )
 
 private const val CLAUDE_SEARCH_TOOLS =
-    "WebSearch,WebFetch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"
+    "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"

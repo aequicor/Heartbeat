@@ -116,6 +116,17 @@ class ConnectWizardMachineTest {
         val passed = ConnectionCheck.Succeeded(3)
         spec.assertTransition(running, Internal.ConnectionChecked(passed), ChoosingMethod(koog, check = passed))
         spec.assertIgnored(ChoosingMethod(koog), Internal.ConnectionChecked(passed))
+        spec.assertIgnored(running, Internal.ConnectionChecked(ConnectionCheck.Running))
+        val rejected = ConnectionCheck.Failed(failure)
+        spec.assertTransition(running, Internal.ConnectionChecked(rejected), ChoosingMethod(koog, check = rejected))
+    }
+
+    @Test
+    fun `leaving the method step during a check returns to the engines`() {
+        val running = ChoosingMethod(koog, check = ConnectionCheck.Running)
+        val engines = listOf(ConnectWizardEffect.ObserveEngines)
+        spec.assertTransition(running, Public.Back, ChoosingEngine(), effects = engines)
+        spec.assertTransition(running, Public.Dismiss, ChoosingEngine(), effects = engines)
     }
 
     @Test

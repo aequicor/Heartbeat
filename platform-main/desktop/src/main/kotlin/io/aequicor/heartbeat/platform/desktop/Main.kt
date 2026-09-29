@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
 import io.aequicor.heartbeat.platform.shared.createAppRoot
+import java.net.URISyntaxException
+import java.nio.file.FileSystemNotFoundException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.FutureTask
@@ -33,9 +35,12 @@ fun main() {
 
 /** Shared desktop host; its entry point determines credential storage, never a runtime environment override. */
 internal fun launchHeartbeat(isDevelopment: Boolean) {
-    // Unpackaged launches (IDE main(), Gradle runs) print every level; installed apps keep release logging.
-    Log.init(isDebug = isDevelopment || !isPackagedApp)
-    attachLocalPiRuntime()
+    val classes = checkoutClasses()
+    // Launches from the checkout's compiled classes print every level; any jar, installed or not, logs as release.
+    Log.init(isDebug = isDevelopment || classes.getOrNull() != null)
+    val log = Log.tag("Desktop")
+    classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
+    classes.getOrNull()?.let(::attachLocalPiRuntime)
     val lifecycle = LifecycleRegistry()
     val root = runOnUiThread {
         createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
@@ -77,8 +82,24 @@ private fun openSettingsOnShortcut(event: KeyEvent, root: HeartbeatRoot): Boolea
 
 private const val SETTINGS_LINK = "heartbeat://settings"
 
-/** jpackage launchers of distributions set this property; its absence means a launch from the build output. */
-private val isPackagedApp = System.getProperty("jpackage.app-path") != null
+/**
+ * Class directory this entry point was loaded from, or null when it runs from a jar. Only IDE and Gradle
+ * launches of a checkout load classes from a directory; distributions and uber jars never do.
+ * Runs before logging is initialized, so a failure is returned for the caller to log.
+ */
+private fun checkoutClasses(): Result<Path?> = try {
+    Result.success(
+        object {}.javaClass.protectionDomain.codeSource?.location?.toURI()?.let(Path::of)?.takeIf(Files::isDirectory),
+    )
+} catch (e: URISyntaxException) {
+    Result.failure(e)
+} catch (e: IllegalArgumentException) {
+    Result.failure(e)
+} catch (e: SecurityException) {
+    Result.failure(e)
+} catch (e: FileSystemNotFoundException) {
+    Result.failure(e)
+}
 private val isMacHost = System.getProperty("os.name").orEmpty().startsWith("Mac", ignoreCase = true)
 
 private fun <T> runOnUiThread(block: () -> T): T {
@@ -89,22 +110,28 @@ private fun <T> runOnUiThread(block: () -> T): T {
 }
 
 private const val RESOURCES_DIR_PROPERTY = "compose.application.resources.dir"
+
+// Output of preparePiRuntime (platform-main/desktop/build.gradle.kts) relative to the checkout root.
 private const val LOCAL_PI_RESOURCES = "platform-main/desktop/build/generated/piResources/common"
 
 /**
- * Points a plain IDE `main()` launch at the Pi runtime prepared by the Gradle build of this checkout.
- * Gradle runs and distributions set the resources directory themselves and are left untouched.
+ * Points a plain IDE `main()` launch from [classes] at the Pi runtime prepared by the Gradle build of the same
+ * checkout: the search climbs from the classes to the checkout root and never leaves it. Gradle runs set the
+ * resources directory themselves and are left untouched.
  */
-private fun attachLocalPiRuntime() {
+private fun attachLocalPiRuntime(classes: Path) {
     val log = Log.tag("Desktop")
     if (System.getProperty(RESOURCES_DIR_PROPERTY) != null) return
-    val local = generateSequence(Path.of("").toAbsolutePath()) { it.parent }
-        .map { it.resolve(LOCAL_PI_RESOURCES) }
-        .firstOrNull { Files.isDirectory(it) }
-    if (local == null) {
+    val checkout = generateSequence(classes) { it.parent }.firstOrNull { Files.isRegularFile(it.resolve(SETTINGS)) }
+    val local = checkout?.resolve(LOCAL_PI_RESOURCES)
+    val executable = if (System.getProperty("os.name").orEmpty().startsWith("Windows")) "pi.exe" else "pi"
+    if (local == null || !Files.isRegularFile(local.resolve("pi").resolve(executable))) {
         log.w { "Local Pi runtime not found; build the project once so preparePiRuntime unpacks it" }
     } else {
         log.i { "Using local Pi runtime from the project build" }
+        log.d { "Local Pi runtime: $local" }
         System.setProperty(RESOURCES_DIR_PROPERTY, local.toString())
     }
 }
+
+private const val SETTINGS = "settings.gradle.kts"

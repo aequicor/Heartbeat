@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -108,6 +109,47 @@ class ConnectionEffectsTest {
         assertTrue(facade.bindingsState.value.isEmpty())
         assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
         assertFailsWith<IllegalStateException> { key.reveal { } }
+    }
+
+    @Test
+    fun `a failed connection check removes the temporary connection`() = runTest {
+        facade.discoverFailure = EngineFailure.Engine(EngineFailureReason.Unavailable)
+        val key = Secret("sk-test".toCharArray())
+        val credential = CredentialInput.ApiKey("Work", ApiKeyMethod.origin, key)
+        val error = assertFailsWith<EngineException> {
+            wizard.handle(ConnectWizardEffect.CheckConnection(KoogId, ApiKeyMethod, credential), wizardScope)
+        }
+        assertEquals(facade.discoverFailure, error.failure)
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        assertFailsWith<IllegalStateException> { key.reveal { } }
+    }
+
+    @Test
+    fun `leaving the wizard while a check connects still removes what it created`() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        facade.connectGate = gate
+        val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
+        val check = launch {
+            wizard.handle(ConnectWizardEffect.CheckConnection(KoogId, OllamaMethod, credential), wizardScope)
+        }
+        runCurrent()
+        check.cancel()
+        gate.complete(Unit)
+        check.join()
+        assertTrue(facade.bindingsState.value.isEmpty())
+        assertEquals(listOf(AuthSourceId("source-1")), sources.forgotten)
+        assertTrue(wizardScope.intents.isEmpty())
+    }
+
+    @Test
+    fun `choosing an engine probes each one and a failed probe keeps the list`() = runTest {
+        facade.refreshFailure = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
+        val observation = launch { wizard.handle(ConnectWizardEffect.ObserveEngines, wizardScope) }
+        runCurrent()
+        assertEquals(listOf("refresh"), facade.calls)
+        assertIs<ConnectWizardIntent.Internal.EnginesChanged>(wizardScope.intents.single())
+        observation.cancel()
     }
 
     @Test

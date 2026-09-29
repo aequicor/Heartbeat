@@ -95,7 +95,9 @@ public val ConnectWizardMachineSpec:
                     ConnectWizardEffect.CheckConnection(state.engine.descriptor.id, method, intent.credential)
                 }
             }
-            on<Internal.ConnectionChecked>(guard = { state.check == ConnectionCheck.Running }) {
+            on<Internal.ConnectionChecked>(
+                guard = { state.check == ConnectionCheck.Running && intent.result != ConnectionCheck.Running },
+            ) {
                 stay { state.copy(check = intent.result) }
             }
             on<Public.Connect>(guard = { state.isReadyFor(intent.method, intent.credential) }) {

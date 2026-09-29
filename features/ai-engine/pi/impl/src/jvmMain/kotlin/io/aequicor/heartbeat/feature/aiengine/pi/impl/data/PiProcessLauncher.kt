@@ -29,6 +29,7 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Comparator
 import java.util.HexFormat
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Inject
 internal class PiProcessLauncher(
@@ -43,13 +44,14 @@ internal class PiProcessLauncher(
     @ForScope(ProfileScope::class) private val stores: DataStores,
 ) {
     private val log = Log.tag("PiProcessLauncher")
+    private val isMissingResourcesReported = AtomicBoolean(false)
 
     fun executable(): Path? {
         val root = System.getProperty("compose.application.resources.dir")
         if (root == null) {
-            log.w {
-                "Bundled Pi resources are not attached: compose.application.resources.dir is unset. " +
-                    "Launch through Gradle (:platform-main:desktop:run) or an installed distribution."
+            // Asked on every availability check; the missing directory is reported once.
+            if (isMissingResourcesReported.compareAndSet(false, true)) {
+                log.w { "Bundled Pi resources are not attached: compose.application.resources.dir is unset" }
             }
             return null
         }
@@ -97,10 +99,10 @@ internal class PiProcessLauncher(
     }
 
     /** Pi's own catalog, or nothing when the executable or profile storage is unavailable. */
-    private suspend fun builtinCatalog(): List<JsonObject> {
-        val executable = executable()?.takeIf { Files.isRegularFile(it) } ?: return emptyList()
-        val owner = stores.owner as? StorageOwner.Profile ?: return emptyList()
-        return builtin.models(executable, storage.profileRoot(owner.id.value).resolve("runtime"))
+    private suspend fun builtinCatalog(): List<JsonObject> = withContext(dispatchers.io) {
+        val executable = executable()?.takeIf { Files.isRegularFile(it) } ?: return@withContext emptyList()
+        val owner = stores.owner as? StorageOwner.Profile ?: return@withContext emptyList()
+        builtin.models(executable, storage.profileRoot(owner.id.value).resolve("runtime"))
     }
 
     private suspend fun launch(
@@ -145,7 +147,7 @@ internal class PiProcessLauncher(
             val started = builder.start()
             process = started
             started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-            val rpc = PiRpc(started, profile.coroutineScope, dispatchers, event, failed)
+            val rpc = PiRpc(started, profile.coroutineScope, dispatchers, event, failed, workingDirectory = workingDir)
             rpc.closeWith(profile.onClose(rpc::close))
             rpc
         } catch (e: CancellationException) {

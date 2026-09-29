@@ -13,6 +13,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.InvalidPathException
+import java.nio.file.LinkOption
+import java.nio.file.Path
 
 /** A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name and the command or path. */
 internal data class PiApprovalCall(val tool: String, val target: String)
@@ -23,16 +28,51 @@ private val PiApprovalDeny = PermissionOptionId("deny")
 
 // Pi's built-in file mutation tools; commands and extension tools are never file edits.
 private val EditTools = setOf("edit", "write")
+private const val GIT_DIRECTORY = ".git"
 private const val APPROVAL_TARGET_LIMIT = 4_000
 private const val HEX_RADIX = 16
 private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
 
-/** Whether this level answers the approval of [tool] without the user. */
-internal fun TrustLevel.covers(tool: String): Boolean = when (this) {
+/**
+ * Whether this level answers the approval of [call] without the user. A file edit counts only inside [workspace],
+ * the working directory of the process. Blocking IO: resolves symbolic links of the target.
+ */
+internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean = when (this) {
     TrustLevel.Ask -> false
-    TrustLevel.AutoEdits -> tool in EditTools
+    TrustLevel.AutoEdits -> call.tool in EditTools && workspace != null && isWorkspaceEdit(call.target, workspace)
     TrustLevel.Full -> true
+}
+
+/**
+ * Whether Pi writes [target] inside [workspace] and outside its `.git` directory, whose hooks and config run
+ * commands. Pi drops a leading `@` and expands `~`; a home-relative path is never a workspace edit.
+ */
+internal fun isWorkspaceEdit(target: String, workspace: Path): Boolean {
+    val path = target.removePrefix("@")
+    if (path.isBlank() || path.startsWith("~")) return false
+    return try {
+        val root = workspace.toRealPath()
+        val real = realPath(root.resolve(path).normalize())
+        real.startsWith(root) && root.relativize(real).none { it.toString().equals(GIT_DIRECTORY, ignoreCase = true) }
+    } catch (e: IOException) {
+        // A dangling link or an unreadable parent: the user decides instead.
+        log.w(e) { "Pi edit target could not be resolved; asking the user" }
+        false
+    } catch (e: InvalidPathException) {
+        log.w(e) { "Pi edit target is not a valid path; asking the user" }
+        false
+    } catch (e: SecurityException) {
+        log.w(e) { "Pi edit target could not be inspected; asking the user" }
+        false
+    }
+}
+
+/** Real path of [path]: its nearest existing ancestor with links resolved, followed by the missing names. */
+private fun realPath(path: Path): Path {
+    var existing = path
+    while (!Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) existing = existing.parent ?: return path
+    return existing.toRealPath().resolve(existing.relativize(path)).normalize()
 }
 
 /** Parses the approval message; null when it is malformed, and the request stays blocked. */
