@@ -80,7 +80,10 @@ internal class SearchPreferences(
                 secrets.bind(usage, null)
                 secrets.remove(identifier)
             } else {
-                secrets.write(identifier, key)
+                // A pasted key often carries surrounding whitespace, which the service rejects as a bad key forever.
+                val normalized = key.reveal { chars -> chars.trimmed() }
+                if (normalized.isEmpty()) throw SearchException(SearchFailure.InvalidInput)
+                Secret(normalized).use { trimmed -> secrets.write(identifier, trimmed) }
                 secrets.bind(usage, identifier)
             }
         }
@@ -140,6 +143,13 @@ internal class SearchConfigurationImpl(private val preferences: SearchOptions, p
             SearchOperation.Contents -> querit.fetch("https://www.querit.ai/")
         }
     }
+}
+
+/** Copies without leading and trailing whitespace; no String of the secret value is created. */
+private fun CharArray.trimmed(): CharArray {
+    val first = indexOfFirst { !it.isWhitespace() }
+    if (first == -1) return CharArray(0)
+    return copyOfRange(first, indexOfLast { !it.isWhitespace() } + 1)
 }
 
 internal fun validHost(host: String): String {

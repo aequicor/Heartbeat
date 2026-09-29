@@ -83,7 +83,9 @@ internal class QueritApi(private val client: HttpClient, private val preferences
         val result = credential.use { secret ->
             secret.reveal { chars ->
                 // The HTTP request retains the bearer value only for this call; no credential is persisted in a URL.
-                chars.concatToString()
+                // Trimmed for keys saved before save-time normalization:
+                // surrounding whitespace breaks the header for good.
+                chars.concatToString().trim()
             }.let { key ->
                 networkResult {
                     noRedirects.post("$host/v1/$endpoint") {
