@@ -30,9 +30,17 @@ class Log private constructor(private val tag: String) {
 
         fun tag(tag: String): Log = Log(tag)
 
-        /** Call once from platform-main before building the DI graph. */
-        fun init(isDebug: Boolean, extra: List<Antilog> = emptyList()) {
-            minLevel = if (isDebug) LogLevel.VERBOSE else LogLevel.INFO
+        /** Call once from platform-main before building the DI graph.
+         *
+         *  Debug builds log from DEBUG up so the console stays readable while streaming; `isTrace` adds
+         *  VERBOSE (state diffs, engine internals, lifecycle callbacks) for deep debugging — on desktop it is
+         *  enabled with the `heartbeat.trace` system property or `HEARTBEAT_TRACE`. */
+        fun init(isDebug: Boolean, isTrace: Boolean = false, extra: List<Antilog> = emptyList()) {
+            minLevel = when {
+                isTrace -> LogLevel.VERBOSE
+                isDebug -> LogLevel.DEBUG
+                else -> LogLevel.INFO
+            }
             if (isDebug) Napier.base(DebugAntilog())   // Logcat / NSLog / stdout
             extra.forEach(Napier::base)                 // file / crash reporter in release
         }
