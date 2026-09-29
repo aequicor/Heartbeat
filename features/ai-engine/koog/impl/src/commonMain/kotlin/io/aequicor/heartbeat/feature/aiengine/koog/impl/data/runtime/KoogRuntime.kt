@@ -42,6 +42,7 @@ internal val KoogSessionSource = SessionSource(
     "Koog",
 )
 
+@Suppress("LongParameterList") // A runtime owns separate storage, cache, search and workspace sources.
 internal class KoogRuntime(
     override val identity: RuntimeIdentity,
     private val access: KoogAccess,
@@ -49,6 +50,7 @@ internal class KoogRuntime(
     private val scope: CoroutineScope,
     private val cache: KoogSessionCache,
     private val search: SearchEngine,
+    private val workspaces: KoogWorkspaces,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -137,7 +139,7 @@ internal class KoogRuntime(
         snapshot.history.coverage = record.coverage
         snapshot.update(record.summary)
         cache.pin(record.summary.ref)
-        return KoogNativeSession(record, identity, access, records, scope, snapshot, search).also {
+        return KoogNativeSession(record, identity, access, records, scope, snapshot, search, workspaces).also {
             it.onIdle = ::release
             sessions[record.summary.ref] = it
         }

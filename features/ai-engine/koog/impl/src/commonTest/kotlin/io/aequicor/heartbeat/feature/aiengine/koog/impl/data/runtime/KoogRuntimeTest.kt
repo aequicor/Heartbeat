@@ -55,6 +55,20 @@ class KoogRuntimeTest {
     }
 
     @Test
+    fun unknownToolCallIsReportedToTheModelAsFailure() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-1", "rm_rf", "{}", 0))
+        f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        f.executor.complete("Answer")
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val result = session.features.require(SessionHistory).page().items.filterIsInstance<SessionItem.ToolResult>()
+        assertIs<EngineFailure>(result.single().failure)
+    }
+
+    @Test
     fun searchToolsAreNotSentWhenToggleIsOffOrModelLacksTools() = runTest {
         val f = KoogTestFixture(this)
         f.isSearchEnabled = false

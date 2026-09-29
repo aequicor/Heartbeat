@@ -26,8 +26,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -40,6 +46,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
@@ -61,6 +68,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -70,7 +78,7 @@ import kotlin.uuid.Uuid
  * Without leases, a running turn or an operation holding its lock it reports [onIdle] so the runtime can forget it;
  * main dispatcher only.
  */
-@Suppress("LongParameterList") // A session owns separate runtime, history, snapshot, and search dependencies.
+@Suppress("LongParameterList") // A session owns separate runtime, history, snapshot, search and workspace sources.
 internal class KoogNativeSession(
     initial: KoogRecord,
     private val identity: RuntimeIdentity,
@@ -79,6 +87,7 @@ internal class KoogNativeSession(
     private val scope: CoroutineScope,
     private val snapshot: KoogSessionSnapshot,
     private val search: SearchEngine,
+    private val workspaces: KoogWorkspaces,
 ) {
     /** Set by the owning runtime before the first lease is issued. */
     var onIdle: (KoogNativeSession) -> Unit = {}
@@ -90,6 +99,13 @@ internal class KoogNativeSession(
     private var isClosed = false
     private val handles = mutableListOf<MutableStateFlow<ActiveSessionState>>()
     private var current: ActiveSessionState = ActiveSessionState.Ready(initial.lastTurn)
+
+    // The running turn with the permission ids resolved so far, and its pending approval; main dispatcher only.
+    private var active: Turn? = null
+    private var approval: PendingApproval? = null
+
+    // Tools the user allowed for the rest of this native session.
+    private val allowedTools = mutableSetOf<String>()
 
     val route: ExecutionRoute = requireNotNull(initial.summary.lastRoute)
     val ref: SessionRef = initial.summary.ref
@@ -129,6 +145,13 @@ internal class KoogNativeSession(
                         interrupt(turn)
                     }
                 },
+                RequestsPermissions to object : RequestsPermissions {
+                    override suspend fun respond(decision: PermissionDecision) =
+                        withContext(scope.coroutineContext.minusKey(Job)) {
+                            checkLease(state)
+                            answer(decision)
+                        }
+                },
                 SessionHistory to object : SessionHistory {
                     override suspend fun page(request: HistoryPageRequest): HistoryPage =
                         withContext(scope.coroutineContext.minusKey(Job)) {
@@ -147,6 +170,11 @@ internal class KoogNativeSession(
                 log.i { "Releasing session lease" }
                 handles.remove(state)
                 state.value = ActiveSessionState.Closed
+                if (handles.isEmpty() && approval != null) {
+                    // Nobody is left to answer; the turn would wait forever and keep the session alive.
+                    log.i { "Last lease closed while a tool awaits approval; cancelling the turn" }
+                    job?.cancel()
+                }
                 releaseIfIdle()
             }
         }
@@ -196,6 +224,7 @@ internal class KoogNativeSession(
         record = record.copy(items = history.items + user, lastTurn = turn)
         history.append { SessionEvent.TurnStarted(it, turn) }
         history.append { SessionEvent.ItemUpserted(it, user) }
+        active = turn
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, model.value, effort)
@@ -212,11 +241,14 @@ internal class KoogNativeSession(
     ) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
+            val workspace = route.workspace?.takeIf { access.codingToolsEnabled() }?.let { workspaces.open(it) }
+            val tools = turnTools(client, provider, model, workspace)
             val hasAttachments = record.items.hasResourceInputs()
-            log.i { "Koog turn effort=${effort ?: "default"}" }
-            val textModel = provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments)
-            generateWithEffort(turn, client, provider, textModel, tools, effort)
+            log.i { "Koog turn effort=${effort ?: "default"} tools=${tools.descriptors.size}" }
+            val textModel = provider.textModel(model, tools = !tools.isEmpty(), attachments = hasAttachments)
+            val rounds = if (workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
+            val tooling = Tooling(tools, workspace?.instructions, rounds)
+            generateWithEffort(turn, client, provider, textModel, tooling, effort)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -248,11 +280,28 @@ internal class KoogNativeSession(
     private val toolSupport = mutableMapOf<String, Boolean>()
 
     /**
-     * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
-     * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
+     * Tools of this turn: search tools while their toggle is on, coding tools of the session's project on Desktop.
+     * Tools are sent only when the model accepts them.
      */
-    private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
-        if (!access.searchToolsEnabled()) return false
+    private suspend fun turnTools(
+        client: KoogClient,
+        provider: KoogProvider,
+        model: String,
+        workspace: KoogWorkspace?,
+    ): KoogToolbox {
+        val offered = buildList {
+            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search))
+            workspace?.let { addAll(it.tools) }
+        }
+        if (offered.isEmpty() || !acceptsTools(client, provider, model)) return KoogToolbox(emptyList())
+        return KoogToolbox(offered)
+    }
+
+    /**
+     * Cloud chat models accept tools; a local Ollama model must declare the Tools capability, otherwise the plain
+     * chat keeps working without tools.
+     */
+    private suspend fun acceptsTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
         if (provider != KoogProvider.Ollama) return true
         toolSupport[model]?.let { return it }
         return try {
@@ -261,7 +310,7 @@ internal class KoogNativeSession(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e.sanitized()) { "Model capabilities unavailable; search tools disabled for this turn" }
+            log.w(e.sanitized()) { "Model capabilities unavailable; tools disabled for this turn" }
             false
         }
     }
@@ -276,7 +325,7 @@ internal class KoogNativeSession(
         client: KoogClient,
         provider: KoogProvider,
         model: LLModel,
-        tools: List<ToolDescriptor>,
+        tools: Tooling,
         effort: String?,
     ) {
         val produced = history.items.size
@@ -292,30 +341,26 @@ internal class KoogNativeSession(
         }
     }
 
-    private suspend fun generate(
-        turn: Turn,
-        client: KoogClient,
-        model: LLModel,
-        tools: List<ToolDescriptor>,
-        params: LLMParams,
-    ) {
+    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: Tooling, params: LLMParams) {
         log.i { "Starting provider stream" }
-        var input = initialPrompt(model.provider, params)
-        repeat(MAX_TOOL_ROUNDS) { _ ->
-            val round = streamRound(turn, client, model, input, tools)
+        var input = initialPrompt(model.provider, params, tools.instructions)
+        repeat(tools.maxRounds) { _ ->
+            val round = streamRound(turn, client, model, input, tools.box.descriptors)
             if (round.calls.isEmpty()) return
-            val results = round.calls.map { call -> recordSearchCall(turn, call) }
+            val results = round.calls.map { call -> runToolCall(turn, tools.box, call) }
             input = continuePrompt(input, round.text, results)
         }
-        log.w { "Search tool round limit reached ($MAX_TOOL_ROUNDS)" }
+        log.w { "Tool round limit reached (${tools.maxRounds})" }
         fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
     }
 
-    private fun initialPrompt(provider: ai.koog.prompt.llm.LLMProvider, params: LLMParams): Prompt = prompt(
-        "heartbeat",
-        params,
-    ) {
+    private fun initialPrompt(
+        provider: ai.koog.prompt.llm.LLMProvider,
+        params: LLMParams,
+        instructions: String?,
+    ): Prompt = prompt("heartbeat", params) {
         val koogProvider = KoogProvider.entries.first { it.llmProvider == provider }
+        instructions?.let { system(it) }
         if (record.items.hasSourceMaterial()) system(KOOG_RESOURCE_BOUNDARY)
         val calls = record.items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
         record.items.forEach { item ->
@@ -352,7 +397,7 @@ internal class KoogNativeSession(
         model: LLModel,
         input: Prompt,
         tools: List<ToolDescriptor>,
-    ): SearchRound {
+    ): ToolRound {
         val info = ItemInfo(
             ItemId(Uuid.random().toString()),
             history.items.size.toLong(),
@@ -391,17 +436,44 @@ internal class KoogNativeSession(
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return SearchRound(content.text, calls)
+        return ToolRound(content.text, calls)
     }
 
-    private suspend fun recordSearchCall(turn: Turn, call: StreamFrame.ToolCallComplete): HandledSearchCall {
+    private suspend fun runToolCall(
+        turn: Turn,
+        tools: KoogToolbox,
+        call: StreamFrame.ToolCallComplete,
+    ): HandledToolCall {
         val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
         val id = ToolCallId(call.id?.takeIf { it.isNotBlank() } ?: Uuid.random().toString())
-        val started = SessionItem.ToolCall(info, id, call.name, call.content, ToolCallStatus.Running)
+        val tool = tools[call.name]
+        val args = arguments(call)
+        val isApprovalNeeded = tool != null && args != null && tool.isMutating
+        val started = SessionItem.ToolCall(
+            info,
+            id,
+            call.name,
+            call.content,
+            if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
+        )
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val result = executeKoogSearch(search, call)
+        val result = when {
+            tool == null -> {
+                log.w { "Model called an unknown tool ${call.name}" }
+                KoogToolResult("Unknown tool: ${call.name}", true)
+            }
+
+            args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
+
+            isApprovalNeeded -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
+
+            else -> {
+                log.i { "Running tool ${call.name}" }
+                tool.run(args)
+            }
+        }
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
-        history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 1), status = status)) }
+        history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }
         val output = SessionItem.ToolResult(
             ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
             id,
@@ -409,10 +481,81 @@ internal class KoogNativeSession(
             if (result.isFailed) EngineFailure.Unknown() else null,
         )
         history.append { SessionEvent.ItemUpserted(it, output) }
-        return HandledSearchCall(id.value, call.name, call.content, result)
+        return HandledToolCall(id.value, call.name, call.content, result)
     }
 
-    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledSearchCall>): Prompt = prompt(
+    private suspend fun run(tool: KoogTool, args: JsonObject, pending: SessionItem.ToolCall): KoogToolResult {
+        val running = pending.copy(info = pending.info.copy(revision = 1), status = ToolCallStatus.Running)
+        history.append { SessionEvent.ItemUpserted(it, running) }
+        log.i { "Running approved tool ${tool.descriptor.name}" }
+        return tool.run(args)
+    }
+
+    private fun arguments(call: StreamFrame.ToolCallComplete): JsonObject? = try {
+        call.contentJson
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "Malformed tool arguments for ${call.name}" }
+        null
+    }
+
+    /**
+     * Whether a mutating call may run: automatically in auto-approve mode or for a tool the user allowed for this
+     * session, otherwise after the user's decision. A target too long to show in full is refused, since approving a
+     * partly shown command is not consent. Turn cancellation cancels the wait.
+     *
+     * @return `null` when the call may run, otherwise the refusal reason reported to the model.
+     */
+    private suspend fun approve(turn: Turn, tool: KoogTool, args: JsonObject): String? {
+        val name = tool.descriptor.name
+        if (access.autoApprove() || name in allowedTools) {
+            log.i { "Tool $name approved automatically" }
+            return null
+        }
+        val target = tool.target(args).ifBlank { name }
+        if (target.length > APPROVAL_TARGET_LIMIT) {
+            log.w { "Tool $name target is too long to show for approval; refusing it" }
+            return "Refused: the call is longer than $APPROVAL_TARGET_LIMIT characters and cannot be shown for approval"
+        }
+        val request = PermissionRequest(
+            PermissionRequestId(Uuid.random().toString()),
+            turn.id,
+            target,
+            listOf(
+                PermissionOption(AllowOnce, "Разрешить"),
+                PermissionOption(AllowForSession, "Разрешить до конца сессии"),
+                PermissionOption(Deny, "Запретить"),
+            ),
+            description = tool.details(args),
+        )
+        val pending = PendingApproval(request, CompletableDeferred())
+        approval = pending
+        val running = active ?: turn
+        publish(ActiveSessionState.AwaitingUserAction(running, listOf(request)))
+        log.i { "Tool $name awaits user approval" }
+        val option = try {
+            pending.answer.await()
+        } finally {
+            approval = null
+        }
+        val resolved = running.copy(resolvedPermissions = running.resolvedPermissions + request.id)
+        active = resolved
+        if (current is ActiveSessionState.AwaitingUserAction) publish(ActiveSessionState.Running(resolved))
+        if (option == AllowForSession) allowedTools += name
+        log.i { "Tool $name ${if (option == Deny) "denied" else "allowed"} by user" }
+        return if (option == Deny) "Denied by the user" else null
+    }
+
+    private fun answer(decision: PermissionDecision) {
+        val pending = approval
+        if (pending == null || !pending.request.accepts(decision) || pending.answer.isCompleted) {
+            fail(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        pending.answer.complete(decision.option)
+    }
+
+    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledToolCall>): Prompt = prompt(
         "heartbeat",
         input.params,
     ) {
@@ -427,7 +570,9 @@ internal class KoogNativeSession(
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {
         log.i { "Finishing accepted turn" }
-        val finished = turn.copy(outcome = outcome)
+        // The running turn carries the permissions resolved during it.
+        val finished = (active ?: turn).copy(outcome = outcome)
+        active = null
         if (outcome != TurnOutcome.Completed) {
             history.coverage = HistoryCoverage.Partial
         }
@@ -468,10 +613,13 @@ internal class KoogNativeSession(
 
     private fun stop(turn: TurnId): Job? {
         checkOpen()
-        val running = current as? ActiveSessionState.Running
-            ?: fail(EngineFailure.Session(SessionFailureReason.Changed))
-        if (running.turn.id != turn) fail(EngineFailure.Session(SessionFailureReason.Changed))
-        publish(ActiveSessionState.Interrupting(running.turn))
+        val running = when (val state = current) {
+            is ActiveSessionState.Running -> state.turn
+            is ActiveSessionState.AwaitingUserAction -> state.turn
+            else -> fail(EngineFailure.Session(SessionFailureReason.Changed))
+        }
+        if (running.id != turn) fail(EngineFailure.Session(SessionFailureReason.Changed))
+        publish(ActiveSessionState.Interrupting(running))
         return job?.also { it.cancel() }
     }
 
@@ -510,19 +658,29 @@ internal class KoogNativeSession(
     }
 }
 
-/** Upper bound of search tool rounds in one turn. */
+/** Longest approval target shown in full; longer mutating calls are refused. */
+internal const val APPROVAL_TARGET_LIMIT = 4000
+
+internal val AllowOnce = PermissionOptionId("allow")
+internal val AllowForSession = PermissionOptionId("allow_session")
+internal val Deny = PermissionOptionId("deny")
+
+private data class PendingApproval(val request: PermissionRequest, val answer: CompletableDeferred<PermissionOptionId>)
+
+/** Tools of one turn and the system instructions of its coding workspace, if any. */
+private data class Tooling(val box: KoogToolbox, val instructions: String?, val maxRounds: Int)
+
+/** Upper bound of tool rounds in a chat turn with search tools only. */
 internal const val MAX_TOOL_ROUNDS = 8
+
+/** Upper bound of tool rounds in a coding turn; coding tasks read and edit many files. */
+internal const val MAX_CODING_TOOL_ROUNDS = 64
 
 private typealias Lease = MutableStateFlow<ActiveSessionState>
 
-private data class SearchRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
+private data class ToolRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
 
-private data class HandledSearchCall(
-    val id: String,
-    val name: String,
-    val arguments: String,
-    val result: KoogSearchResult,
-)
+private data class HandledToolCall(val id: String, val name: String, val arguments: String, val result: KoogToolResult)
 
 private fun unknownOutcome(request: PromptRequest) =
     EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))

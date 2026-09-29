@@ -32,6 +32,26 @@ public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
+ * Coding sessions on Desktop: a session opened on a local project gets file tools (read, list, glob, grep, write,
+ * edit) and a shell command tool confined to the project directory. Mobile platforms keep the plain chat.
+ */
+public val KoogCodingTools: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.koog.coding_tools",
+    "Koog: кодинг-сессии с проектом (Desktop)",
+    default = false,
+)
+
+/**
+ * Approval mode of Koog coding tools. On, file writes and commands run without asking; off, each one waits for the
+ * user's decision (allow once, allow the tool for the rest of the session, or deny).
+ */
+public val KoogAutoApprove: FeatureToggle.Flag = FeatureToggle.Flag(
+    "ai.koog.auto_approve",
+    "Koog: автоподтверждение изменений файлов и команд",
+    default = true,
+)
+
+/**
  * Supported routes. Fixed origins prevent forwarding managed credentials to an arbitrary server; for
  * [isOriginEditable] routes [origin] is only the suggested default and the source scope names the user's server.
  */

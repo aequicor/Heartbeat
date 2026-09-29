@@ -22,6 +22,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
  * limited to 16 MiB encoded per resource. The selected provider/model must support the requested modality.
  * Local paths, opaque resource ids, PDF URLs, Ollama image URLs/PDFs and reasoning input are rejected before
  * acceptance. Text document contents remain user source material and cannot supply system instructions.
+ *
+ * On Desktop, a session opened on a local workspace with [KoogCodingTools] on is a coding session: the model gets
+ * file tools and a shell command tool confined to the project directory. Writes and commands run automatically
+ * while [KoogAutoApprove] is on, otherwise each waits for a `session.permissions` decision (allow once, allow the
+ * tool for the session, deny). Mobile platforms keep the plain chat.
  */
 public interface KoogEngineAdapter :
     EngineFactory,
