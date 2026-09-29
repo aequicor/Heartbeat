@@ -136,7 +136,7 @@ internal class PiProcessLauncher(
         val command = piCommand(executable, provider.id, sessionDir, extensions, tools, isProject = workspace != null)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
-        environment.keys.retainAll(SAFE_ENVIRONMENT)
+        retainPiEnvironment(environment)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         var process: Process? = null
@@ -202,14 +202,28 @@ internal class PiProcessLauncher(
             log.w(e) { "Pi runtime directory cleanup was denied" }
         }
     }
-
-    private companion object {
-        val SAFE_ENVIRONMENT = setOf(
-            "PATH", "Path", "SystemRoot", "SYSTEMROOT", "WINDIR", "COMSPEC", "ComSpec",
-            "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "PATHEXT",
-        )
-    }
 }
+
+/**
+ * Leaves only the host variables an isolated Pi process needs: what a shell runs on, plus where the user's
+ * software and configuration live. Credentials of other engines, endpoint overrides and unrelated host state
+ * are dropped; names are matched case-insensitively because Windows spells them differently per process.
+ *
+ * The home and program locations are part of the contract, not a convenience: without them a host tool cannot
+ * find the installation the user already has and creates a private one inside the working directory. On Windows
+ * `python` resolves to the Python install manager, which without `LOCALAPPDATA` downloads a whole interpreter
+ * into the workspace instead of running the system one.
+ */
+internal fun retainPiEnvironment(environment: MutableMap<String, String>) {
+    environment.keys.retainAll { it.uppercase() in PI_HOST_ENVIRONMENT }
+}
+
+private val PI_HOST_ENVIRONMENT = setOf(
+    "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS", "PROCESSOR_ARCHITECTURE",
+    "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL",
+    "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "USER", "LOGNAME", "USERNAME",
+    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
+)
 
 internal fun fingerprint(value: String): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
