@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
-import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -310,10 +309,14 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
     }
 
-    /** Seeds the history with the native [turns]; null when the native response did not carry them. */
+    /**
+     * Seeds the history with the native [turns]; null when the native response did not carry them.
+     * [isNew] marks a thread just created by `thread/start`, which has no earlier native history. A resumed
+     * thread is stored only after its first turn, so resumed empty [turns] mean the history was not loaded.
+     */
     fun load(turns: List<JsonElement>?, isNew: Boolean) {
-        history.coverage = if (isNew || turns != null) HistoryCoverage.Complete else HistoryCoverage.Partial
-        log.d { "Loading native thread history turns=${turns?.size ?: "unknown"} coverage=${history.coverage}" }
+        history.seeded(isComplete = isNew || !turns.isNullOrEmpty())
+        log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
         for (value in turns.orEmpty()) {
             val turn = value as? JsonObject ?: protocolFailure()
             val id = TurnId(turn.text("id") ?: protocolFailure())

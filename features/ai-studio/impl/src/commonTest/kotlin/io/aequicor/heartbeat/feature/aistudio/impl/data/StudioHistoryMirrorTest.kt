@@ -44,6 +44,33 @@ class StudioHistoryMirrorTest {
         mirror.refresh("chat", history)
         assertEquals(listOf("old-prompt", "old-answer", "new-prompt", "new-answer"), ids())
         assertEquals("final", text(record.items.last()))
+        val shown = record.items.toStudioMessages(record.updatedAt, isRunning = false).map { it.id }
+        assertEquals(listOf("old-prompt", "old-answer", "new-prompt", "new-answer"), shown)
+    }
+
+    @Test
+    fun `repeated refresh of a trimmed partial window keeps the transcript stable`() = runTest {
+        val stored = listOf("o", "t0", "t1", "t2")
+        record = record.copy(items = stored.mapIndexed { index, id -> message(id, index.toLong()) })
+        val history = FakeHistory(listOf(message("t1", 2), message("t2", 3), message("t3", 4)), HistoryCoverage.Partial)
+
+        mirror.refresh("chat", history)
+        mirror.refresh("chat", history)
+
+        assertEquals(listOf("o", "t0", "t1", "t2", "t3"), ids())
+    }
+
+    @Test
+    fun `removed window item leaves the earlier stored items in place`() = runTest {
+        record = record.copy(items = listOf(message("old", 0)))
+        val history = FakeHistory(listOf(message("a", 0), message("b", 1)), HistoryCoverage.Unknown)
+        history.events = listOf(SessionEvent.ItemRemoved(HistoryCheckpoint("next"), ItemId("a"), revision = 1))
+
+        val follow = launch { mirror.follow("chat", history) }
+        runCurrent()
+        follow.cancel()
+
+        assertEquals(listOf("old", "b"), ids())
     }
 
     @Test

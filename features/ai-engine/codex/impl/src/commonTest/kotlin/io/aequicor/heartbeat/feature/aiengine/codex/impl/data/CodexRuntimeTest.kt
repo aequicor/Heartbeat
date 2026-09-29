@@ -304,6 +304,15 @@ class CodexRuntimeTest {
     }
 
     @Test
+    fun `resumed thread with empty native turns reports partial history`() = runTest {
+        val fixture = Fixture(this)
+        fixture.resumedTurns = JsonArray(emptyList())
+        val session = fixture.runtime.attach(fixture.storedRef(), ResumeSessionRequest(fixture.target))
+        assertEquals(HistoryCoverage.Partial, session.feature(SessionHistory).page().coverage)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `new thread covers the whole history`() = runTest {
         val fixture = Fixture(this)
         assertEquals(HistoryCoverage.Complete, fixture.open().feature(SessionHistory).page().coverage)

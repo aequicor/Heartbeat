@@ -16,9 +16,10 @@ import kotlinx.coroutines.isActive
  * Replays native item revisions without persisting opaque page or watch cursors.
  *
  * A stored transcript is [earlier items][keepEarlier] followed by the engine's window ordered by position.
- * The window replaces what it covers; when the engine reports incomplete coverage, stored items preceding it
- * are kept, since they are missing from the engine rather than removed. They stay first because a new
- * journal generation restarts item positions from zero.
+ * The window replaces what it covers; when the engine's coverage is not [HistoryCoverage.Complete] (Partial or
+ * Unknown), stored items preceding it are kept, since they are missing from the engine rather than removed.
+ * They stay first because a new journal generation restarts item positions from zero, so the stored order is
+ * the display order and is never re-sorted by position.
  */
 internal class StudioHistoryMirror(
     private val read: suspend (String) -> List<SessionItem>,
@@ -89,7 +90,7 @@ internal class StudioHistoryMirror(
 }
 
 /** Stored items before the first one the engine [window] still holds; all of them when it holds none. */
-internal fun keepEarlier(stored: List<SessionItem>, window: List<SessionItem>): List<SessionItem> {
+private fun keepEarlier(stored: List<SessionItem>, window: List<SessionItem>): List<SessionItem> {
     val ids = window.mapTo(mutableSetOf()) { it.info.id }
     return stored.takeWhile { it.info.id !in ids }
 }
