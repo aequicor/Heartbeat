@@ -6,6 +6,7 @@ import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.logging.Log
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.Comparator
@@ -51,6 +52,8 @@ internal class PiStorage(private val storageRoot: StorageRoot, private val legac
                 Files.newDirectoryStream(parent).use { if (!it.iterator().hasNext()) Files.delete(parent) }
             }
         } catch (e: IOException) {
+            log.w(e) { "Legacy Pi data was not fully removed" }
+        } catch (e: UncheckedIOException) {
             log.w(e) { "Legacy Pi data was not fully removed" }
         }
     }
