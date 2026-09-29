@@ -29,9 +29,18 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
 
-/** Bounded journal; slow consumers receive invalidation rather than a silently truncated stream. Main confined. */
+/**
+ * Bounded journal; slow consumers receive invalidation rather than a silently truncated stream. Main confined.
+ * Items are never dropped, so once seeded from the whole native thread the pages cover it as loaded plus the
+ * notifications observed since.
+ */
 internal class CodexHistory : SessionHistory {
     private val log = Log.tag("CodexHistory")
+
+    /** Complete once the thread is new or was loaded with its native turns; Partial while they are unknown. */
+    var coverage: HistoryCoverage = HistoryCoverage.Partial
+        private set
+
     private val generation = Uuid.random().toString()
     private var sequence = 0L
     private val items = linkedMapOf<ItemId, SessionItem>()
@@ -43,6 +52,11 @@ internal class CodexHistory : SessionHistory {
     private var isInvalid = false
     private val cursors = linkedMapOf<String, Int>()
     private fun checkpoint() = HistoryCheckpoint("$generation:$sequence")
+
+    /** Records whether the seeded items hold the whole native thread. */
+    fun seeded(isComplete: Boolean) {
+        coverage = if (isComplete) HistoryCoverage.Complete else HistoryCoverage.Partial
+    }
 
     override suspend fun page(request: HistoryPageRequest): HistoryPage {
         log.d { "Codex history page" }
@@ -66,7 +80,7 @@ internal class CodexHistory : SessionHistory {
             older,
             null,
             checkpoint(),
-            HistoryCoverage.Partial,
+            coverage,
         )
     }
 

@@ -309,8 +309,15 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
     }
 
-    fun load(turns: List<JsonElement>) {
-        for (value in turns) {
+    /**
+     * Seeds the history with the native [turns]; null when the native response did not carry them.
+     * [isNew] marks a thread just created by `thread/start`, which has no earlier native history. A resumed
+     * thread is stored only after its first turn, so resumed empty [turns] mean the history was not loaded.
+     */
+    fun load(turns: List<JsonElement>?, isNew: Boolean) {
+        history.seeded(isComplete = isNew || !turns.isNullOrEmpty())
+        log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
+        for (value in turns.orEmpty()) {
             val turn = value as? JsonObject ?: protocolFailure()
             val id = TurnId(turn.text("id") ?: protocolFailure())
             (turn["items"] as? JsonArray).orEmpty().forEach {

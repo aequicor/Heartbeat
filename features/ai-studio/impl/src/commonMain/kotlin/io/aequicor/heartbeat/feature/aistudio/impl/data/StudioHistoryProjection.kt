@@ -14,10 +14,12 @@ import kotlin.time.Instant
  * Projects one native turn into one answer, preserving the engine's item/part order. Tool results update
  * the corresponding invocation in place. Unsupported protocol items never become invented reasoning.
  * Native ItemInfo has no timestamp: [time] is retained only for ordering compatibility, never displayed.
+ * Items are projected in stored order: [StudioHistoryMirror] keeps earlier generations first, whose positions
+ * overlap the engine window's.
  */
 internal fun List<SessionItem>.toStudioMessages(time: Instant, isRunning: Boolean): List<StudioMessage> {
     val projection = NativeHistoryProjection(time)
-    sortedBy { it.info.position }.forEach(projection::append)
+    forEach(projection::append)
     return projection.finish(isRunning)
 }
 
