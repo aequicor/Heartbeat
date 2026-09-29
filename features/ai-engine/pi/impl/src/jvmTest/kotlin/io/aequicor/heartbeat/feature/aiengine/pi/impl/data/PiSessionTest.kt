@@ -29,6 +29,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
@@ -41,6 +43,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -178,9 +182,16 @@ class PiSessionTest {
     fun `resumed session starts pi on the stored transcript`() = runTest {
         val ref = SessionRef(PiEngineId, PiSessionSource, "native")
         val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
-        assertEquals(listOf("switch_session", "set_model", "get_state"), fixture.connection.commands)
+        assertEquals(listOf("switch_session", "get_messages", "set_model", "get_state"), fixture.connection.commands)
         assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
+        val history = assertIs<FeatureAccess.Available<SessionHistory>>(
+            fixture.session.features.resolve(SessionHistory),
+        ).feature.page(HistoryPageRequest())
+        assertEquals(
+            listOf(MessageRole.User, MessageRole.Assistant),
+            history.items.map { assertIs<SessionItem.Message>(it).role },
+        )
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         fixture.session.shutdown()
     }
@@ -738,6 +749,11 @@ private class FakeConnection : PiConnection {
             "get_state" -> state()
 
             "switch_session" -> switchFailure?.let { throw it } ?: JsonObject(emptyMap())
+
+            "get_messages" -> Json.parseToJsonElement(
+                """{"messages":[{"role":"user","content":"Stored"},
+                {"role":"assistant","content":[{"type":"text","text":"Reply"}]}]}""",
+            ).jsonObject
 
             "prompt" -> promptAck.await()
 

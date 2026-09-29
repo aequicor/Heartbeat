@@ -49,6 +49,30 @@ internal class PiJournal : SessionHistory {
         }
     }
 
+    /**
+     * Seeds the empty journal of a resumed session with the stored native [messages] (`get_messages`),
+     * so observers see the conversation Pi continues instead of an empty history. A stored tool call
+     * without a result never finished: its process is gone, so it is reported as cancelled.
+     */
+    fun restore(messages: JsonArray) = synchronized(lock) {
+        check(items.isEmpty()) { "Pi history is already populated" }
+        val stored = messages.mapNotNull { it as? JsonObject }
+        val results = stored.filter { it.string("role") == "toolResult" }
+            .associate { it.string("toolCallId") to (it.string("isError") == "true") }
+        stored.forEach { message ->
+            publish(PiMessages.message(message, info(items.size, null)))
+            PiMessages.tools(message).forEach { tool ->
+                val status = when (results[tool.string("id")]) {
+                    null -> ToolCallStatus.Cancelled
+                    true -> ToolCallStatus.Failed
+                    false -> ToolCallStatus.Succeeded
+                }
+                publish(toolCall(tool, null, status))
+            }
+        }
+        log.i { "Pi history restored: ${items.size} items" }
+    }
+
     fun started(turn: Turn) = synchronized(lock) {
         log.d { "Pi turn started in history" }
         append { SessionEvent.TurnStarted(it, turn) }
@@ -148,20 +172,18 @@ internal class PiJournal : SessionHistory {
         val message = record["message"] as? JsonObject ?: return
         val metadata = items.getOrNull(index)?.info?.let { it.copy(revision = it.revision + 1) } ?: info(index, turn)
         publish(PiMessages.message(message, metadata))
-        PiMessages.tools(message).forEach { tool ->
-            publish(
-                SessionItem.ToolCall(
-                    info(items.size, turn),
-                    ToolCallId(requireNotNull(tool.string("id"))),
-                    tool.string("name").orEmpty(),
-                    tool["arguments"]?.toString().orEmpty(),
-                    ToolCallStatus.Pending,
-                ),
-            )
-        }
+        PiMessages.tools(message).forEach { tool -> publish(toolCall(tool, turn, ToolCallStatus.Pending)) }
         currentMessage = null
         blocks.clear()
     }
+
+    private fun toolCall(tool: JsonObject, turn: TurnId?, status: ToolCallStatus) = SessionItem.ToolCall(
+        info(items.size, turn),
+        ToolCallId(requireNotNull(tool.string("id"))),
+        tool.string("name").orEmpty(),
+        tool["arguments"]?.toString().orEmpty(),
+        status,
+    )
 
     private fun updateTool(record: JsonObject) {
         val call = record.string("toolCallId") ?: return
