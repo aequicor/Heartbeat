@@ -110,6 +110,17 @@ class ManagedActiveSessionTest {
     }
 
     @Test
+    fun `a trust level reaches a session that applies trust levels`() = runTest {
+        val native = FakeNativeSession(appliesTrust = true)
+        val (session, _) = open(RouteFixture(this), native)
+
+        session.sender().send(prompt("r1").copy(trust = TrustLevel.AutoEdits))
+        runCurrent()
+
+        assertEquals(TrustLevel.AutoEdits, native.sent.single().trust)
+    }
+
+    @Test
     fun `rejected submission fails send and reconciliation restores a ready handle`() = runTest {
         val native = FakeNativeSession()
         val (session, _) = open(RouteFixture(this), native)

@@ -522,8 +522,9 @@ internal class PiSession(
 
     private suspend fun approval(id: String, message: String?) {
         val call = approvalCall(message)
-        if (call != null && isTrusted(call) && canAnswerAlone()) {
-            allow(id, call.tool)
+        val level = trust
+        if (call != null && isTrusted(call, level) && canAnswerAlone()) {
+            allow(id, call.tool, level)
         } else {
             val active = turn
             await(id, if (call != null && active != null) approvalRequest(id, active.id, call) else null, null)
@@ -548,9 +549,8 @@ internal class PiSession(
     }
 
     /** Whether the trust of the running turn covers [call]; nothing is trusted while the turn is interrupted. */
-    private suspend fun isTrusted(call: PiApprovalCall): Boolean {
+    private suspend fun isTrusted(call: PiApprovalCall, level: TrustLevel): Boolean {
         if (!canAnswerAlone()) return false
-        val level = trust
         val workspace = connection?.workingDirectory
         return withContext(dispatchers.io) { level.covers(call, workspace) }
     }
@@ -559,7 +559,7 @@ internal class PiSession(
         turn != null && !isHandleClosed && machine.state.value !is ActiveSessionState.Interrupting
 
     /** Answers an approval the turn's trust covers; Pi runs the tool as if the user allowed it. */
-    private suspend fun allow(id: String, tool: String) {
+    private suspend fun allow(id: String, tool: String, level: TrustLevel) {
         try {
             rpc().send(
                 JsonObject(
@@ -570,7 +570,7 @@ internal class PiSession(
                     ),
                 ),
             )
-            log.i { "Pi tool call allowed by trust level $trust: $tool" }
+            log.i { "Pi tool call allowed by trust level $level: $tool" }
         } catch (e: EngineException) {
             log.w(e) { "Pi trusted approval was not delivered" }
             if (turn != null) failed(e.failure)

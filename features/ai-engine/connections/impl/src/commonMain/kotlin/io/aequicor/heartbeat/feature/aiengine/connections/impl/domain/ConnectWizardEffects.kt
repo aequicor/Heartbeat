@@ -101,14 +101,16 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
 
     /**
      * Discovers models through a temporary connection that is removed whatever the outcome. The wizard may be left
-     * mid-check, so creating the connection is not cancellable: what was written is always known and removed.
+     * mid-check, so writing the connection is not cancellable: what was written is always known and removed.
+     * The installation probe before it stays cancellable.
      */
     private suspend fun check(effect: ConnectWizardEffect.CheckConnection): Int {
         log.i { "check connection engine=${effect.engine.value} method=${effect.method.id.value}" }
+        requireAvailable(effect.engine)
         var created: NewConnection? = null
         try {
             val connection = withContext(NonCancellable) {
-                connect(effect.engine, effect.method, effect.credential).also { created = it }
+                write(effect.engine, effect.method, effect.credential).also { created = it }
             }
             // A wizard left while connecting stops here; `finally` removes what was created.
             currentCoroutineContext().ensureActive()
@@ -126,8 +128,16 @@ class ConnectWizardEffects(private val services: EngineServices, private val sel
         credential: CredentialInput,
     ): NewConnection {
         log.i { "connect engine=${engine.value} method=${method.id.value}" }
-        val availability = services.facade.engines.refresh(engine).availability
-        availability.failure()?.let { throw EngineException(it) }
+        requireAvailable(engine)
+        return write(engine, method, credential)
+    }
+
+    private suspend fun requireAvailable(engine: EngineId) {
+        services.facade.engines.refresh(engine).availability.failure()?.let { throw EngineException(it) }
+    }
+
+    /** Creates the source and binds it; the source is forgotten again if binding fails. */
+    private suspend fun write(engine: EngineId, method: ConnectionMethod, credential: CredentialInput): NewConnection {
         val key = (credential as? CredentialInput.ApiKey)?.key
         val source = services.sources.create(
             method,

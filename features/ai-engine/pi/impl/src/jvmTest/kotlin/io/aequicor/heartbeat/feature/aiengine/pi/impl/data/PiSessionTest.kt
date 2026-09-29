@@ -343,13 +343,28 @@ class PiSessionTest {
     fun `edit trust asks before writes outside the workspace or into git metadata`() = runTest {
         val fixture = fixture()
         fixture.runningTurn(TrustLevel.AutoEdits)
-        val outside = Files.createTempDirectory("pi-outside").resolve("profile").toString()
+        val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
         fixture.connection.event(approval("ui-o1", target = outside, tool = "write"))
         fixture.connection.event(approval("ui-o2", target = ".git/hooks/pre-commit", tool = "write"))
         fixture.connection.event(approval("ui-o3", target = "~/.zshrc", tool = "edit"))
+        fixture.connection.event(approval("ui-o4", target = "file://$outside", tool = "write"))
         assertTrue(fixture.connection.sent.isEmpty())
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
-        assertEquals(3, awaiting.requests.size)
+        assertEquals(4, awaiting.requests.size)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `nothing is trusted while the turn is being interrupted`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn(TrustLevel.Full)
+        val cancel = async { fixture.session.cancel(turn) }
+        runCurrent()
+        assertIs<ActiveSessionState.Interrupting>(fixture.session.state.value)
+        fixture.connection.event(approval("ui-i1", tool = "write"))
+        assertTrue(fixture.connection.sent.none { it == answer("ui-i1", "confirmed", true) })
+        fixture.connection.abortAck.complete(JsonObject(emptyMap()))
+        cancel.await()
         fixture.session.shutdown()
     }
 
@@ -364,16 +379,27 @@ class PiSessionTest {
     }
 
     @Test
-    fun `workspace edits resolve links so a link cannot lead outside`() {
-        val workspace = Files.createTempDirectory("pi-links")
-        val outside = Files.createTempDirectory("pi-escape")
-        Files.createSymbolicLink(workspace.resolve("escape"), outside)
+    fun `workspace edits are normalized as pi resolves tool paths`() {
+        val workspace = TestWorkspace
         assertTrue(isWorkspaceEdit("src/Main.kt", workspace))
         assertTrue(isWorkspaceEdit("@src/Main.kt", workspace))
         assertTrue(isWorkspaceEdit(workspace.resolve("new.txt").toString(), workspace))
-        assertFalse(isWorkspaceEdit("escape/file.txt", workspace))
         assertFalse(isWorkspaceEdit("../sibling.txt", workspace))
+        assertFalse(isWorkspaceEdit("file://${workspace.resolve("new.txt")}", workspace))
+        assertFalse(isWorkspaceEdit("FILE:///etc/hosts", workspace))
+        assertFalse(isWorkspaceEdit("@~/.zshrc", workspace))
         assertFalse(isWorkspaceEdit("", workspace))
+    }
+
+    @Test
+    fun `workspace edits resolve links so a link cannot lead outside`() {
+        // Creating links on Windows needs a privilege developers usually lack.
+        if (System.getProperty("os.name").startsWith("Windows")) return
+        val escape = TestWorkspace.resolve("escape")
+        if (!Files.isSymbolicLink(escape)) {
+            Files.createSymbolicLink(escape, TestWorkspace.parent).toFile().deleteOnExit()
+        }
+        assertFalse(isWorkspaceEdit("escape/file.txt", TestWorkspace))
     }
 
     @Test

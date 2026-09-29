@@ -29,6 +29,10 @@ private val PiApprovalDeny = PermissionOptionId("deny")
 // Pi's built-in file mutation tools; commands and extension tools are never file edits.
 private val EditTools = setOf("edit", "write")
 private const val GIT_DIRECTORY = ".git"
+private const val FILE_SCHEME = "file:"
+
+// Spaces Pi replaces with a plain space before resolving a tool path (`normalizePath` in its path utilities).
+private val UnicodeSpaces = Regex("[\\u00A0\\u2000-\\u200A\\u202F\\u205F\\u3000]")
 private const val APPROVAL_TARGET_LIMIT = 4_000
 private const val HEX_RADIX = 16
 private const val HEX_DIGITS = 4
@@ -46,11 +50,13 @@ internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean 
 
 /**
  * Whether Pi writes [target] inside [workspace] and outside its `.git` directory, whose hooks and config run
- * commands. Pi drops a leading `@` and expands `~`; a home-relative path is never a workspace edit.
+ * commands. The path is normalized as Pi's `resolveToCwd` does: Unicode spaces become plain spaces and a leading
+ * `@` is dropped. Home-relative (`~`) and `file:` URL targets, which Pi turns into other absolute paths, are never
+ * workspace edits.
  */
 internal fun isWorkspaceEdit(target: String, workspace: Path): Boolean {
-    val path = target.removePrefix("@")
-    if (path.isBlank() || path.startsWith("~")) return false
+    val path = target.replace(UnicodeSpaces, " ").removePrefix("@")
+    if (path.isBlank() || path.startsWith("~") || path.startsWith(FILE_SCHEME, ignoreCase = true)) return false
     return try {
         val root = workspace.toRealPath()
         val real = realPath(root.resolve(path).normalize())
