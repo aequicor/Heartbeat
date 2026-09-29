@@ -7,6 +7,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
+import io.aequicor.heartbeat.core.datastore.StorageRoot
 import java.io.File
 
 /** Per-user application data: `%APPDATA%` (Windows), `Application Support` (macOS), `$XDG_DATA_HOME` (Linux). */
