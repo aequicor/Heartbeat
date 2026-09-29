@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
@@ -150,6 +151,33 @@ class StudioComposerUiTest {
             onNodeWithText(autoLabel).assertDoesNotExist()
             onNodeWithText(lowLabel).assertDoesNotExist()
         }
+
+    @Test
+    fun `native model with trust levels offers the approval modes`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val pane = PaneUi(0)
+        val native = ModelUi("native-route", "Native model", isTrustSupported = true)
+        val initial = AiStudioScreenState(panes = persistentListOf(pane))
+        val state = initial.copy(
+            models = persistentListOf(native),
+            settings = initial.settings.copy(modelId = native.id),
+        )
+        var editsLabel = ""
+        var addLabel = ""
+        setContent {
+            editsLabel = stringResource(Res.string.approval_edits)
+            addLabel = stringResource(Res.string.composer_add)
+            NativeComposerFixture(state.paneContent(pane), events::add)
+        }
+        onNodeWithContentDescription(addLabel).performClick()
+        onNodeWithText(editsLabel).performClick()
+        runOnIdle {
+            assertEquals(
+                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoEdits)),
+                events,
+            )
+        }
+    }
 }
 
 @Composable

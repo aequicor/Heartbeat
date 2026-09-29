@@ -35,7 +35,7 @@ internal class ScriptedStudioAgent : StudioAgent {
         if (request.settings.effort == ReasoningEffort.VeryHigh) {
             tool("verify", "Выполняется проверка сборки", "Проверил сборку", VERIFY_CONSOLE, pace)
         }
-        val isEditing = request.settings.approval == ApprovalMode.AutoApprove && topic.diff != null
+        val isEditing = request.settings.approval != ApprovalMode.Ask && topic.diff != null
         if (isEditing) {
             tool("edit", "Выполняется правка файлов", "Внёс изменения", EDIT_CONSOLE, pace, topic.diff)
             emit(AgentEvent.BranchCreated("studio/${topic.branch}"))

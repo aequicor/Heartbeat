@@ -124,6 +124,8 @@ data class StudioModel(
     val shortName: String = name,
     val reasoningEfforts: List<String> = emptyList(),
     val defaultReasoningEffort: String? = null,
+    /** Whether the engine applies the composer's approval mode to its own tool approvals. */
+    val isTrustSupported: Boolean = false,
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */
@@ -137,7 +139,7 @@ val StudioModels: List<StudioModel> = listOf(
 val DefaultRunSettings: RunSettings = RunSettings(
     modelId = StudioModels.first().id,
     effort = ReasoningEffort.High,
-    approval = ApprovalMode.Ask,
+    approval = ApprovalMode.AutoApprove,
 )
 
 /** Studio model id of an engine route: the exact route, so preferences never cross credentials. */

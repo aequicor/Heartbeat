@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModels
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -37,9 +38,12 @@ enum class EnvironmentUi { Local, Cloud }
 enum class EffortUi { Low, Medium, High, VeryHigh }
 
 /** Approval choices of the composer. */
-enum class ApprovalUi { Ask, AutoApprove }
+enum class ApprovalUi { Ask, AutoEdits, AutoApprove }
 
-/** A model offered by the composer. */
+/**
+ * A model offered by the composer. [connectionKey] names its engine connection: a running chat may switch only
+ * between models sharing it; null for scripted demo models.
+ */
 @Immutable
 data class ModelUi(
     val id: String,
@@ -49,6 +53,8 @@ data class ModelUi(
     val shortName: String = name,
     val reasoningEfforts: ImmutableList<String> = persistentListOf(),
     val defaultReasoningEffort: String? = null,
+    val connectionKey: String? = null,
+    val isTrustSupported: Boolean = false,
 )
 
 /** Composer preferences mirrored from the machine. */
@@ -76,6 +82,8 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     shortName,
     reasoningEfforts.toImmutableList(),
     defaultReasoningEffort,
+    studioModelTarget(id)?.let { "${it.engine}/${it.binding}" },
+    isTrustSupported,
 )
 
 /** Progress of an agent tool call. */
@@ -179,11 +187,13 @@ internal fun EffortUi.toDomain(): ReasoningEffort = when (this) {
 
 internal fun ApprovalMode.toUi(): ApprovalUi = when (this) {
     ApprovalMode.Ask -> ApprovalUi.Ask
+    ApprovalMode.AutoEdits -> ApprovalUi.AutoEdits
     ApprovalMode.AutoApprove -> ApprovalUi.AutoApprove
 }
 
 internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
     ApprovalUi.Ask -> ApprovalMode.Ask
+    ApprovalUi.AutoEdits -> ApprovalMode.AutoEdits
     ApprovalUi.AutoApprove -> ApprovalMode.AutoApprove
 }
 

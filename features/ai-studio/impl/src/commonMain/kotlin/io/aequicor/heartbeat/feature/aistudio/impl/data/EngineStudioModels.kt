@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -35,6 +36,7 @@ internal fun EngineFacade.observeStudioModels(
                         engine.descriptor.title,
                         label,
                         engine.descriptor.isLocalWorkspaceSupported,
+                        isTrustSupported = AppliesTrustLevels.id in engine.descriptor.declaredFeatures,
                     )
                 }
             }
@@ -50,6 +52,7 @@ internal fun studioModel(
     engineName: String,
     connectionName: String,
     isLocalProjectSupported: Boolean,
+    isTrustSupported: Boolean = false,
 ): StudioModel {
     val shortName = info?.title?.takeIf(String::isNotBlank) ?: target.model.value
     return StudioModel(
@@ -60,7 +63,14 @@ internal fun studioModel(
         shortName = shortName,
         reasoningEfforts = info?.reasoningEfforts.orEmpty(),
         defaultReasoningEffort = info?.defaultReasoningEffort,
+        isTrustSupported = isTrustSupported,
     )
+}
+
+/** Whether the engine of [target] applies trust levels; false when the route is not offered. */
+internal fun List<StudioModel>.isTrustSupported(target: EngineTarget): Boolean {
+    val id = target.studioModelId()
+    return firstOrNull { it.id == id }?.isTrustSupported == true
 }
 
 /** Native effort levels the catalog advertises for [target]; empty when the route is not offered. */
