@@ -16,11 +16,13 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
 import java.nio.file.FileSystems
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
@@ -53,7 +55,13 @@ private abstract class FileTool(protected val root: ProjectRoot, private val io:
         KoogToolResult(e.message.orEmpty(), true)
     } catch (e: IOException) {
         fileLog.w(e) { "${descriptor.name} failed: ${e::class.simpleName.orEmpty()}" }
-        KoogToolResult("${e::class.simpleName}: ${e.message.orEmpty()}", true)
+        KoogToolResult("${e::class.simpleName.orEmpty()}: ${e.message.orEmpty()}", true)
+    } catch (e: UncheckedIOException) {
+        fileLog.w(e) { "${descriptor.name} failed while listing" }
+        KoogToolResult("IOException: ${e.cause?.message.orEmpty()}", true)
+    } catch (e: InvalidPathException) {
+        fileLog.w(e) { "${descriptor.name} rejected an invalid path" }
+        KoogToolResult("Invalid path: ${e.message.orEmpty()}", true)
     }
 
     protected abstract suspend fun execute(args: JsonObject): KoogToolResult
@@ -160,8 +168,13 @@ private class GrepFiles(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(r
             fileLog.w(e) { "grep rejected a pattern" }
             return failed("Invalid regular expression: ${e.description}")
         }
-        val filter = args.argText("glob").takeIf { it.isNotBlank() }?.let {
-            FileSystems.getDefault().getPathMatcher("glob:$it")
+        val filter = try {
+            args.argText("glob").takeIf { it.isNotBlank() }?.let {
+                FileSystems.getDefault().getPathMatcher("glob:$it")
+            }
+        } catch (e: IllegalArgumentException) {
+            fileLog.w(e) { "grep rejected a glob" }
+            return failed("Invalid glob: ${e.message.orEmpty()}")
         }
         val matches = mutableListOf<String>()
         walk(root.resolve(args.argText("path"))) { file ->

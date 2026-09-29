@@ -64,6 +64,13 @@ class KoogFileToolsTest {
     }
 
     @Test
+    fun invalidGlobIsReportedAsFailure() = runTest {
+        val grep = call("grep", "pattern" to "needle", "glob" to "{a")
+        assertTrue(grep.isFailed)
+        assertTrue(grep.text.startsWith("Invalid glob"))
+    }
+
+    @Test
     fun onlyWritesAreMutating() {
         assertEquals(
             setOf("write_file", "edit_file"),

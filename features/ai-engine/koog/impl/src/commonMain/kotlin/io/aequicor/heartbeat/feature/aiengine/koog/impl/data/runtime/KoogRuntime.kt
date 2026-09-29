@@ -42,6 +42,7 @@ internal val KoogSessionSource = SessionSource(
     "Koog",
 )
 
+@Suppress("LongParameterList") // A runtime owns separate storage, cache, search and workspace sources.
 internal class KoogRuntime(
     override val identity: RuntimeIdentity,
     private val access: KoogAccess,

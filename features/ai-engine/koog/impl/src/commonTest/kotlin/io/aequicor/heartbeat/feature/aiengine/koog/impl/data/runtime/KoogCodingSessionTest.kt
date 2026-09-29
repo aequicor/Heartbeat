@@ -7,11 +7,13 @@ import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
@@ -169,6 +171,35 @@ class KoogCodingSessionTest {
         assertIs<ActiveSessionState.Ready>(session.state.value)
     }
 
+    @Test
+    fun `closing the last lease while awaiting approval ends the turn`() = runTest {
+        val f = fixture(autoApprove = false)
+        val session = f.codingSession()
+        session.features.require(SendsPrompts).send(f.request())
+        f.callTool("edit_file")
+        runCurrent()
+        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+        session.close()
+        runCurrent()
+        val resumed = f.runtime().attach(session.ref, ResumeSessionRequest(f.target, WorkspaceRef("project")))
+        assertIs<ActiveSessionState.Ready>(resumed.state.value)
+        assertEquals(0, edit.calls)
+    }
+
+    @Test
+    fun `too long target is refused without asking`() = runTest {
+        val f = fixture(autoApprove = false)
+        f.workspace = KoogWorkspace(listOf(RecordingTool("edit_file", true, "x".repeat(APPROVAL_TARGET_LIMIT + 1))), "")
+        val session = f.codingSession()
+        session.features.require(SendsPrompts).send(f.request())
+        f.callTool("edit_file")
+        runCurrent()
+        assertEquals(ToolCallStatus.Failed, session.toolStatus("edit_file"))
+        val refusal = session.features.require(SessionHistory).page().items.filterIsInstance<SessionItem.ToolResult>()
+            .last().parts.filterIsInstance<ContentPart.Text>().single().text
+        assertTrue(refusal.startsWith("Refused"), refusal)
+    }
+
     private fun TestScope.fixture(autoApprove: Boolean = true) = KoogTestFixture(this).apply {
         isAutoApprove = autoApprove
         workspace = KoogWorkspace(listOf(read, edit), INSTRUCTIONS)
@@ -186,11 +217,15 @@ class KoogCodingSessionTest {
         features.require(SessionHistory).page().items.filterIsInstance<SessionItem.ToolCall>()
             .last { it.name == name }.status
 
-    private class RecordingTool(name: String, override val isMutating: Boolean) : KoogTool {
+    private class RecordingTool(
+        name: String,
+        override val isMutating: Boolean,
+        private val shownTarget: String = "edit target",
+    ) : KoogTool {
         var calls = 0
         override val descriptor = ToolDescriptor(name, "Test tool", emptyList(), emptyList())
 
-        override fun target(args: JsonObject) = if (isMutating) "edit target" else ""
+        override fun target(args: JsonObject) = if (isMutating) shownTarget else ""
 
         override suspend fun run(args: JsonObject): KoogToolResult {
             calls++
