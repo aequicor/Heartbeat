@@ -67,8 +67,9 @@ compose.desktop {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            // DataStore's protobuf implementation accesses sun.misc.Unsafe at runtime.
-            modules("jdk.unsupported")
+            // The jlink runtime holds only listed JDK modules; keep in sync with `suggestRuntimeModules`.
+            // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge.
+            modules("java.instrument", "java.management", "jdk.httpserver", "jdk.unsupported")
             packageName = "io.aequicor"
             packageVersion = "1.0.0"
             preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
