@@ -529,8 +529,15 @@ internal class CodexSession(
 
     private fun outcome(native: JsonObject): TurnOutcome = when (native.text("status")) {
         "completed" -> TurnOutcome.Completed
+
         "interrupted" -> TurnOutcome.Cancelled
-        "failed" -> TurnOutcome.Failed(EngineFailure.Unknown())
+
+        "failed" -> {
+            val failure = codexTurnFailure(native["error"] as? JsonObject, route.binding)
+            log.w { "Codex turn failed code=${failure.code}" }
+            TurnOutcome.Failed(failure)
+        }
+
         else -> TurnOutcome.Unknown
     }
 

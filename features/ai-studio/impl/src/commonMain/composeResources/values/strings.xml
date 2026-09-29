@@ -89,6 +89,10 @@
     <string name="stopping">Stopping…</string>
     <string name="stopped_after">You stopped the run after %1$s</string>
     <string name="run_failed">The run failed. Try again.</string>
+    <string name="run_failed_limit">The engine usage limit has been reached. Try again after it resets or switch the model.</string>
+    <string name="run_failed_context">The conversation exceeds the model context window. Start a new chat or pick a model with a larger context.</string>
+    <string name="run_failed_auth">The engine rejected the credentials. Reconnect it in settings.</string>
+    <string name="run_failed_network">Could not reach the engine service. Check the connection and try again.</string>
     <string name="submit_failed">The session could not be created. Your prompt was restored.</string>
     <string name="duration_seconds">%1$d s</string>
     <string name="duration_minutes">%1$d min %2$d s</string>

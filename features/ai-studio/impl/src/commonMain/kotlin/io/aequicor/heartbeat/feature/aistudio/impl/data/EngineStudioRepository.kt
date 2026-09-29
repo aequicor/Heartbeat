@@ -51,6 +51,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
@@ -105,6 +106,7 @@ internal data class StudioChatRecord(
     val isUnread: Boolean = false,
     val isArchived: Boolean = false,
     val hasFailed: Boolean = false,
+    val failureKind: RunFailureKind = RunFailureKind.Unknown,
     val projectId: String? = null,
 )
 
@@ -206,7 +208,11 @@ internal class EngineStudioRepository(
         log.d { "Observe transcript projection" }
         records.orEmpty().firstOrNull { it.id == sessionId }?.let { record ->
             record.items.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
-                if (record.hasFailed) listOf(StudioMessage.Failed("failure", record.updatedAt)) else emptyList()
+                if (record.hasFailed) {
+                    listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
+                } else {
+                    emptyList()
+                }
         }.orEmpty()
     }
 
@@ -285,7 +291,7 @@ internal class EngineStudioRepository(
         try {
             val target = target(id, settings)
             val active = open(id, target)
-            update(id) { copy(updatedAt = clock.now(), hasFailed = false) }
+            update(id) { copy(updatedAt = clock.now(), hasFailed = false, failureKind = RunFailureKind.Unknown) }
             val history = active.features.requireFeature(SessionHistory)
             return supervisorScope {
                 val observation = launch {
@@ -319,7 +325,8 @@ internal class EngineStudioRepository(
             throw e
         } catch (e: Exception) {
             log.e(e) { "Studio execution failed" }
-            update(id) { copy(hasFailed = true) }
+            val kind = (e as? EngineException)?.failure.toRunFailureKind()
+            update(id) { copy(hasFailed = true, failureKind = kind) }
             return RunOutcome.Failed
         }
     }
@@ -340,9 +347,11 @@ internal class EngineStudioRepository(
 
         TurnOutcome.Unknown, null, is TurnOutcome.Failed -> {
             log.w {
-                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()}"
+                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()} " +
+                    "code=${(outcome as? TurnOutcome.Failed)?.failure?.code.orEmpty()}"
             }
-            update(id) { copy(hasFailed = true) }
+            val kind = (outcome as? TurnOutcome.Failed)?.failure.toRunFailureKind()
+            update(id) { copy(hasFailed = true, failureKind = kind) }
             RunOutcome.Failed
         }
     }

@@ -89,6 +89,10 @@
     <string name="stopping">Останавливаем…</string>
     <string name="stopped_after">Вы остановили выполнение через %1$s</string>
     <string name="run_failed">Не удалось выполнить задачу. Попробуйте ещё раз.</string>
+    <string name="run_failed_limit">Исчерпан лимит использования движка. Повторите после сброса лимита или выберите другую модель.</string>
+    <string name="run_failed_context">Беседа не помещается в контекст модели. Начните новый чат или выберите модель с большим контекстом.</string>
+    <string name="run_failed_auth">Движок отклонил учётные данные. Переподключите его в настройках.</string>
+    <string name="run_failed_network">Не удалось связаться с сервисом движка. Проверьте соединение и повторите попытку.</string>
     <string name="submit_failed">Не удалось создать сессию — текст запроса восстановлен.</string>
     <string name="duration_seconds">%1$d с</string>
     <string name="duration_minutes">%1$d мин %2$d с</string>
