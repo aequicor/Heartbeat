@@ -313,9 +313,13 @@ internal class CodexSession(
      * Seeds the history with the native [turns]; null when the native response did not carry them.
      * [isNew] marks a thread just created by `thread/start`, which has no earlier native history. A resumed
      * thread is stored only after its first turn, so resumed empty [turns] mean the history was not loaded.
+     * A turn whose `itemsView` is `summary` or `notLoaded` carries only part of its items; servers without the
+     * field send full turns.
      */
     fun load(turns: List<JsonElement>?, isNew: Boolean) {
-        history.seeded(isComplete = isNew || !turns.isNullOrEmpty())
+        val isLoaded = !turns.isNullOrEmpty() &&
+            turns.all { (it as? JsonObject)?.text("itemsView").let { view -> view == null || view == "full" } }
+        history.seeded(isComplete = isNew || isLoaded)
         log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
         for (value in turns.orEmpty()) {
             val turn = value as? JsonObject ?: protocolFailure()

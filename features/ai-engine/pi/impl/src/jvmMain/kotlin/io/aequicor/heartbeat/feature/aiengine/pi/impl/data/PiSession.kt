@@ -162,7 +162,7 @@ internal class PiSession(
             connector = factory
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
-            val stored = transcript?.let { rpc().reattach(it.file).storedMessages() }
+            val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
             rpc().command("set_model", modelFields(target.model))
             val snapshot = rpc().command("get_state")
             val nativeId = snapshot.string("sessionId")

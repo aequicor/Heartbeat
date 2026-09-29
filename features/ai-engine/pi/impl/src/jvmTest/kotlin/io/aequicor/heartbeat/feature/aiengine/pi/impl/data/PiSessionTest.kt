@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
@@ -194,6 +195,8 @@ class PiSessionTest {
                 assertIs<SessionItem.Message>(item).parts.joinToString { (it as ContentPart.Text).text }
             },
         )
+        // Restored items carry new ids; complete coverage lets observers replace their copy instead of adding it.
+        assertEquals(HistoryCoverage.Complete, history.coverage)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         fixture.session.shutdown()
     }

@@ -8,15 +8,33 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PiStoredTranscriptTest {
     @Test
     fun `empty session has no stored messages`() {
-        assertEquals(emptyList(), storedBranch(stored("""{"leafId":null,"entries":[]}""")))
+        val branch = storedBranch(stored("""{"leafId":null,"entries":[]}"""))
+        assertEquals(emptyList(), branch.messages)
+        assertTrue(branch.isComplete)
     }
 
     @Test
-    fun `branch cut at a missing parent keeps its known tail`() {
+    fun `branch rooted at the first entry is complete`() {
+        val branch = storedBranch(
+            stored(
+                """{"leafId":"b","entries":[
+                {"type":"message","id":"a","parentId":null,"message":{"role":"user","content":"A"}},
+                {"type":"compaction","id":"c","parentId":"a","summary":"S"},
+                {"type":"message","id":"b","parentId":"c","message":{"role":"assistant","content":"B"}}]}""",
+            ),
+        )
+        assertEquals(listOf("A", "B"), branch.messages.map { it.string("content") })
+        assertTrue(branch.isComplete)
+    }
+
+    @Test
+    fun `branch cut at a missing parent keeps its known tail and is incomplete`() {
         val branch = storedBranch(
             stored(
                 """{"leafId":"b","entries":[
@@ -24,7 +42,8 @@ class PiStoredTranscriptTest {
                 {"type":"message","id":"b","parentId":"a","message":{"role":"assistant","content":"B"}}]}""",
             ),
         )
-        assertEquals(listOf("A", "B"), branch.map { it.string("content") })
+        assertEquals(listOf("A", "B"), branch.messages.map { it.string("content") })
+        assertFalse(branch.isComplete)
     }
 
     @Test
