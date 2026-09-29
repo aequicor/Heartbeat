@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -78,6 +79,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -142,6 +144,14 @@ internal class EngineStudioRepository(
     private val stopRequests = mutableSetOf<String>()
 
     /**
+     * Continuability probes of stored refs cached per set of enabled engines: a recompute triggered by one
+     * changed chat or run must not re-open every other stored session from the catalog.
+     */
+    private val continuableLock = Mutex()
+    private var continuableEngines: Set<EngineId>? = null
+    private val continuableByRef = mutableMapOf<SessionRef, Boolean>()
+
+    /**
      * One lock per conversation so a native session is created, resumed or released at most once at a time.
      * An entry lives only while someone holds or awaits it.
      */
@@ -162,12 +172,12 @@ internal class EngineStudioRepository(
         refs.associate { (id, ref) -> id to isContinuable(id, ref) }
     }
 
-    override fun observeWorkspace(): Flow<StudioWorkspace> = combine(
+    /** One shared pipeline: every subscriber reuses it instead of re-collecting the continuability probes. */
+    private val workspaceFlow: Flow<StudioWorkspace> = combine(
         store.observe(ChatsKey),
         continuability,
         workspaces.observe(),
     ) { records, continuable, projects ->
-        log.d { "observeWorkspace count=${records.orEmpty().size}" }
         StudioWorkspace(
             projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
             records.orEmpty().map {
@@ -179,11 +189,18 @@ internal class EngineStudioRepository(
                     it.isPinned,
                     it.isUnread,
                     it.isArchived,
-                    modelId = it.target?.let { target -> Json.encodeToString(EngineTarget.serializer(), target) },
+                    modelId = it.target?.let { target ->
+                        Json.encodeToString(EngineTarget.serializer(), target)
+                    },
                     isContinuable = continuable[it.id] ?: true,
                 )
             },
         )
+    }.shareIn(profile.coroutineScope, SharingStarted.WhileSubscribed(WORKSPACE_REUSE_TIMEOUT_MILLIS), replay = 1)
+
+    override fun observeWorkspace(): Flow<StudioWorkspace> {
+        log.d { "observeWorkspace" }
+        return workspaceFlow
     }
 
     private suspend fun isContinuable(id: String, ref: SessionRef?): Boolean {
@@ -193,8 +210,19 @@ internal class EngineStudioRepository(
             return current.state.value !is ActiveSessionState.Closing &&
                 current.state.value != ActiveSessionState.Closed
         }
+        val engines = facade.engines.state.value.mapTo(mutableSetOf()) { it.descriptor.id }
+        continuableLock.withLock {
+            if (continuableEngines != engines) {
+                continuableEngines = engines
+                continuableByRef.clear()
+            }
+            continuableByRef[ref]?.let { return it }
+        }
         return try {
-            facade.sessions.get(ref).features.resolve(ResumesSessions) is FeatureAccess.Available
+            val isResumable =
+                facade.sessions.get(ref).features.resolve(ResumesSessions) is FeatureAccess.Available
+            continuableLock.withLock { continuableByRef[ref] = isResumable }
+            isResumable
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -203,19 +231,21 @@ internal class EngineStudioRepository(
         }
     }
 
-    override fun observeMessages(sessionId: String): Flow<List<StudioMessage>> = combine(
-        store.observe(ChatsKey),
-        state,
-    ) { records, runtime ->
-        log.d { "Observe transcript projection" }
-        records.orEmpty().firstOrNull { it.id == sessionId }?.let { record ->
-            record.items.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
-                if (record.hasFailed) {
-                    listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
-                } else {
-                    emptyList()
-                }
-        }.orEmpty()
+    override fun observeMessages(sessionId: String): Flow<List<StudioMessage>> {
+        log.d { "observeMessages" }
+        return combine(
+            store.observe(ChatsKey),
+            state,
+        ) { records, runtime ->
+            records.orEmpty().firstOrNull { it.id == sessionId }?.let { record ->
+                record.items.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
+                    if (record.hasFailed) {
+                        listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
+                    } else {
+                        emptyList()
+                    }
+            }.orEmpty()
+        }
     }
 
     override fun observeModels(): Flow<List<StudioModel>> {
@@ -627,6 +657,11 @@ internal class EngineStudioRepository(
     override suspend fun setBranch(sessionId: String, branch: String) {
         log.w { "Rejected local branch mutation" }
         error("Native tools own branch metadata")
+    }
+
+    private companion object {
+        /** Shared upstream stays hot between screen re-subscriptions (configuration changes, navigation). */
+        const val WORKSPACE_REUSE_TIMEOUT_MILLIS = 5_000L
     }
 }
 
