@@ -68,7 +68,7 @@ internal class LoggingKeyValueStore(
 
     override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = flow {
         withOwnerLifetime {
-            log.d { "$label: observe ${key.name}" }
+            log.v { "$label: observe ${key.name}" }
             prepare()
             emitAll(data.map { it.read(key, clock.now()) }.distinctUntilChanged())
         }

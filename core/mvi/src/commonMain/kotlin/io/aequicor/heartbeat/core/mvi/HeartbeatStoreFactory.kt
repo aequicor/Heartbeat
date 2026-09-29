@@ -11,6 +11,7 @@ import pro.respawn.flowmvi.api.Store
 import pro.respawn.flowmvi.dsl.StoreBuilder
 import pro.respawn.flowmvi.dsl.store
 import pro.respawn.flowmvi.plugins.recover
+import kotlin.reflect.KClass
 
 /** Creates stores with injected dispatchers and content-free lifecycle/event logging. */
 @Inject
@@ -32,13 +33,21 @@ public class HeartbeatStoreFactory(private val dispatchers: DispatcherProvider) 
         }
         install {
             this.name = "heartbeat-logging"
+            // Class of the last logged intent: a burst of same-class intents (every keystroke is a
+            // DraftChanged) logs once per burst, repeats stay at V for deep tracing.
+            var lastIntentClass: KClass<out MVIIntent>? = null
             onStart { log.i { "started" } }
             onStop { error ->
                 log.i { "stopped" }
                 error?.let { log.e(it) { "store stopped with error" } }
             }
             onIntent { intent ->
-                log.d { "intent ${intent::class.simpleName ?: "anonymous"}" }
+                if (intent::class != lastIntentClass) {
+                    lastIntentClass = intent::class
+                    log.d { "intent ${intent::class.simpleName ?: "anonymous"}" }
+                } else {
+                    log.v { "intent ${intent::class.simpleName ?: "anonymous"}" }
+                }
                 intent
             }
             onAction { action ->
@@ -46,7 +55,11 @@ public class HeartbeatStoreFactory(private val dispatchers: DispatcherProvider) 
                 action
             }
             onState { old, new ->
-                log.d { "${old::class.simpleName ?: "anonymous"} -> ${new::class.simpleName ?: "anonymous"}" }
+                // Data updates inside the same state class are visible through the underlying flows; logging
+                // every one of them floods the console during streaming.
+                if (old::class != new::class) {
+                    log.d { "${old::class.simpleName ?: "anonymous"} -> ${new::class.simpleName ?: "anonymous"}" }
+                }
                 new
             }
         }

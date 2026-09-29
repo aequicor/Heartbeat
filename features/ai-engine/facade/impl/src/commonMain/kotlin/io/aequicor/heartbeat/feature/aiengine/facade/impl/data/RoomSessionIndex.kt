@@ -47,7 +47,8 @@ class RoomSessionIndex(private val database: SessionIndexDatabase) : SessionInde
     }
 
     override suspend fun find(ref: SessionRef): SessionSummary? {
-        log.d { "find engine=${ref.engine.value} source=${ref.source.value}" }
+        // Hot path: continuability probes resolve every stored chat through find; keep the lookup at V.
+        log.v { "find engine=${ref.engine.value} source=${ref.source.value}" }
         return dao.find(ref.indexKey())?.decode()
     }
 
