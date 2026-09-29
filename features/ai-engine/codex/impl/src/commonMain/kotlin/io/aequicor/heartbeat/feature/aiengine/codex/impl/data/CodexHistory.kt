@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
 
 /** Bounded journal; slow consumers receive invalidation rather than a silently truncated stream. Main confined. */
@@ -136,7 +138,8 @@ internal class CodexHistory : SessionHistory {
         publish { SessionEvent.HistoryInvalidated(it, HistoryFailureReason.Unavailable) }
     }
 
-    fun nativeItem(native: JsonObject, turn: TurnId?) {
+    /** [isStarted] marks an `item/started` snapshot; items without their own status are running until completed. */
+    fun nativeItem(native: JsonObject, turn: TurnId?, isStarted: Boolean = false) {
         val id = ItemId(native.text("id") ?: protocolFailure())
         val old = items[id]
         val info = ItemInfo(
@@ -146,7 +149,7 @@ internal class CodexHistory : SessionHistory {
             turn ?: old?.info?.turn,
         )
         val kind = native.text("type")
-        val item = decodeNativeItem(native, kind, info)
+        val item = decodeNativeItem(native, kind, info, isStarted)
         items[id] = item
         publish { SessionEvent.ItemUpserted(it, item) }
         if (kind == "dynamicToolCall" && native.text("status") in setOf("completed", "failed")) {
@@ -154,38 +157,48 @@ internal class CodexHistory : SessionHistory {
         }
     }
 
-    private fun decodeNativeItem(native: JsonObject, kind: String?, info: ItemInfo): SessionItem = when (kind) {
-        "agentMessage" -> SessionItem.Message(
-            info,
-            MessageRole.Assistant,
-            listOf(ContentPart.Text(native.text("text").orEmpty())),
-        )
+    private fun decodeNativeItem(native: JsonObject, kind: String?, info: ItemInfo, isStarted: Boolean): SessionItem =
+        when (kind) {
+            "agentMessage" -> SessionItem.Message(
+                info,
+                MessageRole.Assistant,
+                listOf(ContentPart.Text(native.text("text").orEmpty())),
+            )
 
-        "userMessage" -> SessionItem.Message(
-            info,
-            MessageRole.User,
-            native.array("content").map { part ->
-                val value = part as? JsonObject ?: protocolFailure()
-                ContentPart.Text(value.text("text") ?: "[Unsupported input]")
-            },
-        )
+            "userMessage" -> SessionItem.Message(
+                info,
+                MessageRole.User,
+                native.array("content").map { part ->
+                    val value = part as? JsonObject ?: protocolFailure()
+                    ContentPart.Text(value.text("text") ?: "[Unsupported input]")
+                },
+            )
 
-        "reasoning" -> reasoningMessage(info, reasoning.snapshot(info.id, native))
+            "reasoning" -> reasoningMessage(info, reasoning.snapshot(info.id, native))
 
-        "commandExecution", "dynamicToolCall" -> SessionItem.ToolCall(
-            info,
-            ToolCallId(info.id.value),
-            if (kind == "commandExecution") "command" else native.text("tool").orEmpty(),
-            if (kind == "commandExecution") {
-                native.text("command").orEmpty()
-            } else {
-                native["arguments"]?.toString().orEmpty()
-            },
-            toolStatus(native.text("status")),
-        )
+            "commandExecution", "dynamicToolCall" -> SessionItem.ToolCall(
+                info,
+                ToolCallId(info.id.value),
+                if (kind == "commandExecution") "command" else native.text("tool").orEmpty(),
+                if (kind == "commandExecution") {
+                    native.text("command").orEmpty()
+                } else {
+                    native["arguments"]?.toString().orEmpty()
+                },
+                toolStatus(native.text("status")),
+            )
 
-        else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
-    }
+            // Hosted search: the query is the only observable part; results reach the model, not the protocol.
+            "webSearch" -> SessionItem.ToolCall(
+                info,
+                ToolCallId(info.id.value),
+                NATIVE_WEB_SEARCH,
+                buildJsonObject { put("query", native.text("query").orEmpty()) }.toString(),
+                if (isStarted) ToolCallStatus.Running else ToolCallStatus.Succeeded,
+            )
+
+            else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
+        }
 
     private fun recordDynamicResult(native: JsonObject, info: ItemInfo) {
         val resultId = ItemId("${info.id.value}:result")
@@ -251,6 +264,8 @@ internal class CodexHistory : SessionHistory {
     }
 
     private companion object {
+        /** Distinct from the dynamic `web_search`, whose structured results the research chat imports. */
+        const val NATIVE_WEB_SEARCH = "codex_web_search"
         const val JOURNAL_LIMIT = 512
         const val MAX_KIND_LENGTH = 80
     }

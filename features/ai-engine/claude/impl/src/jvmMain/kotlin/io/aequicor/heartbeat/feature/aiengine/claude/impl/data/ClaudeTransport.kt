@@ -241,10 +241,11 @@ internal class ProcessClaudeTransport(
     }
 }
 
+/** The CLI's own `WebSearch` / `WebFetch` stay available next to the bridge tools; the model picks either. */
 internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
     arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it == "--tools=" } + listOf(
-        "--tools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
-        "--allowedTools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
+        "--tools=$CLAUDE_SEARCH_TOOLS",
+        "--allowedTools=$CLAUDE_SEARCH_TOOLS",
         "--mcp-config",
         config.toString(),
     )
@@ -326,3 +327,6 @@ private val HOST_ENVIRONMENT = setOf(
     "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
     "USER", "LOGNAME", "USERNAME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
 )
+
+private const val CLAUDE_SEARCH_TOOLS =
+    "WebSearch,WebFetch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"

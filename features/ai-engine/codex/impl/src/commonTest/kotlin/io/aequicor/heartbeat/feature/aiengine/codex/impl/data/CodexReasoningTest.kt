@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -72,6 +73,22 @@ class CodexReasoningTest {
         history.nativeItem(reasoning("Review the public API"), TurnId("turn"))
         val reply = assertIs<SessionItem.Message>(history.page().items.single())
         assertEquals(listOf(ContentPart.Reasoning("Review the public API")), reply.parts)
+    }
+
+    @Test
+    fun `hosted web search runs until completed and keeps its query`() = runTest {
+        val history = CodexHistory()
+        val started = json("id" to "search".json(), "type" to "webSearch".json(), "query" to "".json())
+        history.nativeItem(started, TurnId("turn"), isStarted = true)
+        assertEquals(ToolCallStatus.Running, assertIs<SessionItem.ToolCall>(history.page().items.single()).status)
+        history.nativeItem(
+            json("id" to "search".json(), "type" to "webSearch".json(), "query" to "kotlin 2.3".json()),
+            TurnId("turn"),
+        )
+        val call = assertIs<SessionItem.ToolCall>(history.page().items.single())
+        assertEquals(ToolCallStatus.Succeeded, call.status)
+        assertEquals("codex_web_search", call.name)
+        assertTrue("kotlin 2.3" in call.arguments)
     }
 
     private fun reasoning(vararg summaries: String) = json(
