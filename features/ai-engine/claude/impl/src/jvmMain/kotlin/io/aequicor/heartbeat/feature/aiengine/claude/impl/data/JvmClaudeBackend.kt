@@ -199,6 +199,8 @@ private const val INITIALIZE = """{"type":"control_request","request_id":"models
 
 /** Effort levels a model advertises; unknown values are dropped so `--effort` never receives them. */
 private fun JsonObject.effortLevels(): List<String> = (this["supportedEffortLevels"] as? JsonArray).orEmpty()
+    .asSequence()
     .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     .filter { it in ClaudeEffortLevels }
     .distinct()
+    .toList()

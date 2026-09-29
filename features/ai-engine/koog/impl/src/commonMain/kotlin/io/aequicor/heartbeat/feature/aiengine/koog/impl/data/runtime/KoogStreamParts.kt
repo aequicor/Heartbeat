@@ -30,18 +30,21 @@ internal class KoogStreamParts {
     fun append(frame: StreamFrame): Boolean {
         val previous = parts
         when (frame) {
-            is StreamFrame.TextDelta -> block(frame.index, isReasoning = false).text += frame.text
-
-            is StreamFrame.TextComplete -> block(frame.index, isReasoning = false).text = frame.text
-
-            is StreamFrame.ReasoningDelta -> block(frame.index, isReasoning = true).apply {
-                text += frame.text.orEmpty()
-                summary += frame.summary.orEmpty()
+            is StreamFrame.TextDelta -> update(frame.index, isReasoning = false) {
+                it.copy(text = it.text + frame.text)
             }
 
-            is StreamFrame.ReasoningComplete -> block(frame.index, isReasoning = true).apply {
-                text = frame.content.joinToString("\n\n")
-                summary = frame.summary?.joinToString("\n\n") ?: summary
+            is StreamFrame.TextComplete -> update(frame.index, isReasoning = false) { it.copy(text = frame.text) }
+
+            is StreamFrame.ReasoningDelta -> update(frame.index, isReasoning = true) {
+                it.copy(text = it.text + frame.text.orEmpty(), summary = it.summary + frame.summary.orEmpty())
+            }
+
+            is StreamFrame.ReasoningComplete -> update(frame.index, isReasoning = true) {
+                it.copy(
+                    text = frame.content.joinToString("\n\n"),
+                    summary = frame.summary?.joinToString("\n\n") ?: it.summary,
+                )
             }
 
             is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete, is StreamFrame.End -> Unit
@@ -49,8 +52,10 @@ internal class KoogStreamParts {
         return previous != parts
     }
 
-    private fun block(index: Int?, isReasoning: Boolean): StreamBlock =
-        blocks.getOrPut((index ?: 0) to isReasoning) { StreamBlock() }
+    private fun update(index: Int?, isReasoning: Boolean, change: (StreamBlock) -> StreamBlock) {
+        val key = (index ?: 0) to isReasoning
+        blocks[key] = change(blocks[key] ?: StreamBlock())
+    }
 
-    private class StreamBlock(var text: String = "", var summary: String = "")
+    private data class StreamBlock(val text: String = "", val summary: String = "")
 }
