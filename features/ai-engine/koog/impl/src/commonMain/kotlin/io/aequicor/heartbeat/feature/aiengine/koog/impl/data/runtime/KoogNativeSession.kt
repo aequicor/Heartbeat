@@ -212,10 +212,10 @@ internal class KoogNativeSession(
     ) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            val tools = if (supportsSearchTools(client, provider, model)) koogSearchTools else emptyList()
+            val tools = turnTools(client, provider, model)
             val hasAttachments = record.items.hasResourceInputs()
-            log.i { "Koog turn effort=${effort ?: "default"}" }
-            val textModel = provider.textModel(model, tools = tools.isNotEmpty(), attachments = hasAttachments)
+            log.i { "Koog turn effort=${effort ?: "default"} tools=${tools.descriptors.size}" }
+            val textModel = provider.textModel(model, tools = !tools.isEmpty(), attachments = hasAttachments)
             generateWithEffort(turn, client, provider, textModel, tools, effort)
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
@@ -248,11 +248,21 @@ internal class KoogNativeSession(
     private val toolSupport = mutableMapOf<String, Boolean>()
 
     /**
-     * Search tools are sent only while the toggle is on and the model accepts tools: cloud chat models do; a local
-     * Ollama model must declare the Tools capability, otherwise the plain chat keeps working without tools.
+     * Tools of this turn: search tools while their toggle is on. Tools are sent only when the model accepts them.
      */
-    private suspend fun supportsSearchTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
-        if (!access.searchToolsEnabled()) return false
+    private suspend fun turnTools(client: KoogClient, provider: KoogProvider, model: String): KoogToolbox {
+        val offered = buildList {
+            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search))
+        }
+        if (offered.isEmpty() || !acceptsTools(client, provider, model)) return KoogToolbox(emptyList())
+        return KoogToolbox(offered)
+    }
+
+    /**
+     * Cloud chat models accept tools; a local Ollama model must declare the Tools capability, otherwise the plain
+     * chat keeps working without tools.
+     */
+    private suspend fun acceptsTools(client: KoogClient, provider: KoogProvider, model: String): Boolean {
         if (provider != KoogProvider.Ollama) return true
         toolSupport[model]?.let { return it }
         return try {
@@ -261,7 +271,7 @@ internal class KoogNativeSession(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e.sanitized()) { "Model capabilities unavailable; search tools disabled for this turn" }
+            log.w(e.sanitized()) { "Model capabilities unavailable; tools disabled for this turn" }
             false
         }
     }
@@ -276,7 +286,7 @@ internal class KoogNativeSession(
         client: KoogClient,
         provider: KoogProvider,
         model: LLModel,
-        tools: List<ToolDescriptor>,
+        tools: KoogToolbox,
         effort: String?,
     ) {
         val produced = history.items.size
@@ -296,18 +306,18 @@ internal class KoogNativeSession(
         turn: Turn,
         client: KoogClient,
         model: LLModel,
-        tools: List<ToolDescriptor>,
+        tools: KoogToolbox,
         params: LLMParams,
     ) {
         log.i { "Starting provider stream" }
         var input = initialPrompt(model.provider, params)
         repeat(MAX_TOOL_ROUNDS) { _ ->
-            val round = streamRound(turn, client, model, input, tools)
+            val round = streamRound(turn, client, model, input, tools.descriptors)
             if (round.calls.isEmpty()) return
-            val results = round.calls.map { call -> recordSearchCall(turn, call) }
+            val results = round.calls.map { call -> runToolCall(turn, tools, call) }
             input = continuePrompt(input, round.text, results)
         }
-        log.w { "Search tool round limit reached ($MAX_TOOL_ROUNDS)" }
+        log.w { "Tool round limit reached ($MAX_TOOL_ROUNDS)" }
         fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
     }
 
@@ -352,7 +362,7 @@ internal class KoogNativeSession(
         model: LLModel,
         input: Prompt,
         tools: List<ToolDescriptor>,
-    ): SearchRound {
+    ): ToolRound {
         val info = ItemInfo(
             ItemId(Uuid.random().toString()),
             history.items.size.toLong(),
@@ -391,15 +401,19 @@ internal class KoogNativeSession(
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return SearchRound(content.text, calls)
+        return ToolRound(content.text, calls)
     }
 
-    private suspend fun recordSearchCall(turn: Turn, call: StreamFrame.ToolCallComplete): HandledSearchCall {
+    private suspend fun runToolCall(
+        turn: Turn,
+        tools: KoogToolbox,
+        call: StreamFrame.ToolCallComplete,
+    ): HandledToolCall {
         val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
         val id = ToolCallId(call.id?.takeIf { it.isNotBlank() } ?: Uuid.random().toString())
         val started = SessionItem.ToolCall(info, id, call.name, call.content, ToolCallStatus.Running)
         history.append { SessionEvent.ItemUpserted(it, started) }
-        val result = executeKoogSearch(search, call)
+        val result = execute(tools[call.name], call)
         val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
         history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 1), status = status)) }
         val output = SessionItem.ToolResult(
@@ -409,10 +423,27 @@ internal class KoogNativeSession(
             if (result.isFailed) EngineFailure.Unknown() else null,
         )
         history.append { SessionEvent.ItemUpserted(it, output) }
-        return HandledSearchCall(id.value, call.name, call.content, result)
+        return HandledToolCall(id.value, call.name, call.content, result)
     }
 
-    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledSearchCall>): Prompt = prompt(
+    private suspend fun execute(tool: KoogTool?, call: StreamFrame.ToolCallComplete): KoogToolResult {
+        if (tool == null) {
+            log.w { "Model called an unknown tool" }
+            return KoogToolResult("Unknown tool: ${call.name}", true)
+        }
+        val args = try {
+            call.contentJson
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Malformed tool arguments for ${call.name}" }
+            return KoogToolResult("InvalidInput: arguments must be a JSON object", true)
+        }
+        log.i { "Running tool ${call.name}" }
+        return tool.run(args)
+    }
+
+    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledToolCall>): Prompt = prompt(
         "heartbeat",
         input.params,
     ) {
@@ -510,19 +541,14 @@ internal class KoogNativeSession(
     }
 }
 
-/** Upper bound of search tool rounds in one turn. */
-internal const val MAX_TOOL_ROUNDS = 8
+/** Upper bound of tool rounds in one turn; coding tasks read and edit many files. */
+internal const val MAX_TOOL_ROUNDS = 64
 
 private typealias Lease = MutableStateFlow<ActiveSessionState>
 
-private data class SearchRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
+private data class ToolRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
 
-private data class HandledSearchCall(
-    val id: String,
-    val name: String,
-    val arguments: String,
-    val result: KoogSearchResult,
-)
+private data class HandledToolCall(val id: String, val name: String, val arguments: String, val result: KoogToolResult)
 
 private fun unknownOutcome(request: PromptRequest) =
     EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))
