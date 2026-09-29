@@ -62,6 +62,9 @@ class RouteResolver(
         return ResolvedRoute(registration, saved, source, context)
     }
 
+    /** Model catalog revision of [engine]'s adapter, or null for an unknown engine. */
+    fun modelCatalogRevision(engine: EngineId): Int? = registry.find(engine)?.modelCatalogRevision
+
     /** Saved bindings and their changes; used to hide data of removed bindings. */
     val saved: StateFlow<List<EngineBinding>> get() = bindings.state
 
