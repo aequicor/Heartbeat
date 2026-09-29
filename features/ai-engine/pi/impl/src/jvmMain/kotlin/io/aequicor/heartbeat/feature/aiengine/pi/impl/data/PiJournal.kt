@@ -32,6 +32,7 @@ import java.util.UUID
 /**
  * Atomic transcript with bounded replay: live events of this process, preceded by the stored conversation
  * when the session is resumed ([restore]). Native files remain owned by Pi.
+ * Items are never dropped, so the history is complete for a new session and after restoring a whole stored branch.
  */
 internal class PiJournal : SessionHistory {
     private val log = Log.tag("PiJournal")
@@ -42,6 +43,7 @@ internal class PiJournal : SessionHistory {
     private val events = ArrayDeque<SessionEvent>()
     private var currentMessage: Int? = null
     private val blocks = sortedMapOf<Int, ContentPart>()
+    private var coverage = HistoryCoverage.Complete
 
     fun record(record: JsonObject, turn: TurnId?) = synchronized(lock) {
         when (record.string("type")) {
@@ -53,12 +55,15 @@ internal class PiJournal : SessionHistory {
     }
 
     /**
-     * Seeds the journal of a resumed session with the stored native [messages], so observers see the
+     * Seeds the journal of a resumed session with the stored native [branch], so observers see the
      * conversation Pi continues instead of an empty history. Called once, before any live event.
      * A stored tool call without a result never finished: its process is gone, so it is reported as cancelled.
+     * A branch that lost its beginning leaves the history partial.
      */
-    fun restore(messages: List<JsonObject>) = synchronized(lock) {
+    fun restore(branch: PiStoredBranch) = synchronized(lock) {
         check(items.isEmpty()) { "Pi history is already populated" }
+        val messages = branch.messages
+        coverage = if (branch.isComplete) HistoryCoverage.Complete else HistoryCoverage.Partial
         val statuses = settled(messages)
         messages.forEachIndexed { index, message ->
             publish(PiMessages.message(message, info(items.size, null)))
@@ -66,7 +71,7 @@ internal class PiJournal : SessionHistory {
                 publish(toolCall(tool, null, statuses[index to call] ?: ToolCallStatus.Cancelled))
             }
         }
-        log.i { "Pi history restored: ${items.size} items" }
+        log.i { "Pi history restored: ${items.size} items, coverage=${coverage.name}" }
     }
 
     /**
@@ -107,7 +112,7 @@ internal class PiJournal : SessionHistory {
             if (start > 0) HistoryCursor("$generation:b:$start") else null,
             if (end < items.size) HistoryCursor("$generation:f:$end") else null,
             HistoryCheckpoint(token(version.value)),
-            HistoryCoverage.Partial,
+            coverage,
         )
     }
 

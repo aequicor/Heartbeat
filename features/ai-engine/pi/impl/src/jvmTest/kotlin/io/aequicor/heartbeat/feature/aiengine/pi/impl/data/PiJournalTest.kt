@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCursor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
@@ -112,7 +113,7 @@ class PiJournalTest {
     fun `restored transcript precedes live messages and settles stored tool calls`() = runTest {
         val journal = PiJournal()
         journal.restore(
-            Json.parseToJsonElement(
+            branch(
                 """[
                 {"role":"user","content":"Question"},
                 {"role":"assistant","content":[
@@ -126,7 +127,7 @@ class PiJournalTest {
                 {"role":"bashExecution","command":"ls"},
                 {"role":"assistant","content":[{"type":"text","text":"Answer"}]}
                 ]""",
-            ).jsonArray.map { it.jsonObject },
+            ),
         )
         journal.record(record("""{"type":"message_end","message":{"role":"user","content":"Next"}}"""), TurnId("t"))
         val items = journal.page().items
@@ -140,20 +141,21 @@ class PiJournalTest {
         assertIs<SessionItem.UnsupportedItem>(items[7])
         assertEquals(listOf(ContentPart.Text("Answer")), assertIs<SessionItem.Message>(items[8]).parts)
         assertEquals(listOf(ContentPart.Text("Next")), assertIs<SessionItem.Message>(items[9]).parts)
-        assertFailsWith<IllegalStateException> { journal.restore(emptyList()) }
+        assertEquals(HistoryCoverage.Complete, journal.page().coverage)
+        assertFailsWith<IllegalStateException> { journal.restore(PiStoredBranch(emptyList(), isComplete = true)) }
     }
 
     @Test
     fun `reused tool ids settle the call they answer`() = runTest {
         val journal = PiJournal()
         journal.restore(
-            Json.parseToJsonElement(
+            branch(
                 """[
                 {"role":"assistant","content":[{"type":"toolCall","id":"call_0","name":"read","arguments":{}}]},
                 {"role":"toolResult","toolCallId":"call_0","content":"file","isError":false},
                 {"role":"assistant","content":[{"type":"toolCall","id":"call_0","name":"bash","arguments":{}}]}
                 ]""",
-            ).jsonArray.map { it.jsonObject },
+            ),
         )
         journal.record(
             record(
@@ -169,5 +171,24 @@ class PiJournalTest {
         )
     }
 
+    @Test
+    fun `new session history is complete`() = runTest {
+        val journal = PiJournal()
+        journal.record(record("""{"type":"message_end","message":{"role":"user","content":"Hi"}}"""), TurnId("t"))
+        assertEquals(HistoryCoverage.Complete, journal.page().coverage)
+    }
+
+    @Test
+    fun `restored branch that lost its beginning is partial`() = runTest {
+        val journal = PiJournal()
+        journal.restore(branch("""[{"role":"assistant","content":"Tail"}]""", isComplete = false))
+        val page = journal.page()
+        assertEquals(1, page.items.size)
+        assertEquals(HistoryCoverage.Partial, page.coverage)
+    }
+
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject
+
+    private fun branch(json: String, isComplete: Boolean = true) =
+        PiStoredBranch(Json.parseToJsonElement(json).jsonArray.map { it.jsonObject }, isComplete)
 }
