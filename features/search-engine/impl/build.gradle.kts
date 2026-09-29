@@ -29,6 +29,8 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.ktor.client.mock)
+            implementation(libs.ktor.client.contentNegotiation)
+            implementation(libs.ktor.serialization.kotlinxJson)
         }
         jvmTest.dependencies {
             implementation(libs.compose.uiTest)

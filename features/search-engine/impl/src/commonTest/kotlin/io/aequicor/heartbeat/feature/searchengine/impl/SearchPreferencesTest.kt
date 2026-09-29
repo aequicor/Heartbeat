@@ -15,6 +15,8 @@ import io.aequicor.heartbeat.core.secrets.SecretKey
 import io.aequicor.heartbeat.core.secrets.SecretRemoval
 import io.aequicor.heartbeat.core.secrets.SecretStore
 import io.aequicor.heartbeat.core.secrets.SecretUsage
+import io.aequicor.heartbeat.feature.searchengine.api.SearchException
+import io.aequicor.heartbeat.feature.searchengine.api.SearchFailure
 import io.aequicor.heartbeat.feature.searchengine.api.SearchOperation
 import io.aequicor.heartbeat.feature.searchengine.impl.data.SearchPreferences
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -57,6 +60,23 @@ class SearchPreferencesTest {
         reopened.setKey(SearchOperation.Search, null)
         assertFalse(reopened.read().search.hasKey)
         assertTrue(reopened.read().contents.hasKey)
+    }
+
+    @Test fun `keys are trimmed on save and blank keys are rejected`() = runTest {
+        val preferences = SearchPreferences(MemoryStores("profile"), MemorySecrets())
+        Secret("  qr-key \r\n".toCharArray()).use { preferences.setKey(SearchOperation.Search, it) }
+        assertEquals(
+            "qr-key",
+            preferences.credential(SearchOperation.Search).use { it.reveal { chars -> chars.concatToString() } },
+        )
+        Secret("   ".toCharArray()).use {
+            assertEquals(
+                SearchFailure.InvalidInput,
+                assertFailsWith<SearchException> { preferences.setKey(SearchOperation.Contents, it) }.failure,
+            )
+        }
+        assertFalse(preferences.read().contents.hasKey)
+        assertTrue(preferences.read().search.hasKey)
     }
 }
 

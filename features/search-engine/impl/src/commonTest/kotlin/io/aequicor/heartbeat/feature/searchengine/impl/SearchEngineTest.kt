@@ -22,11 +22,14 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.network.sockets.ConnectTimeoutException
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -229,11 +232,32 @@ class SearchEngineTest {
         assertEquals(listOf("/v1/search", "/v1/contents"), paths)
     }
 
+    @Test fun `saved and stored credentials are trimmed before they reach the header`() = runTest {
+        val sent = mutableListOf<String?>()
+        val options = object : SearchOptions by TestOptions() {
+            override suspend fun credential(operation: SearchOperation) = Secret("  qr-key  \r\n".toCharArray())
+        }
+        val api = api(options) { request ->
+            sent += request.headers[HttpHeaders.Authorization]
+            respond(SEARCH_RESPONSE, headers = jsonHeaders)
+        }
+        api.search("topic", 1)
+        assertEquals(listOf<String?>("Bearer qr-key"), sent)
+    }
+
     private fun api(
+        options: SearchOptions = this.options,
         handler: suspend io.ktor.client.engine.mock.MockRequestHandleScope.(
             io.ktor.client.request.HttpRequestData,
         ) -> io.ktor.client.request.HttpResponseData,
-    ): QueritApi = QueritApi(HttpClient(MockEngine(handler)) { expectSuccess = true }, options)
+    ): QueritApi = QueritApi(
+        HttpClient(MockEngine(handler)) {
+            expectSuccess = true
+            // The application client installs the JSON converter; the adapter must work under it, not only without it.
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        },
+        options,
+    )
 
     private class TestOptions : SearchOptions {
         override suspend fun read() = SearchSettings()
