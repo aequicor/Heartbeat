@@ -48,7 +48,7 @@ class SwallowedError(config: Config) :
     private val errorLogMethods: List<String> by config(DEFAULT_ERROR_LOG_METHODS)
 
     /** Require the throwable itself to be passed to the log call (keeps the stack trace). */
-    private val requireErrorReference: Boolean by config(true)
+    private val isErrorReferenceRequired: Boolean by config(true)
 
     /** Calls that hand the error over to someone else — counted as handling when they receive the error. */
     private val propagationCalls: List<String> by config(
@@ -69,7 +69,8 @@ class SwallowedError(config: Config) :
         val typeName = (parameter.typeReference?.typeElement as? KtUserType)?.referencedName
         if (typeName in ignoredExceptionTypes) return
         val body = catchClause.catchBody ?: return
-        checkHandler(catchClause, body, parameter.name?.takeUnless { it == "_" }, "catch ($typeName)")
+        val handler = "catch (${typeName ?: parameter.typeReference?.text.orEmpty()})"
+        checkHandler(catchClause, body, parameter.name?.takeUnless { it == "_" }, handler)
     }
 
     override fun visitLambdaExpression(lambdaExpression: KtLambdaExpression) {
@@ -87,18 +88,18 @@ class SwallowedError(config: Config) :
     }
 
     private fun checkHandler(reportAt: KtElement, body: KtElement, errorName: String?, handler: String) {
-        val handled = if (errorName == null) {
+        val isHandled = if (errorName == null) {
             // The error is not even named (`_`), so it can only be "handled" by an unrelated log call.
-            !requireErrorReference && logMatcher.containsLogCall(body, errorLogMethods)
+            !isErrorReferenceRequired && logMatcher.containsLogCall(body, errorLogMethods)
         } else {
             body.rethrows(errorName) || body.propagates(errorName) || body.logs(errorName)
         }
-        if (handled) return
+        if (isHandled) return
 
         val hint = when {
             errorName == null -> "the error is discarded (`_`) — name it and log it"
 
-            logMatcher.containsLogCall(body) && requireErrorReference ->
+            logMatcher.containsLogCall(body) && isErrorReferenceRequired ->
                 "log it at ${errorLogMethods.joinToString("/")} and pass the throwable: log.e($errorName) { \"...\" }"
 
             else -> "log it (log.w($errorName) if recovered, log.e($errorName) if not) or propagate it"
@@ -108,7 +109,7 @@ class SwallowedError(config: Config) :
 
     private fun KtElement.logs(errorName: String): Boolean = logMatcher.logCallsIn(this, errorLogMethods).any { call ->
         // Only arguments count: in `log.e { }` the callee itself is named `e`.
-        !requireErrorReference ||
+        !isErrorReferenceRequired ||
             call.valueArguments.any { it.getArgumentExpression()?.referencesName(errorName) == true }
     }
 

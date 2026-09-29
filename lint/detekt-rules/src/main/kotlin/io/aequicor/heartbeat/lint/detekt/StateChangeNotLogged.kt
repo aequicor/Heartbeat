@@ -91,7 +91,7 @@ class StateChangeNotLogged(config: Config) :
         mutations.groupBy { it.owningDeclaration() }.forEach { (owner, ownerMutations) ->
             if (owner == null || owner.isComposable() || logMatcher.containsLogCall(owner)) return@forEach
             val first = ownerMutations.first()
-            val holder = first.mutatedHolder(holders, delegated)
+            val holder = first.mutatedHolder(holders, delegated) ?: return@forEach
             report(
                 Finding(
                     Entity.from(first),

@@ -52,11 +52,11 @@ class RawLoggingCall(config: Config) :
     /** Packages that implement the facade itself and may use the underlying APIs. */
     private val allowedPackages: List<String> by config(listOf("io.aequicor.heartbeat.core.logging"))
 
-    private var allowedFile = false
+    private var isAllowedFile = false
 
     override fun visitKtFile(file: KtFile) {
-        allowedFile = allowedPackages.any { file.packageName().isInPackage(it) }
-        if (!allowedFile) super.visitKtFile(file)
+        isAllowedFile = allowedPackages.any { file.packageName().isInPackage(it) }
+        if (!isAllowedFile) super.visitKtFile(file)
     }
 
     override fun visitImportDirective(importDirective: KtImportDirective) {

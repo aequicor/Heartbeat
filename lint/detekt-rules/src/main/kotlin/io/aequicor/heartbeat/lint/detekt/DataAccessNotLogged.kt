@@ -54,13 +54,15 @@ class DataAccessNotLogged(config: Config) :
         if (!classRegex.matches(name)) return
 
         klass.body?.functions.orEmpty()
+            .asSequence()
             .filter { it.isOperation() }
             .filterNot { logMatcher.containsLogCall(it) }
             .forEach { function ->
+                val functionName = function.nameAsSafeName.asString()
                 report(
                     Finding(
                         Entity.atName(function),
-                        "`$name.${function.name}` does not log — add log.d { \"${function.name} <key params>\" } " +
+                        "`$name.$functionName` does not log — add log.d { \"$functionName <key params>\" } " +
                             "on entry (errors: log.e(e)).",
                     ),
                 )

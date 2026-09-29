@@ -8,7 +8,7 @@ heartbeat:
       - 'io.aequicor.heartbeat.core.logging'
   SwallowedError:
     active: true
-    requireErrorReference: true
+    isErrorReferenceRequired: true
   CancellationSwallowed:
     active: true
   GenericExceptionCaught:

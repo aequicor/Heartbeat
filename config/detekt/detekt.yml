@@ -176,7 +176,7 @@ heartbeat:
   # catch / Flow.catch / onFailure / getOrElse / fold / CoroutineExceptionHandler must log (w/e + throwable) or propagate
   SwallowedError:
     active: true
-    requireErrorReference: true
+    isErrorReferenceRequired: true
   # catch (CancellationException) must rethrow; generic catch / runCatching in coroutines swallow cancellation
   CancellationSwallowed:
     active: true

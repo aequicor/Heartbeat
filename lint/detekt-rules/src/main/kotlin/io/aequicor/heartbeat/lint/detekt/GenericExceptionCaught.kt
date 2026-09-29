@@ -60,22 +60,22 @@ class GenericExceptionCaught(config: Config) :
 
     override fun visitTryExpression(expression: KtTryExpression) {
         super.visitTryExpression(expression)
-        var cancellationRethrown = false
+        var isCancellationRethrown = false
         for (clause in expression.catchClauses) {
-            val type = clause.typeName()
+            val type = clause.typeName() ?: continue
             when {
-                type == CANCELLATION -> cancellationRethrown = clause.rethrowsOwnError()
+                type == CANCELLATION -> isCancellationRethrown = clause.rethrowsOwnError()
 
                 type in exceptionNames -> {
-                    val allowed = type in allowedAfterCancellationRethrow &&
-                        (cancellationRethrown || clause.rethrowsCancellationFirst())
-                    if (!allowed) report(Finding(Entity.from(clause), clause.message(type)))
+                    val isAllowed = type in allowedAfterCancellationRethrow &&
+                        (isCancellationRethrown || clause.rethrowsCancellationFirst())
+                    if (!isAllowed) report(Finding(Entity.from(clause), clause.message(type)))
                 }
             }
         }
     }
 
-    private fun KtCatchClause.message(type: String?): String = if (type in allowedAfterCancellationRethrow) {
+    private fun KtCatchClause.message(type: String): String = if (type in allowedAfterCancellationRethrow) {
         "`catch ($type)` is too generic — catch specific exceptions, or rethrow CancellationException first: " +
             "`catch (e: CancellationException) { throw e }`."
     } else {
