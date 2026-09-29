@@ -13,7 +13,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
@@ -119,24 +118,29 @@ class PiJournalTest {
                 {"role":"assistant","content":[
                     {"type":"text","text":"Checking"},
                     {"type":"toolCall","id":"done","name":"read","arguments":{}},
-                    {"type":"toolCall","id":"lost","name":"bash","arguments":{}}]},
+                    {"type":"toolCall","id":"broken","name":"edit","arguments":{}},
+                    {"type":"toolCall","id":"lost","name":"bash","arguments":{}},
+                    {"type":"toolCall","id":"","name":"blank","arguments":{}}]},
                 {"role":"toolResult","toolCallId":"done","content":[{"type":"text","text":"file"}],"isError":false},
+                {"role":"toolResult","toolCallId":"broken","content":[{"type":"text","text":"denied"}],"isError":true},
+                {"role":"bashExecution","command":"ls"},
                 {"role":"assistant","content":[{"type":"text","text":"Answer"}]}
                 ]""",
-            ).jsonArray,
+            ).jsonArray.map { it.jsonObject },
         )
         journal.record(record("""{"type":"message_end","message":{"role":"user","content":"Next"}}"""), TurnId("t"))
         val items = journal.page().items
-        assertEquals(listOf(0L, 1L, 2L, 3L, 4L, 5L, 6L), items.map { it.info.position })
+        assertEquals((0L..9L).toList(), items.map { it.info.position })
         assertEquals(MessageRole.User, assertIs<SessionItem.Message>(items[0]).role)
         assertEquals(
-            listOf(ToolCallStatus.Succeeded, ToolCallStatus.Cancelled),
+            listOf(ToolCallStatus.Succeeded, ToolCallStatus.Failed, ToolCallStatus.Cancelled),
             items.filterIsInstance<SessionItem.ToolCall>().map { it.status },
         )
-        assertIs<SessionItem.ToolResult>(items[4])
-        assertEquals(listOf(ContentPart.Text("Answer")), assertIs<SessionItem.Message>(items[5]).parts)
-        assertEquals(listOf(ContentPart.Text("Next")), assertIs<SessionItem.Message>(items[6]).parts)
-        assertFailsWith<IllegalStateException> { journal.restore(JsonArray(emptyList())) }
+        assertIs<SessionItem.ToolResult>(items[5])
+        assertIs<SessionItem.UnsupportedItem>(items[7])
+        assertEquals(listOf(ContentPart.Text("Answer")), assertIs<SessionItem.Message>(items[8]).parts)
+        assertEquals(listOf(ContentPart.Text("Next")), assertIs<SessionItem.Message>(items[9]).parts)
+        assertFailsWith<IllegalStateException> { journal.restore(emptyList()) }
     }
 
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject

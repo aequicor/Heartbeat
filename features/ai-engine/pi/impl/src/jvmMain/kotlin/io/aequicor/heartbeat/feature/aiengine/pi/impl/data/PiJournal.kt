@@ -29,7 +29,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.util.UUID
 
-/** Atomic live transcript with bounded replay. Native files remain owned by Pi. */
+/**
+ * Atomic transcript with bounded replay: live events of this process, preceded by the stored conversation
+ * when the session is resumed ([restore]). Native files remain owned by Pi.
+ */
 internal class PiJournal : SessionHistory {
     private val log = Log.tag("PiJournal")
     private val lock = Any()
@@ -50,16 +53,15 @@ internal class PiJournal : SessionHistory {
     }
 
     /**
-     * Seeds the empty journal of a resumed session with the stored native [messages] (`get_messages`),
-     * so observers see the conversation Pi continues instead of an empty history. A stored tool call
-     * without a result never finished: its process is gone, so it is reported as cancelled.
+     * Seeds the journal of a resumed session with the stored native [messages], so observers see the
+     * conversation Pi continues instead of an empty history. Called once, before any live event.
+     * A stored tool call without a result never finished: its process is gone, so it is reported as cancelled.
      */
-    fun restore(messages: JsonArray) = synchronized(lock) {
+    fun restore(messages: List<JsonObject>) = synchronized(lock) {
         check(items.isEmpty()) { "Pi history is already populated" }
-        val stored = messages.mapNotNull { it as? JsonObject }
-        val results = stored.filter { it.string("role") == "toolResult" }
+        val results = messages.filter { it.string("role") == "toolResult" }
             .associate { it.string("toolCallId") to (it.string("isError") == "true") }
-        stored.forEach { message ->
+        messages.forEach { message ->
             publish(PiMessages.message(message, info(items.size, null)))
             PiMessages.tools(message).forEach { tool ->
                 val status = when (results[tool.string("id")]) {
@@ -187,7 +189,7 @@ internal class PiJournal : SessionHistory {
 
     private fun updateTool(record: JsonObject) {
         val call = record.string("toolCallId") ?: return
-        val previous = items.filterIsInstance<SessionItem.ToolCall>().firstOrNull { it.call.value == call } ?: return
+        val previous = items.filterIsInstance<SessionItem.ToolCall>().lastOrNull { it.call.value == call } ?: return
         val status = when {
             record.string("type") == "tool_execution_start" -> ToolCallStatus.Running
             record.string("isError") == "true" -> ToolCallStatus.Failed
@@ -247,7 +249,7 @@ internal object PiMessages {
 
             "toolResult" -> SessionItem.ToolResult(
                 info,
-                ToolCallId(message.string("toolCallId") ?: "unknown"),
+                ToolCallId(message.string("toolCallId")?.takeIf { it.isNotBlank() } ?: "unknown"),
                 parts,
                 if (message.string("isError") == "true") EngineFailure.Unknown() else null,
             )
@@ -258,5 +260,5 @@ internal object PiMessages {
 
     fun tools(message: JsonObject): List<JsonObject> =
         (message["content"] as? JsonArray).orEmpty().asSequence().mapNotNull { it as? JsonObject }
-            .filter { it.string("type") == "toolCall" && it.string("id") != null }.toList()
+            .filter { it.string("type") == "toolCall" && !it.string("id").isNullOrBlank() }.toList()
 }

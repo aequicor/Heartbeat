@@ -52,6 +52,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
 import java.util.UUID
 
 internal typealias PiConnector =
@@ -163,8 +164,7 @@ internal class PiSession(
             connector = factory
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
-            // The journal only observes live events; a resumed session starts from the stored conversation.
-            transcript?.let { journal.restore(rpc().reattach(it.file).storedMessages()) }
+            val stored = transcript?.let { rpc().reattach(it.file).storedMessages() }
             rpc().command("set_model", modelFields(target.model))
             val snapshot = rpc().command("get_state")
             val nativeId = snapshot.string("sessionId")
@@ -173,6 +173,8 @@ internal class PiSession(
             if (transcript != null && transcript.ref.nativeId != nativeId) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
+            // The journal only observes live events; a resumed session starts from the stored conversation.
+            stored?.let(journal::restore)
             nativeRef = SessionRef(route.engine, PiSessionSource, nativeId)
             sessionFile = snapshot.string("sessionFile")
             nativeThinking = snapshot.string("thinkingLevel")
@@ -744,6 +746,22 @@ private suspend fun PiConnection.reattach(file: String): PiConnection = apply {
     }
 }
 
-/** Messages of the native session this connection sits on, as Pi keeps them for the model. */
-private suspend fun PiConnection.storedMessages(): JsonArray = command("get_messages")["messages"] as? JsonArray
-    ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+/**
+ * Messages on the active branch of the native session this connection sits on, oldest first. Read from
+ * `get_entries`: `get_messages` holds only the model context, which after a compaction starts at its summary.
+ */
+private suspend fun PiConnection.storedMessages(): List<JsonObject> {
+    val stored = command("get_entries")
+    val entries = (stored["entries"] as? JsonArray ?: storedViolation())
+        .mapNotNull { it as? JsonObject }
+        .associateBy { it.string("id") }
+    val leaf = (stored["leafId"] as? JsonPrimitive)?.contentOrNull?.let { entries[it] ?: storedViolation() }
+    return generateSequence(leaf) { entry -> entry.string("parentId")?.let(entries::get) }
+        .take(entries.size)
+        .toList()
+        .asReversed()
+        .filter { it.string("type") == "message" }
+        .mapNotNull { it["message"] as? JsonObject }
+}
+
+private fun storedViolation(): Nothing = piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
