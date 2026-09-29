@@ -111,11 +111,17 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     )
 }
 
-/** Existing project chats keep their model; selecting it can restore a conflicting global draft preference. */
-private fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: String?): ImmutableList<ModelUi> =
-    models.filter {
-        projectId == null || (it.isLocalProjectSupported && (modelId == null || it.id == modelId))
+/**
+ * Existing project chats keep their engine and connection, but may switch between that connection's models:
+ * the runtime session changes the model in place and refuses any other route.
+ */
+private fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: String?): ImmutableList<ModelUi> {
+    val connection = models.firstOrNull { it.id == modelId }?.connectionKey
+    return models.filter {
+        val isSameConnection = connection != null && it.connectionKey == connection
+        projectId == null || (it.isLocalProjectSupported && (modelId == null || it.id == modelId || isSameConnection))
     }.toImmutableList()
+}
 
 internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
     val focused = panes.firstOrNull { it.id == focusedPaneId }

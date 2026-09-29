@@ -41,7 +41,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
@@ -62,6 +64,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -110,6 +114,19 @@ class PiSessionTest {
             listOf("off", "low", "medium", "high", "xhigh"),
             model("""{"reasoning":true,"thinkingLevelMap":{"minimal":null,"xhigh":"max"}}"""),
         )
+        assertEquals(
+            listOf("off", PI_THINKING_ON),
+            model("""{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":false}}"""),
+        )
+        assertEquals(
+            listOf("low", "medium", "xhigh"),
+            model(
+                """{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":true},
+                "thinkingLevelMap":{"off":null,"minimal":null,"high":null,"xhigh":"xhigh"}}""",
+            ),
+        )
+        assertEquals("medium", piThinkingLevel(PI_THINKING_ON))
+        assertEquals("low", piThinkingLevel("low"))
     }
 
     @Test
@@ -155,6 +172,26 @@ class PiSessionTest {
         assertEquals(turn, ready.lastTurn?.id)
         assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resumed session starts pi on the stored transcript`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "native")
+        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        assertEquals(listOf("switch_session", "set_model", "get_state"), fixture.connection.commands)
+        assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
+        assertEquals(ref, fixture.session.ref)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resume never adopts a different native session`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "stored")
+        val error = assertFailsWith<EngineException> {
+            fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), error.failure)
     }
 
     @Test
@@ -274,6 +311,99 @@ class PiSessionTest {
         assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
         assertIs<ActiveSessionState.Running>(fixture.session.state.value)
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `full trust answers every tool approval without the user`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.Full)
+        fixture.connection.event(approval("ui-t1"))
+        fixture.connection.event(approval("ui-t2", tool = "write"))
+        assertEquals(
+            listOf(answer("ui-t1", "confirmed", true), answer("ui-t2", "confirmed", true)),
+            fixture.connection.sent,
+        )
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `edit trust allows file edits and still asks before commands`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.AutoEdits)
+        val notes = TestWorkspace.resolve("notes.md").toString()
+        fixture.connection.event(approval("ui-e1", target = notes, tool = "edit", path = notes))
+        fixture.connection.event(approval("ui-e2"))
+        assertEquals(listOf(answer("ui-e1", "confirmed", true)), fixture.connection.sent)
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: ls -la", awaiting.requests.single().title)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `edit trust asks before writes outside the workspace or into git metadata`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.AutoEdits)
+        val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
+        val hook = TestWorkspace.resolve(".git/hooks/pre-commit").toString()
+        fixture.connection.event(approval("ui-o1", target = outside, tool = "write", path = outside))
+        fixture.connection.event(approval("ui-o2", target = hook, tool = "write", path = hook))
+        // Paths Pi rewrites are not pinned by the extension and always reach the user.
+        fixture.connection.event(approval("ui-o3", target = "~/.zshrc", tool = "edit"))
+        fixture.connection.event(approval("ui-o4", target = "notes.md", tool = "write"))
+        assertTrue(fixture.connection.sent.isEmpty())
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals(4, awaiting.requests.size)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `nothing is trusted while the turn is being interrupted`() = runTest {
+        val fixture = fixture()
+        val turn = fixture.runningTurn(TrustLevel.Full)
+        val cancel = async { fixture.session.cancel(turn) }
+        runCurrent()
+        assertIs<ActiveSessionState.Interrupting>(fixture.session.state.value)
+        fixture.connection.event(approval("ui-i1", tool = "write"))
+        assertTrue(fixture.connection.sent.none { it == answer("ui-i1", "confirmed", true) })
+        fixture.connection.abortAck.complete(JsonObject(emptyMap()))
+        cancel.await()
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `an explicit ask level leaves file edits to the user`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn(TrustLevel.Ask)
+        fixture.connection.event(approval("ui-a1", target = "notes.md", tool = "edit"))
+        assertTrue(fixture.connection.sent.isEmpty())
+        assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `only pinned absolute paths inside the workspace are edits`() {
+        val workspace = TestWorkspace
+        assertTrue(isWorkspaceEdit(workspace.resolve("src/Main.kt").toString(), workspace))
+        assertTrue(isWorkspaceEdit(workspace.resolve("new.txt").toString(), workspace))
+        assertFalse(isWorkspaceEdit(workspace.resolve("../sibling.txt").toString(), workspace))
+        assertFalse(isWorkspaceEdit("src/Main.kt", workspace))
+        assertFalse(isWorkspaceEdit("@${workspace.resolve("new.txt")}", workspace))
+        assertFalse(isWorkspaceEdit("file://${workspace.resolve("new.txt")}", workspace))
+        assertFalse(isWorkspaceEdit("FILE:///etc/hosts", workspace))
+        assertFalse(isWorkspaceEdit("@~/.zshrc", workspace))
+        assertFalse(isWorkspaceEdit("", workspace))
+    }
+
+    @Test
+    fun `workspace edits resolve links so a link cannot lead outside`() {
+        // Creating links on Windows needs a privilege developers usually lack.
+        if (System.getProperty("os.name").startsWith("Windows")) return
+        val escape = TestWorkspace.resolve("escape")
+        if (!Files.isSymbolicLink(escape)) {
+            Files.createSymbolicLink(escape, TestWorkspace.parent).toFile().deleteOnExit()
+        }
+        assertFalse(isWorkspaceEdit(escape.resolve("file.txt").toString(), TestWorkspace))
     }
 
     @Test
@@ -487,6 +617,7 @@ class PiSessionTest {
 
     private suspend fun TestScope.fixture(
         validate: suspend () -> Unit = {},
+        transcript: PiTranscript? = null,
         configure: (Int, FakeConnection) -> Unit = { _, _ -> },
     ): Fixture {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -511,31 +642,39 @@ class PiSessionTest {
             { released += it },
         )
         val connections = mutableListOf<FakeConnection>()
-        session.start { event, failed ->
-            FakeConnection().also {
-                it.event = event
-                it.failed = failed
-                configure(connections.size, it)
-                connections += it
-            }
-        }
+        session.start(
+            { event, failed ->
+                FakeConnection().also {
+                    it.event = event
+                    it.failed = failed
+                    configure(connections.size, it)
+                    connections += it
+                }
+            },
+            transcript,
+        )
         return Fixture(session, connections, released)
     }
 
-    private suspend fun Fixture.runningTurn(): TurnId {
+    private suspend fun Fixture.runningTurn(trust: TrustLevel? = null): TurnId {
         connection.promptAck.complete(JsonObject(emptyMap()))
-        val turn = session.send(prompt("tool"))
+        val turn = session.send(prompt("tool").copy(trust = trust))
         connection.event(record("""{"type":"agent_start"}"""))
         return turn
     }
 
-    private fun approval(id: String, target: String = "ls -la"): JsonObject {
+    private fun approval(
+        id: String,
+        target: String = "ls -la",
+        tool: String = "bash",
+        path: String? = null,
+    ): JsonObject {
         val message = JsonObject(
             mapOf(
                 "toolCallId" to JsonPrimitive("c1"),
-                "toolName" to JsonPrimitive("bash"),
+                "toolName" to JsonPrimitive(tool),
                 "target" to JsonPrimitive(target),
-            ),
+            ) + listOfNotNull(path?.let { "path" to JsonPrimitive(it) }),
         )
         return JsonObject(
             mapOf(
@@ -575,6 +714,8 @@ class PiSessionTest {
     }
 }
 
+private val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
+
 private class FakeConnection : PiConnection {
     var event: suspend (JsonObject) -> Unit = {}
     var failed: suspend (EngineFailure) -> Unit = {}
@@ -589,6 +730,7 @@ private class FakeConnection : PiConnection {
     var switchFailure: EngineException? = null
     var sendFailure: EngineException? = null
     override var isOpen = true
+    override val workingDirectory: Path = TestWorkspace
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
         commands += type
         this.fields += fields

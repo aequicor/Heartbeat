@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioMode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
@@ -90,7 +91,7 @@ internal fun StudioComposer(
         leadingContent = {
             TemplatesMenu(
                 draft = draft,
-                approval = settings.approval.takeIf { hasRunPreferences },
+                approval = settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
                 onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
                 onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it)) },
             )
@@ -144,6 +145,9 @@ private fun ComposerEffort(
 private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model ->
     model.id == settings.modelId && StudioModelOptions.any { it.id == model.id }
 }
+
+/** Engines that apply trust levels take the composer's approval mode with every prompt. */
+private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
 /** Running requests retain cancellation; pending permissions block another prompt. */
 private fun PaneContent.isComposerEnabled(): Boolean =
@@ -300,6 +304,7 @@ private fun approvalActions(selected: ApprovalUi?): List<HbComposerAction> {
 private fun approvalLabel(approval: ApprovalUi): String = stringResource(
     when (approval) {
         ApprovalUi.Ask -> Res.string.approval_ask
+        ApprovalUi.AutoEdits -> Res.string.approval_edits
         ApprovalUi.AutoApprove -> Res.string.approval_auto
     },
 )

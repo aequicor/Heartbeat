@@ -7,11 +7,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionOutput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -162,7 +164,12 @@ class ManagedActiveSession(
 
     private inner class Sender : SendsPrompts {
         override suspend fun send(request: PromptRequest): TurnId {
-            log.i { "send request=${request.id.value} parts=${request.parts.size}" }
+            log.i { "send request=${request.id.value} parts=${request.parts.size} trust=${request.trust ?: "default"}" }
+            val appliesTrust = parts.native.features.resolve(AppliesTrustLevels) != FeatureAccess.Unsupported
+            if (request.trust != null && !appliesTrust) {
+                log.w { "trust level refused: engine=${ref.engine.value} does not apply trust levels" }
+                fail(InvalidRequest)
+            }
             val model = currentModel.value
             policy.beforeTurn(route, model)
             return policy.registry.exclusive(ref) {

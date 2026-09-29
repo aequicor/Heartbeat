@@ -10,10 +10,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -23,13 +26,14 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-/** Last successful discovery for one engine and binding. */
+/** Last successful discovery for one engine and binding, made by an adapter of catalog [revision]. */
 @Serializable
 data class CachedModels(
     val engine: EngineId,
     val binding: EngineBindingId,
     val models: List<ModelInfo>,
     val checkedAt: Instant,
+    val revision: Int = 0,
 )
 
 /** Persistent model cache of one profile. Failures propagate. */
@@ -45,8 +49,9 @@ interface ModelCache {
 }
 
 /**
- * [ModelCatalog] with a persistent cache. Discovery runs only on [refresh] through the exact binding's route;
+ * [ModelCatalog] with a persistent cache. Discovery runs on [refresh] through the exact binding's route;
  * a failure is thrown and leaves the previous cache intact. Entries older than [freshFor] are reported stale.
+ * An observed entry of another adapter catalog revision is reported stale and rediscovered once in the background.
  * A binding removed during discovery gets no cache entry, and entries of removed bindings are hidden and dropped
  * on the next write.
  */
@@ -58,11 +63,14 @@ class ModelCatalogService(
 ) : ModelCatalog {
     private val log = Log.tag("ModelCatalog")
     private val mutex = Mutex()
+    private val upgrades = MutableStateFlow(emptySet<Pair<EngineId, EngineBindingId>>())
 
     override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot> =
         combine(cache.observe(), routes.saved) { entries, saved ->
             val isBound = saved.any { it.id == binding && it.engine == engine }
-            snapshot(if (isBound) entries.find(engine, binding) else null)
+            val entry = if (isBound) entries.find(engine, binding) else null
+            if (entry != null && entry.isOutdated()) upgrade(engine, binding)
+            snapshot(entry)
         }.stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null))
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
@@ -83,7 +91,13 @@ class ModelCatalogService(
         }
         val models = discovered.filter { it.target.engine == engine && it.target.binding == binding }
         if (models.size != discovered.size) log.w { "dropped foreign models count=${discovered.size - models.size}" }
-        val entry = CachedModels(engine, binding, models, context.clock.now())
+        val entry = CachedModels(
+            engine,
+            binding,
+            models,
+            context.clock.now(),
+            resolved.registration.modelCatalogRevision,
+        )
         mutex.withLock {
             val live = routes.savedNow().map { it.engine to it.id }.toSet()
             if ((engine to binding) !in live) {
@@ -97,10 +111,29 @@ class ModelCatalogService(
         return snapshot(entry)
     }
 
+    /** Rediscovers an outdated entry once per binding for the profile session; a failure keeps the old entry. */
+    private fun upgrade(engine: EngineId, binding: EngineBindingId) {
+        val key = engine to binding
+        if (key in upgrades.getAndUpdate { it + key }) return
+        log.i { "model catalog revision changed engine=${engine.value} binding=${binding.value}" }
+        context.scope.launch {
+            try {
+                refresh(engine, binding)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: EngineException) {
+                log.w(e) { "model catalog upgrade failed engine=${engine.value}" }
+            }
+        }
+    }
+
+    private fun CachedModels.isOutdated(): Boolean =
+        routes.modelCatalogRevision(engine)?.let { it != revision } ?: false
+
     private fun snapshot(entry: CachedModels?): ModelCatalogSnapshot = if (entry == null) {
         ModelCatalogSnapshot(emptyList(), Observation())
     } else {
-        val isStale = context.clock.now() - entry.checkedAt > freshFor
+        val isStale = context.clock.now() - entry.checkedAt > freshFor || entry.isOutdated()
         ModelCatalogSnapshot(entry.models, Observation(entry.checkedAt, isStale))
     }
 

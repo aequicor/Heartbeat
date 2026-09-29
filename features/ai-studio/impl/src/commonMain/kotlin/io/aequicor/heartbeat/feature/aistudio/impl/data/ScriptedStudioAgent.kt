@@ -17,7 +17,8 @@ import kotlinx.coroutines.flow.flow
  * Offline demo agent used while the engine runtime toggle is off and by isolated studio tests.
  * Streams a deterministic plan
  * with tool calls shaped by the request: faster models answer sooner, higher effort explores more, and
- * [ApprovalMode.AutoApprove] lets the agent edit files and push a branch. Content is demo Russian copy.
+ * [ApprovalMode.AutoEdits] lets the agent edit files, and only [ApprovalMode.AutoApprove] also pushes a branch.
+ * Content is demo Russian copy.
  */
 @Inject
 internal class ScriptedStudioAgent : StudioAgent {
@@ -35,14 +36,18 @@ internal class ScriptedStudioAgent : StudioAgent {
         if (request.settings.effort == ReasoningEffort.VeryHigh) {
             tool("verify", "Выполняется проверка сборки", "Проверил сборку", VERIFY_CONSOLE, pace)
         }
-        val isEditing = request.settings.approval == ApprovalMode.AutoApprove && topic.diff != null
+        val isEditing = request.settings.approval != ApprovalMode.Ask && topic.diff != null
+        val isPushing = isEditing && request.settings.approval == ApprovalMode.AutoApprove
         if (isEditing) {
             tool("edit", "Выполняется правка файлов", "Внёс изменения", EDIT_CONSOLE, pace, topic.diff)
+        }
+        if (isPushing) {
             emit(AgentEvent.BranchCreated("studio/${topic.branch}"))
         }
         stream(topic.answer, pace)
         val footer = when {
-            isEditing -> "\n\nИзменения сохранены в ветке `studio/${topic.branch}`."
+            isPushing -> "\n\nИзменения сохранены в ветке `studio/${topic.branch}`."
+            isEditing -> EDITED_FOOTER
             topic.diff != null -> READ_ONLY_FOOTER
             else -> ""
         }
@@ -110,6 +115,8 @@ internal class ScriptedStudioAgent : StudioAgent {
 
 private const val READ_ONLY_FOOTER = "\n\nФайлы не менялись: включите «Подтверждать за меня», " +
     "чтобы агент вносил правки сам."
+
+private const val EDITED_FOOTER = "\n\nИзменения внесены в рабочую папку, ветка не создавалась."
 
 private const val VERIFY_CONSOLE = """${'$'} ./gradlew :features:ai-studio:impl:jvmTest
 BUILD SUCCESSFUL in 38s

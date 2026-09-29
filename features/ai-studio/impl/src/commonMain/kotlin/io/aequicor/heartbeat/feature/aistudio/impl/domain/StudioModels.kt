@@ -124,6 +124,10 @@ data class StudioModel(
     val shortName: String = name,
     val reasoningEfforts: List<String> = emptyList(),
     val defaultReasoningEffort: String? = null,
+    /** Whether the engine applies the composer's approval mode to its own tool approvals. */
+    val isTrustSupported: Boolean = false,
+    /** Whether a running session of the engine changes its model in place. */
+    val isModelSwitchSupported: Boolean = false,
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */

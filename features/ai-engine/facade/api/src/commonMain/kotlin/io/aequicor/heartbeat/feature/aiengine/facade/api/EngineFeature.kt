@@ -112,6 +112,21 @@ public interface RequestsPermissions : EngineFeature {
     )
 }
 
+/**
+ * Marker: the session applies [PromptRequest.trust] to its tool approvals. Actions the level does not cover still
+ * surface through [RequestsPermissions]; such an engine never asks about read-only actions. A file edit is a write
+ * or edit inside the session's working directory outside `.git`: writes elsewhere, deletes, moves and commands are
+ * not edits. Hook directories configured outside `.git` (`core.hooksPath`) still count as edits.
+ * Declared in the descriptor so a consumer can offer the choice before a session exists.
+ */
+public interface AppliesTrustLevels : EngineFeature {
+    /** Typed trust key. */
+    public companion object : EngineFeatureKey<AppliesTrustLevels>(
+        EngineFeatureId("session.trust"),
+        AppliesTrustLevels::class,
+    )
+}
+
 /** Accepted image media types negotiated for the current model and route. */
 public interface AcceptsImages : EngineFeature {
     /** MIME types accepted by this route. */

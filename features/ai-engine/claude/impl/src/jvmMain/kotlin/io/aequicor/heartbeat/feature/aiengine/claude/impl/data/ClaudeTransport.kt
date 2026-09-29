@@ -241,10 +241,14 @@ internal class ProcessClaudeTransport(
     }
 }
 
+/**
+ * The CLI's own `WebSearch` runs at the provider and stays available next to the bridge tools. Its `WebFetch`
+ * would fetch from this device without the bridge's public-host check, so pages are read only through the bridge.
+ */
 internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
     arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it == "--tools=" } + listOf(
-        "--tools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
-        "--allowedTools=mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch",
+        "--tools=$CLAUDE_SEARCH_TOOLS",
+        "--allowedTools=$CLAUDE_SEARCH_TOOLS",
         "--mcp-config",
         config.toString(),
     )
@@ -326,3 +330,6 @@ private val HOST_ENVIRONMENT = setOf(
     "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
     "USER", "LOGNAME", "USERNAME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
 )
+
+private const val CLAUDE_SEARCH_TOOLS =
+    "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"

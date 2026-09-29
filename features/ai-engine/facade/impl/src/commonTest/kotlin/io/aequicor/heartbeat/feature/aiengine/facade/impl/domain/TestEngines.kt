@@ -120,6 +120,7 @@ internal fun registration(
     sources: List<EngineSessionSource> = emptyList(),
     features: Set<EngineFeatureId> = emptySet(),
     owner: AuthOwnerId = TestOwner,
+    modelCatalogRevision: Int = 0,
 ) = EngineRegistration(
     EngineDescriptor(
         id,
@@ -133,6 +134,7 @@ internal fun registration(
     lazyOf(factory),
     sources,
     setOf(AuthenticatorId("${id.value}.cli")),
+    modelCatalogRevision,
 )
 
 internal class FakeEngineToggles : EngineToggles {

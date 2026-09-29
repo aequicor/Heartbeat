@@ -26,6 +26,23 @@ class PiStorageTest {
     }
 
     @Test
+    fun `transcript is found by its native session id only`() {
+        val app = createTempDirectory("app")
+        val storage = PiStorage(StorageRootOf(app), app.resolve("missing-legacy"))
+        val sessions = sessionDirectory(createTempDirectory("profile"))
+        Files.createDirectories(sessions)
+        val id = "01a0eb5c-e7a1-7149-852f-2283519b0adb"
+        Files.writeString(sessions.resolve("2026-09-29T04-12-09-505Z_$id.jsonl"), "{}")
+        Files.writeString(sessions.resolve("2026-09-29T04-22-36-597Z_other.jsonl"), "{}")
+
+        val expected = sessions.resolve("2026-09-29T04-12-09-505Z_$id.jsonl").toString()
+        assertEquals(expected, storage.transcript(sessions, id))
+        assertEquals(null, storage.transcript(sessions, "missing"))
+        assertEquals(null, storage.transcript(sessions, "*"))
+        assertEquals(null, storage.transcript(sessions.resolve("absent"), id))
+    }
+
+    @Test
     fun `legacy home directory data is removed on first access`() {
         val app = createTempDirectory("app")
         val home = createTempDirectory("home")

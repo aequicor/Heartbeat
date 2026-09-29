@@ -8,6 +8,9 @@ public enum class ApprovalMode {
     /** Only read-only actions run without an explicit confirmation. */
     Ask,
 
+    /** File edits run without asking; commands and other actions with side effects still ask. */
+    AutoEdits,
+
     /** Every action runs without asking. */
     AutoApprove,
 }

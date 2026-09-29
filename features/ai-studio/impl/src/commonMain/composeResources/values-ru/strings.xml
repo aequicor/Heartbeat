@@ -77,6 +77,7 @@
     <string name="template_review_prompt">Проведи ревью изменений в </string>
     <string name="approval_menu">Подтверждения</string>
     <string name="approval_ask">Спрашивать разрешение</string>
+    <string name="approval_edits">Разрешать правки файлов</string>
     <string name="approval_auto">Подтверждать за меня</string>
     <string name="model_menu">Модель и рассуждение</string>
     <string name="effort_low">Быстро</string>

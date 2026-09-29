@@ -332,7 +332,11 @@ internal class CodexSession(
             // Any completion on the thread may be what an Unavailable session waits for.
             "turn/completed" -> if (turnId != null) complete(turnId, params.obj("turn")) else recheck()
 
-            "item/started", "item/completed" -> history.nativeItem(params.obj("item"), turnId)
+            "item/started", "item/completed" -> history.nativeItem(
+                params.obj("item"),
+                turnId,
+                isStarted = method == "item/started",
+            )
 
             "item/agentMessage/delta" -> history.delta(params, turnId)
 
