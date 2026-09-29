@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
+import io.aequicor.heartbeat.feature.searchengine.api.SearchException
+import io.aequicor.heartbeat.feature.searchengine.api.SearchFailure
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import io.aequicor.heartbeat.feature.searchengine.impl.data.LocalSearchBridge
 import kotlinx.coroutines.CoroutineScope
@@ -110,6 +112,39 @@ class LocalSearchBridgeTest {
             val second = CompletableFuture.supplyAsync { post(endpoint.origin, "/execute", body, endpoint.token) }
             assertTrue(first.get(20, TimeUnit.SECONDS).body().contains("\"success\":true"))
             assertTrue(second.get(20, TimeUnit.SECONDS).body().contains("\"success\":true"))
+        } finally {
+            profile.close()
+        }
+    }
+
+    @Test fun `execute endpoint renders a structured web_fetch failure`() {
+        val profile = TestScope()
+        val bridge = LocalSearchBridge(
+            object : SearchEngine {
+                override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
+                    emptyList()
+
+                override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
+                    throw SearchException(
+                        SearchFailure.Unavailable,
+                        "http_error 404 Not Found — url=$url — body: \"404: Not Found\"",
+                    )
+            },
+            profile,
+        )
+        try {
+            val endpoint = bridge.endpoint()
+            val response = post(
+                endpoint.origin,
+                "/execute",
+                """{"name":"web_fetch","arguments":{"url":"https://example.com/missing"}}""",
+                endpoint.token,
+            )
+            assertEquals(200, response.statusCode())
+            assertTrue(response.body().contains("\"success\":false"), response.body())
+            val expected = "web_fetch failed: http_error 404 Not Found — url=https://example.com/missing"
+            assertTrue(expected in response.body(), response.body())
+            assertTrue(response.body().contains("""body: \"404: Not Found\""""), response.body())
         } finally {
             profile.close()
         }

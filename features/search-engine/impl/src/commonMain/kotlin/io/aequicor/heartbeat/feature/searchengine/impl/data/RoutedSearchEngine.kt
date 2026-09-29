@@ -46,23 +46,55 @@ internal class RoutedSearchEngine(private val preferences: SearchOptions, privat
     }
 
     override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent {
-        if (!isPublicWebUrl(url)) throw SearchException(SearchFailure.InvalidInput)
-        if (preferences.nativePreferred()) {
-            val feature = (native?.resolve(NativeWebFetch) as? FeatureAccess.Available)?.feature
-            if (feature != null) {
-                try {
-                    val result = feature.fetch(url)
-                    if (isPublicWebUrl(result.url) && result.text.isNotBlank()) return result
-                    log.w { "Native page reader returned no usable content" }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log.w(e) { "Native page reader failed" }
-                }
-            }
+        requirePublicWebUrl(url)
+        val attempt = nativeAttempt(url, native)
+        if (attempt.content != null) return attempt.content
+        return try {
+            querit.fetch(url)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SearchException) {
+            // The provider error speaks about the provider, while a structured native verdict speaks about
+            // the requested URL and is what diagnoses the link, so the verdict wins when both paths fail.
+            throw attempt.failure?.takeIf { it.details != null } ?: e
         }
-        return querit.fetch(url)
     }
+
+    /** One native attempt: its content on success, or the structured failure to prefer over a provider one. */
+    private suspend fun nativeAttempt(url: String, native: EngineFeatures?): NativeAttempt {
+        if (!preferences.nativePreferred()) return NativeAttempt(null, null)
+        val feature = (native?.resolve(NativeWebFetch) as? FeatureAccess.Available)?.feature
+            ?: return NativeAttempt(null, null)
+        return try {
+            val result = feature.fetch(url)
+            if (isPublicWebUrl(result.url) && result.text.isNotBlank()) {
+                NativeAttempt(result, null)
+            } else {
+                log.w { "Native page reader returned no usable content" }
+                NativeAttempt(null, null)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SearchException) {
+            log.w(e) { "Native page reader failed" }
+            NativeAttempt(null, e)
+        } catch (e: Exception) {
+            log.w(e) { "Native page reader failed" }
+            NativeAttempt(null, null)
+        }
+    }
+
+    private fun invalidUrl(url: String): SearchException = SearchException(
+        SearchFailure.InvalidInput,
+        "invalid_url — url=$url — not a public http(s) address",
+    )
+
+    private fun requirePublicWebUrl(url: String) {
+        if (!isPublicWebUrl(url)) throw invalidUrl(url)
+    }
+
+    /** Result of one native read: exactly one of the fields is non-null after a completed attempt. */
+    private data class NativeAttempt(val content: ResourceContent?, val failure: SearchException?)
 
     private companion object {
         const val MAX_RESULTS = 20
