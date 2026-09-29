@@ -9,7 +9,12 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
@@ -31,6 +36,7 @@ import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -50,6 +56,7 @@ internal class LocalSearchBridge(
     private val scope = profile.coroutineScope
     private val bearer = ByteArray(TOKEN_BYTES).also(SecureRandom()::nextBytes)
     private val token = Base64.getUrlEncoder().withoutPadding().encodeToString(bearer)
+    private val attachments = CopyOnWriteArrayList<EngineFeatures>()
     private val lock = Any()
     private var server: HttpServer? = null
     private var executor: ExecutorService? = null
@@ -64,6 +71,21 @@ internal class LocalSearchBridge(
         check(!closed) { "Search bridge is closed" }
         val running = server ?: start()
         SearchBridgeEndpoint("http://127.0.0.1:${running.address.port}", token)
+    }
+
+    /** Live engines publish their native web operations here; the routed tools prefer them over the provider. */
+    override fun attach(features: EngineFeatures): SearchBridgeAttachment {
+        attachments.add(features)
+        log.i { "Native search features attached" }
+        return SearchBridgeAttachment {
+            if (attachments.remove(features)) log.i { "Native search features detached" }
+        }
+    }
+
+    /** Composite of the live attachments, or null while no engine has published native operations. */
+    private fun attachedFeatures(): EngineFeatures? {
+        val snapshot = attachments.toList()
+        return if (snapshot.isEmpty()) null else AttachedFeatures(snapshot)
     }
 
     private fun start(): HttpServer {
@@ -261,7 +283,7 @@ internal class LocalSearchBridge(
                 val query = (args["query"] as? JsonPrimitive)?.content.orEmpty()
                 val count = ((args["count"] as? JsonPrimitive)?.intOrNull ?: DEFAULT_COUNT).coerceIn(1, MAX_COUNT)
                 JsonArray(
-                    search.search(query, count).map { result ->
+                    search.search(query, count, attachedFeatures()).map { result ->
                         buildJsonObject {
                             put("url", result.url)
                             put("title", result.title)
@@ -273,7 +295,7 @@ internal class LocalSearchBridge(
 
             "web_fetch" -> {
                 val url = (args["url"] as? JsonPrimitive)?.content.orEmpty()
-                val result = search.fetch(url)
+                val result = search.fetch(url, attachedFeatures())
                 buildJsonObject {
                     put(
                         "url",
@@ -337,6 +359,21 @@ internal class LocalSearchBridge(
         const val REQUEST_TIMEOUT_SECONDS = 60L
         const val DEFAULT_COUNT = 5
         const val MAX_COUNT = 20
+    }
+}
+
+/** Routes each feature lookup to the first attachment providing it; blocked access survives only if none does. */
+private class AttachedFeatures(private val owners: List<EngineFeatures>) : EngineFeatures {
+    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
+        var blocked: FeatureAccess.Unavailable? = null
+        for (owner in owners) {
+            when (val access = owner.resolve(key)) {
+                is FeatureAccess.Available -> return access
+                is FeatureAccess.Unavailable -> if (blocked == null) blocked = access
+                FeatureAccess.Unsupported -> Unit
+            }
+        }
+        return blocked ?: FeatureAccess.Unsupported
     }
 }
 

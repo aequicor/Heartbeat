@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
+import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,6 +46,7 @@ internal class PiRuntime(
     private val environment: PiSessionEnvironment,
     private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
+    private val nativeWeb: PiNativeWeb,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -59,7 +61,8 @@ internal class PiRuntime(
 
     @Volatile var isClosed: Boolean = false
         private set
-    override val features: EngineFeatures = PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this))
+    override val features: EngineFeatures =
+        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to nativeWeb))
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {

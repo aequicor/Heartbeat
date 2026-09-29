@@ -16,7 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
+import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -30,12 +32,14 @@ import java.security.MessageDigest
 import java.util.Comparator
 import java.util.HexFormat
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @Inject
 internal class PiProcessLauncher(
     private val dispatchers: DispatcherProvider,
     private val secrets: SecretStore,
     private val searchBridge: SearchBridge,
+    private val nativeWeb: PiNativeWeb,
     private val catalog: PiCompatibleCatalog,
     private val builtin: PiBuiltinCatalog,
     private val toggles: FeatureToggles,
@@ -45,6 +49,7 @@ internal class PiProcessLauncher(
 ) {
     private val log = Log.tag("PiProcessLauncher")
     private val isMissingResourcesReported = AtomicBoolean(false)
+    private val nativeSearch = AtomicReference<SearchBridgeAttachment?>(null)
 
     fun executable(): Path? {
         val root = System.getProperty("compose.application.resources.dir")
@@ -139,6 +144,7 @@ internal class PiProcessLauncher(
                 val endpoint = searchBridge.endpoint()
                 environment["HEARTBEAT_SEARCH_BRIDGE_URL"] = endpoint.origin
                 environment["HEARTBEAT_SEARCH_BRIDGE_TOKEN"] = endpoint.token
+                attachNativeSearch()
             }
             extensions.forEach { installExtension(it.fileName.toString(), it) }
             modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
@@ -161,6 +167,18 @@ internal class PiProcessLauncher(
             piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         } finally {
             environment.remove(provider.variable)
+        }
+    }
+
+    /**
+     * Publishes Pi's native page reader on the bridge once per profile, so bridge tools can prefer it over
+     * the Querit provider. The reader is in-process and stays published while the profile lives.
+     */
+    private fun attachNativeSearch() = synchronized(nativeSearch) {
+        if (nativeSearch.get() == null) {
+            nativeSearch.set(searchBridge.attach(PiFeatures(listOf(NativeWebFetch to nativeWeb))))
+            profile.onClose { nativeSearch.getAndSet(null)?.detach() }
+            log.i { "Pi native web reader attached to the search bridge" }
         }
     }
 
