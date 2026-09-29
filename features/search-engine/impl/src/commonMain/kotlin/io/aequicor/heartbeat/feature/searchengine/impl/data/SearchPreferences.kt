@@ -56,7 +56,7 @@ internal class SearchPreferences(
             host = host(SearchOperation.Contents),
             hasKey = hasKey(SearchOperation.Contents),
         ),
-        preferNative = store.get(preferNative) ?: true,
+        isNativePreferred = store.get(preferNative) ?: true,
     )
 
     override suspend fun setHost(operation: SearchOperation, host: String) {

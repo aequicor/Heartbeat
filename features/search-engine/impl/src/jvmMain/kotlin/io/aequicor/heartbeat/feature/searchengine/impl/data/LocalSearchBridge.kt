@@ -53,7 +53,7 @@ internal class LocalSearchBridge(
     private val lock = Any()
     private var server: HttpServer? = null
     private var executor: ExecutorService? = null
-    private var closed = false
+    private var isClosed = false
 
     init {
         profile.onClose(::stop)
@@ -61,7 +61,7 @@ internal class LocalSearchBridge(
 
     /** Starts the loopback server on first use; a closed profile never restarts it. */
     override fun endpoint(): SearchBridgeEndpoint = synchronized(lock) {
-        check(!closed) { "Search bridge is closed" }
+        check(!isClosed) { "Search bridge is closed" }
         val running = server ?: start()
         SearchBridgeEndpoint("http://127.0.0.1:${running.address.port}", token)
     }
@@ -99,7 +99,7 @@ internal class LocalSearchBridge(
 
     private fun stop() {
         val (running, pool) = synchronized(lock) {
-            closed = true
+            isClosed = true
             (server to executor).also {
                 server = null
                 executor = null

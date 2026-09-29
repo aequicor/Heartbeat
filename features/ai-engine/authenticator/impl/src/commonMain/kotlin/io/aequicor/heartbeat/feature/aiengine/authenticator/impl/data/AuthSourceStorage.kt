@@ -58,7 +58,7 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
 
     override suspend fun store(slot: AuthSecretId, key: Secret) {
         log.d { "store managed key id=${slot.value}" }
-        val existed = slot.key() in secrets.keys()
+        val hasExisted = slot.key() in secrets.keys()
         secrets.write(slot.key(), key)
         try {
             secrets.bind(slot.usage(), slot.key())
@@ -66,7 +66,7 @@ class SecretStoreKeyVault(private val secrets: SecretStore) :
             throw e
         } catch (e: Exception) {
             log.w(e) { "bind failed id=${slot.value}" }
-            if (!existed) rollbackWrite(slot, e)
+            if (!hasExisted) rollbackWrite(slot, e)
             throw e
         }
     }

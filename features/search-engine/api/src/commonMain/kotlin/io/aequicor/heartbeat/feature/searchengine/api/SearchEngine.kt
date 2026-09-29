@@ -65,7 +65,7 @@ public data class SearchConnection(
 public data class SearchSettings(
     public val search: SearchConnection = SearchConnection(),
     public val contents: SearchConnection = SearchConnection(),
-    public val preferNative: Boolean = true,
+    public val isNativePreferred: Boolean = true,
 )
 
 /** Profile-owned configuration. A supplied [Secret] remains caller-owned and must be closed by the caller. */
