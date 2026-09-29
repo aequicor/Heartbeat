@@ -38,6 +38,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
@@ -73,6 +75,9 @@ internal class KoogTestFixture(test: TestScope) {
     )
     var isEnabled = true
     var isSearchEnabled = true
+    var isCodingEnabled = true
+    var isAutoApprove = true
+    var workspace: KoogWorkspace? = null
     var modelSupportsTools = true
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
@@ -80,7 +85,12 @@ internal class KoogTestFixture(test: TestScope) {
     private val toggles = object : FeatureToggles {
         @Suppress("UNCHECKED_CAST") // Fixture only supplies boolean switches.
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
-            (if (toggle == SearchEngineTools) isSearchEnabled else isEnabled) as T
+            when (toggle) {
+                SearchEngineTools -> isSearchEnabled
+                KoogCodingTools -> isCodingEnabled
+                KoogAutoApprove -> isAutoApprove
+                else -> isEnabled
+            } as T
         override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
     }
     val reasoningStore = MemoryReasoningStore()
@@ -123,7 +133,14 @@ internal class KoogTestFixture(test: TestScope) {
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
             fetchedResource ?: error("unavailable")
     }
-    val adapter = DefaultKoogEngineAdapter(access, records, KoogSessionCache(profile), search, profile)
+    val adapter = DefaultKoogEngineAdapter(
+        access,
+        records,
+        KoogSessionCache(profile),
+        search,
+        { workspace },
+        profile,
+    )
     val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)
 
     suspend fun runtime(): KoogRuntime = adapter.createRuntime(identity) as KoogRuntime

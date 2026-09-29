@@ -31,6 +31,8 @@ lint/            detekt-rules — собственный набор правил
 > `facade:impl` — каталог движков и привязок, выбор движка по умолчанию, модели, Room-индекс сессий, пул runtime, `ActiveSession` на машине.
 > Адаптер `koog:{api,impl}` (OpenAI, Anthropic, OpenAI-/Anthropic-совместимые серверы по HTTPS или loopback, локальный Ollama, потоковые текстовые сессии, история и подключения профиля)
 > подключён в DI, включение — тогл `ai.koog` (по умолчанию false).
+> Кодинг-сессии Koog (только Desktop, тогл `ai.koog.coding_tools`): сессия на проекте получает файловые инструменты и `run_command`
+> в корне проекта; запись и команды — автоматически (тогл `ai.koog.auto_approve`, по умолчанию true) или через подтверждение `session.permissions`.
 > Локальный Desktop-адаптер `codex:{api,impl}` — app-server, сессии, текстовый стриминг, отмена и approvals (тогл `ai.codex`).
 > `claude:{api,impl}` — desktop Claude Code CLI, профильный runtime текстовых сессий, CLI-авторизация, обнаружение моделей,
 > частичная история наблюдённых ходов (тогл `ai.claude`, по умолчанию false); внешняя история CLI и tools/permissions пока нет.

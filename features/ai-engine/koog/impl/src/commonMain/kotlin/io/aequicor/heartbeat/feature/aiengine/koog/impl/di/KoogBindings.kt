@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -28,6 +29,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAuthOwner
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineAdapter
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
@@ -48,6 +51,16 @@ public object KoogToggleBindings {
     @Provides
     @IntoSet
     public fun reasoningCatalog(): FeatureToggle<*> = KoogReasoningCatalogEnabled
+
+    /** Registers the disabled-by-default Desktop coding tools switch. */
+    @Provides
+    @IntoSet
+    public fun codingTools(): FeatureToggle<*> = KoogCodingTools
+
+    /** Registers the approval mode of coding tools, automatic by default. */
+    @Provides
+    @IntoSet
+    public fun autoApprove(): FeatureToggle<*> = KoogAutoApprove
 }
 
 /** Lazy registration: descriptor lookup never resolves secrets, creates a client or reads storage. */
@@ -94,6 +107,7 @@ public object KoogBindings {
                 SendsPrompts.id,
                 CancelsTurns.id,
                 SessionHistory.id,
+                RequestsPermissions.id,
                 ResumesSessions.id,
                 ListsSessions.id,
             ),

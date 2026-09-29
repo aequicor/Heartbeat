@@ -74,6 +74,7 @@ internal class DefaultKoogEngineAdapter(
     private val records: KoogSessionRecords,
     private val cache: KoogSessionCache,
     private val search: SearchEngine,
+    private val workspaces: KoogWorkspaces,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : KoogEngineAdapter {
     private val log = Log.tag("KoogEngine")
@@ -142,7 +143,7 @@ internal class DefaultKoogEngineAdapter(
             current?.close()
             access.checkEnabled()
             log.i { "Creating profile runtime" }
-            KoogRuntime(identity, access, records, profile.coroutineScope, cache, search).also {
+            KoogRuntime(identity, access, records, profile.coroutineScope, cache, search, workspaces).also {
                 runtimes[identity.source] = it
             }
         }

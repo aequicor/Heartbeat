@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
+import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnections
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
@@ -66,6 +68,12 @@ internal class KoogAccess(
 
     /** Whether search tools may be offered to models (toggle `search.engine_tools`). */
     suspend fun searchToolsEnabled(): Boolean = toggles.get(SearchEngineTools)
+
+    /** Whether sessions on a local project get coding tools (toggle `ai.koog.coding_tools`). */
+    suspend fun codingToolsEnabled(): Boolean = toggles.get(KoogCodingTools)
+
+    /** Whether mutating coding tools run without asking (toggle `ai.koog.auto_approve`). */
+    suspend fun autoApprove(): Boolean = toggles.get(KoogAutoApprove)
 
     suspend fun checkEnabled() {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
