@@ -31,11 +31,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -372,15 +371,20 @@ internal class CodexSession(
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
         scope.coroutineScope.launch(parent) {
-            val result = try {
-                executeSearchTool(runtime.host.search, tool, arguments)
-            } catch (e: CancellationException) {
-                log.i { "Codex tool call cancelled with its turn" }
-                withContext(NonCancellable) { respondQuietly(id, toolFailureResult("Cancelled")) }
-                throw e
+            // The tool reports its own failures. A call cancelled with its turn or by its provider is still
+            // answered, a fatal error propagates unanswered: only the completion cause tells them apart.
+            val onCancelled = coroutineContext.job.invokeOnCompletion { cause ->
+                if (cause is CancellationException) answerCancelled(id)
             }
+            val result = executeSearchTool(runtime.host.search, tool, arguments)
+            onCancelled.dispose()
             respondQuietly(id, result)
         }
+    }
+
+    private fun answerCancelled(id: JsonElement) {
+        log.i { "Codex tool call cancelled with its turn" }
+        scope.coroutineScope.launch { respondQuietly(id, toolFailureResult("Cancelled")) }
     }
 
     private suspend fun respondQuietly(id: JsonElement, result: JsonObject) {

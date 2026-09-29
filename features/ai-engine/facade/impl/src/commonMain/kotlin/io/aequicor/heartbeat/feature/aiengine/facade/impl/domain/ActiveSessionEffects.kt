@@ -22,8 +22,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlin.coroutines.cancellation.CancellationException
@@ -115,15 +113,14 @@ class ActiveSessionEffects(private val native: ActiveSession, commands: Coroutin
     private suspend fun <T> handOff(operation: String, block: suspend () -> T): T {
         if (!handOffJob.isActive) fail(closedFailure(operation))
         val command = handOffs.async { logged(operation, block) }
-        return try {
-            command.await()
-        } catch (e: CancellationException) {
-            // Our own cancellation (state left) propagates; only the handoff scope's cancellation is translated.
-            currentCoroutineContext().ensureActive()
-            if (handOffJob.isActive) throw e
-            log.w(e) { "native $operation dropped, handoff scope ended" }
+        // join throws only on our own cancellation (state left); a command the ended handoff scope did not let
+        // complete is translated (logged already recorded a native failure), anything else is rethrown by await.
+        command.join()
+        if (command.isCancelled && !handOffJob.isActive) {
+            log.w { "native $operation dropped, handoff scope ended" }
             fail(closedFailure(operation))
         }
+        return command.await()
     }
 
     private suspend fun <T> logged(operation: String, block: suspend () -> T): T = try {
