@@ -44,7 +44,14 @@ internal class PiProcessLauncher(
     private val log = Log.tag("PiProcessLauncher")
 
     fun executable(): Path? {
-        val root = System.getProperty("compose.application.resources.dir") ?: return null
+        val root = System.getProperty("compose.application.resources.dir")
+        if (root == null) {
+            log.w {
+                "Bundled Pi resources are not attached: compose.application.resources.dir is unset. " +
+                    "Launch through Gradle (:platform-main:desktop:run) or an installed distribution."
+            }
+            return null
+        }
         val name = if (System.getProperty("os.name").startsWith("Windows")) "pi.exe" else "pi"
         return Path.of(root, "pi", name)
     }
