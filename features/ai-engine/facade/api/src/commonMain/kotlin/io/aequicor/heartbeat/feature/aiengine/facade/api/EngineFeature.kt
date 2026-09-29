@@ -112,6 +112,19 @@ public interface RequestsPermissions : EngineFeature {
     )
 }
 
+/**
+ * Marker: the session applies [PromptRequest.trust] to its tool approvals. Actions the level does not cover still
+ * surface through [RequestsPermissions]. Declared in the descriptor so a consumer can offer the choice before
+ * a session exists.
+ */
+public interface AppliesTrustLevels : EngineFeature {
+    /** Typed trust key. */
+    public companion object : EngineFeatureKey<AppliesTrustLevels>(
+        EngineFeatureId("session.trust"),
+        AppliesTrustLevels::class,
+    )
+}
+
 /** Accepted image media types negotiated for the current model and route. */
 public interface AcceptsImages : EngineFeature {
     /** MIME types accepted by this route. */

@@ -78,12 +78,30 @@ public data class PromptRequest(
      * Adapters reject unsupported overrides before acceptance instead of silently ignoring them.
      */
     val reasoningEffort: String? = null,
+    /**
+     * How the engine answers its own tool approvals during this turn; null preserves the engine's default.
+     * Send it only to engines that declare [AppliesTrustLevels]; others do not interpret it.
+     */
+    val trust: TrustLevel? = null,
 ) {
     init {
         require(parts.isNotEmpty())
         require(reasoningEffort == null || reasoningEffort.isNotBlank())
     }
     override fun toString(): String = "PromptRequest(id=$id, parts=${parts.size})"
+}
+
+/** How much the user trusts the agent with actions that have side effects. Read-only actions never ask. */
+@Serializable
+public enum class TrustLevel {
+    /** Every action with side effects waits for an explicit user decision. */
+    Ask,
+
+    /** File edits run without asking; commands and other actions with side effects still ask. */
+    AutoEdits,
+
+    /** Every action runs without asking. */
+    Full,
 }
 
 /** Final outcome, recorded once per accepted turn. */
