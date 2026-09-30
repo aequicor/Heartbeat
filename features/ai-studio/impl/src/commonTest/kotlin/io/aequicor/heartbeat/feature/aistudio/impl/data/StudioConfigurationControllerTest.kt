@@ -92,8 +92,7 @@ class StudioConfigurationControllerTest {
         val applied = assertIs<FeedbackOutcome.Applied>(fixture.registry.publications.last().outcome)
         assertEquals("low", applied.configuration.reasoningEffort)
         assertEquals("low", fixture.access.records.getValue("chat").configuration?.reasoningEffort)
-        val preference = fixture.registry.intents.filterIsInstance<EffortConfigurationIntent.Public.Select>().single()
-        assertEquals("low", preference.effort)
+        assertTrue(fixture.registry.intents.filterIsInstance<EffortConfigurationIntent.Public.Select>().isEmpty())
     }
 
     @Test
@@ -211,8 +210,7 @@ class StudioConfigurationControllerTest {
         runCurrent()
         assertEquals(null, fixture.access.records.getValue("chat").configuration?.reasoningEffort)
         assertEquals(failure, assertIs<FeedbackOutcome.Failed>(fixture.registry.publications.last().outcome).failure)
-        val preference = fixture.registry.intents.filterIsInstance<EffortConfigurationIntent.Public.Select>().last()
-        assertEquals(null, preference.effort)
+        assertTrue(fixture.registry.intents.filterIsInstance<EffortConfigurationIntent.Public.Select>().isEmpty())
     }
 
     @Test

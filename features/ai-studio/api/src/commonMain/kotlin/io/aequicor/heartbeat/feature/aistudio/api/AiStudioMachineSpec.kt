@@ -29,7 +29,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | OpenBeside | | Ready (second pane, focused) | Apply(SetUnread(false)) for sessions |
  * | Ready | ClosePane | several panes | Ready (pane removed) | |
  * | Ready | FocusPane | another open pane | Ready | |
- * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
+ * | Ready | UpdateSettings | | Ready (new-conversation preferences, revision + 1) | SaveSettings |
+ * | Ready | SettingsSaveFailed | | Ready (in-memory preferences retained) | |
  * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
@@ -54,7 +55,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * another pane preserves the pending request, and already started runs survive all Ready navigation.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
- * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed; failed Apply,
+ * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed,
+ * SaveSettings → SettingsSaveFailed; failed Apply,
  * ObserveModels and
  * ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
  * process restores stored chats while the transient pane machine starts afresh.
@@ -112,7 +114,21 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ObserveAvailability }
             }
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { intent.isEnabled })
-            on<AiStudioIntent.Public.UpdateSettings> { stay { state.copy(settings = intent.settings) } }
+            on<AiStudioIntent.Public.UpdateSettings> {
+                stay {
+                    state.copy(
+                        settings = intent.settings,
+                        settingsVersion = state.settingsVersion.copy(revision = state.settingsVersion.revision + 1),
+                    )
+                }
+                effect {
+                    AiStudioEffect.SaveSettings(
+                        intent.settings,
+                        state.settingsVersion.copy(revision = state.settingsVersion.revision + 1),
+                    )
+                }
+            }
+            on<AiStudioIntent.Internal.SettingsSaveFailed>()
             on<AiStudioIntent.Public.ChangeSessionSetting>(guard = {
                 state.panes.any { it.sessionId == intent.sessionId } &&
                     state.configurations[intent.sessionId]?.pendingOperation == null &&
@@ -128,6 +144,8 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
         onEffectFailure { effect, _ ->
             when (effect) {
                 AiStudioEffect.Load -> AiStudioIntent.Internal.LoadFailed
+
+                is AiStudioEffect.SaveSettings -> AiStudioIntent.Internal.SettingsSaveFailed
 
                 is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(
                     effect.paneId,
@@ -369,6 +387,7 @@ private fun initialWorkspace(defaults: StudioDefaults): AiStudioState.Ready = Ai
     panes = listOf(StudioPane(id = 0, projectId = defaults.projectId)),
     focusedPaneId = 0,
     settings = defaults.settings,
+    settingsVersion = defaults.settingsVersion,
     defaultProjectId = defaults.projectId,
 )
 

@@ -71,7 +71,7 @@ class ModelCatalogService(
             val entry = if (isBound) entries.find(engine, binding) else null
             if (entry != null && entry.isOutdated()) upgrade(engine, binding)
             snapshot(entry)
-        }.stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null))
+        }.stateIn(context.scope, SharingStarted.WhileSubscribed(), snapshot(null).copy(isLoaded = false))
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot {
         log.i { "discover models engine=${engine.value} binding=${binding.value}" }

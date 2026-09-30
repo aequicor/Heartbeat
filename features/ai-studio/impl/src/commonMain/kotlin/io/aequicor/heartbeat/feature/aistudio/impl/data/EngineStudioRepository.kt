@@ -58,11 +58,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -71,6 +73,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import kotlinx.coroutines.CancellationException
@@ -146,6 +149,7 @@ internal class EngineStudioRepository(
     private val efforts: EffortChoicesView,
     private val usage: EngineStudioUsage,
     private val configurations: StudioConfigurationController,
+    private val preferences: StudioPreferences,
 ) : StudioRepository,
     StudioRuntime,
     StudioConfigurationAccess {
@@ -299,9 +303,15 @@ internal class EngineStudioRepository(
         log.d { "Read model defaults" }
         val selection = selections.observe().first()
         val target = selection.defaultTarget
-        return DefaultRunSettings.copy(
-            modelId = target?.let { Json.encodeToString(EngineTarget.serializer(), it) }.orEmpty(),
+        efforts.state.first { it is EffortConfigurationState.Ready }
+        return preferences.load(
+            DefaultRunSettings.copy(modelId = target?.studioModelId().orEmpty()),
         )
+    }
+
+    override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
+        log.d { "Save start-page preferences revision=${version.revision}" }
+        preferences.save(settings, version)
     }
 
     override suspend fun defaultProjectId(): String? {
