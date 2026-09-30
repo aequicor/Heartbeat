@@ -35,6 +35,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
@@ -304,15 +306,52 @@ class AiStudioModelTest {
         assertEquals("", screen.states.value.draft(1))
     }
 
-    private class Fixture(private val scope: TestScope, initial: AiStudioState) {
+    @Test
+    fun `usage observation follows confirmed visible model changes before chat metadata is saved`() = runTest {
+        val old = "old-model"
+        val next = "confirmed-model"
+        val stored = "stored-model"
+        val workspace = StudioWorkspace(
+            emptyList(),
+            listOf(
+                StudioSession("s-facade", null, "Changed", TestClock(this).now(), modelId = old),
+                StudioSession("fallback", null, "Stored", TestClock(this).now(), modelId = stored),
+                StudioSession("hidden", null, "Hidden", TestClock(this).now(), modelId = "hidden-model"),
+            ),
+        )
+        val repository = object : StudioRepository by InMemoryStudioRepository(TestClock(this)) {
+            override fun observeWorkspace() = flowOf(workspace)
+        }
+        val initial = ready.copy(panes = listOf(StudioPane(0, "s-facade"), StudioPane(1, "fallback")))
+        val fixture = Fixture(this, initial, repository)
+        fixture.subscribe()
+        assertEquals(
+            setOf(initial.settings.modelId, old, stored),
+            fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.ObserveUsageTargets>().last().modelIds,
+        )
+        fixture.machine.state.value = initial.copy(
+            configurations = mapOf(
+                "s-facade" to StudioSessionConfiguration(StudioSessionSettings(next, null, ApprovalMode.Ask)),
+            ),
+        )
+        runCurrent()
+        assertEquals(
+            setOf(initial.settings.modelId, next, stored),
+            fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.ObserveUsageTargets>().last().modelIds,
+        )
+    }
+
+    private class Fixture(
+        private val scope: TestScope,
+        initial: AiStudioState,
+        repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
+    ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
         val isResearchEnabled = MutableStateFlow(false)
         val model = AiStudioModel(
             machine = machine,
             backend = object : StudioBackend {
-                private val repository = InMemoryStudioRepository(TestClock(scope))
-
                 override suspend fun repository(): StudioRepository = repository
 
                 override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = EffectHandler.None

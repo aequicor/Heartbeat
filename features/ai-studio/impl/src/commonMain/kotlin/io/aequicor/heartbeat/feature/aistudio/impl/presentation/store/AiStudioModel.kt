@@ -129,7 +129,10 @@ class AiStudioModel(
                     buildSet {
                         add(ready.settings.modelId)
                         val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
-                        workspace.sessions.filter { it.id in visible }.mapNotNullTo(this) { it.modelId }
+                        visible.forEach { id ->
+                            val model = ready.configurations[id]?.applied?.modelId ?: workspace.session(id)?.modelId
+                            model?.let { add(it) }
+                        }
                     }.filterTo(mutableSetOf()) { it.isNotBlank() }
                 }
             }.distinctUntilChanged().collect { ids ->
