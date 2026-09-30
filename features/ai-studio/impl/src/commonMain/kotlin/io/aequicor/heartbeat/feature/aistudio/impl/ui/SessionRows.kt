@@ -94,10 +94,12 @@ internal class SessionRows(
             selectedForeground = HbTheme.surfaces.onSelected,
             contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
-            if (isActive || isMenuOpen) {
-                SessionHoverActions(session, rowKey, isMenuOpen)
-            } else {
+            val areActionsVisible = isActive || isMenuOpen
+            if (session.isRunning || !areActionsVisible) {
                 SessionIndicator(session)
+            }
+            if (areActionsVisible) {
+                SessionHoverActions(session, rowKey, isMenuOpen)
             }
         }
     }
@@ -136,7 +138,7 @@ private fun SessionIndicator(session: SessionUi) {
     val foreground = if (session.isUnread) HbTheme.surfaces.accent else HbTheme.colors.textSecondary
     Box(Modifier.size(HbTheme.dimensions.navigationRowHeight), contentAlignment = Alignment.Center) {
         when {
-            session.isRunning -> HbActivityIndicator()
+            session.isRunning -> HbActivityIndicator(Modifier.testTag("session-running-${session.id}"))
 
             session.isUnread -> Box(
                 Modifier.size(dimensions.statusDotSize).background(foreground, CircleShape),
