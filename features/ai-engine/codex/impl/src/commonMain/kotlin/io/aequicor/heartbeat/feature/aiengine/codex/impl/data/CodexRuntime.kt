@@ -223,6 +223,7 @@ internal class CodexRuntime(
                     if (existing.route != route || existing.target != target) {
                         fail(EngineFailure.Session(SessionFailureReason.Changed))
                     }
+                    existing.refreshHistory()
                     existing.lease().also { existing.recheck() }
                 } else {
                     isOpening = true
@@ -244,7 +245,7 @@ internal class CodexRuntime(
         val id = thread.text("id") ?: protocolFailure()
         if (nativeId != null && nativeId != id) protocolFailure()
         if (thread.text("modelProvider")?.let { it != "openai" } == true) protocolFailure()
-        val turns = thread["turns"] as? JsonArray
+        val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
         validateIdle(thread, turns.orEmpty())
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
@@ -254,7 +255,15 @@ internal class CodexRuntime(
             rpc,
         )
         try {
-            session.load(turns, isNew = nativeId == null)
+            val isUnpaged = listOf("turnsBackwardsCursor", "itemsBackwardsCursor").all { field ->
+                val cursor = response[field]
+                cursor == null || cursor == JsonNull
+            }
+            session.load(
+                turns,
+                isNew = nativeId == null,
+                isCanonical = thread.text("historyMode") == "paginated" && isUnpaged,
+            )
         } catch (e: EngineException) {
             session.shutdown(e.failure)
             throw e
