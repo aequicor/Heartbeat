@@ -83,6 +83,9 @@ internal class KoogTestFixture(test: TestScope) {
     var workspace: KoogWorkspace? = null
     var modelSupportsTools = true
     var modelContextLength: Long? = null
+    var availableModels = listOf("test-model")
+    var toolsByModel = emptyMap<String, Boolean>()
+    val openedModels = mutableListOf<String?>()
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
     val secrets = FakeSecrets()
@@ -124,12 +127,17 @@ internal class KoogTestFixture(test: TestScope) {
                 basePath: String?,
             ): KoogClient {
                 opens++
+                openedModels += model
                 return KoogClient(executor) {
                     beforeModels()
-                    val capabilities = if (modelSupportsTools) listOf(LLMCapability.Tools) else emptyList()
-                    listOf(
-                        LLModel(provider.llmProvider, "test-model", capabilities, contextLength = modelContextLength),
-                    )
+                    availableModels.map { id ->
+                        val capabilities = if (toolsByModel[id] ?: modelSupportsTools) {
+                            listOf(LLMCapability.Tools)
+                        } else {
+                            emptyList()
+                        }
+                        LLModel(provider.llmProvider, id, capabilities, contextLength = modelContextLength)
+                    }
                 }
             }
         },
@@ -138,9 +146,12 @@ internal class KoogTestFixture(test: TestScope) {
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null
+    var beforeSearch: suspend () -> Unit = {}
     val search = object : SearchEngine {
-        override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> =
-            searchResults
+        override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+            beforeSearch()
+            return searchResults
+        }
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent =
             fetchedResource ?: error("unavailable")
     }
@@ -199,12 +210,14 @@ internal class FakeExecutor : PromptExecutor() {
     val frames = Channel<StreamFrame>(Channel.UNLIMITED)
     val prompts = mutableListOf<Prompt>()
     val tools = mutableListOf<List<ToolDescriptor>>()
+    val models = mutableListOf<LLModel>()
     var closed = 0
     var failure: Exception? = null
     var nextFailure: Exception? = null
     override fun executeStreaming(prompt: Prompt, model: LLModel, tools: List<ToolDescriptor>): Flow<StreamFrame> =
         flow {
             prompts += prompt
+            models += model
             this@FakeExecutor.tools += tools
             failure?.let { throw it }
             nextFailure?.let {
