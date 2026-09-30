@@ -28,7 +28,7 @@ class ClaudeHistoryTest {
     fun `watch replays events that happened after atomic page checkpoint`() = runTest {
         val history = ClaudeHistory()
         val checkpoint = history.page().checkpoint
-        repeat(2) { history.item(TurnId("turn")) { SessionItem.Notice(it, "update") } }
+        repeat(2) { history.item(TurnId("turn")) { info -> SessionItem.Notice(info, "update") } }
         val events = history.watch(checkpoint).take(2).toList()
         assertEquals(2, events.size)
         events.forEach { assertIs<SessionEvent.ItemUpserted>(it) }
@@ -39,7 +39,7 @@ class ClaudeHistoryTest {
         val history = ClaudeHistory()
         assertIs<SessionEvent.HistoryInvalidated>(history.watch(HistoryCheckpoint("old-runtime:2")).toList().single())
         val checkpoint = history.page().checkpoint
-        repeat(300) { history.item(TurnId("turn")) { SessionItem.Notice(it, "update") } }
+        repeat(300) { history.item(TurnId("turn")) { info -> SessionItem.Notice(info, "update") } }
         assertIs<SessionEvent.HistoryInvalidated>(history.watch(checkpoint).toList().single())
     }
 
@@ -47,7 +47,7 @@ class ClaudeHistoryTest {
     fun `history is bounded by total text size, keeping the newest items`() = runTest {
         val history = ClaudeHistory()
         val chunk = "x".repeat((MAX_ITEM_CHARS / 4).toInt())
-        repeat(6) { history.item(TurnId("turn")) { SessionItem.Notice(it, chunk) } }
+        repeat(6) { history.item(TurnId("turn")) { info -> SessionItem.Notice(info, chunk) } }
         val page = history.page(HistoryPageRequest(limit = 100))
         assertEquals(listOf(2L, 3L, 4L, 5L), page.items.map { it.info.position })
     }

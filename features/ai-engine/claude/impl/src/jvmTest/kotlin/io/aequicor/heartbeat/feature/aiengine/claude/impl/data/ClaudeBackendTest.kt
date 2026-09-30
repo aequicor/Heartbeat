@@ -36,7 +36,7 @@ class ClaudeBackendTest {
     private val context = EngineContext(ClaudeEngine.Id, testTarget.binding)
 
     private fun ClaudeFixture.backend(scope: CoroutineScope) =
-        JvmClaudeBackend(transport, account, toggles, TestProfileHandle(scope))
+        JvmClaudeBackend(transport, account, toggles, TestProfileHandle(scope), catalog)
 
     private suspend fun ClaudeFixture.identity() =
         RuntimeIdentity(ClaudeEngine.Id, ClaudeEngine.AuthSource, account.inspect().check.revision)
@@ -44,7 +44,7 @@ class ClaudeBackendTest {
     @Test
     fun `disabled toggle stops login inspection before the CLI runs`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
-        fixture.toggles.enabled = false
+        fixture.toggles.isEnabled = false
         val error = assertFailsWith<EngineException> { fixture.backend(backgroundScope).inspect() }
         assertEquals(EngineFailure.Access(AccessFailureReason.OperationNotAllowed), error.failure)
         assertTrue(fixture.transport.calls.isEmpty())
@@ -70,7 +70,7 @@ class ClaudeBackendTest {
             backend.checkRequirements(),
         )
 
-        fixture.toggles.enabled = false
+        fixture.toggles.isEnabled = false
         val calls = fixture.transport.calls.size
         assertEquals(
             EngineAvailability.Unavailable(EngineFailure.Access(AccessFailureReason.OperationNotAllowed)),
@@ -102,8 +102,8 @@ class ClaudeBackendTest {
         assertEquals(retired.failure, rejected.failure)
         val command = assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
         assertEquals(retired.failure, command.failure)
-        val missing = assertFailsWith<EngineException> { backend.session(session.ref) }
-        assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), missing.failure)
+        val unavailable = assertFailsWith<EngineException> { backend.session(session.ref) }
+        assertEquals(retired.failure, unavailable.failure)
         second.close()
     }
 

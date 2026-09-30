@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -22,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -55,6 +58,7 @@ public object ClaudeBindings {
                     ClaudeEngine.AuthLocation,
                 ),
             ),
+            isLocalWorkspaceSupported = true,
             declaredFeatures = setOf(
                 ReportsProviderUsage.id,
                 SessionContextUsage.id,
@@ -63,6 +67,9 @@ public object ClaudeBindings {
                 SendsPrompts.id,
                 SessionHistory.id,
                 ReconcilesSession.id,
+                CancelsTurns.id,
+                RequestsPermissions.id,
+                AppliesTrustLevels.id,
             ),
         ),
         authOwner = ClaudeEngine.AuthOwner,

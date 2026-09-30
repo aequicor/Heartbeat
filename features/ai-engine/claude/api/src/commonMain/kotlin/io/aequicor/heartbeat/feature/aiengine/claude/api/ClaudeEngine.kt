@@ -28,9 +28,10 @@ public object ClaudeEngine {
  * Host configuration. The bundle does not provide one yet, so the defaults apply and workspace-bound
  * sessions are rejected as unmet requirements. Values are never executed through a shell or logged.
  * A null working directory selects the user's home; a null config directory keeps the CLI's own default.
- * Workspace ids must be explicitly mapped.
+ * Workspace ids are resolved through the profile's LocalWorkspaces registry; explicit mappings override it.
  * Only the configured native CLI login is supported; keys, helpers and ambient provider overrides are rejected.
- * Use a native executable, not a Windows .cmd/.bat wrapper. Settings and MCP discovery are disabled for runs.
+ * Use a native executable, not a Windows .cmd/.bat wrapper. Ambient settings and MCP discovery are disabled;
+ * local sessions use only the explicitly attached host MCP tools and their profile permission gate.
  */
 public data class ClaudeConfiguration(
     public val executable: String = "claude",

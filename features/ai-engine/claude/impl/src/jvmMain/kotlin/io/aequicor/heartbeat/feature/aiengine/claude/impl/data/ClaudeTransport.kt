@@ -7,9 +7,11 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
@@ -31,6 +33,8 @@ import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
+import java.security.MessageDigest
+import java.util.HexFormat
 
 /**
  * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
@@ -39,11 +43,14 @@ import java.nio.file.attribute.PosixFilePermissions
  * before a child process exists, so the input was certainly not delivered.
  */
 internal interface ClaudeTransport {
+    /** Opaque fingerprint of the native history directory; a changed store cannot resume its UUIDs. */
+    val nativeStore: String get() = "default"
     suspend fun run(
         arguments: List<String>,
         input: String = "",
         workspace: WorkspaceRef? = null,
         closeInput: Boolean = true,
+        hosted: ClaudeHostedTools? = null,
         line: suspend (String) -> Boolean,
     ): Int
 }
@@ -59,19 +66,26 @@ internal class ProcessClaudeTransport(
     private val dispatchers: DispatcherProvider,
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
     private val searchBridge: SearchBridge,
+    private val workspaces: LocalWorkspaces,
 ) : ClaudeTransport {
     private val log = Log.tag("ClaudeProcess")
+    override val nativeStore: String by lazy {
+        val root = configuration.configDirectory ?: Path.of(System.getProperty("user.home"), ".claude").toString()
+        MessageDigest.getInstance("SHA-256").digest(Path.of(root).toAbsolutePath().normalize().toString().toByteArray())
+            .let { HexFormat.of().formatHex(it) }
+    }
 
     override suspend fun run(
         arguments: List<String>,
         input: String,
         workspace: WorkspaceRef?,
         closeInput: Boolean,
+        hosted: ClaudeHostedTools?,
         line: suspend (String) -> Boolean,
     ): Int = withContext(dispatchers.io) {
         log.d { "Starting Claude CLI operation" }
         try {
-            execute(arguments, input, workspace, closeInput, line)
+            execute(arguments, input, workspace, closeInput, hosted, line)
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -87,11 +101,31 @@ internal class ProcessClaudeTransport(
         input: String,
         workspace: WorkspaceRef?,
         closeInput: Boolean,
+        hosted: ClaudeHostedTools?,
         line: suspend (String) -> Boolean,
     ): Int {
-        val bridgeConfig = if (SEARCH_BRIDGE_MARKER in arguments) searchConfig() else null
-        val effectiveArguments = bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
+        val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
+        val bridgeConfig = when {
+            hosted != null -> hostedConfig(hosted.endpoint, isSearchEnabled)
+            isSearchEnabled -> searchConfig()
+            else -> null
+        }
+        var instructionFile: Path? = null
         try {
+            val effectiveArguments = if (hosted != null) {
+                instructionFile = Files.createTempFile(configDirectory, "heartbeat-instructions-", ".txt").also {
+                    restrictToOwner(it, directory = false)
+                    Files.writeString(it, hosted.instructions)
+                }
+                claudeHostedArguments(
+                    arguments,
+                    checkNotNull(bridgeConfig),
+                    checkNotNull(instructionFile),
+                    isSearchEnabled,
+                )
+            } else {
+                bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
+            }
             val process = start(processBuilder(effectiveArguments, workspace))
             try {
                 return communicate(process, input, closeInput, line)
@@ -101,6 +135,7 @@ internal class ProcessClaudeTransport(
             }
         } finally {
             bridgeConfig?.let(Files::deleteIfExists)
+            instructionFile?.let(Files::deleteIfExists)
         }
     }
 
@@ -125,6 +160,15 @@ internal class ProcessClaudeTransport(
 
     private fun searchUnavailable(): Nothing =
         throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+
+    private fun hostedConfig(endpoint: AgentToolBridgeEndpoint, search: Boolean): Path = try {
+        claudeHostedConfig(endpoint, if (search) searchBridge.endpoint() else null, configDirectory)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redacted()) { "Hosted MCP config could not be prepared" }
+        searchUnavailable()
+    }
 
     /** One owner-only directory; files left by a crashed run are removed once per profile transport. */
     private fun mcpConfigDirectory(): Path {
@@ -201,6 +245,7 @@ internal class ProcessClaudeTransport(
     private fun Process.destroyTree() {
         descendants().forEach { it.destroyForcibly() }
         destroyForcibly()
+        waitFor()
     }
 
     /** Windows does not close the parent's pipe handles when the child is destroyed. */
@@ -219,7 +264,7 @@ internal class ProcessClaudeTransport(
         throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
 
-    private fun processBuilder(arguments: List<String>, workspace: WorkspaceRef?): ProcessBuilder {
+    private suspend fun processBuilder(arguments: List<String>, workspace: WorkspaceRef?): ProcessBuilder {
         val executable = configuration.executable
         if (executable.endsWith(".cmd", true) || executable.endsWith(".bat", true)) {
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
@@ -227,9 +272,10 @@ internal class ProcessClaudeTransport(
         val directory = if (workspace == null) {
             configuration.workingDirectory ?: System.getProperty("user.home")
         } else {
-            configuration.workspaces[workspace] ?: throw EngineException(
-                EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
-            )
+            configuration.workspaces[workspace] ?: (if (workspaces.isAvailable) workspaces.resolve(workspace) else null)
+                ?: throw EngineException(
+                    EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
+                )
         }
         val builder = ProcessBuilder(listOf(executable) + arguments).directory(File(directory))
             .redirectError(ProcessBuilder.Redirect.DISCARD)
@@ -239,6 +285,53 @@ internal class ProcessClaudeTransport(
         environment.putAll(allowed)
         return builder
     }
+}
+
+/** A turn-scoped bearer; trusted instructions are passed in an owner-only file, never shell-escaped JSON. */
+internal data class ClaudeHostedTools(val endpoint: AgentToolBridgeEndpoint, val instructions: String) {
+    override fun toString(): String = "ClaudeHostedTools(***)"
+}
+
+/** Native coding tools remain disabled. CLI approval covers only the host, which applies its own trust gate. */
+internal fun claudeHostedArguments(
+    arguments: List<String>,
+    config: Path,
+    instructions: Path,
+    search: Boolean,
+): List<String> = arguments.filterNot { it == SEARCH_BRIDGE_MARKER } + listOf(
+    "--permission-mode=dontAsk",
+    "--allowedTools=mcp__heartbeat_tools__*" + if (search) ",mcp__heartbeat_search__*" else "",
+    "--mcp-config",
+    config.toString(),
+    "--append-system-prompt-file",
+    instructions.toString(),
+)
+
+/** Hosted coding and optional public web search share one strict MCP configuration. */
+internal fun claudeHostedConfig(
+    endpoint: AgentToolBridgeEndpoint,
+    search: SearchBridgeEndpoint?,
+    directory: Path,
+): Path {
+    val config = buildJsonObject {
+        put(
+            "mcpServers",
+            buildJsonObject {
+                put("heartbeat_tools", mcpServer(endpoint.url, endpoint.token))
+                search?.let { put("heartbeat_search", mcpServer(it.origin, it.token)) }
+            },
+        )
+    }
+    val file = Files.createTempFile(directory, "heartbeat-mcp-", ".json")
+    restrictToOwner(file, directory = false)
+    Files.writeString(file, config.toString())
+    return file
+}
+
+private fun mcpServer(origin: String, token: String) = buildJsonObject {
+    put("type", "http")
+    put("url", "${origin.trimEnd('/')}/mcp")
+    put("headers", buildJsonObject { put("Authorization", "Bearer $token") })
 }
 
 /**
