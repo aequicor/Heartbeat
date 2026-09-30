@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunIdentity
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -74,6 +75,107 @@ class WorktreeJournalTest {
         assertEquals(WorktreePhase.RecoveryRequired, restored.phase)
         assertEquals(operation, restored.expectedAction?.operation)
         assertEquals(1, fixture.git.promptCount)
+    }
+
+    @Test
+    fun `a coding request winning between choice read and atomic claim cannot launch an action`() = runTest {
+        val fixture = Fixture()
+        fixture.completeCoding()
+        val entered = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.stores.store.writeStarted = entered
+        fixture.stores.store.writeGate = proceed
+        val metadata = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.ProposeBuildPlan(CHAT, WorktreeBuildPlan("test", emptyList())))
+        }
+        entered.await()
+        // The first write queues choice-lock lookup; the second queues its snapshot read before RunStarted.
+        val choice = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Merge))
+        }
+        val secondEntered = CompletableDeferred<Unit>()
+        val secondProceed = CompletableDeferred<Unit>()
+        fixture.stores.store.writeStarted = secondEntered
+        fixture.stores.store.writeGate = secondProceed
+        val approval = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.ApproveBuildPlan(CHAT, fixture.task().revision + 1, false))
+        }
+        proceed.complete(Unit)
+        secondEntered.await()
+        // FIFO ownership now forces old choice read, new run commit, then the losing action claim.
+        val next = RequestId("next")
+        val coding = async(start = CoroutineStart.UNDISPATCHED) {
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, next))
+        }
+        secondProceed.complete(Unit)
+        metadata.await()
+        approval.await()
+        choice.await()
+        coding.await()
+        val task = checkNotNull(fixture.journal.taskProjection(CHAT))
+        assertEquals(next, task.run?.request)
+        assertEquals(WorktreePhase.Working, task.phase)
+        assertNull(task.actionRequest)
+        assertNull(task.expectedAction)
+        assertEquals(0, fixture.git.preflightCount)
+        assertEquals(0, fixture.git.promptCount)
+        assertEquals(0, fixture.builds.acquireCount)
+    }
+
+    @Test
+    fun `late action prompt or failure cannot overwrite a recovered replacement coding run`() = runTest {
+        for (hasFailure in listOf(false, true)) {
+            val fixture = Fixture()
+            fixture.completeCoding()
+            val entered = CompletableDeferred<Unit>()
+            val proceed = CompletableDeferred<Unit>()
+            fixture.git.promptStarted = entered
+            fixture.git.promptGate = proceed
+            fixture.git.hasPromptFailure = hasFailure
+            val choice = async {
+                fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.CreatePr))
+            }
+            entered.await()
+            fixture.journal.failed(WorktreeIntent.Public.Recheck(CHAT), "OriginalCheckoutDirty")
+            fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+            val next = RequestId("next")
+            fixture.send(WorktreeIntent.Public.RunStarted(CHAT, next))
+            proceed.complete(Unit)
+            choice.await()
+            val task = checkNotNull(fixture.journal.taskProjection(CHAT))
+            assertEquals(next, task.run?.request)
+            assertEquals(WorktreePhase.Working, task.phase)
+            assertNull(task.actionRequest)
+            assertNull(task.expectedAction)
+            assertNull(task.failure)
+            assertEquals(1, fixture.git.promptCount)
+        }
+    }
+
+    @Test
+    fun `recovery superseding a waiting merge claim releases its lease without delivering a prompt`() = runTest {
+        val fixture = Fixture()
+        fixture.completeCoding()
+        val entered = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        fixture.builds.leaseStarted = entered
+        fixture.builds.leaseGate = proceed
+        val choice = async { fixture.send(WorktreeIntent.Public.ChooseAction(CHAT, WorktreeAction.Merge)) }
+        entered.await()
+        fixture.journal.failed(WorktreeIntent.Public.Recheck(CHAT), "OriginalCheckoutDirty")
+        fixture.send(WorktreeIntent.Public.Recheck(CHAT))
+        val next = RequestId("next")
+        fixture.send(WorktreeIntent.Public.RunStarted(CHAT, next))
+        proceed.complete(Unit)
+        choice.await()
+        val task = checkNotNull(fixture.journal.taskProjection(CHAT))
+        assertEquals(next, task.run?.request)
+        assertEquals(WorktreePhase.Working, task.phase)
+        assertNull(task.actionRequest)
+        assertNull(task.expectedAction)
+        assertEquals(0, fixture.git.promptCount)
+        assertEquals(1, fixture.builds.acquireCount)
+        assertEquals(1, fixture.builds.releaseCount)
     }
 
     @Test
@@ -302,6 +404,10 @@ class WorktreeJournalTest {
         override val isAvailable = true
         var hasPlanFailure = false
         var promptCount = 0
+        var preflightCount = 0
+        var hasPromptFailure = false
+        var promptStarted: CompletableDeferred<Unit>? = null
+        var promptGate: CompletableDeferred<Unit>? = null
         var isActionVerified = true
         var existsStarted: CompletableDeferred<Unit>? = null
         var existsGate: CompletableDeferred<Unit>? = null
@@ -336,6 +442,9 @@ class WorktreeJournalTest {
         }
         override suspend fun actionPrompt(record: WorktreeRecord, merge: Boolean): String {
             promptCount++
+            promptStarted?.complete(Unit)
+            promptGate?.await()
+            check(!hasPromptFailure) { "ActionPromptFailed" }
             return "action"
         }
         override suspend fun mergeLease(record: WorktreeRecord, id: String): BuildExecution = build(
@@ -343,13 +452,19 @@ class WorktreeJournalTest {
             id,
             "lease",
         ).copy(isHold = true)
-        override suspend fun mergePreflight(record: WorktreeRecord) = "sha"
+        override suspend fun mergePreflight(record: WorktreeRecord): String {
+            preflightCount++
+            return "sha"
+        }
         override suspend fun verifyAction(record: WorktreeRecord, merge: Boolean, pullRequestUrl: String?) =
             isActionVerified
     }
 
     private class FakeBuilds : WorktreeBuildCoordinator {
         var releaseCount = 0
+        var acquireCount = 0
+        var leaseStarted: CompletableDeferred<Unit>? = null
+        var leaseGate: CompletableDeferred<Unit>? = null
         var phase = WorktreeBuildPhase.Completed
         var executeCount = 0
         override suspend fun execute(
@@ -366,7 +481,11 @@ class WorktreeJournalTest {
             execution.command.id,
             phase,
         )
-        override suspend fun acquireLease(execution: BuildExecution) = Unit
+        override suspend fun acquireLease(execution: BuildExecution) {
+            acquireCount++
+            leaseStarted?.complete(Unit)
+            leaseGate?.await()
+        }
         override suspend fun releaseLease(execution: BuildExecution): Boolean {
             releaseCount++
             return true
@@ -393,7 +512,7 @@ class WorktreeJournalTest {
 
 private class MemoryStores : DataStores {
     override val owner: StorageOwner = StorageOwner.App
-    private val store = MemoryStore(WorktreeJournalSpec)
+    val store = MemoryStore(WorktreeJournalSpec)
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = store
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
     override suspend fun fire(event: DataEvent) = Unit
@@ -401,6 +520,8 @@ private class MemoryStores : DataStores {
 
 private class MemoryStore(override val spec: KeyValueSpec) : KeyValueStore {
     private val values = MutableStateFlow(emptyMap<String, Any>())
+    var writeStarted: CompletableDeferred<Unit>? = null
+    var writeGate: CompletableDeferred<Unit>? = null
 
     // StoreKey defines the value type in this in-memory test fake.
     @Suppress("UNCHECKED_CAST")
@@ -410,6 +531,12 @@ private class MemoryStore(override val spec: KeyValueSpec) : KeyValueStore {
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T : Any> get(key: StoreKey<T>): T? = values.value[key.name] as T?
     override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+        val gate = writeGate
+        writeGate = null
+        if (gate != null) {
+            writeStarted?.complete(Unit)
+            gate.await()
+        }
         values.value +=
             key.name to value
     }

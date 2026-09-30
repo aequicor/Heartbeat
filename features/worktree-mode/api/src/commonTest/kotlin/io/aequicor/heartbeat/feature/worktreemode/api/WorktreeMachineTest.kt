@@ -136,9 +136,28 @@ class WorktreeMachineTest {
     }
 
     @Test
+    fun `late action preparation cannot revive a superseded claim after recovery or refine`() {
+        val done = running.transition(signal).transition(settled)
+        val expected = WorktreeExpectedAction("action", WorktreeRunKind.Merge)
+        val claimed = done.claimAction(expected)
+        val prompt = WorktreeActionRequest(expected.operation, expected.kind, "merge")
+        assertEquals(expected, claimed.expectedAction)
+        assertEquals(claimed, claimed.actionPrepared(prompt.copy(operation = "other")))
+        val recovered = claimed.needsRecovery("OriginalCheckoutDirty").preflightRecovered()
+        val refined = recovered.transition(WorktreeIntent.Public.ChooseAction(task.chatId, WorktreeAction.Refine))
+        assertEquals(WorktreePhase.Idle, refined.phase)
+        assertEquals(refined, refined.actionPrepared(prompt))
+        val replacement = recovered.transition(WorktreeIntent.Public.RunStarted(task.chatId, RequestId("next")))
+        assertEquals(replacement, replacement.actionPrepared(prompt))
+        assertEquals(replacement, replacement.claimAction(expected))
+    }
+
+    @Test
     fun `delivered action permits only the matching action submission`() {
         val done = running.transition(signal).transition(settled)
-        val action = done.claimAction().actionPrepared(WorktreeActionRequest("action", WorktreeRunKind.Merge, "merge"))
+        val action = done.claimAction(WorktreeExpectedAction("action", WorktreeRunKind.Merge)).actionPrepared(
+            WorktreeActionRequest("action", WorktreeRunKind.Merge, "merge"),
+        )
         assertFalse(action.canChooseAction())
         val delivered = action.transition(WorktreeIntent.Public.ActionDelivered(task.chatId, "action"))
         assertNull(delivered.actionRequest)
@@ -183,7 +202,7 @@ class WorktreeMachineTest {
     @Test
     fun `action delivery failure requires recovery before and after handoff without replaying the prompt`() {
         val done = running.transition(signal).transition(settled)
-        val action = done.claimAction().actionPrepared(
+        val action = done.claimAction(WorktreeExpectedAction("action", WorktreeRunKind.Merge)).actionPrepared(
             WorktreeActionRequest("action", WorktreeRunKind.Merge, "merge"),
         )
         val failure = WorktreeIntent.Public.ActionDeliveryFailed(task.chatId, "action", "DeliveryFailed")
@@ -200,7 +219,7 @@ class WorktreeMachineTest {
     @Test
     fun `stale delivery failure cannot replace another operation or a live native run`() {
         val done = running.transition(signal).transition(settled)
-        val action = done.claimAction().actionPrepared(
+        val action = done.claimAction(WorktreeExpectedAction("action", WorktreeRunKind.Merge)).actionPrepared(
             WorktreeActionRequest("action", WorktreeRunKind.Merge, "merge"),
         )
         val failure = WorktreeIntent.Public.ActionDeliveryFailed(task.chatId, "action", "DeliveryFailed")

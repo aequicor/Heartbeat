@@ -36,19 +36,21 @@ internal fun WorktreeTask.actionChosen(command: WorktreeIntent.Public.ChooseActi
 public fun WorktreeTask.canChooseAction(): Boolean =
     phase == WorktreePhase.AwaitingDecision && !hasActiveBuilds() && actionRequest == null
 
-/** Claims delivery before any external action preflight; a second click cannot create a second operation. */
-public fun WorktreeTask.claimAction(): WorktreeTask = if (canChooseAction()) {
-    copy(phase = WorktreePhase.ActionWorking, verifiedPullRequestUrl = null)
+/** Pins operation correlation before any external action preflight or queue wait. */
+public fun WorktreeTask.claimAction(expected: WorktreeExpectedAction): WorktreeTask = if (canChooseAction()) {
+    copy(phase = WorktreePhase.ActionWorking, verifiedPullRequestUrl = null, expectedAction = expected)
 } else {
     this
 }
 
 /** A persisted action prompt is ready for profile-owned delivery. */
-public fun WorktreeTask.actionPrepared(request: WorktreeActionRequest): WorktreeTask = copy(
-    phase = WorktreePhase.ActionWorking,
-    actionRequest = request,
-    expectedAction = WorktreeExpectedAction(request.operation, request.kind),
-)
+public fun WorktreeTask.actionPrepared(request: WorktreeActionRequest): WorktreeTask = if (
+    phase == WorktreePhase.ActionWorking && expectedAction == WorktreeExpectedAction(request.operation, request.kind)
+) {
+    copy(actionRequest = request)
+} else {
+    this
+}
 
 /** Unknown external results require explicit recovery, never an automatic native prompt replay. */
 public fun WorktreeTask.needsRecovery(reason: String): WorktreeTask =

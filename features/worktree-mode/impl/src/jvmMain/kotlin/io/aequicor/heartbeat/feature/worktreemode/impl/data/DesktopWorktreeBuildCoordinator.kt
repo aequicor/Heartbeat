@@ -164,7 +164,9 @@ internal class DesktopWorktreeBuildCoordinator(
     private suspend fun runWorker(job: Job): WorktreeBuildOperation {
         val execution = job.execution
         val previous = readState(execution)
-        if (previous?.operation?.phase in terminal) return checkNotNull(previous).operation
+        if (previous != null && previous.operation.phase in terminal && previous.liveProcess() == null) {
+            return previous.operation
+        }
         if (previous == null && job.isReattachment) {
             return execution.operation(WorktreeBuildPhase.Unknown, "WorkerOutcomeUnknown")
         }
@@ -184,36 +186,12 @@ internal class DesktopWorktreeBuildCoordinator(
         return builder.start().toHandle()
     }
 
-    private suspend fun monitorWorker(job: Job, process: ProcessHandle): WorktreeBuildOperation {
-        var last: WorktreeBuildOperation? = null
-        var missingAfterExit = 0
-        while (true) {
-            val state = observeWorkerState(job, last)
-            if (state == null) last = null
-            if (state != null) {
-                if (state.operation != last) {
-                    last = state.operation
-                    forwardState(job, state.operation)
-                }
-                if (state.operation.phase in terminal) {
-                    return afterWorkerExit(process, state.operation)
-                }
-            }
-            if (!process.isAlive) missingAfterExit++
-            if (missingAfterExit >= EXIT_GRACE_POLLS) {
-                return job.execution.operation(WorktreeBuildPhase.Unknown, "WorkerOutcomeUnknown")
-            }
-            delay(POLL_MILLIS)
-        }
-    }
-
-    private suspend fun afterWorkerExit(
-        process: ProcessHandle,
-        operation: WorktreeBuildOperation,
-    ): WorktreeBuildOperation {
-        while (process.isAlive) delay(POLL_MILLIS)
-        return operation
-    }
+    private suspend fun monitorWorker(job: Job, process: ProcessHandle): WorktreeBuildOperation =
+        WorkerProcessMonitor(process).await(
+            job.execution,
+            observe = { previous -> observeWorkerState(job, previous) },
+            forward = { operation -> forwardState(job, operation) },
+        )
 
     private suspend fun observeWorkerState(job: Job, previous: WorktreeBuildOperation?): WorkerState? = try {
         readState(job.execution)
@@ -285,7 +263,6 @@ internal class DesktopWorktreeBuildCoordinator(
         const val WORKER_MAIN = "io.aequicor.heartbeat.feature.worktreemode.impl.data.worker.WorktreeBuildWorkerKt"
         const val POLL_MILLIS = 100L
         const val CANCEL_TIMEOUT = 10_000L
-        const val EXIT_GRACE_POLLS = 5
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
             WorktreeBuildPhase.Failed,
@@ -300,6 +277,54 @@ private fun BuildExecution.operation(phase: WorktreeBuildPhase, failure: String?
 
 private fun WorkerState.liveProcess(): ProcessHandle? = ProcessHandle.of(process).orElse(null)?.takeIf {
     it.isAlive && (startedAt == null || it.info().startInstant().orElse(null)?.toString() == startedAt)
+}
+
+/** A packaged launcher and its actual JVM may have distinct lifetimes; both remain owned until exit. */
+internal class WorkerProcessMonitor(private val launcher: ProcessHandle) {
+    private val workers = mutableSetOf<ProcessHandle>()
+
+    suspend fun await(
+        execution: BuildExecution,
+        observe: suspend (WorktreeBuildOperation?) -> WorkerState?,
+        forward: suspend (WorktreeBuildOperation) -> Unit,
+    ): WorktreeBuildOperation {
+        var last: WorktreeBuildOperation? = null
+        var missingAfterExit = 0
+        while (true) {
+            val state = observe(last)
+            state?.liveProcess()?.let { workers += it }
+            if (state == null) last = null
+            if (state != null && state.operation != last) {
+                last = state.operation
+                forward(state.operation)
+            }
+            if (state?.operation?.phase in terminal) {
+                awaitExit()
+                return checkNotNull(state).operation
+            }
+            missingAfterExit = if (areProcessesAlive()) 0 else missingAfterExit + 1
+            if (missingAfterExit >= EXIT_GRACE_POLLS) {
+                return execution.operation(WorktreeBuildPhase.Unknown, "WorkerOutcomeUnknown")
+            }
+            delay(POLL_MILLIS)
+        }
+    }
+
+    private fun areProcessesAlive(): Boolean = launcher.isAlive || workers.any { it.isAlive }
+
+    private suspend fun awaitExit() {
+        while (areProcessesAlive()) delay(POLL_MILLIS)
+    }
+
+    private companion object {
+        const val POLL_MILLIS = 100L
+        const val EXIT_GRACE_POLLS = 5
+        val terminal = setOf(
+            WorktreeBuildPhase.Completed,
+            WorktreeBuildPhase.Failed,
+            WorktreeBuildPhase.Cancelled,
+        )
+    }
 }
 
 /** Gradle tests install dependencies through a child URLClassLoader rather than java.class.path. */

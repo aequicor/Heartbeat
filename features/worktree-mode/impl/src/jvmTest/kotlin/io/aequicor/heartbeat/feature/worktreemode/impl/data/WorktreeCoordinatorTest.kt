@@ -29,12 +29,102 @@ import java.nio.file.StandardOpenOption
 import java.nio.file.StandardWatchEventKinds
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class WorktreeCoordinatorTest {
+    @Test
+    fun `terminal reattachment holds its resource until the recorded worker exits`() = runTest {
+        withContext(RealTestDispatchers.io) {
+            val fixture = CoordinatorFixture()
+            val execution = fixture.probeExecution("terminal-worker")
+            val worker = ProcessBuilder(listOf(execution.command.executable) + execution.command.arguments)
+                .redirectErrorStream(true).redirectOutput(fixture.root.resolve("probe.log").toFile()).start()
+            try {
+                val directory = Files.createDirectories(Path.of(execution.jobDirectory))
+                val completed = WorktreeBuildOperation(execution.id, execution.command.id, WorktreeBuildPhase.Completed)
+                val state = WorkerState(
+                    completed,
+                    worker.pid(),
+                    worker.info().startInstant().orElse(null)?.toString(),
+                )
+                Files.writeString(directory.resolve("state.json"), Json.encodeToString(state))
+                val updates = Channel<WorktreeBuildOperation>(Channel.UNLIMITED)
+                val reattached = async { fixture.coordinator.execute(execution, true) { updates.send(it) } }
+                awaitOperation(updates, execution.id, WorktreeBuildPhase.Completed)
+                val following = fixture.execution("following-terminal")
+                val followingResult = async { fixture.coordinator.execute(following, false) { updates.send(it) } }
+                awaitOperation(updates, following.id, WorktreeBuildPhase.Queued)
+                assertTrue(worker.isAlive)
+                assertFalse(reattached.isCompleted)
+                assertFalse(Files.exists(Path.of(following.jobDirectory)))
+                Files.writeString(fixture.root.resolve("release"), "release")
+                assertEquals(WorktreeBuildPhase.Completed, withTimeout(AWAIT_MILLIS) { reattached.await() }.phase)
+                assertEquals(WorktreeBuildPhase.Completed, withTimeout(AWAIT_MILLIS) { followingResult.await() }.phase)
+                assertFalse(worker.isAlive)
+            } finally {
+                withContext(NonCancellable) {
+                    stopMonitorProbe(worker, fixture.root)
+                    fixture.close()
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `launcher exit keeps the actual worker owned through missing snapshots and its terminal state`() = runTest {
+        withContext(RealTestDispatchers.io) {
+            val fixture = CoordinatorFixture()
+            val execution = fixture.probeExecution("split-launcher")
+            val launcher = ProcessBuilder(javaExecutable(), "-version")
+                .redirectErrorStream(true).redirectOutput(fixture.root.resolve("launcher.log").toFile()).start()
+            val worker = ProcessBuilder(listOf(execution.command.executable) + execution.command.arguments)
+                .redirectErrorStream(true).redirectOutput(fixture.root.resolve("probe.log").toFile()).start()
+            try {
+                assertTrue(launcher.waitFor(10, TimeUnit.SECONDS))
+                val running = WorktreeBuildOperation(execution.id, execution.command.id, WorktreeBuildPhase.Running)
+                val identity = WorkerState(
+                    running,
+                    worker.pid(),
+                    worker.info().startInstant().orElse(null)?.toString(),
+                )
+                val state = AtomicReference<WorkerState?>(identity)
+                val observations = Channel<Unit>(Channel.UNLIMITED)
+                val updates = Channel<WorktreeBuildOperation>(Channel.UNLIMITED)
+                val result = async {
+                    WorkerProcessMonitor(launcher.toHandle()).await(
+                        execution,
+                        observe = {
+                            observations.send(Unit)
+                            state.get()
+                        },
+                        forward = { updates.send(it) },
+                    )
+                }
+                withTimeout(AWAIT_MILLIS) { repeat(8) { observations.receive() } }
+                state.set(null)
+                withTimeout(AWAIT_MILLIS) { repeat(8) { observations.receive() } }
+                assertTrue(worker.isAlive)
+                assertFalse(result.isCompleted)
+                state.set(identity.copy(operation = running.copy(phase = WorktreeBuildPhase.Completed)))
+                awaitOperation(updates, execution.id, WorktreeBuildPhase.Completed)
+                assertFalse(result.isCompleted)
+                Files.writeString(fixture.root.resolve("release"), "release")
+                assertEquals(WorktreeBuildPhase.Completed, withTimeout(AWAIT_MILLIS) { result.await() }.phase)
+                assertFalse(worker.isAlive)
+            } finally {
+                withContext(NonCancellable) {
+                    stopMonitorProbe(worker, fixture.root)
+                    stopMonitorProbe(launcher, fixture.root)
+                    fixture.close()
+                }
+            }
+        }
+    }
+
     @Test
     fun `overlapping builds remain FIFO after cancelling the first queued build`() = runTest {
         withContext(RealTestDispatchers.io) {
@@ -148,6 +238,17 @@ class WorktreeCoordinatorTest {
 
 private const val AWAIT_MILLIS = 20_000L
 private const val PROBE_READY = "COORDINATOR_READY"
+
+private fun stopMonitorProbe(process: Process, root: Path) {
+    Files.writeString(root.resolve("release"), "release")
+    if (!process.waitFor(10, TimeUnit.SECONDS)) {
+        process.destroyForcibly()
+        check(process.waitFor(10, TimeUnit.SECONDS)) { "TestMonitorProbeDidNotStop" }
+    }
+    process.inputStream.close()
+    process.errorStream.close()
+    process.outputStream.close()
+}
 
 private suspend fun awaitOperation(
     updates: Channel<WorktreeBuildOperation>,

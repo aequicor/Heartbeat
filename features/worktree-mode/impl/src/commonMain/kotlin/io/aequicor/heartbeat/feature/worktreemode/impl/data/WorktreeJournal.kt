@@ -17,8 +17,10 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeExpectedAction
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import io.aequicor.heartbeat.feature.worktreemode.api.actionPrepared
@@ -413,21 +415,81 @@ internal class WorktreeJournal(
             WorktreeAction.Leave -> error("InvalidCompletionAction")
         }
         val operation = Uuid.random().toString()
-        update(command.chatId) { it.copy(task = it.task.claimAction()) }
-        if (kind == WorktreeRunKind.Merge) {
-            val target = git.mergePreflight(existing)
-            val lease = git.mergeLease(existing, operation)
-            update(command.chatId) { it.copy(mergeLease = lease, mergeTargetCommit = target) }
-            builds.acquireLease(lease)
+        val expected = WorktreeExpectedAction(operation, kind)
+        var isClaimed = false
+        val claimed = update(command.chatId) {
+            if (it.task.run != existing.task.run || !it.task.canChooseAction() || it.mergeLease != null) {
+                it
+            } else {
+                isClaimed = true
+                it.copy(task = it.task.claimAction(expected))
+            }
         }
-        val prompt = if (kind == WorktreeRunKind.Coding) {
+        return if (isClaimed && claimed != null) prepareClaimedAction(command, claimed, expected) else claimed
+    }
+
+    private suspend fun prepareClaimedAction(
+        command: WorktreeIntent.Public.ChooseAction,
+        claimed: WorktreeRecord,
+        expected: WorktreeExpectedAction,
+    ): WorktreeRecord? = try {
+        val current = if (expected.kind == WorktreeRunKind.Merge) acquireActionLease(claimed, expected) else claimed
+        when {
+            current == null -> null
+            !current.ownsAction(expected) -> abandonAction(current, expected)
+            else -> publishAction(command, current, expected)
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        val current = record(command.chatId)
+        if (current == null || current.ownsAction(expected)) throw error
+        log.w(IllegalStateException("StaleActionPreparationFailed (${error::class.simpleName.orEmpty()})")) {
+            "Discard action preparation failure after its claim was superseded"
+        }
+        abandonAction(current, expected)
+    }
+
+    private suspend fun acquireActionLease(
+        claimed: WorktreeRecord,
+        expected: WorktreeExpectedAction,
+    ): WorktreeRecord? {
+        val target = git.mergePreflight(claimed)
+        val lease = git.mergeLease(claimed, expected.operation)
+        val leased = update(claimed.task.chatId) {
+            if (it.ownsAction(expected)) it.copy(mergeLease = lease, mergeTargetCommit = target) else it
+        }
+        if (leased?.ownsAction(expected) == true) builds.acquireLease(lease)
+        return record(claimed.task.chatId)
+    }
+
+    private suspend fun publishAction(
+        command: WorktreeIntent.Public.ChooseAction,
+        current: WorktreeRecord,
+        expected: WorktreeExpectedAction,
+    ): WorktreeRecord? {
+        val prompt = if (expected.kind == WorktreeRunKind.Coding) {
             checkNotNull(command.refinement)
         } else {
-            git.actionPrompt(checkNotNull(record(command.chatId)), merge = kind == WorktreeRunKind.Merge)
+            git.actionPrompt(current, merge = expected.kind == WorktreeRunKind.Merge)
         }
-        return update(command.chatId) {
-            it.copy(task = it.task.actionPrepared(WorktreeActionRequest(operation, kind, prompt)))
+        val request = WorktreeActionRequest(expected.operation, expected.kind, prompt)
+        val prepared = update(command.chatId) { it.copy(task = it.task.actionPrepared(request)) }
+        return when {
+            prepared == null -> null
+            prepared.ownsAction(expected) -> prepared
+            else -> abandonAction(prepared, expected)
         }
+    }
+
+    private fun WorktreeRecord.ownsAction(expected: WorktreeExpectedAction): Boolean =
+        task.phase == WorktreePhase.ActionWorking && task.expectedAction == expected
+
+    private suspend fun abandonAction(record: WorktreeRecord, expected: WorktreeExpectedAction): WorktreeRecord {
+        val isNativeRunning = record.task.run?.let {
+            it.request.value == expected.operation && it.outcome == null
+        } == true
+        return if (record.mergeLease?.id == expected.operation && !isNativeRunning) releaseMerge(record) else record
     }
 
     private suspend fun releaseMerge(record: WorktreeRecord): WorktreeRecord {
