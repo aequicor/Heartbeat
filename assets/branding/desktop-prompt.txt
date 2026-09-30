@@ -1,0 +1,10 @@
+Generated using the built-in image_gen tool; source reference: heartbeat-logo.png.
+
+Use case: precise-object-edit
+Asset type: refined Heartbeat desktop application icon for macOS Dock and Windows taskbar.
+Primary request: Refine the supplied original ECG glass logo into a beautiful premium application icon while improving small-size clarity. Preserve the exact softly rounded tilted hexagonal tile, its vivid blue-to-violet glass colors, silhouette and proportions.
+Input images: Image 1 is the edit target; retain its character and material.
+Change only the white ECG symbol and its immediate glow: increase the crisp white stroke weight moderately, about 60 percent, reduce the diffuse cyan glow substantially, and make the curve transitions smoother and balanced. Keep a short negative dip, one elegant tall positive spike, a compact negative return and one soft recovery curve. The line must remain graceful and open, with clear purple gaps between its segments; avoid pill-like blobs or overlapping thick strokes.
+Composition/framing: square, complete hexagonal tile centered with clean transparent outer margin, as in the original. The white waveform is large and balanced inside the tile, approximately 70 percent of tile width.
+Style/medium: precise polished glass brand icon with subtle volumetric depth, tasteful edge light, luminous solid white mark. Use the same material as the reference.
+Constraints: retain the original tile exactly. Do not substitute a flat rounded square. No heart symbol, no H monogram, no text, no watermark, no new ornamentation. Truly transparent background, zero scattered pixels, zero glow outside the tile.

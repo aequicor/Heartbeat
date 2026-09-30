@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Heartbeat ECG</title>
+  <path id="mark" d="M196 542H330Q354 542 372 520L396 496L424 566L488 304L558 724L610 542H664Q684 542 706 508Q728 474 754 508Q776 542 798 542H828" fill="none" stroke="#FFFFFF" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

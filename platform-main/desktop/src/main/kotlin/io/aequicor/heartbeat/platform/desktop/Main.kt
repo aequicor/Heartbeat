@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.platform.desktop
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.toPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -20,11 +23,14 @@ import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
 import io.aequicor.heartbeat.platform.shared.createAppRoot
+import java.awt.Taskbar
+import java.awt.image.BufferedImage
 import java.net.URISyntaxException
 import java.nio.file.FileSystemNotFoundException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.FutureTask
+import javax.imageio.ImageIO
 import javax.swing.SwingUtilities
 
 fun main(args: Array<String>) {
@@ -41,12 +47,14 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
+    val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
     val root = runOnUiThread {
         createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
     }
     val dimensions = HbDimensions()
     application {
+        val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         LifecycleController(lifecycle, windowState)
         Window(
@@ -56,11 +64,43 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
                 exitApplication()
             },
             title = "Heartbeat",
+            icon = icon,
             state = windowState,
             onPreviewKeyEvent = { event -> openSettingsOnShortcut(event, root) },
         ) {
+            DisposableEffect(window) {
+                window.iconImages = applicationIcons
+                onDispose { }
+            }
             DesktopWindowContent(windowState) { App(root) }
         }
+    }
+}
+
+/** Loads optical-size icons for both development launches and installed desktop applications. */
+private fun loadDesktopIcons(): List<BufferedImage> = desktopIconSizes.map { size ->
+    val directory = if (isMacHost) "/icons/macos" else "/icons"
+    val resource = checkNotNull(object {}.javaClass.getResourceAsStream("$directory/heartbeat-$size.png")) {
+        "Heartbeat desktop icon ($size px) is missing from application resources"
+    }
+    resource.use { checkNotNull(ImageIO.read(it)) { "Heartbeat desktop icon ($size px) cannot be decoded" } }
+}
+
+private val desktopIconSizes = listOf(16, 20, 24, 32, 40, 48, 64, 128, 256)
+
+/** Window icons do not set the macOS Dock icon, so update the taskbar when the host supports it. */
+private fun configureDockIcon(icons: List<BufferedImage>) {
+    if (!Taskbar.isTaskbarSupported()) return
+    val log = Log.tag("Desktop")
+    try {
+        val taskbar = Taskbar.getTaskbar()
+        if (taskbar.isSupported(Taskbar.Feature.ICON_IMAGE)) {
+            taskbar.iconImage = icons.last()
+        }
+    } catch (e: UnsupportedOperationException) {
+        log.w(e) { "Desktop host cannot set the application Dock icon" }
+    } catch (e: SecurityException) {
+        log.w(e) { "Desktop host denied updating the application Dock icon" }
     }
 }
 
