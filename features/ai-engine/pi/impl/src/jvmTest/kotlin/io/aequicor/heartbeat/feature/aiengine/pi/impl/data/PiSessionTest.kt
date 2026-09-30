@@ -172,6 +172,24 @@ class PiSessionTest {
     }
 
     @Test
+    fun `resuming a branch with a missing parent exposes no regenerated partial replay`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "native")
+        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl")) { _, connection ->
+            connection.entries = """{"leafId":"tail","entries":[
+                {"type":"message","id":"tail","parentId":"missing",
+                    "message":{"role":"assistant","content":"Already saved"}}]}"""
+        }
+        val history = assertIs<FeatureAccess.Available<SessionHistory>>(
+            fixture.session.features.resolve(SessionHistory),
+        ).feature.page()
+
+        assertEquals(emptyList(), history.items)
+        assertEquals(HistoryCoverage.Partial, history.coverage)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `resume never adopts a different native session or an unreadable transcript`() = runTest {
         val opened = mutableListOf<FakeConnection>()
         fun stored(nativeId: String) = PiTranscript(SessionRef(PiEngineId, PiSessionSource, nativeId), "stored.jsonl")

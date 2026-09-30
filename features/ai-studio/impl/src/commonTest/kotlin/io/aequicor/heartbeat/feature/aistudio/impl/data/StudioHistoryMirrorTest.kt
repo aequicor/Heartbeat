@@ -51,6 +51,30 @@ class StudioHistoryMirrorTest {
     }
 
     @Test
+    fun `repeated resumes with omitted partial replay preserve saved messages and append new turns once`() = runTest {
+        stored = listOf(message("old-prompt", 0), message("old-answer", 1))
+        repeat(3) { generation ->
+            val before = stored
+            val history = FakeHistory(emptyList(), HistoryCoverage.Partial)
+            mirror.refresh("chat", history)
+            assertEquals(before, stored)
+
+            val prompt = message("prompt-$generation", 0)
+            val answer = message("answer-$generation", 1)
+            history.events = listOf(upsert(prompt), upsert(answer))
+            val follow = launch { mirror.follow("chat", history) }
+            runCurrent()
+            follow.cancel()
+            runCurrent()
+
+            history.items = listOf(prompt, answer)
+            mirror.refresh("chat", history)
+            assertEquals(before + listOf(prompt, answer), stored)
+        }
+        assertEquals(8, stored.size)
+    }
+
+    @Test
     fun `repeated refresh of a trimmed partial window keeps the transcript stable`() = runTest {
         val ids = listOf("o", "t0", "t1", "t2")
         stored = ids.mapIndexed { index, id -> message(id, index.toLong()) }
