@@ -65,6 +65,9 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        buildTypes.release.proguard {
+            configurationFiles.from(project.file("compose-desktop.pro"))
+        }
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             // The jlink runtime holds only listed JDK modules; keep in sync with `suggestRuntimeModules`.
