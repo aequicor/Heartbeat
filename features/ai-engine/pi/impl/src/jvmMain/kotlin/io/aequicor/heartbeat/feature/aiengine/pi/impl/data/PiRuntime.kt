@@ -43,10 +43,9 @@ internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
     private val settings: PiSettings,
     private val processes: PiProcessLauncher,
-    private val environment: PiSessionEnvironment,
+    private val environment: PiRuntimeEnvironment,
     private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
-    private val nativeWeb: PiNativeWeb,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -54,15 +53,15 @@ internal class PiRuntime(
     override val identity get() = credentials.identity
     private val source get() = credentials.source
     private val credential get() = credentials.fingerprint
-    private val profile get() = environment.profile
-    private val dispatchers get() = environment.dispatchers
+    private val profile get() = environment.sessions.profile
+    private val dispatchers get() = environment.sessions.dispatchers
     private val mutex = Mutex()
     private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
 
     @Volatile var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
-        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to nativeWeb))
+        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to environment.nativeWeb))
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {
@@ -147,7 +146,7 @@ internal class PiRuntime(
                     identity.revision,
                     request.workspace,
                 ),
-                environment,
+                environment.sessions,
                 ::validate,
                 { sessions.remove(it) },
             )

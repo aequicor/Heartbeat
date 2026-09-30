@@ -32,6 +32,40 @@ class PiHostCommandsTest {
     }
 
     @Test
+    fun `wrapper executable paths and extensions preserve host recognition`() {
+        listOf(
+            """cmd.exe /c "gradlew.bat --stop"""",
+            """C:\Windows\System32\cmd.exe /c "taskkill /F /PID 4008"""",
+            """powershell.exe -NoProfile -Command "Stop-Process -Id 4008"""",
+            """& "C:\Program Files\PowerShell\7\pwsh.exe" -Command ".\gradlew.bat --stop"""",
+        ).forEach { target -> assertTrue(terminatesHost(command(target)), target) }
+    }
+
+    @Test
+    fun `quoted executable paths and composed shell payloads preserve host recognition`() {
+        listOf(
+            """& "C:\Repo With Spaces\gradlew.bat" --stop""",
+            """powershell -Command "Set-Location C:\repo; .\gradlew.bat --stop"""",
+            """cmd /c "cd /d C:\repo && gradlew.bat --stop"""",
+            """bash -c "cd /repo && ./gradlew --stop"""",
+            """powershell -ExecutionPolicy Bypass -Command "Stop-Process -Id 4008"""",
+            """powershell -ExecutionPolicy Bypass -File "C:\Repo With Spaces\gradlew.ps1" --stop""",
+            """sudo -u root bash -lc 'cd /repo && ./gradlew --stop'""",
+        ).forEach { target -> assertTrue(terminatesHost(command(target)), target) }
+    }
+
+    @Test
+    fun `quoted wrapper search arguments and escaped powershell literals remain data`() {
+        listOf(
+            """powershell.exe -ExecutionPolicy Bypass -Command "Select-String -Pattern 'kill; Stop-Process'"""",
+            """powershell -Command Select-String -Pattern "kill; Stop-Process""",
+            """cmd.exe /c "git grep 'taskkill|Stop-Process'"""",
+            """bash -c "git grep 'kill; shutdown'"""",
+            """Write-Output "sample `"; Stop-Process -Id 1"""",
+        ).forEach { target -> assertFalse(terminatesHost(command(target)), target) }
+    }
+
+    @Test
     fun `commands that only mention a killer or build with gradle are left to trust`() {
         assertFalse(terminatesHost(command("git grep -n \"taskkill|Stop-Process\" -- \"*.kt\"")))
         assertFalse(terminatesHost(command("Select-String -Path build.gradle.kts -Pattern 'kill'")))
@@ -54,6 +88,13 @@ class PiHostCommandsTest {
     fun `no trust level answers a command that stops the host`() {
         val call = command(""".\gradlew.bat --stop""")
         TrustLevel.entries.forEach { level -> assertFalse(level.answers(call, null), "$level answered it") }
+    }
+
+    @Test
+    fun `deep wrapper chains wait for the user without exhausting the scan stack`() {
+        val call = command("exec ".repeat(2_000) + "echo sample")
+        assertTrue(terminatesHost(call))
+        assertFalse(TrustLevel.Full.answers(call, null))
     }
 
     @Test

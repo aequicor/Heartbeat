@@ -47,8 +47,9 @@ private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
 
 /**
- * Whether this level answers the approval of [call] without the user. A file edit counts only when its path was
- * pinned and lies inside [workspace], the working directory of the process. Blocking IO: resolves symbolic links.
+ * Whether this level covers [call] by its approval scope. A file edit counts only when its path was pinned and lies
+ * inside [workspace], the working directory of the process. This scope check does not apply the host-preservation
+ * exception; [answers] makes the final automatic approval decision. Blocking IO: resolves symbolic links.
  */
 internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean = when (this) {
     TrustLevel.Ask -> false
@@ -62,9 +63,10 @@ internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean 
 }
 
 /**
- * Whether this level answers the approval of [call] on its own. Trust never extends to a command that ends the
- * host ([terminatesHost]): the processes that forked the application would take the running turn down with them,
- * so such a call always waits for the user.
+ * Whether this level answers the approval of [call] on its own. A command recognised as ending the host by the
+ * heuristic [terminatesHost] scan always waits for the user: the processes that forked the application would take
+ * the running turn down with them. The same applies when a wrapper chain exceeds the scan limit. Other calls the
+ * scan does not recognise remain subject to [covers], including full trust.
  */
 internal fun TrustLevel.answers(call: PiApprovalCall, workspace: Path?): Boolean {
     if (!terminatesHost(call)) return covers(call, workspace)

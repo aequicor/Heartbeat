@@ -54,10 +54,9 @@ internal class DesktopPiEngine(
     private val processes: PiProcessLauncher,
     private val dispatchers: DispatcherProvider,
     private val toggles: FeatureToggles,
-    private val environment: PiSessionEnvironment,
+    private val environment: PiRuntimeEnvironment,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val workspaces: LocalWorkspaces,
-    private val nativeWeb: PiNativeWeb,
 ) : PiAdapter {
     private val log = Log.tag("DesktopPiEngine")
     private val mutex = Mutex()
@@ -175,7 +174,6 @@ internal class DesktopPiEngine(
             environment,
             toggles,
             workspaces,
-            nativeWeb,
         ).also { runtimes[identity.source] = it }
     }
 
