@@ -35,30 +35,30 @@ public fun HbDiffView(
     val chunks = remember(text) { chunkHbDiff(text) }
     HbColumn(modifier = modifier.fillMaxWidth(), gap = HbTheme.elevation.none) {
         chunks.forEachIndexed { index, chunk ->
-            key(index) {
-                if (isSelectionContainerRequired) {
-                    SelectionContainer {
-                        HbDiffChunkContent(
-                            chunk,
-                            modifier = Modifier.padding(
-                                top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
-                            ),
-                            labels = labels,
-                        )
-                    }
-                } else {
-                    HbDiffChunkContent(
-                        chunk,
-                        modifier = Modifier.padding(
-                            top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
-                        ),
-                        labels = labels,
-                    )
-                }
-            }
+            key(index) { DiffChunk(chunk, index, labels, isSelectionContainerRequired) }
         }
     }
 }
+
+/**
+ * One chunk of the panel, separated from the chunk above it. The panel owns text selection only when the caller
+ * cannot provide a [SelectionContainer] itself.
+ */
+@Composable
+private fun DiffChunk(chunk: HbDiffChunk, index: Int, labels: HbToolLabels, isSelectionRequired: Boolean) {
+    val gap = chunkGapAbove(index, chunk)
+    if (isSelectionRequired) {
+        SelectionContainer { HbDiffChunkContent(chunk, Modifier.padding(top = gap), labels) }
+    } else {
+        HbDiffChunkContent(chunk, Modifier.padding(top = gap), labels)
+    }
+}
+
+/** Space above the chunk at [index]: only a chunk that opens a file is separated from the one before it. */
+@Composable
+@ReadOnlyComposable
+private fun chunkGapAbove(index: Int, chunk: HbDiffChunk) =
+    if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none
 
 /** A bounded diff segment; selection is owned by the containing message or standalone panel. */
 @Composable
