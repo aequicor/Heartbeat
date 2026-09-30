@@ -54,7 +54,7 @@ internal fun Modifier.hbUnifiedBodyIndent(): Modifier {
     }
 }
 
-/** Draws only the perimeter belonging to this lazy segment, never a line between adjacent segments. */
+/** Desktop prose has a continuous fill. Mobile keeps the perimeter, without lines between lazy segments. */
 @Composable
 internal fun Modifier.hbUnifiedMessageSurface(background: Color, hasTop: Boolean, hasBottom: Boolean): Modifier {
     val radius = HbTheme.dimensions.messageCornerRadius
@@ -65,6 +65,7 @@ internal fun Modifier.hbUnifiedMessageSurface(background: Color, hasTop: Boolean
         bottomStart = if (hasBottom) radius else zero,
         bottomEnd = if (hasBottom) radius else zero,
     )
+    if (HbTheme.dimensions.isDesktop) return background(background, shape)
     val outline = HbTheme.surfaces.outline
     val stroke = HbTheme.dimensions.borderWidth
     return background(background, shape).drawWithCache {
