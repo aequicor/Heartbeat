@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -14,6 +15,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
@@ -23,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
@@ -36,6 +39,47 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class HbPanelComposerUiTest {
+    @Test
+    fun `panel toolbar retains focused controls and open menus across its breakpoint`() =
+        runSkikoComposeUiTest(size = Size(1200f, 900f)) {
+            var panelWidth by mutableStateOf(1000.dp)
+            setContent {
+                HbTheme(darkTheme = false) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        HbChatComposer(
+                            value = "",
+                            onValueChange = {},
+                            onSend = {},
+                            onStop = {},
+                            sendLabel = "Send",
+                            stopLabel = "Stop",
+                            modifier = Modifier.width(panelWidth),
+                            layout = HbComposerLayout.Panel,
+                            leadingContent = { PanelTestMenu("Context", "Context option") },
+                            trailingContent = { PanelTestMenu("Model", "Model option") },
+                        )
+                    }
+                }
+            }
+            val model = onNodeWithText("Model")
+            model.performSemanticsAction(SemanticsActions.RequestFocus)
+            runOnIdle { panelWidth = 400.dp }
+            model.assertIsFocused().performClick()
+            onNodeWithText("Model option").assertIsDisplayed()
+            runOnIdle { panelWidth = 1000.dp }
+            onNodeWithText("Model option").assertIsDisplayed().performClick()
+            model.assertIsFocused()
+
+            val context = onNodeWithText("Context")
+            context.performSemanticsAction(SemanticsActions.RequestFocus)
+            runOnIdle { panelWidth = 400.dp }
+            context.assertIsFocused().performClick()
+            onNodeWithText("Context option").assertIsDisplayed()
+            runOnIdle { panelWidth = 1000.dp }
+            onNodeWithText("Context option").assertIsDisplayed().performClick()
+            context.assertIsFocused()
+        }
+
     @Test
     fun `panel stays compact for one line grows for multiline input and scrolls at the height cap`() =
         runSkikoComposeUiTest(size = Size(1200f, 900f)) {
@@ -134,10 +178,25 @@ class HbPanelComposerUiTest {
             val compactEditor = editor.fetchSemanticsNode().boundsInRoot
             val compactModel = onNodeWithText("Model").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue(compactModel.top > compactEditor.bottom)
+            val context = onNodeWithContentDescription("Add").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(compactModel.top >= context.bottom, "Narrow toolbar must separate context and model controls")
             assertEquals("Keep this draft", editor.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
             onNodeWithContentDescription("Send").assertIsDisplayed().performClick()
             runOnIdle { assertEquals(1, sends) }
         }
+}
+
+@Composable
+private fun PanelTestMenu(label: String, option: String) {
+    var isOpen by remember { mutableStateOf(false) }
+    HbComposerMenuButton(
+        label,
+        persistentListOf(HbComposerAction("option", option)),
+        isOpen,
+        { isOpen = it },
+        {},
+        style = HbComposerMenuStyle.Pill,
+    )
 }
 
 @Composable

@@ -155,6 +155,8 @@ data class HbDimensions(
     /** Horizontal exclusion zone for native traffic lights when content reaches the window edge. */
     val titlebarLeadingInset: Dp = 96.dp,
     val composerInlineBreakpoint: Dp = 720.dp,
+    /** Minimum desktop toolbar width before context and model controls use separate rows. */
+    val composerToolbarBreakpoint: Dp = 480.dp,
     val markStroke: Dp = 2.dp,
     /** Row of a navigation list: sessions, projects, settings sections. */
     val navigationRowHeight: Dp = 48.dp,

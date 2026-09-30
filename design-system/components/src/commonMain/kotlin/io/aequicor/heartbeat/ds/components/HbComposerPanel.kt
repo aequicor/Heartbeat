@@ -7,20 +7,27 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.Placeable
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
-/** A stable editor and preferences toolbar; touch layouts give each preference group its own row. */
+/** A stable editor and preferences toolbar; narrow layouts give each preference group its own row. */
 @Composable
 internal fun ComposerPanelLayout(
     isFocused: Boolean,
@@ -41,28 +48,80 @@ internal fun ComposerPanelLayout(
     ) {
         editor(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs, vertical = HbTheme.spacing.xs))
         HbBoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (!HbTheme.dimensions.isDesktop && maxWidth < HbTheme.dimensions.compactBreakpoint) {
-                HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+            val toolbarBreakpoint = if (HbTheme.dimensions.isDesktop) {
+                HbTheme.dimensions.composerToolbarBreakpoint
+            } else {
+                HbTheme.dimensions.compactBreakpoint
+            }
+            val isNarrow = maxWidth < toolbarBreakpoint
+            val gap = HbTheme.spacing.xs
+            // Both groups keep the same parents and composition when their placement changes.
+            Layout(
+                content = {
                     HbRow(
-                        Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState()),
-                        gap = HbTheme.spacing.xs,
+                        Modifier.hbHorizontalScroll(rememberScrollState()),
+                        gap = gap,
                         content = leadingContent,
                     )
                     ComposerActionRow(trailingContent, action)
-                }
-            } else {
-                // Context controls keep their natural width (scrolling past 60%); model and send take the rest.
-                val leadingMaxWidth = maxWidth * LEADING_MAX_FRACTION
-                HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
-                    HbRow(
-                        Modifier.widthIn(max = leadingMaxWidth).hbHorizontalScroll(rememberScrollState()),
-                        gap = HbTheme.spacing.xs,
-                        content = leadingContent,
-                    )
-                    ComposerActionRow(trailingContent, action, Modifier.weight(1f))
-                }
-            }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { measurables, constraints -> measurePanelToolbar(measurables, constraints, isNarrow, gap) }
         }
+    }
+}
+
+private fun MeasureScope.measurePanelToolbar(
+    measurables: List<Measurable>,
+    constraints: Constraints,
+    isNarrow: Boolean,
+    gap: Dp,
+): MeasureResult {
+    val gapPx = gap.roundToPx()
+    val width = constraints.maxWidth
+    val leadingWidth = if (isNarrow) width else (width * LEADING_MAX_FRACTION).toInt()
+    val leading = measurables[0].measure(
+        constraints.copy(minWidth = if (isNarrow) width else 0, maxWidth = leadingWidth, minHeight = 0),
+    )
+    val remainingHeight = constraints.remainingHeightAfter(leading.height)
+    val rowGap = if (isNarrow) minOf(gapPx, remainingHeight) else gapPx
+    val trailingMaxHeight = if (isNarrow) {
+        constraints.remainingHeightAfter(leading.height + rowGap)
+    } else {
+        constraints.maxHeight
+    }
+    val trailingWidth = if (isNarrow) width else (width - leading.width - gapPx).coerceAtLeast(0)
+    val trailing = measurables[1].measure(
+        constraints.copy(
+            minWidth = trailingWidth,
+            maxWidth = trailingWidth,
+            minHeight = 0,
+            maxHeight = trailingMaxHeight,
+        ),
+    )
+    val height = if (isNarrow) leading.height + rowGap + trailing.height else maxOf(leading.height, trailing.height)
+    return layout(width, constraints.constrainHeight(height)) {
+        placeToolbarGroups(leading, trailing, isNarrow, rowGap, height)
+    }
+}
+
+/** Preserve unbounded height inside scrolling heroes instead of producing an unsupported finite constraint. */
+private fun Constraints.remainingHeightAfter(used: Int): Int =
+    if (hasBoundedHeight) (maxHeight - used).coerceAtLeast(0) else maxHeight
+
+private fun Placeable.PlacementScope.placeToolbarGroups(
+    leading: Placeable,
+    trailing: Placeable,
+    isNarrow: Boolean,
+    gap: Int,
+    height: Int,
+) {
+    if (isNarrow) {
+        leading.placeRelative(0, 0)
+        trailing.placeRelative(0, leading.height + gap)
+    } else {
+        leading.placeRelative(0, (height - leading.height) / 2)
+        trailing.placeRelative(leading.width + gap, (height - trailing.height) / 2)
     }
 }
 

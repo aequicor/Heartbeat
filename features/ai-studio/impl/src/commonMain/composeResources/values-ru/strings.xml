@@ -55,7 +55,7 @@
 
     <string name="new_heading">Что создадим в %1$s?</string>
     <string name="new_heading_general">Что создадим?</string>
-    <string name="new_hint">Опишите задачу: агент спланирует её, выполнит команды и отчитается.</string>
+    <string name="new_hint">От идеи до результата — начните с задачи.</string>
     <string name="no_project">Без проекта</string>
     <string name="project_menu">Проект</string>
     <string name="project_add">Добавить папку…</string>

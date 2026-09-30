@@ -19,10 +19,12 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -30,8 +32,11 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.test.withKeyDown
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -40,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.json.JsonArray
@@ -79,6 +85,85 @@ class AiStudioDesktopAuditUiTest {
             }
         }
     }
+
+    @Test
+    fun `new chat keeps composer beside hero after leaving a conversation in both themes`() {
+        for (width in listOf(420, 1280)) {
+            for (isDark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
+                    var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))
+                    setContent {
+                        CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                            HbTheme(darkTheme = isDark) { AiStudioContent(state, {}, auditExits) }
+                        }
+                    }
+                    settleAudit()
+                    val conversationComposer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                    runOnIdle { state = state.copy(panes = persistentListOf(PaneUi(0))) }
+                    settleAudit()
+                    onNodeWithTag("new-session-hero").assertIsDisplayed()
+                    onNodeWithTag("composer-0").assertIsDisplayed()
+                    val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                    assertTrue(composer.bottom < conversationComposer.top, "New chat input belongs beside its heading")
+                    assertTrue(composer.left >= 0f && composer.right <= width, "Input must fit a narrow desktop")
+                    saveAudit("$width-$isDark-centered-new-chat", width, isDark, "centered-new-chat")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `new chat shortcut preserves editor focus and subsequent typing`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))
+            val events = mutableListOf<AiStudioScreenIntent>()
+            setContent {
+                HbTheme(darkTheme = false) {
+                    AiStudioContent(state, { intent ->
+                        events += intent
+                        when (intent) {
+                            is AiStudioScreenIntent.NewSession ->
+                                state = state.copy(panes = persistentListOf(PaneUi(0)))
+
+                            is AiStudioScreenIntent.DraftChanged -> state = state.withDraft(intent.paneId, intent.text)
+
+                            else -> Unit
+                        }
+                    }, auditExits)
+                }
+            }
+            val editor = onNode(hasAnyAncestor(hasTestTag("composer-0")) and hasSetTextAction())
+            editor.performClick().performKeyInput {
+                withKeyDown(if (isStudioMetaShortcut()) Key.MetaLeft else Key.CtrlLeft) { pressKey(Key.N) }
+            }
+            settleAudit()
+            assertEquals(1, events.filterIsInstance<AiStudioScreenIntent.NewSession>().size)
+            onNodeWithTag("new-session-hero").assertIsDisplayed()
+            editor.assertIsFocused().performTextInput("a")
+            editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("a")))
+        }
+
+    @Test
+    fun `short desktop keeps the send action inside the composer with a long draft`() =
+        runSkikoComposeUiTest(size = Size(420f, 300f)) {
+            val draft = (1..40).joinToString("\n") { "Long draft line $it" }
+            val state = desktopAuditWorkspace(isEmpty = false).withDraft(0, draft)
+            var sendLabel = ""
+            setContent {
+                sendLabel = stringResource(Res.string.composer_send)
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    HbTheme(darkTheme = false) { AiStudioContent(state, {}, auditExits) }
+                }
+            }
+            settleAudit()
+            val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+            val send = onNodeWithContentDescription(sendLabel).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                send.bottom <= composer.bottom,
+                "Send must fit its composer when the editor reaches its height cap",
+            )
+            assertTrue(send.bottom <= 300f, "Send must stay inside a short desktop window")
+        }
 
     @Test
     fun `desktop audit records selected hover tab and search focus states`() =

@@ -55,7 +55,7 @@
 
     <string name="new_heading">What shall we build in %1$s?</string>
     <string name="new_heading_general">What shall we build?</string>
-    <string name="new_hint">Describe a task: the agent plans it, runs commands and reports back.</string>
+    <string name="new_hint">From idea to result — start with a task.</string>
     <string name="no_project">No project</string>
     <string name="project_menu">Project</string>
     <string name="project_add">Add folder…</string>
