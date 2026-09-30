@@ -92,19 +92,84 @@ internal class WorktreeAgentTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
+    ): AgentToolApproval = when (spec.name) {
+        "configure_build" -> {
+            val plan = Json.decodeFromJsonElement<WorktreeBuildPlan>(arguments)
+            reviewableApproval(spec, "Configure build", "Save this build plan:\n${approvalJson.encodeToString(plan)}")
+        }
+
+        "cancel_build" -> cancelApproval(context, spec, arguments)
+
+        "run_build" -> buildApproval(context, spec, arguments)
+
+        else -> approval(spec, arguments)
+    }
+
+    private suspend fun buildApproval(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
     ): AgentToolApproval {
-        if (spec.name != "run_build") return approval(spec, arguments)
         val command = arguments["command"]?.jsonPrimitive?.content ?: return approval(spec, arguments)
         val execution = journal.buildPreview(context, command) ?: return approval(spec, arguments)
-        return AgentToolApproval(
-            spec.name,
-            "Run build: $command",
+        return reviewableApproval(
+            spec,
+            "Run build",
             "Configuration revision=${execution.configurationRevision}\n" +
-                "Working directory: ${execution.directory}\n" +
-                "Command: ${Json.encodeToString(execution.command)}\n" +
-                "Exclusive resources: ${execution.resources.joinToString()}",
+                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
+                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
+                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
             binding = execution.configurationRevision.toString(),
         )
+    }
+
+    private suspend fun cancelApproval(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolApproval {
+        val operation = arguments["operation"]?.jsonPrimitive?.content ?: error("MissingOperation")
+        val task = journal.authenticated(context) ?: error("TurnUnavailable")
+        val known = task.builds[operation] ?: error("UnknownBuildOperation")
+        val execution = journal.buildPreview(context, known.command) ?: error("BuildConfigurationUnavailable")
+        check(execution.configurationRevision == known.configurationRevision) { "BuildConfigurationChanged" }
+        return reviewableApproval(
+            spec,
+            "Cancel build",
+            "Stop this build operation and its process tree:\n" +
+                "Operation: ${approvalJson.encodeToString(operation)}\n" +
+                "Configuration revision=${execution.configurationRevision}\n" +
+                "Working directory: ${approvalJson.encodeToString(execution.directory)}\n" +
+                "Command: ${approvalJson.encodeToString(execution.command)}\n" +
+                "Exclusive resources: ${approvalJson.encodeToString(execution.resources)}",
+            binding = "$operation:${known.configurationRevision}",
+        )
+    }
+
+    /** Mutating previews are complete; invisible text is escaped and oversized actions fail before the gate. */
+    private fun reviewableApproval(
+        spec: AgentToolSpec,
+        title: String,
+        description: String,
+        binding: String? = null,
+    ): AgentToolApproval {
+        val safeTitle = title.visibleApprovalText()
+        val safeDescription = description.visibleApprovalText()
+        check(safeTitle.length + safeDescription.length <= MAX_APPROVAL_CHARS) { "BuildApprovalTooLarge" }
+        return AgentToolApproval(spec.name, safeTitle, safeDescription, binding)
+    }
+
+    private fun String.visibleApprovalText(): String = buildString {
+        for (character in this@visibleApprovalText) {
+            val code = character.code
+            if (
+                character != '\n' && (invisibleApprovalRanges.any { code in it } || code in invisibleApprovalCodes)
+            ) {
+                append("\\u").append(code.toString(HEX_RADIX).padStart(UNICODE_ESCAPE_WIDTH, '0'))
+            } else {
+                append(character)
+            }
+        }
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
@@ -285,8 +350,14 @@ internal class WorktreeAgentTools(
 
     private companion object {
         const val COMMAND_TIMEOUT = 30_000L
+        const val MAX_APPROVAL_CHARS = 16_384
+        const val HEX_RADIX = 16
+        const val UNICODE_ESCAPE_WIDTH = 4
         const val MAX_SUMMARY = 4_096
         const val STATUS_TIMEOUT = 10_000L
+        val approvalJson = Json { encodeDefaults = true }
+        val invisibleApprovalRanges = listOf(0x00..0x1F, 0x7F..0x9F, 0x200B..0x200F, 0x2028..0x202E, 0x2060..0x206F)
+        val invisibleApprovalCodes = setOf(0x061C, 0xFEFF)
         val terminal = setOf(
             WorktreeBuildPhase.Completed,
             WorktreeBuildPhase.Cancelled,
@@ -316,6 +387,7 @@ internal class WorktreeAgentTools(
                     }
                     """.trimIndent(),
                 ).jsonObject,
+                AgentToolAction.Edit,
             ),
             AgentToolSpec(
                 "run_build",
@@ -336,6 +408,7 @@ internal class WorktreeAgentTools(
                 "cancel_build",
                 "Request cancellation of a build operation owned by this task; poll build_status for termination.",
                 schema("operation"),
+                AgentToolAction.Command,
             ),
             AgentToolSpec(
                 "worktree_status",

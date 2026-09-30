@@ -74,6 +74,11 @@ internal fun StudioWorktree(
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val isPreparing = content.pane.isCreating && content.pane.isWorktree
+    val isJournalNoticeVisible = content.worktreeJournal != WorktreeJournalUi.Ready && content.hasWorktreeContext()
+    val hasDetails = content.session != null &&
+        content.worktree?.hasDetails(content.worktreeJournal == WorktreeJournalUi.Ready) == true
+    if (!isPreparing && !isJournalNoticeVisible && !hasDetails) return
     HbColumn(modifier, gap = HbTheme.spacing.s) {
         WorktreeJournalNotice(content, onIntent)
         if (content.pane.isCreating && content.pane.isWorktree) {
@@ -83,22 +88,27 @@ internal fun StudioWorktree(
     }
 }
 
+private fun PaneContent.hasWorktreeContext(): Boolean =
+    session?.isWorktree == true || pane.isWorktree || worktree != null
+
+private fun WorktreeUi.hasDetails(isOperational: Boolean): Boolean {
+    if (pullRequestUrl != null || builds.isNotEmpty()) return true
+    return isOperational && phase in setOf(
+        WorktreePhaseUi.AwaitingDecision,
+        WorktreePhaseUi.ActionWorking,
+        WorktreePhaseUi.RecoveryRequired,
+        WorktreePhaseUi.Failed,
+    )
+}
+
 @Composable
 private fun WorktreeDetails(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     val task = content.worktree
     val id = content.session?.id
     if (task == null || id == null) return
     val isOperational = content.worktreeJournal == WorktreeJournalUi.Ready
-    val hasNotice = (
-        isOperational && task.phase in setOf(
-            WorktreePhaseUi.AwaitingDecision,
-            WorktreePhaseUi.ActionWorking,
-            WorktreePhaseUi.RecoveryRequired,
-            WorktreePhaseUi.Failed,
-        )
-    ) || task.pullRequestUrl != null
+    if (!task.hasDetails(isOperational)) return
     val builds = task.builds.takeLast(3)
-    if (!hasNotice && builds.isEmpty()) return
     HbCard(Modifier.testTag("worktree-result-$id"), contentPadding = HbTheme.spacing.m) {
         HbColumn(
             Modifier.fillMaxWidth().heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)

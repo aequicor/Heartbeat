@@ -155,6 +155,7 @@ internal class EngineStudioRepository(
     workspaceProjection: StudioWorkspaceProjection,
     private val configurations: StudioConfigurationController,
     private val preferences: StudioPreferences,
+    private val conversations: StudioConversationCreation,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -196,6 +197,12 @@ internal class EngineStudioRepository(
     init {
         profile.coroutineScope.launch {
             worktrees.tasks().collect { tasks ->
+                // Reconcile a provisioned checkout whose screen waiter or profile ended before the final chat write.
+                lock.withLock {
+                    val saved = store.get(ChatsKey).orEmpty()
+                    val restored = conversations.recovered(saved, tasks)
+                    if (restored != saved) store.set(ChatsKey, restored)
+                }
                 tasks.values.forEach { task ->
                     val action = task.actionRequest ?: return@forEach
                     val isDeliveryRequired = lock.withLock { deliveringActions.add(action.operation) }
@@ -316,26 +323,20 @@ internal class EngineStudioRepository(
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
         }
         val id = Uuid.random().toString()
-        val isolated = if (isWorktree) {
-            val project = WorkspaceRef(requireNotNull(projectId) { "Worktree requires a local project" })
-            worktrees.send(WorktreeIntent.Public.Prepare(id, project))
-            worktrees.await(id) { it.executionWorkspace != null || it.phase == WorktreePhase.Failed }.also {
-                check(it.executionWorkspace != null && it.phase != WorktreePhase.Failed) {
-                    "Worktree preparation failed: ${it.failure.orEmpty()}"
-                }
-            }
-        } else {
-            null
-        }
-        val record = StudioChatRecord(
+        if (isWorktree) requireNotNull(projectId) { "Worktree requires a local project" }
+        val pending = StudioChatRecord(
             id,
             title,
             clock.now(),
             projectId = projectId,
-            executionWorkspace = isolated?.executionWorkspace,
-            worktreeTaskId = isolated?.chatId,
+            worktreeTaskId = id.takeIf { isWorktree },
         )
-        lock.withLock { store.set(ChatsKey, store.get(ChatsKey).orEmpty() + record) }
+        val record = conversations.create(pending) { changed ->
+            lock.withLock {
+                val saved = store.get(ChatsKey).orEmpty()
+                store.set(ChatsKey, conversations.updated(saved, changed))
+            }
+        }
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt)
     }
@@ -563,6 +564,9 @@ internal class EngineStudioRepository(
 
     override suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
         log.i { "Request native cancellation" }
+        active.state.value.activeTurn()?.takeIf { it.id == turn }?.request?.let {
+            worktrees.cancelBuilds(active.ref, it, turn)
+        }
         if (!nativeSession.requestStop(active, turn)) {
             mutableState.update { it.copy(stopFailures = it.stopFailures + id) }
         }
@@ -580,6 +584,9 @@ internal class EngineStudioRepository(
 
     private suspend fun open(id: String, target: EngineTarget): ActiveSession = withChatLock(id) {
         val record = record(id)
+        check(record.worktreeTaskId == null || record.executionWorkspace != null) {
+            "The conversation worktree is not ready"
+        }
         val workspace = record.projectId?.let { projectId ->
             check(
                 facade.engines.state.value.any {
@@ -673,13 +680,13 @@ internal class EngineStudioRepository(
             stopRequests += sessionId
             handles[sessionId]
         } ?: return
-        worktrees.cancelBuilds(sessionId)
         if (active.state.value is ActiveSessionState.Unavailable) {
             active.features.requireFeature(
                 ReconcilesSession,
             ).synchronize()
         }
         val turn = active.state.value.activeTurn() ?: return
+        turn.request?.let { worktrees.cancelBuilds(active.ref, it, turn.id) }
         active.features.requireFeature(CancelsTurns).cancel(turn.id)
     }
 

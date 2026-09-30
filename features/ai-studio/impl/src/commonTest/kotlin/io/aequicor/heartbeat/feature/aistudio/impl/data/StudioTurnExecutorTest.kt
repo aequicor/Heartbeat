@@ -38,6 +38,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
@@ -63,6 +65,68 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
+    @Test
+    fun `ordinary checkout settlement finds its task by session and request instead of studio chat id`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isIsolated = false
+        fixture.machine.state.value = WorktreeState.Ready(
+            mapOf(
+                "main-task" to fixture.mainTask(),
+                "other-task" to fixture.mainTask().copy(
+                    chatId = "other-task",
+                    run = fixture.mainTask().run?.copy(request = RequestId("other-request")),
+                ),
+            ),
+        )
+        val result = async { fixture.executor.execute(fixture.host, fixture.request) }
+        runCurrent()
+        assertTrue(fixture.machine.sent.isEmpty())
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, result.await())
+        assertEquals(
+            listOf<WorktreeIntent.Public>(
+                WorktreeIntent.Public.RunSettled(
+                    "main-task",
+                    fixture.request.request,
+                    fixture.active.ref,
+                    fixture.turn.id,
+                    TurnOutcome.Completed,
+                ),
+            ),
+            fixture.machine.sent,
+        )
+        assertEquals(listOf("finish-end", "refresh", "settled", "outcome"), fixture.events.takeLast(4))
+    }
+
+    @Test
+    fun `stop cancels builds of the matching ordinary task without affecting a different request`() = runTest {
+        val fixture = TurnFixture()
+        val builds = mapOf(
+            "running" to WorktreeBuildOperation("running", "test", WorktreeBuildPhase.Running),
+            "queued" to WorktreeBuildOperation("queued", "test", WorktreeBuildPhase.Queued),
+            "finished" to WorktreeBuildOperation("finished", "test", WorktreeBuildPhase.Completed),
+        )
+        fixture.machine.state.value = WorktreeState.Ready(
+            mapOf(
+                "main-task" to fixture.mainTask().copy(builds = builds),
+                "other-task" to fixture.mainTask().copy(
+                    chatId = "other-task",
+                    run = fixture.mainTask().run?.copy(request = RequestId("other-request")),
+                    builds = builds,
+                ),
+            ),
+        )
+        StudioWorktrees(executorRegistry(fixture.machine), fixture.tools)
+            .cancelBuilds(fixture.active.ref, fixture.request.request, fixture.turn.id)
+        assertEquals(
+            listOf<WorktreeIntent.Public>(
+                WorktreeIntent.Public.CancelBuild("main-task", "running"),
+                WorktreeIntent.Public.CancelBuild("main-task", "queued"),
+            ),
+            fixture.machine.sent,
+        )
+    }
+
     @Test
     fun `ordinary project accepted failure retains ownership until native cancellation and tool cleanup`() = runTest {
         val fixture = TurnFixture()
@@ -150,6 +214,15 @@ private class TurnFixture {
     val machine = ExecutorMachine(events)
     val host = ExecutorHost(active, turn, events)
     val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools)
+
+    fun mainTask() = WorktreeTask(
+        "main-task",
+        WorkspaceRef("original"),
+        WorkspaceRef("original"),
+        phase = WorktreePhase.Working,
+        run = WorktreeRun(request.request, session = active.ref, turn = turn.id, isPrepared = true),
+        isIsolated = false,
+    )
 }
 
 private class ExecutorTools(private val events: MutableList<String>) : ProfileAgentTools by NoAgentTools {
@@ -266,13 +339,15 @@ private class ExecutorMachine(private val events: MutableList<String>) :
 
             is WorktreeIntent.Public.RunRejected -> events += "rejected"
 
+            is WorktreeIntent.Public.CancelBuild -> events += "cancel-build"
+
             WorktreeIntent.Public.Start, WorktreeIntent.Public.RetryLoad,
             is WorktreeIntent.Public.Prepare, is WorktreeIntent.Public.TrackMainSession,
             is WorktreeIntent.Public.RunObservationLost, is WorktreeIntent.Public.TaskCompleteSignaled,
             is WorktreeIntent.Public.ChooseAction, is WorktreeIntent.Public.ActionDelivered,
             is WorktreeIntent.Public.ActionDeliveryFailed, is WorktreeIntent.Public.Recheck,
             is WorktreeIntent.Public.ProposeBuildPlan, is WorktreeIntent.Public.ApproveBuildPlan,
-            is WorktreeIntent.Public.RunBuild, is WorktreeIntent.Public.CancelBuild,
+            is WorktreeIntent.Public.RunBuild,
             -> error(
                 "Unexpected intent $intent",
             )

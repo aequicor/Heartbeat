@@ -103,9 +103,7 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             observation.cancelAndJoin()
             host.refreshHistory(request.id, history)
             val outcome = terminal.lastCompletedTurn()?.outcome ?: TurnOutcome.Unknown
-            if (progress.isIsolated) {
-                worktrees.send(WorktreeIntent.Public.RunSettled(request.id, request.request, active.ref, turn, outcome))
-            }
+            worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)
         } finally {
             observation.cancel()
@@ -126,7 +124,7 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             if (stopped == null) observeInterrupted(host, request, active, turn, progress.isIsolated)
         }
         tools.finishTurn(active.ref, turn)
-        if (progress.isIsolated) worktrees.failed(request.id, request.request, active.ref, turn)
+        worktrees.failed(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn)
     }
 
     /** An unknown result keeps the runtime slot, approvals and merge lease until the process truly stops. */
@@ -138,7 +136,7 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
         isIsolated: Boolean,
     ) {
         log.w { "Native cancellation is unconfirmed; retain ownership and continue observing" }
-        if (isIsolated) worktrees.observationLost(request.id, request.request, active, turn)
+        worktrees.observationLost(request.id.takeIf { isIsolated }, request.request, active, turn)
         supervisorScope {
             val permissions = launch { active.state.collect { host.updatePermissions(request.id, it) } }
             try {

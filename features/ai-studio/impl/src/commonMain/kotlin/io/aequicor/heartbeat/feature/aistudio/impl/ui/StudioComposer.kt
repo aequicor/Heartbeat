@@ -107,7 +107,11 @@ internal fun StudioComposer(
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
         inputModifier = Modifier.focusRequester(focus),
-        contextContent = { StudioComposerContext(content, onIntent) },
+        contextContent = if (content.hasComposerContext()) {
+            { StudioComposerContext(content, onIntent) }
+        } else {
+            null
+        },
         leadingContent = {
             StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch)
         },
@@ -123,6 +127,11 @@ internal fun StudioComposer(
             )
         },
     )
+}
+
+private fun PaneContent.hasComposerContext(): Boolean {
+    val hasWorktree = worktree != null || session?.isWorktree == true
+    return pane.sessionId == null || project != null || hasWorktree
 }
 
 @Composable

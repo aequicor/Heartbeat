@@ -102,33 +102,49 @@ internal class StudioWorktrees(private val machines: MachineRegistry, private va
         }
     }
 
-    suspend fun failed(id: String, request: RequestId, session: SessionRef?, turn: TurnId?) {
+    /** Main-checkout tasks have their own ids; native identity locates every task owned by this request. */
+    suspend fun settled(id: String?, request: RequestId, session: SessionRef, turn: TurnId, outcome: TurnOutcome) {
+        val ids = if (id != null) listOf(id) else matchingTasks(session, request, turn).map { it.chatId }
+        ids.forEach { send(WorktreeIntent.Public.RunSettled(it, request, session, turn, outcome)) }
+    }
+
+    suspend fun failed(id: String?, request: RequestId, session: SessionRef?, turn: TurnId?) {
         safely("Could not record interrupted worktree turn; recovery must inspect the journal") {
             if (turn == null) {
-                send(WorktreeIntent.Public.RunRejected(id, request, "RequestRejected"))
+                if (id != null) send(WorktreeIntent.Public.RunRejected(id, request, "RequestRejected"))
             } else {
-                send(WorktreeIntent.Public.RunSettled(id, request, checkNotNull(session), turn, TurnOutcome.Unknown))
+                settled(id, request, checkNotNull(session), turn, TurnOutcome.Unknown)
             }
         }
     }
 
-    suspend fun observationLost(id: String, request: RequestId, active: ActiveSession, turn: TurnId) {
+    suspend fun observationLost(id: String?, request: RequestId, active: ActiveSession, turn: TurnId) {
         safely("Could not record observation loss; native ownership is retained") {
-            send(WorktreeIntent.Public.RunObservationLost(id, request, active.ref, turn, "NativeOutcomeUnknown"))
+            val ids = if (id != null) listOf(id) else matchingTasks(active.ref, request, turn).map { it.chatId }
+            ids.forEach {
+                send(WorktreeIntent.Public.RunObservationLost(it, request, active.ref, turn, "NativeOutcomeUnknown"))
+            }
         }
     }
 
-    suspend fun cancelBuilds(sessionId: String) {
+    suspend fun cancelBuilds(session: SessionRef, request: RequestId, turn: TurnId) {
         safely("Could not enqueue build cancellation; continue stopping the native turn") {
-            tasks().first()[sessionId]?.builds?.values?.filter {
-                it.phase in setOf(
-                    WorktreeBuildPhase.Queued,
-                    WorktreeBuildPhase.WaitingForResource,
-                    WorktreeBuildPhase.Running,
-                )
-            }?.forEach { send(WorktreeIntent.Public.CancelBuild(sessionId, it.id)) }
+            matchingTasks(session, request, turn).forEach { task ->
+                task.builds.values.filter {
+                    it.phase in setOf(
+                        WorktreeBuildPhase.Queued,
+                        WorktreeBuildPhase.WaitingForResource,
+                        WorktreeBuildPhase.Running,
+                    )
+                }.forEach { send(WorktreeIntent.Public.CancelBuild(task.chatId, it.id)) }
+            }
         }
     }
+
+    private suspend fun matchingTasks(session: SessionRef, request: RequestId, turn: TurnId): List<WorktreeTask> =
+        tasks().first().values.filter {
+            it.run?.let { run -> run.session == session && run.request == request && run.turn == turn } == true
+        }
 
     private suspend fun safely(message: String, operation: suspend () -> Unit) {
         try {
