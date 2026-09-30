@@ -44,7 +44,7 @@ class KoogCodingSessionTest {
         val f = fixture(autoApprove = true)
         var capturedContext: AgentToolContext? = null
         var executions = 0
-        f.isCodingEnabled = false
+        f.isCodingEnabled = true
         f.hostedTools = object : ProfileAgentTools {
             override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
                 AgentToolSpec("edit_file", "Edit file", JsonObject(mapOf("type" to JsonPrimitive("object")))),
@@ -85,6 +85,36 @@ class KoogCodingSessionTest {
 
     private val edit = RecordingTool("edit_file", isMutating = true)
     private val read = RecordingTool("read_file", isMutating = false)
+
+    @Test
+    fun `coding toggle disables hosted file and shell declarations but keeps workspace workflows`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.isCodingEnabled = false
+        f.hostedTools = object : ProfileAgentTools {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
+                "read_file",
+                "list_dir",
+                "glob",
+                "grep",
+                "write_file",
+                "edit_file",
+                "run_command",
+                "configure_build",
+            ).map { AgentToolSpec(it, it, JsonObject(mapOf("type" to JsonPrimitive("object")))) }
+            override suspend fun instructions(workspace: WorkspaceRef?): String = "Use hosted tools"
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult = error("Disabled coding tools must not execute")
+        }
+        val session = f.codingSession()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("configure_build"), f.executor.tools.single().map { it.name })
+    }
 
     @Test
     fun `project session offers coding tools and instructions`() = runTest {

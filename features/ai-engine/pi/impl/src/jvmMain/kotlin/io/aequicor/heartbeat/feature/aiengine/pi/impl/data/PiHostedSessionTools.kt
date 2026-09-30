@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
@@ -12,6 +13,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
@@ -25,7 +28,7 @@ import java.util.UUID
 /** Private transport and hosted approvals of one Pi native session, independent of native extension dialogs. */
 internal class PiHostedSessionTools(
     private val environment: PiSessionEnvironment,
-    private val context: suspend () -> AgentToolContext?,
+    private val isInterrupting: () -> Boolean,
     private val canApprove: (Turn) -> Boolean,
     private val permissions: MutableMap<PermissionRequestId, PermissionRequest>,
     private val send: suspend (ActiveSessionIntent) -> SendResult,
@@ -35,6 +38,30 @@ internal class PiHostedSessionTools(
     var lifetime: CompletableJob? = null
         private set
 
+    @Volatile
+    private var snapshot: AgentToolContext? = null
+
+    /** Immutable authority is captured on HTTP ingress without queuing on Main. */
+    private fun context(): AgentToolContext? = snapshot?.takeIf {
+        it.lifetime?.isActive == true && !isInterrupting()
+    }
+
+    fun capture(session: SessionRef, workspace: WorkspaceRef?, turn: Turn, trust: TrustLevel) {
+        snapshot = AgentToolContext(
+            session,
+            workspace,
+            turn.id,
+            turn.request,
+            trust,
+            AgentToolPermissions { approval(turn, it) },
+            lifetime = lifetime,
+        )
+    }
+
+    fun updateTrust(trust: TrustLevel) {
+        snapshot = snapshot?.copy(trust = trust)
+    }
+
     fun beginTurn() {
         revoke()
         lifetime = SupervisorJob(environment.profile.coroutineScope.coroutineContext[Job])
@@ -43,6 +70,7 @@ internal class PiHostedSessionTools(
     fun revoke() {
         lifetime?.cancel()
         lifetime = null
+        snapshot = null
     }
 
     suspend fun prepare(workspace: WorkspaceRef?): PiHostedTools? {
@@ -51,7 +79,7 @@ internal class PiHostedSessionTools(
         if (specs.isEmpty()) return null
         val instructions = environment.tools.instructions(workspace)
         if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        val capability = environment.bridge.attach(workspace, context)
+        val capability = environment.bridge.attach(workspace, ::context)
         attachment = capability
         return PiHostedTools(capability.endpoint, specs, instructions)
     }

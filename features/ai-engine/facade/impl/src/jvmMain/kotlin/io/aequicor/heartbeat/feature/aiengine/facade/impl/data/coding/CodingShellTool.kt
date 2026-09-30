@@ -34,7 +34,8 @@ internal class CodingShellTool(
         "run_command",
         "Run a ${if (isWindows) "PowerShell" else "POSIX shell"} command in the project root and return its exit " +
             "code and combined output. Use for git and other CLI tools; use run_build for builds and tests when " +
-            "available. Interactive programs are unsupported.",
+            "available. Commands are limited to $MAX_CODING_COMMAND_CHARS characters. " +
+            "Interactive programs are unsupported.",
         listOf(ToolParameterDescriptor("command", "Command line to run", ToolParameterType.String)),
         listOf(
             ToolParameterDescriptor(
@@ -51,6 +52,9 @@ internal class CodingShellTool(
     override suspend fun run(args: JsonObject): AgentToolResult {
         val command = args.argText("command")
         if (command.isBlank()) return AgentToolResult("command is empty", true)
+        if (command.length > MAX_CODING_COMMAND_CHARS) {
+            return AgentToolResult("Refused: command exceeds $MAX_CODING_COMMAND_CHARS characters", true)
+        }
         val timeout = (args.argInt("timeout_seconds") ?: DEFAULT_TIMEOUT_SECONDS).coerceIn(1, MAX_TIMEOUT_SECONDS)
         return try {
             execute(command, timeout.toLong())
@@ -198,6 +202,9 @@ internal class CodingShellTool(
         fun isSecretName(name: String): Boolean = name.uppercase().let { upper -> SECRET_PARTS.any { it in upper } }
     }
 }
+
+/** Commands must fit in the shared approval presentation without hiding an executable suffix. */
+internal const val MAX_CODING_COMMAND_CHARS = 4_000
 
 private const val EXIT_GRACE_MILLIS = 200L
 private const val AFTER_EXIT_LIMIT_MILLIS = 2_000L

@@ -21,7 +21,14 @@ internal class ClaudeHostedTurn(
 ) : AutoCloseable {
     private val isOpen = AtomicBoolean(true)
     private var attachment: AgentToolBridgeAttachment? = null
-    val permissions = ClaudePermissions(observer, history, ::isActive, callbacks.update, callbacks.persist)
+    val permissions = ClaudePermissions(
+        observer,
+        history,
+        ::isActive,
+        callbacks.update,
+        callbacks.persist,
+        callbacks.canApprove,
+    )
 
     suspend fun prepare(): ClaudeHostedTools? {
         val project = context.workspace ?: return null
@@ -64,4 +71,5 @@ internal data class ClaudeTurnCallbacks(
     val isCurrent: () -> Boolean,
     val update: (ActiveSessionState) -> Unit,
     val persist: suspend () -> Unit,
+    val canApprove: () -> Boolean,
 )

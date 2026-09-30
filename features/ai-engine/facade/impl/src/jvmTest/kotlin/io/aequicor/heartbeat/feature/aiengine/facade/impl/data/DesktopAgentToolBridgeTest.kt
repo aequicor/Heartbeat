@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
@@ -41,6 +42,59 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class DesktopAgentToolBridgeTest {
+    @Test
+    fun `queued invocation keeps its ingress turn and cannot inherit the next turns full trust`() = runBlocking {
+        val dispatcher = QueuedBridgeDispatcher()
+        val profile = BridgeProfile(dispatcher)
+        val tools = CapturingTools()
+        val lifetime = Job()
+        var active = context().copy(lifetime = lifetime)
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { active }
+        try {
+            val response = HttpClient.newHttpClient().sendAsync(
+                request(capability.endpoint.url, CALL, capability.endpoint.token),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            val queued = dispatcher.next()
+            active = context().copy(turn = TurnId("next"), trust = TrustLevel.Full, lifetime = Job())
+            queued.run()
+            assertEquals(200, response.get(5, TimeUnit.SECONDS).statusCode())
+            assertEquals(TurnId("turn"), tools.calls.single().turn)
+            assertEquals(TrustLevel.Ask, tools.calls.single().trust)
+        } finally {
+            lifetime.cancel()
+            active.lifetime?.cancel()
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
+    fun `turn revocation rejects a queued call even when the session capability has a new turn`() = runBlocking {
+        val dispatcher = QueuedBridgeDispatcher()
+        val profile = BridgeProfile(dispatcher)
+        val tools = CapturingTools()
+        val lifetime = Job()
+        var active = context().copy(lifetime = lifetime)
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { active }
+        try {
+            val response = HttpClient.newHttpClient().sendAsync(
+                request(capability.endpoint.url, CALL, capability.endpoint.token),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            val queued = dispatcher.next()
+            lifetime.cancel()
+            active = context().copy(turn = TurnId("next"), trust = TrustLevel.Full, lifetime = Job())
+            queued.run()
+            assertEquals(410, response.get(5, TimeUnit.SECONDS).statusCode())
+            assertTrue(tools.calls.isEmpty())
+        } finally {
+            active.lifetime?.cancel()
+            capability.close()
+            profile.close()
+        }
+    }
+
     @Test
     fun `revocation closes a request whose execution has not started`() = runBlocking {
         val dispatcher = QueuedBridgeDispatcher()

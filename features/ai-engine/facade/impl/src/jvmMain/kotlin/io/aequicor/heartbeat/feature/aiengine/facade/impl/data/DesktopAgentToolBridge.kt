@@ -19,9 +19,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -131,20 +134,39 @@ internal class DesktopAgentToolBridge(
         fun respond(status: Int, body: String) {
             if (replied.compareAndSet(false, true)) reply(exchange, status, body)
         }
-        val invocation = capability.scope.launch {
-            try {
-                val response = if (mcp) mcp(capability, request) else execute(capability, request)
-                respond(200, response.toString())
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.w(IllegalStateException("Hosted bridge failed (${e::class.simpleName.orEmpty()})")) {
-                    "Tool request failed"
-                }
-                respond(HTTP_BAD_REQUEST, "{}")
-            }
+        // Capture authority on ingress. A queued call must never acquire a later turn's trust level.
+        val invocation = capability.scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            invoke(capability, request, mcp, ::respond)
         }
         invocation.invokeOnCompletion { respond(HTTP_GONE, "{}") }
+    }
+
+    private suspend fun invoke(
+        capability: Capability,
+        request: JsonObject,
+        isMcp: Boolean,
+        respond: (Int, String) -> Unit,
+    ) {
+        var revocation: kotlinx.coroutines.DisposableHandle? = null
+        try {
+            val isToolCall = !isMcp || (request["method"] as? JsonPrimitive)?.content == "tools/call"
+            val context = if (isToolCall) capability.context() else null
+            val job = checkNotNull(currentCoroutineContext()[kotlinx.coroutines.Job])
+            revocation = context?.lifetime?.invokeOnCompletion { job.cancel() }
+            // Leave the HTTP executor free; only the captured context crosses this dispatch boundary.
+            yield()
+            val response = if (isMcp) mcp(capability, request, context) else execute(capability, request, context)
+            respond(HTTP_OK, response.toString())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(IllegalStateException("Hosted bridge failed (${e::class.simpleName.orEmpty()})")) {
+                "Tool request failed"
+            }
+            respond(HTTP_BAD_REQUEST, "{}")
+        } finally {
+            revocation?.dispose()
+        }
     }
 
     private fun readRequest(exchange: HttpExchange): JsonObject? = try {
@@ -164,8 +186,7 @@ internal class DesktopAgentToolBridge(
         null
     }
 
-    private suspend fun execute(capability: Capability, request: JsonObject): JsonObject {
-        val context = capability.context()
+    private suspend fun execute(capability: Capability, request: JsonObject, context: AgentToolContext?): JsonObject {
         val result = if (context == null || context.workspace != capability.workspace) {
             AgentToolResult("No active turn for this capability", isError = true)
         } else {
@@ -181,7 +202,7 @@ internal class DesktopAgentToolBridge(
         }
     }
 
-    private suspend fun mcp(capability: Capability, request: JsonObject): JsonObject {
+    private suspend fun mcp(capability: Capability, request: JsonObject, context: AgentToolContext?): JsonObject {
         val method = (request["method"] as? JsonPrimitive)?.content.orEmpty()
         val params = request["params"] as? JsonObject ?: JsonObject(emptyMap())
         val result: JsonElement = when (method) {
@@ -217,7 +238,7 @@ internal class DesktopAgentToolBridge(
 
             "tools/call" -> {
                 val call = JsonObject(params + ("callId" to JsonPrimitive("mcp-${request["id"]}")))
-                val output = execute(capability, call)
+                val output = execute(capability, call, context)
                 buildJsonObject {
                     put("isError", output["success"] != JsonPrimitive(true))
                     put(
@@ -272,6 +293,7 @@ internal class DesktopAgentToolBridge(
     )
 
     private companion object {
+        const val HTTP_OK = 200
         const val HTTP_ACCEPTED = 202
         const val HTTP_FORBIDDEN = 403
         const val HTTP_BAD_REQUEST = 400

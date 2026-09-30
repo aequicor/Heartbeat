@@ -275,8 +275,10 @@ internal class KoogNativeSession(
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
             val context = koogHostedContext(ref, route.workspace, turn, trust) { approveHosted(turn, it) }
-            val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || access.codingToolsEnabled() }
+            val isCodingEnabled = access.codingToolsEnabled()
+            val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || isCodingEnabled }
                 ?.let { workspaces.open(it, context) }
+                ?.withCodingTools(isCodingEnabled)
             val rounds = if (workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
             var input: Prompt? = null
             var isComplete = false

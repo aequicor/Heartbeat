@@ -35,6 +35,15 @@ class CodingShellToolTest {
     }
 
     @Test
+    fun commandWithAnUnreviewableSuffixNeverStarts() = runTest {
+        val suffix = if (isWindows) "; Set-Content hidden.txt changed" else "; touch hidden.txt"
+        val result = tool.run(args("echo safe" + " ".repeat(MAX_CODING_COMMAND_CHARS) + suffix))
+        assertTrue(result.isError)
+        assertTrue(result.text.startsWith("Refused"))
+        assertFalse(Files.exists(project.resolve("hidden.txt")))
+    }
+
+    @Test
     fun commandIsKilledAfterTimeout() = runTest {
         val started = System.nanoTime()
         val sleep = tool.run(args(if (isWindows) "Start-Sleep -Seconds 30" else "sleep 30", timeout = 1))

@@ -19,7 +19,7 @@ class CodingBoundaryTest {
     fun `path normalization allows project files and blocks traversal absolute paths and metadata`() {
         val parent = Files.createTempDirectory("heartbeat-project-boundary")
         try {
-            val directory = Files.createDirectory(parent.resolve("project"))
+            val directory = Files.createDirectory(parent.resolve("project")).toRealPath()
             val project = ProjectRoot(directory)
             assertEquals(directory.resolve("file.txt"), project.resolve("sub/../file.txt"))
             assertEquals(directory.resolve("nested/new.txt"), project.resolve("nested/new.txt"))

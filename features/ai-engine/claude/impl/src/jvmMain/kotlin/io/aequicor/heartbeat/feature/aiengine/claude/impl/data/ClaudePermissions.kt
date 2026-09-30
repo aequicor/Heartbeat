@@ -20,6 +20,7 @@ internal class ClaudePermissions(
     private val isActive: () -> Boolean,
     private val update: (ActiveSessionState) -> Unit,
     private val persist: suspend () -> Unit,
+    private val canApprove: () -> Boolean,
 ) : AgentToolPermissions {
     private val lock = Any()
     private val pending = linkedMapOf<PermissionRequestId, Pending>()
@@ -27,7 +28,7 @@ internal class ClaudePermissions(
 
     override suspend fun request(approval: AgentToolApproval): Boolean {
         val item = synchronized(lock) {
-            if (isClosed || !isActive()) return false
+            if (isClosed || !isActive() || !canApprove()) return false
             val request = PermissionRequest(
                 PermissionRequestId(UUID.randomUUID().toString()),
                 observer.turn.id,
@@ -43,7 +44,7 @@ internal class ClaudePermissions(
         }
         persist()
         return try {
-            item.answer.await() && isActive()
+            item.answer.await() && isActive() && canApprove()
         } finally {
             synchronized(lock) {
                 if (pending.remove(item.request.id) != null && !isClosed && isActive()) publish()
@@ -53,8 +54,8 @@ internal class ClaudePermissions(
 
     suspend fun respond(decision: PermissionDecision) {
         synchronized(lock) {
-            val item = pending[decision.request]?.takeIf { it.request.accepts(decision) }
-            if (isClosed || !isActive() || item == null) return
+            val item = pending[decision.request]?.takeIf { it.request.accepts(decision) } ?: return
+            if (isClosed || !isActive() || !canApprove()) return
             pending.remove(decision.request)
             observer.permissionResolved(decision.request)
             publish()
@@ -68,6 +69,17 @@ internal class ClaudePermissions(
         isClosed = true
         pending.values.forEach { it.answer.complete(false) }
         pending.clear()
+    }
+
+    /** Declines unanswered requests on final observation detach while accepted read/Full work remains active. */
+    fun dismiss() = synchronized(lock) {
+        if (pending.isEmpty()) return@synchronized
+        pending.values.forEach {
+            observer.permissionResolved(it.request.id)
+            it.answer.complete(false)
+        }
+        pending.clear()
+        if (!isClosed && isActive()) publish()
     }
 
     private fun publish() {

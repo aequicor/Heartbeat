@@ -88,6 +88,98 @@ class ClaudeHostedTest {
     }
 
     @Test
+    fun `last lease detach declines pending and later Ask requests without revoking accepted work`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val finish = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            assertNotNull(bridge.context())
+            finish.await()
+            line(resultFrame(args.last().substringAfter('=')))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val session = runtime.create(CreateSessionRequest(testTarget, workspace))
+        val send = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        send.await()
+        val context = assertNotNull(bridge.context())
+        val answer = async { context.permissions.request(AgentToolApproval("run_command", "Command")) }
+        runCurrent()
+        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
+        session.close()
+        runCurrent()
+        assertFalse(answer.await())
+        val detachedContext = assertNotNull(bridge.context())
+        assertTrue(assertNotNull(detachedContext.lifetime).isActive)
+        assertFalse(detachedContext.permissions.request(AgentToolApproval("run_command", "Later command")))
+        assertEquals(0, bridge.closed)
+        finish.complete(Unit)
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, fixture.catalog.find(session.ref)?.lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
+    fun `closing one of two leases keeps the other able to approve`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val finish = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            assertNotNull(bridge.context())
+            finish.await()
+            line(resultFrame(args.last().substringAfter('=')))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val session = runtime.create(CreateSessionRequest(testTarget, workspace))
+        val other = runtime.attach(session.ref, ResumeSessionRequest(testTarget, workspace))
+        val send = async { session.features.available(SendsPrompts).send(prompt()) }
+        runCurrent()
+        val turn = send.await()
+        val context = assertNotNull(bridge.context())
+        val answer = async { context.permissions.request(AgentToolApproval("run_command", "Command")) }
+        runCurrent()
+        session.close()
+        runCurrent()
+        assertFalse(answer.isCompleted)
+        val request = assertIs<ActiveSessionState.AwaitingUserAction>(other.state.value).requests.single()
+        other.features.available(RequestsPermissions)
+            .respond(PermissionDecision(turn, request.id, request.options.first().id))
+        runCurrent()
+        assertTrue(answer.await())
+        finish.complete(Unit)
+        runCurrent()
+        runtime.close()
+    }
+
+    @Test
+    fun `Full trusted turn retains its tool capability after the last lease detaches`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val finish = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            assertNotNull(bridge.context())
+            finish.await()
+            line(resultFrame(args.last().substringAfter('=')))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val session = runtime.create(CreateSessionRequest(testTarget, workspace))
+        val send = async { session.features.available(SendsPrompts).send(prompt().copy(trust = TrustLevel.Full)) }
+        runCurrent()
+        send.await()
+        session.close()
+        val context = assertNotNull(bridge.context())
+        assertEquals(TrustLevel.Full, context.trust)
+        assertTrue(assertNotNull(context.lifetime).isActive)
+        finish.complete(Unit)
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, fixture.catalog.find(session.ref)?.lastTurn?.outcome)
+        runtime.close()
+    }
+
+    @Test
     fun `cancel waits for native cleanup and revokes a pending permission`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val bridge = TestAgentBridge()

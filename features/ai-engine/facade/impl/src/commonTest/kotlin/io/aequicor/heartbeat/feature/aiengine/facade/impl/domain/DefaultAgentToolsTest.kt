@@ -101,13 +101,26 @@ class DefaultAgentToolsTest {
     }
 
     @Test
-    fun `invalid approval preview returns a sanitized tool failure without executing`() = runTest {
-        val owner = ToolOwner(AgentToolAction.Command)
-        owner.isApprovalInvalid = true
-        val result = DefaultAgentTools(setOf(owner)).execute(toolContext(), "tool", EMPTY_ARGS)
-        assertTrue(result.isError)
-        assertFalse(result.text.contains("private-preview"))
-        assertEquals(0, owner.calls)
+    fun `unreviewable mutation fails before asking or executing at every trust level`() = runTest {
+        for (action in listOf(AgentToolAction.Edit, AgentToolAction.Command)) {
+            for (trust in TrustLevel.entries) {
+                val owner = ToolOwner(action)
+                owner.isApprovalInvalid = true
+                var permissions = 0
+                val context = toolContext(
+                    trust,
+                    AgentToolPermissions {
+                        permissions++
+                        true
+                    },
+                )
+                val result = DefaultAgentTools(setOf(owner)).execute(context, "tool", EMPTY_ARGS)
+                assertTrue(result.isError)
+                assertFalse(result.text.contains("private-preview"))
+                assertEquals(0, permissions, "$trust/$action")
+                assertEquals(0, owner.calls, "$trust/$action")
+            }
+        }
     }
 
     @Test

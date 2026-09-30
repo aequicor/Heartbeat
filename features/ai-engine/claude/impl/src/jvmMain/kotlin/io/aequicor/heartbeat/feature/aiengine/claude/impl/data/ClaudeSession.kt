@@ -213,14 +213,7 @@ internal class ClaudeSession(
 
     private suspend fun execute(submission: Submission, accepted: CompletableDeferred<TurnId>) {
         val observer = ClaudeTurnObserver(ref, submission.turn, submission.request, history, accepted, ::update)
-        val hosted = ClaudeHostedTurn(
-            ClaudeTurnContext(ref, route.workspace, submission.request),
-            observer,
-            history,
-            environment,
-            currentCoroutineContext()[Job],
-            ClaudeTurnCallbacks({ isToolTurnActive(submission.turn.id) }, ::update, ::persist),
-        )
+        val hosted = hostedTurn(submission, observer)
         permissions = hosted.permissions
         val previousLaunch = launch
         var isTransportInvoked = false
@@ -271,6 +264,21 @@ internal class ClaudeSession(
             withContext(NonCancellable) { persist() }
         }
     }
+
+    private suspend fun hostedTurn(submission: Submission, observer: ClaudeTurnObserver): ClaudeHostedTurn =
+        ClaudeHostedTurn(
+            ClaudeTurnContext(ref, route.workspace, submission.request),
+            observer,
+            history,
+            environment,
+            currentCoroutineContext()[Job],
+            ClaudeTurnCallbacks(
+                { isToolTurnActive(submission.turn.id) },
+                ::update,
+                ::persist,
+                { synchronized(lock) { leases.isNotEmpty() } },
+            ),
+        )
 
     private fun isToolTurnActive(id: TurnId): Boolean {
         if (!scope.isActive || cancelledTurn == id) return false
@@ -572,7 +580,10 @@ internal class ClaudeSession(
                 leases.isEmpty()
             }
             // Outside the session lock: the runtime may lock other sessions while pruning.
-            if (isLast) environment.onReleased(this@ClaudeSession)
+            if (isLast) {
+                permissions?.dismiss()
+                environment.onReleased(this@ClaudeSession)
+            }
         }
 
         fun ensureAttached() = synchronized(lock) {

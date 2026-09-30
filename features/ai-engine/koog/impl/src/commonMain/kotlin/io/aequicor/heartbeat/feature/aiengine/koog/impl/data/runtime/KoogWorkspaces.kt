@@ -8,7 +8,7 @@ internal data class KoogWorkspace(val tools: List<KoogTool>, val instructions: S
 
 /** Opens coding workspaces; Desktop only, other platforms keep the plain chat. */
 internal fun interface KoogWorkspaces {
-    /** Hosted tools enforce the common trust gate instead of the legacy Koog coding toggle. */
+    /** Hosted workspace workflows may remain available while the coding toggle disables file and shell tools. */
     val hasHostedTools: Boolean get() = false
 
     /** Workspace of [ref], or null when the platform has no coding tools or the project is unavailable. */
@@ -17,3 +17,11 @@ internal fun interface KoogWorkspaces {
     /** Opens tools against the accepted native turn. Legacy fixtures retain their old opening contract. */
     suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? = open(ref)
 }
+
+/** Keeps the coding toggle effective without hiding separately enabled hosted workspace workflows. */
+internal fun KoogWorkspace.withCodingTools(isEnabled: Boolean): KoogWorkspace? {
+    val available = if (isEnabled) tools else tools.filterNot { it.descriptor.name in CODING_TOOL_NAMES }
+    return takeIf { available.isNotEmpty() }?.copy(tools = available)
+}
+
+private val CODING_TOOL_NAMES = setOf("read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "run_command")

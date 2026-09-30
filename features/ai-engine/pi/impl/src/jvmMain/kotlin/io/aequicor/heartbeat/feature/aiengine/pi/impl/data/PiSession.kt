@@ -8,8 +8,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
@@ -142,7 +140,7 @@ internal class PiSession(
     )
     private val hostedTools = PiHostedSessionTools(
         environment,
-        ::hostedContext,
+        { state.value is ActiveSessionState.Interrupting },
         { active -> !isHandleClosed && turn?.id == active.id },
         permissions,
         { machine.send(it) },
@@ -176,23 +174,6 @@ internal class PiSession(
     val attachedRef: SessionRef? get() = nativeRef
 
     suspend fun prepareHostedTools(): PiHostedTools? = hostedTools.prepare(route.workspace)
-
-    private suspend fun hostedContext(): AgentToolContext? = withContext(dispatchers.main) {
-        val active = turn ?: return@withContext null
-        val session = nativeRef ?: return@withContext null
-        if (isReleased || state.value is ActiveSessionState.Interrupting || hostedTools.lifetime?.isActive != true) {
-            return@withContext null
-        }
-        AgentToolContext(
-            session,
-            route.workspace,
-            active.id,
-            active.request,
-            trust,
-            AgentToolPermissions { hostedTools.approval(active, it) },
-            lifetime = hostedTools.lifetime,
-        )
-    }
 
     /** Starts Pi on a new native session, or on the stored [transcript] when the session is resumed. */
     suspend fun start(factory: PiConnector, transcript: PiTranscript? = null): Unit = withContext(dispatchers.main) {
@@ -239,6 +220,7 @@ internal class PiSession(
                 turn = next
                 hostedTools.beginTurn()
                 trust = request.trust ?: DefaultTrust
+                hostedTools.capture(ref, route.workspace, next, trust)
                 isTurnStarted = false
                 terminal = TurnOutcome.Completed
                 if (machine.send(ActiveSessionIntent.Public.Submit(request, next)) != SendResult.Accepted) {
@@ -306,7 +288,10 @@ internal class PiSession(
     /** Native setters update the next model request; outstanding tool approvals keep their original decision. */
     private suspend fun changeConfiguration(change: SessionConfigurationChange): SessionConfiguration {
         try {
-            return sessionConfiguration.apply(change) { trust = it }
+            return sessionConfiguration.apply(change) {
+                trust = it
+                hostedTools.updateTrust(it)
+            }
         } catch (e: EngineException) {
             log.w(e) { "Pi configuration change was not acknowledged" }
             // A definite refusal keeps the turn usable; loss of native confirmation requires reconciliation.
