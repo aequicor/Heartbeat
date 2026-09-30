@@ -33,7 +33,6 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.JsonArray
@@ -408,15 +407,16 @@ internal class CodexSession(
         val tool = params.text("tool").orEmpty()
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
+        var isResponseStarted = false
         scope.coroutineScope.launch(parent) {
-            // The tool reports its own failures. A call cancelled with its turn or by its provider is still
-            // answered, a fatal error propagates unanswered: only the completion cause tells them apart.
-            val onCancelled = coroutineContext.job.invokeOnCompletion { cause ->
-                if (cause is CancellationException) answerCancelled(id)
-            }
             val result = executeSearchTool(runtime.host.search, tool, arguments)
-            onCancelled.dispose()
+            // Once delivery starts, cancellation must not send another response for the same request.
+            isResponseStarted = true
             respondQuietly(id, result)
+        }.invokeOnCompletion { cause ->
+            // Register outside the body: cancellation can happen before the tool's first dispatch.
+            // Provider cancellation is answered too; fatal errors still propagate unanswered.
+            if (cause is CancellationException && !isResponseStarted) answerCancelled(id)
         }
     }
 
