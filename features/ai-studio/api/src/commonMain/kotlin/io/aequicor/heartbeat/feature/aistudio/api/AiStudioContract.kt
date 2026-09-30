@@ -81,6 +81,7 @@ public sealed interface AiStudioState : MachineState {
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
         /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
         val nextCreateRequestId: Long = 0,
+        val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -120,7 +121,7 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Moves the keyboard and composer focus to another pane. */
         public data class FocusPane(val paneId: Int) : Public
 
-        /** Replaces the model preferences for the next runs. */
+        /** Replaces and persists new-conversation preferences selected on a start page. */
         public data class UpdateSettings(val settings: RunSettings) : Public
 
         /** Observes quotas for the model routes currently visible in composer panes. */
@@ -170,6 +171,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The workspace could not be prepared. */
         public data object LoadFailed : Internal
 
+        /** Persistence failed; the current in-memory new-conversation preferences remain usable. */
+        public data object SettingsSaveFailed : Internal
+
         /** The workspace toggle reports [isEnabled]; the first report repeats the current value. */
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
 
@@ -215,6 +219,12 @@ public sealed interface AiStudioIntent : MachineIntent {
 public sealed interface AiStudioEffect : MachineEffect {
     /** Resolves the workspace toggle and defaults. */
     public data object Load : AiStudioEffect
+
+    /** Writes explicit start-page preferences or the confirmed settings of an existing conversation. */
+    public sealed interface Configuration : AiStudioEffect
+
+    /** Saves start-page preferences in profile-owned work; older writes from this writer are ignored. */
+    public data class SaveSettings(val settings: RunSettings, val version: StudioSettingsVersion) : Configuration
 
     /** Reports changes of the workspace toggle for as long as the current state lasts. */
     public data object ObserveAvailability : AiStudioEffect
@@ -267,7 +277,7 @@ public sealed interface AiStudioEffect : MachineEffect {
     public data class Apply(val sessionId: String, val edit: SessionEdit) : AiStudioEffect
 
     /** Hands a configuration change to the profile; cancelling the screen waiter does not cancel it. */
-    public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : AiStudioEffect
+    public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Configuration
 }
 
 /** One-shot events of the studio. */

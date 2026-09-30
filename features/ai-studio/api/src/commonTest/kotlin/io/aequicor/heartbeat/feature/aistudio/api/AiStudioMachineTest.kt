@@ -289,7 +289,8 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = session,
             intent = AiStudioIntent.Public.UpdateSettings(fast),
-            to = session.copy(settings = fast),
+            to = session.copy(settings = fast, settingsVersion = StudioSettingsVersion(revision = 1)),
+            effects = listOf(AiStudioEffect.SaveSettings(fast, StudioSettingsVersion(revision = 1))),
         )
         AiStudioMachineSpec.assertTransition(
             from = session,

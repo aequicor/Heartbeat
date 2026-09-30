@@ -58,15 +58,19 @@ public interface EngineBindings {
 
 /** Cached model discovery never implies universal model availability across credential routes. */
 public interface ModelCatalog {
-    /** Cached models; an empty initial cache is distinguished by its observation metadata. */
+    /** Cached models; [ModelCatalogSnapshot.isLoaded] distinguishes pending storage from an empty cache. */
     public fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ModelCatalogSnapshot>
 
     /** Explicit discovery; failure is surfaced rather than replacing valid cached data with an empty list. */
     public suspend fun refresh(engine: EngineId, binding: EngineBindingId): ModelCatalogSnapshot
 }
 
-/** Last model snapshot and its freshness. */
-public data class ModelCatalogSnapshot(val models: List<ModelInfo>, val observation: Observation)
+/** Last model snapshot and its freshness. [isLoaded] is false only until the first cache read completes. */
+public data class ModelCatalogSnapshot(
+    val models: List<ModelInfo>,
+    val observation: Observation,
+    val isLoaded: Boolean = true,
+)
 
 /** Unified profile catalog. Source discovery failure is partial coverage, never silent loss of entries. */
 public interface SessionCatalog {

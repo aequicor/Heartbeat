@@ -45,6 +45,8 @@ class AiStudioEffects(
         when (effect) {
             is AiStudioEffect.Usage -> Unit
 
+            is AiStudioEffect.Configuration -> configure(effect)
+
             AiStudioEffect.ObserveRuntime -> activeRuns.collect {
                 machine.send(
                     AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it.keys, runStartedAt = it)),
@@ -91,7 +93,12 @@ class AiStudioEffects(
             is AiStudioEffect.Cancel -> cancel(effect.sessionId)
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
 
+    private fun configure(effect: AiStudioEffect.Configuration) {
+        when (effect) {
+            is AiStudioEffect.SaveSettings -> log.d { "Demo preferences remain in memory" }
             is AiStudioEffect.ChangeSessionSetting -> error("Live configuration requires an engine session")
         }
     }

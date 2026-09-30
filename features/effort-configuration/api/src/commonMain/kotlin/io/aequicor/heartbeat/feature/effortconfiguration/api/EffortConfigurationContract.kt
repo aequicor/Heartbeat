@@ -105,14 +105,15 @@ public interface EffortChoicesView {
 }
 
 /**
- * Persists effort choices in the profile; while off, choices live only until the profile closes. Read when the
+ * Persists start-page effort choices in the profile by default; while explicitly off, choices live only until
+ * the profile closes. Existing conversations keep their own confirmed settings. Read when the
  * profile loads and on every save: turning it on in a running profile saves current choices on the next change,
  * previously stored ones are read after the profile restarts.
  */
 public val EffortConfiguration: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.effort_configuration",
     "Настройка уровня effort моделей",
-    default = false,
+    default = true,
 )
 
 /**

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.flow.StateFlow
 
 /** Profile service: accepted work and history observation outlive any individual screen. */
@@ -17,8 +18,13 @@ interface StudioRuntime {
     /** Explicit panel-open refresh; telemetry failure never fails a turn. */
     suspend fun refreshUsage(modelId: String) = Unit
 
-    /** Reads the profile model preference for a new conversation. */
+    /** Restores start-page preferences and awaits route-scoped effort loading before the screen becomes ready. */
     suspend fun defaults(): RunSettings
+
+    /** Persists start-page preferences; cancelling the screen waiter does not cancel the accepted write. */
+    suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
+        error("Start-page preference persistence is unavailable")
+    }
 
     /** Starts profile-owned work and awaits its outcome; cancelling this waiter only detaches it. */
     suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome
