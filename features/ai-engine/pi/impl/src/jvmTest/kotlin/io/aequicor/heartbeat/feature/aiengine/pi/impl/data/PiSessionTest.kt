@@ -322,24 +322,28 @@ class PiSessionTest {
     }
 
     @Test
-    fun `tool approval waits for the user and an allow answer reaches pi`() = runTest {
-        val fixture = fixture()
-        val turn = fixture.runningTurn()
-        fixture.connection.event(approval("ui-1"))
-        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
-        assertEquals("bash: ls -la", awaiting.requests.single().title)
-        val permissions = assertIs<FeatureAccess.Available<RequestsPermissions>>(
-            fixture.session.features.resolve(RequestsPermissions),
-        ).feature
-        permissions.respond(PermissionDecision(turn, PermissionRequestId("ui-1"), PermissionOptionId("allow")))
-        runCurrent()
-        assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
-        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
-        fixture.session.shutdown()
+    fun `host termination waits for explicit allowance at every trust level`() = runTest {
+        TrustLevel.entries.forEach { level ->
+            val fixture = fixture()
+            val turn = fixture.runningTurn(level)
+            fixture.connection.event(approval("ui-1", target = "./gradlew --stop"))
+            assertTrue(fixture.connection.sent.isEmpty())
+            val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+            assertEquals("bash: ./gradlew --stop", awaiting.requests.single().title)
+            assertEquals("Завершить Heartbeat и выполнить", awaiting.requests.single().options.first().title)
+            val permissions = assertIs<FeatureAccess.Available<RequestsPermissions>>(
+                fixture.session.features.resolve(RequestsPermissions),
+            ).feature
+            permissions.respond(PermissionDecision(turn, PermissionRequestId("ui-1"), PiApprovalAllow))
+            runCurrent()
+            assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
+            assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+            fixture.session.shutdown()
+        }
     }
 
     @Test
-    fun `full trust answers every tool approval without the user`() = runTest {
+    fun `full trust answers ordinary tool approvals without the user`() = runTest {
         val fixture = fixture()
         fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-t1"))
@@ -432,10 +436,10 @@ class PiSessionTest {
     }
 
     @Test
-    fun `denied tool approval is answered negatively`() = runTest {
+    fun `full trust respects denied host termination`() = runTest {
         val fixture = fixture()
-        val turn = fixture.runningTurn()
-        fixture.connection.event(approval("ui-2"))
+        val turn = fixture.runningTurn(TrustLevel.Full)
+        fixture.connection.event(approval("ui-2", target = "taskkill /F /IM java.exe"))
         fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
         runCurrent()
         assertEquals(listOf(answer("ui-2", "confirmed", false)), fixture.connection.sent)
@@ -688,30 +692,6 @@ class PiSessionTest {
         return turn
     }
 
-    private fun approval(
-        id: String,
-        target: String = "ls -la",
-        tool: String = "bash",
-        path: String? = null,
-    ): JsonObject {
-        val message = JsonObject(
-            mapOf(
-                "toolCallId" to JsonPrimitive("c1"),
-                "toolName" to JsonPrimitive(tool),
-                "target" to JsonPrimitive(target),
-            ) + listOfNotNull(path?.let { "path" to JsonPrimitive(it) }),
-        )
-        return JsonObject(
-            mapOf(
-                "type" to JsonPrimitive("extension_ui_request"),
-                "id" to JsonPrimitive(id),
-                "method" to JsonPrimitive("confirm"),
-                "title" to JsonPrimitive("heartbeat.tool-approval"),
-                "message" to JsonPrimitive(message.toString()),
-            ),
-        )
-    }
-
     private fun answer(id: String, field: String, value: Boolean) = JsonObject(
         mapOf(
             "type" to JsonPrimitive("extension_ui_response"),
@@ -737,6 +717,25 @@ class PiSessionTest {
     ) {
         val connection: FakeConnection get() = connections.first()
     }
+}
+
+private fun approval(id: String, target: String = "ls -la", tool: String = "bash", path: String? = null): JsonObject {
+    val message = JsonObject(
+        mapOf(
+            "toolCallId" to JsonPrimitive("c1"),
+            "toolName" to JsonPrimitive(tool),
+            "target" to JsonPrimitive(target),
+        ) + listOfNotNull(path?.let { "path" to JsonPrimitive(it) }),
+    )
+    return JsonObject(
+        mapOf(
+            "type" to JsonPrimitive("extension_ui_request"),
+            "id" to JsonPrimitive(id),
+            "method" to JsonPrimitive("confirm"),
+            "title" to JsonPrimitive("heartbeat.tool-approval"),
+            "message" to JsonPrimitive(message.toString()),
+        ),
+    )
 }
 
 private val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }

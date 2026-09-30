@@ -555,7 +555,7 @@ internal class PiSession(
     private suspend fun isTrusted(call: PiApprovalCall, level: TrustLevel): Boolean {
         if (!canAnswerAlone()) return false
         val workspace = connection?.workingDirectory
-        return withContext(dispatchers.io) { level.covers(call, workspace) }
+        return withContext(dispatchers.io) { level.answers(call, workspace) }
     }
 
     private fun canAnswerAlone(): Boolean =
