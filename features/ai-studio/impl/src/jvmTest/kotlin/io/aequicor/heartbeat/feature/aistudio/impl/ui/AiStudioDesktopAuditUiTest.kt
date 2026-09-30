@@ -24,6 +24,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -44,6 +45,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.reduce
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.serialization.json.JsonArray
@@ -139,6 +141,28 @@ class AiStudioDesktopAuditUiTest {
             onNodeWithTag("new-session-hero").assertIsDisplayed()
             editor.assertIsFocused().performTextInput("a")
             editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("a")))
+        }
+
+    @Test
+    fun `short desktop keeps the send action inside the composer with a long draft`() =
+        runSkikoComposeUiTest(size = Size(420f, 300f)) {
+            val draft = (1..40).joinToString("\n") { "Long draft line $it" }
+            val state = desktopAuditWorkspace(isEmpty = false).withDraft(0, draft)
+            var sendLabel = ""
+            setContent {
+                sendLabel = stringResource(Res.string.composer_send)
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    HbTheme(darkTheme = false) { AiStudioContent(state, {}, auditExits) }
+                }
+            }
+            settleAudit()
+            val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+            val send = onNodeWithContentDescription(sendLabel).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                send.bottom <= composer.bottom,
+                "Send must fit its composer when the editor reaches its height cap",
+            )
+            assertTrue(send.bottom <= 300f, "Send must stay inside a short desktop window")
         }
 
     @Test

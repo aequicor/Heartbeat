@@ -17,6 +17,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.Measurable
 import androidx.compose.ui.layout.MeasureResult
 import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.layout.Placeable
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
@@ -82,17 +83,45 @@ private fun MeasureScope.measurePanelToolbar(
     val leading = measurables[0].measure(
         constraints.copy(minWidth = if (isNarrow) width else 0, maxWidth = leadingWidth, minHeight = 0),
     )
+    val remainingHeight = constraints.remainingHeightAfter(leading.height)
+    val rowGap = if (isNarrow) minOf(gapPx, remainingHeight) else gapPx
+    val trailingMaxHeight = if (isNarrow) {
+        constraints.remainingHeightAfter(leading.height + rowGap)
+    } else {
+        constraints.maxHeight
+    }
     val trailingWidth = if (isNarrow) width else (width - leading.width - gapPx).coerceAtLeast(0)
     val trailing = measurables[1].measure(
-        constraints.copy(minWidth = trailingWidth, maxWidth = trailingWidth, minHeight = 0),
+        constraints.copy(
+            minWidth = trailingWidth,
+            maxWidth = trailingWidth,
+            minHeight = 0,
+            maxHeight = trailingMaxHeight,
+        ),
     )
-    val height = if (isNarrow) leading.height + gapPx + trailing.height else maxOf(leading.height, trailing.height)
-    val leadingY = if (isNarrow) 0 else (height - leading.height) / 2
-    val trailingX = if (isNarrow) 0 else leading.width + gapPx
-    val trailingY = if (isNarrow) leading.height + gapPx else (height - trailing.height) / 2
+    val height = if (isNarrow) leading.height + rowGap + trailing.height else maxOf(leading.height, trailing.height)
     return layout(width, constraints.constrainHeight(height)) {
-        leading.placeRelative(0, leadingY)
-        trailing.placeRelative(trailingX, trailingY)
+        placeToolbarGroups(leading, trailing, isNarrow, rowGap, height)
+    }
+}
+
+/** Preserve unbounded height inside scrolling heroes instead of producing an unsupported finite constraint. */
+private fun Constraints.remainingHeightAfter(used: Int): Int =
+    if (hasBoundedHeight) (maxHeight - used).coerceAtLeast(0) else maxHeight
+
+private fun Placeable.PlacementScope.placeToolbarGroups(
+    leading: Placeable,
+    trailing: Placeable,
+    isNarrow: Boolean,
+    gap: Int,
+    height: Int,
+) {
+    if (isNarrow) {
+        leading.placeRelative(0, 0)
+        trailing.placeRelative(0, leading.height + gap)
+    } else {
+        leading.placeRelative(0, (height - leading.height) / 2)
+        trailing.placeRelative(leading.width + gap, (height - trailing.height) / 2)
     }
 }
 
