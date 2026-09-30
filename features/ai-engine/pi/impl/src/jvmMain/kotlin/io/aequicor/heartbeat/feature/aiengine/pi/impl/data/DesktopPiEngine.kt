@@ -171,7 +171,7 @@ internal class DesktopPiEngine(
         PiRuntime(
             PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
             environment,
-            PiRuntimeServices(settings, processes, toggles, workspaces, nativeWeb),
+            PiRuntimeServices(settings, processes, workspaces, nativeWeb),
         ).also { runtimes[identity.source] = it }
     }
 

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -107,6 +108,7 @@ public object KoogBindings {
                 SendsPrompts.id,
                 CancelsTurns.id,
                 SessionHistory.id,
+                SessionContextUsage.id,
                 RequestsPermissions.id,
                 ResumesSessions.id,
                 ListsSessions.id,

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 
 /**
@@ -16,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 internal object MissingEngineFacade : EngineFacade {
     override val engines: EngineCatalog get() = unavailable()
     override val bindings: EngineBindings get() = unavailable()
+    override val providerUsage: ProviderUsageCatalog get() = unavailable()
     override val models: ModelCatalog get() = unavailable()
     override val sessions: SessionCatalog get() = unavailable()
 

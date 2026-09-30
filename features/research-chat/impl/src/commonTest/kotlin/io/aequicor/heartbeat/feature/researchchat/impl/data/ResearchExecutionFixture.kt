@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -32,6 +33,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
@@ -74,6 +77,12 @@ internal class ResearchExecutionFixture(scope: CoroutineScope) {
         }
     }
     private val facade = object : EngineFacade {
+        override val providerUsage = object : ProviderUsageCatalog {
+            private val snapshot = MutableStateFlow(ProviderUsageSnapshot())
+            override fun observe(engine: EngineId, binding: EngineBindingId) = snapshot
+            override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = snapshot.value
+        }
+
         override val engines = object : EngineCatalog {
             override val state = MutableStateFlow<List<EngineInfo>>(emptyList())
             override suspend fun refresh(engine: EngineId): EngineInfo = error("Unexpected refresh")

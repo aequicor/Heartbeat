@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionAssembler
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHost
@@ -91,5 +92,6 @@ object AiEngineSessionBindings {
         bindings: EngineBindings,
         models: ModelCatalog,
         sessions: SessionCatalog,
-    ): EngineFacade = ProfileEngineFacade(engines, bindings, models, sessions)
+        providerUsage: ProviderUsageCatalog,
+    ): EngineFacade = ProfileEngineFacade(engines, bindings, models, sessions, providerUsage)
 }

@@ -36,22 +36,21 @@ public fun HbDiffView(
     HbColumn(modifier = modifier.fillMaxWidth(), gap = HbTheme.elevation.none) {
         chunks.forEachIndexed { index, chunk ->
             key(index) {
+                val chunkModifier = Modifier.padding(
+                    top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
+                )
                 if (isSelectionContainerRequired) {
                     SelectionContainer {
                         HbDiffChunkContent(
                             chunk,
-                            modifier = Modifier.padding(
-                                top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
-                            ),
+                            modifier = chunkModifier,
                             labels = labels,
                         )
                     }
                 } else {
                     HbDiffChunkContent(
                         chunk,
-                        modifier = Modifier.padding(
-                            top = if (index > 0 && chunk.isFirst) HbTheme.spacing.s else HbTheme.elevation.none,
-                        ),
+                        modifier = chunkModifier,
                         labels = labels,
                     )
                 }

@@ -662,7 +662,7 @@ class PiSessionTest {
         val session = PiSession(
             CreateSessionRequest(target),
             route,
-            PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers),
+            PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers, DefaultPiTestToggles()),
             validate,
             { released += it },
         )
@@ -850,4 +850,11 @@ private class FakeScope(override val coroutineScope: CoroutineScope) : OwnedScop
         override fun unregister(key: String) = Unit
         override fun snapshot() = SavedBundle(emptyMap())
     }
+}
+
+private class DefaultPiTestToggles : io.aequicor.heartbeat.core.featuretoggles.FeatureToggles {
+    override fun <T : Any> observe(toggle: io.aequicor.heartbeat.core.featuretoggles.FeatureToggle<T>) =
+        kotlinx.coroutines.flow.flowOf(toggle.default)
+    override suspend fun <T : Any> get(toggle: io.aequicor.heartbeat.core.featuretoggles.FeatureToggle<T>) =
+        toggle.default
 }

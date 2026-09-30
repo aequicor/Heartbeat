@@ -183,6 +183,11 @@ import io.aequicor.heartbeat.ds.resources.generated.en_tool_result
 import io.aequicor.heartbeat.ds.resources.generated.en_toolkit_notice
 import io.aequicor.heartbeat.ds.resources.generated.en_typography
 import io.aequicor.heartbeat.ds.resources.generated.en_unknown_file
+import io.aequicor.heartbeat.ds.resources.generated.en_usage_context
+import io.aequicor.heartbeat.ds.resources.generated.en_usage_limits
+import io.aequicor.heartbeat.ds.resources.generated.en_usage_reset_example
+import io.aequicor.heartbeat.ds.resources.generated.en_usage_title
+import io.aequicor.heartbeat.ds.resources.generated.en_usage_weekly
 import io.aequicor.heartbeat.ds.resources.generated.en_violet
 import io.aequicor.heartbeat.ds.resources.generated.en_warning
 import io.aequicor.heartbeat.ds.resources.generated.en_width
@@ -368,6 +373,11 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_tool_result
 import io.aequicor.heartbeat.ds.resources.generated.ru_toolkit_notice
 import io.aequicor.heartbeat.ds.resources.generated.ru_typography
 import io.aequicor.heartbeat.ds.resources.generated.ru_unknown_file
+import io.aequicor.heartbeat.ds.resources.generated.ru_usage_context
+import io.aequicor.heartbeat.ds.resources.generated.ru_usage_limits
+import io.aequicor.heartbeat.ds.resources.generated.ru_usage_reset_example
+import io.aequicor.heartbeat.ds.resources.generated.ru_usage_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_usage_weekly
 import io.aequicor.heartbeat.ds.resources.generated.ru_violet
 import io.aequicor.heartbeat.ds.resources.generated.ru_warning
 import io.aequicor.heartbeat.ds.resources.generated.ru_width
@@ -390,6 +400,11 @@ public fun HbResources(locale: HbLocale, content: @Composable () -> Unit) {
 
 /** Resource-backed design-system copy. Explicit pairs make language switching independent of global OS state. */
 public enum class HbString(internal val english: StringResource, internal val russian: StringResource) {
+    UsageTitle(Res.string.en_usage_title, Res.string.ru_usage_title),
+    UsageLimits(Res.string.en_usage_limits, Res.string.ru_usage_limits),
+    UsageContext(Res.string.en_usage_context, Res.string.ru_usage_context),
+    UsageWeekly(Res.string.en_usage_weekly, Res.string.ru_usage_weekly),
+    UsageResetExample(Res.string.en_usage_reset_example, Res.string.ru_usage_reset_example),
     Illustrations(Res.string.en_illustrations, Res.string.ru_illustrations),
     IllustrationsDescription(Res.string.en_illustrations_description, Res.string.ru_illustrations_description),
     SearchIcons(Res.string.en_search_icons, Res.string.ru_search_icons),

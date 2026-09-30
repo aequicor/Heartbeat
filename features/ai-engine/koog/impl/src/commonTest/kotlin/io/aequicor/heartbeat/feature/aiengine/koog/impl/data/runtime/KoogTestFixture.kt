@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -56,6 +57,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.test.TestScope
@@ -77,8 +79,10 @@ internal class KoogTestFixture(test: TestScope) {
     var isSearchEnabled = true
     var isCodingEnabled = true
     var isAutoApprove = true
+    val usageEnabled = MutableStateFlow(false)
     var workspace: KoogWorkspace? = null
     var modelSupportsTools = true
+    var modelContextLength: Long? = null
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
     val secrets = FakeSecrets()
@@ -89,9 +93,13 @@ internal class KoogTestFixture(test: TestScope) {
                 SearchEngineTools -> isSearchEnabled
                 KoogCodingTools -> isCodingEnabled
                 KoogAutoApprove -> isAutoApprove
+                EngineUsageEnabled -> usageEnabled.value
                 else -> isEnabled
             } as T
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
+
+        @Suppress("UNCHECKED_CAST") // The usage toggle is a boolean flow.
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+            if (toggle == EngineUsageEnabled) usageEnabled as Flow<T> else flow { emit(get(toggle)) }
     }
     val reasoningStore = MemoryReasoningStore()
     var catalogLevels: Map<String, List<String>> = emptyMap()
@@ -119,11 +127,14 @@ internal class KoogTestFixture(test: TestScope) {
                 return KoogClient(executor) {
                     beforeModels()
                     val capabilities = if (modelSupportsTools) listOf(LLMCapability.Tools) else emptyList()
-                    listOf(LLModel(provider.llmProvider, "test-model", capabilities))
+                    listOf(
+                        LLModel(provider.llmProvider, "test-model", capabilities, contextLength = modelContextLength),
+                    )
                 }
             }
         },
         reasoning,
+        KoogContextWindows(),
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null

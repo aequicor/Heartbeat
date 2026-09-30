@@ -3,11 +3,13 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
@@ -66,6 +68,8 @@ internal data class PaneContent(
     val isPickingProject: Boolean = false,
     val isProjectFailed: Boolean = false,
     val calendar: StudioCalendar = StudioCalendar(),
+    val contextUsage: ContextUsageUi? = null,
+    val providerUsage: ProviderUsageUi? = null,
 )
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
@@ -85,6 +89,7 @@ internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = session(pane.sessionId)
     val startedAt = runStartedAt[pane.sessionId]
+    val effectiveModel = settings.modelId.ifBlank { session?.modelId.orEmpty() }
     return PaneContent(
         pane = pane,
         session = session,
@@ -108,6 +113,8 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
         calendar = studioCalendar(now),
+        contextUsage = contexts[pane.sessionId],
+        providerUsage = providerUsage[session?.modelId ?: effectiveModel],
     )
 }
 

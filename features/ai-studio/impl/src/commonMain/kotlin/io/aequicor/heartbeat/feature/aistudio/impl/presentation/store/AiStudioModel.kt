@@ -30,6 +30,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
@@ -93,6 +95,7 @@ class AiStudioModel(
                 launch { observeWorkspace(pipeline) }
                 launch { observeResearch(pipeline) }
                 launch { observeEfforts(pipeline) }
+                launch { observeUsageTargets() }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
@@ -113,6 +116,29 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeUsageTargets() {
+        try {
+            combine(machine.state, backend.repository().observeWorkspace()) { state, workspace ->
+                val ready = state as? AiStudioState.Ready
+                if (ready == null) {
+                    emptySet()
+                } else {
+                    buildSet {
+                        add(ready.settings.modelId)
+                        val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
+                        workspace.sessions.filter { it.id in visible }.mapNotNullTo(this) { it.modelId }
+                    }.filterTo(mutableSetOf()) { it.isNotBlank() }
+                }
+            }.distinctUntilChanged().collect { ids ->
+                machine.send(AiStudioIntent.Public.ObserveUsageTargets(ids))
+            }
+        } finally {
+            withContext(NonCancellable) {
+                machine.send(AiStudioIntent.Public.ObserveUsageTargets(emptySet()))
+            }
+        }
     }
 
     private suspend fun observeEfforts(pipeline: StudioPipeline) {
@@ -207,6 +233,8 @@ class AiStudioModel(
 
     private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
         when (intent) {
+            is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
+
             is AiStudioScreenIntent.RespondPermission -> sendTo(
                 machine,
                 AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
