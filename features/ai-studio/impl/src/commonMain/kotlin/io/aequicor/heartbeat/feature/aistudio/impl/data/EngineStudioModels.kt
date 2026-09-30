@@ -3,7 +3,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
@@ -38,7 +40,7 @@ internal fun EngineFacade.observeStudioModels(
                         label,
                         engine.descriptor.isLocalWorkspaceSupported,
                         isTrustSupported = AppliesTrustLevels.id in engine.descriptor.declaredFeatures,
-                        isModelSwitchSupported = SwitchesModels.id in engine.descriptor.declaredFeatures,
+                        isModelSwitchSupported = engine.descriptor.declaredFeatures.supportsStudioModelSwitch(),
                     )
                 }
             }
@@ -46,6 +48,10 @@ internal fun EngineFacade.observeStudioModels(
     }.flatMapLatest { observations ->
         if (observations.isEmpty()) flowOf(emptyList()) else combine(observations) { it.flatMap { models -> models } }
     }
+
+/** Both native configuration changes and the legacy model setter can keep a conversation on its binding. */
+internal fun Set<EngineFeatureId>.supportsStudioModelSwitch(): Boolean =
+    ChangesSessionConfiguration.id in this || SwitchesModels.id in this
 
 /** Compact model identity and full connection context come from data, never from UI string parsing. */
 internal fun studioModel(

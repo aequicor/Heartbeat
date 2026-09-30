@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
@@ -133,15 +134,18 @@ object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
     val runtimes = mutableListOf<TestRuntime>()
+    var reasoningEfforts: List<String> = emptyList()
+    var isTrustSupported = false
 
-    val registration = EngineRegistration(
+    val registration: EngineRegistration get() = EngineRegistration(
         EngineDescriptor(
             engine,
             "Integration engine",
             EngineFamily.Vendor,
             EnginePlatform.entries.toSet(),
             toggle,
-            declaredFeatures = setOf(CreatesSessions.id, AttachesSessions.id),
+            declaredFeatures = setOf(CreatesSessions.id, AttachesSessions.id) +
+                if (isTrustSupported) setOf(AppliesTrustLevels.id) else emptySet(),
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(
                     ConnectionMethodId("key"),
@@ -163,17 +167,23 @@ object TestAdapter {
 
                 override suspend fun unbind(binding: EngineBindingId) = Unit
 
-                override suspend fun discoverModels(source: AuthSource, context: EngineContext) =
-                    listOf(ModelInfo(EngineTarget(engine, context.binding, ModelId("m1")), "Model"))
+                override suspend fun discoverModels(source: AuthSource, context: EngineContext) = listOf(
+                    ModelInfo(
+                        EngineTarget(engine, context.binding, ModelId("m1")),
+                        "Model",
+                        reasoningEfforts = reasoningEfforts,
+                    ),
+                )
 
                 override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
-                    TestRuntime(identity).also { runtimes += it }
+                    TestRuntime(identity, isTrustSupported).also { runtimes += it }
             },
         ),
     )
 }
 
-class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
+class TestRuntime(override val identity: RuntimeIdentity, private val isTrustSupported: Boolean = false) :
+    EngineRuntime {
     val natives = mutableListOf<TestNative>()
 
     /** Close calls; the profile releases runtimes asynchronously on the app scope. */
@@ -181,10 +191,12 @@ class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
 
     override val features: EngineFeatures = features(
         CreatesSessions to object : CreatesSessions {
-            override suspend fun create(request: CreateSessionRequest): ActiveSession =
-                TestNative(SessionRef(identity.engine, SessionSourceId("local"), "n${natives.size}")).also {
-                    natives += it
-                }
+            override suspend fun create(request: CreateSessionRequest): ActiveSession = TestNative(
+                SessionRef(identity.engine, SessionSourceId("local"), "n${natives.size}"),
+                isTrustSupported,
+            ).also {
+                natives += it
+            }
         },
         AttachesSessions to object : AttachesSessions {
             override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession =
@@ -199,7 +211,7 @@ class TestRuntime(override val identity: RuntimeIdentity) : EngineRuntime {
     }
 }
 
-class TestNative(override val ref: SessionRef) : ActiveSession {
+class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false) : ActiveSession {
     val native = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val events = MutableStateFlow<List<SessionEvent>>(emptyList())
     private var items = emptyList<SessionItem>()
@@ -209,12 +221,14 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
     var cancelGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var failCancellation = false
     var decision: PermissionDecision? = null
+    val sent = mutableListOf<PromptRequest>()
     override val route get() = error("the facade owns the route")
     override val state: StateFlow<ActiveSessionState> = native
 
     override val features: EngineFeatures = features(
         SendsPrompts to object : SendsPrompts {
             override suspend fun send(request: PromptRequest): TurnId {
+                sent += request
                 val turn = Turn(
                     TurnId("native-${items.size}"),
                     request.id,
@@ -275,7 +289,22 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
                 }
             }
         },
-    )
+    ).let { original ->
+        if (!isTrustSupported) {
+            original
+        } else {
+            object : EngineFeatures {
+                override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
+                    @Suppress("UNCHECKED_CAST") // A marker capability has no behavior to fake.
+                    return if (key == AppliesTrustLevels) {
+                        FeatureAccess.Available(object : AppliesTrustLevels {} as F)
+                    } else {
+                        original.resolve(key)
+                    }
+                }
+            }
+        }
+    }
 
     private fun record(item: SessionItem) {
         items = items + item
