@@ -23,15 +23,16 @@ import kotlin.test.assertEquals
 import kotlin.time.Instant
 
 class StudioHistoryMirrorTest {
-    private var record = StudioChatRecord("chat", "Chat", Instant.fromEpochSeconds(0))
+    private val time = Instant.fromEpochSeconds(0)
+    private var stored = emptyList<SessionItem>()
     private val mirror = StudioHistoryMirror(
-        read = { record.items },
-        update = { _, change -> record = record.change() },
+        read = { stored },
+        update = { _, change -> stored = change(stored) },
     )
 
     @Test
     fun `partial history of a new journal generation keeps the stored transcript first`() = runTest {
-        record = record.copy(items = listOf(message("old-prompt", 0), message("old-answer", 1)))
+        stored = listOf(message("old-prompt", 0), message("old-answer", 1))
         val history = FakeHistory(emptyList(), HistoryCoverage.Partial)
         history.events = listOf(upsert(message("new-prompt", 0)), upsert(message("new-answer", 1)))
 
@@ -44,15 +45,15 @@ class StudioHistoryMirrorTest {
         history.items = listOf(message("new-prompt", 0), message("new-answer", 1, "final"))
         mirror.refresh("chat", history)
         assertEquals(listOf("old-prompt", "old-answer", "new-prompt", "new-answer"), ids())
-        assertEquals("final", text(record.items.last()))
-        val shown = record.items.toStudioMessages(record.updatedAt, isRunning = false).map { it.id }
+        assertEquals("final", text(stored.last()))
+        val shown = stored.toStudioMessages(time, isRunning = false).map { it.id }
         assertEquals(listOf("old-prompt", "old-answer", "new-prompt", "new-answer"), shown)
     }
 
     @Test
     fun `repeated refresh of a trimmed partial window keeps the transcript stable`() = runTest {
-        val stored = listOf("o", "t0", "t1", "t2")
-        record = record.copy(items = stored.mapIndexed { index, id -> message(id, index.toLong()) })
+        val ids = listOf("o", "t0", "t1", "t2")
+        stored = ids.mapIndexed { index, id -> message(id, index.toLong()) }
         val history = FakeHistory(listOf(message("t1", 2), message("t2", 3), message("t3", 4)), HistoryCoverage.Partial)
 
         mirror.refresh("chat", history)
@@ -63,7 +64,7 @@ class StudioHistoryMirrorTest {
 
     @Test
     fun `removed window item leaves the earlier stored items in place`() = runTest {
-        record = record.copy(items = listOf(message("old", 0)))
+        stored = listOf(message("old", 0))
         val history = FakeHistory(listOf(message("a", 0), message("b", 1)), HistoryCoverage.Unknown)
         history.events = listOf(SessionEvent.ItemRemoved(HistoryCheckpoint("next"), ItemId("a"), revision = 1))
 
@@ -77,7 +78,7 @@ class StudioHistoryMirrorTest {
 
     @Test
     fun `partial window replaces what it covers and keeps only earlier stored items`() = runTest {
-        record = record.copy(items = listOf("a", "b", "c", "d").mapIndexed { index, id -> message(id, index.toLong()) })
+        stored = listOf("a", "b", "c", "d").mapIndexed { index, id -> message(id, index.toLong()) }
         val history = FakeHistory(
             listOf(message("c", 2, "c2"), message("e", 4)),
             HistoryCoverage.Partial,
@@ -86,12 +87,12 @@ class StudioHistoryMirrorTest {
         mirror.refresh("chat", history)
 
         assertEquals(listOf("a", "b", "c", "e"), ids())
-        assertEquals("c2", text(record.items[2]))
+        assertEquals("c2", text(stored[2]))
     }
 
     @Test
     fun `complete history replaces the stored transcript`() = runTest {
-        record = record.copy(items = listOf(message("old-prompt", 0), message("old-answer", 1)))
+        stored = listOf(message("old-prompt", 0), message("old-answer", 1))
         val history = FakeHistory(listOf(message("prompt", 0), message("answer", 1)), HistoryCoverage.Complete)
 
         mirror.refresh("chat", history)
@@ -101,7 +102,7 @@ class StudioHistoryMirrorTest {
 
     @Test
     fun `older partial page makes the whole history partial`() = runTest {
-        record = record.copy(items = listOf(message("stored", 0)))
+        stored = listOf(message("stored", 0))
         val history = FakeHistory(listOf(message("older", 0), message("latest", 1)), HistoryCoverage.Complete)
         history.olderCoverage = HistoryCoverage.Partial
 
@@ -110,7 +111,7 @@ class StudioHistoryMirrorTest {
         assertEquals(listOf("stored", "older", "latest"), ids())
     }
 
-    private fun ids() = record.items.map { it.info.id.value }
+    private fun ids() = stored.map { it.info.id.value }
 
     private fun text(item: SessionItem) = ((item as SessionItem.Message).parts.single() as ContentPart.Text).text
 

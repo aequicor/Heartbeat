@@ -26,14 +26,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
-import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioHistoryRecoveryTest {
-    private val records = mutableMapOf<String, StudioChatRecord>()
+    private val records = mutableMapOf<String, List<SessionItem>>()
     private val mirror = StudioHistoryMirror(
-        read = { id -> record(id).items },
-        update = { id, change -> records[id] = record(id).change() },
+        read = { id -> items(id) },
+        update = { id, change -> records[id] = change(items(id)) },
     )
 
     @Test
@@ -43,7 +42,7 @@ class StudioHistoryRecoveryTest {
         val next = message("next", position = 1)
         val history = ControlledHistory(listOf(original))
         val beforeReload = mutableListOf<List<SessionItem>>()
-        history.beforePage = { if (history.pages > 1) beforeReload += record("chat").items }
+        history.beforePage = { if (history.pages > 1) beforeReload += items("chat") }
         val following = launch { mirror.follow("chat", history) }
         runCurrent()
 
@@ -53,7 +52,7 @@ class StudioHistoryRecoveryTest {
 
         assertEquals(listOf(buffered), beforeReload.single())
         assertEquals(listOf(INITIAL, RELOADED), history.watched)
-        assertEquals(listOf(buffered, next), record("chat").items)
+        assertEquals(listOf(buffered, next), items("chat"))
 
         val latest = message("next", position = 1, revision = 2)
         history.upsert(latest)
@@ -63,7 +62,7 @@ class StudioHistoryRecoveryTest {
         advanceTimeBy(250)
         runCurrent()
 
-        assertEquals(listOf(buffered, latest), record("chat").items)
+        assertEquals(listOf(buffered, latest), items("chat"))
         assertTrue(following.isActive)
         following.cancelAndJoin()
     }
@@ -87,8 +86,8 @@ class StudioHistoryRecoveryTest {
 
         assertEquals(listOf(INITIAL, RELOADED), first.watched)
         assertEquals(listOf(INITIAL), second.watched)
-        assertEquals(listOf(firstAnswer), record("project-a").items)
-        assertEquals(listOf(secondAnswer), record("project-b").items)
+        assertEquals(listOf(firstAnswer), items("project-a"))
+        assertEquals(listOf(secondAnswer), items("project-b"))
         followingFirst.cancelAndJoin()
 
         val latest = message("answer-b", revision = 1)
@@ -98,8 +97,8 @@ class StudioHistoryRecoveryTest {
         runCurrent()
 
         assertTrue(followingSecond.isActive)
-        assertEquals(listOf(firstAnswer), record("project-a").items)
-        assertEquals(listOf(latest), record("project-b").items)
+        assertEquals(listOf(firstAnswer), items("project-a"))
+        assertEquals(listOf(latest), items("project-b"))
         followingSecond.cancelAndJoin()
     }
 
@@ -118,13 +117,12 @@ class StudioHistoryRecoveryTest {
 
         assertTrue(following.isCompleted)
         assertEquals("History stream ended without invalidation", following.await().message)
-        assertEquals(listOf(answer), record("chat").items)
+        assertEquals(listOf(answer), items("chat"))
         assertEquals(listOf(INITIAL), history.watched)
     }
 
-    private fun record(id: String) = records.getOrPut(id) {
-        StudioChatRecord(id, id, Instant.fromEpochSeconds(0))
-    }
+    /** Transcript the mirror stores for [id]; a conversation nobody wrote yet is empty. */
+    private fun items(id: String): List<SessionItem> = records.getOrPut(id) { emptyList() }
 
     private fun message(id: String, position: Long = 0, revision: Long = 0) = SessionItem.Message(
         ItemInfo(ItemId(id), position, revision),
