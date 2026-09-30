@@ -14,14 +14,21 @@ import io.aequicor.heartbeat.ds.adaptive.detectDesktopPlatformUi
 private val LocalHbWindowScope = staticCompositionLocalOf<WindowScope?> { null }
 
 /**
- * Supplies the native macOS window to [HbWindowDragArea] descendants.
- * Call inside Compose's Window content. Other operating systems keep their native titlebars
- * and do not install custom drag handling, regardless of the selected visual UI kit.
+ * Supplies native caption geometry and hit testing inside Compose's Window content.
+ * On a plain macOS JDK, Compose dragging remains the fallback. JBR delegates to the native caption instead,
+ * preserving system double-click, snap and drag-from-maximized behavior.
  */
 @Composable
-fun WindowScope.HbWindowDragProvider(content: @Composable () -> Unit) {
+fun WindowScope.HbWindowDragProvider(
+    chrome: HbWindowChrome = HbWindowChrome(),
+    onNativeHitTest: ((Boolean) -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
     val isMacOs = remember { detectDesktopPlatformUi() == PlatformUi.MacOs }
-    CompositionLocalProvider(LocalHbWindowScope provides if (isMacOs) this else null, content = content)
+    val fallback = if (isMacOs && onNativeHitTest == null && !chrome.isFullscreen) this else null
+    CompositionLocalProvider(LocalHbWindowScope provides fallback) {
+        HbWindowChromeProvider(chrome, onNativeHitTest = onNativeHitTest, content = content)
+    }
 }
 
 @Composable

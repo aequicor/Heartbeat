@@ -3,10 +3,13 @@ package io.aequicor.heartbeat.platform.shared
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.ComponentContext
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute
@@ -31,7 +34,11 @@ fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRo
 fun App(root: HeartbeatRoot, modifier: Modifier = Modifier) {
     HbTheme {
         RootContent(root, modifier, loading = {
-            Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop))
+            Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
+                if (HbTheme.dimensions.isDesktop) {
+                    HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
+                }
+            }
         })
     }
 }

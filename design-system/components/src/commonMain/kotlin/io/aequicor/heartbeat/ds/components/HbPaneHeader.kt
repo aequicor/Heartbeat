@@ -19,8 +19,9 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 /**
  * Header of a window pane in the studio geometry: [io.aequicor.heartbeat.ds.tokens.HbDimensions.headerHeight],
  * a semibold 13–14sp [title], optional [navigation] before it (for example "back") and trailing [actions].
- * The whole strip moves the window on macOS ([HbWindowDragArea]); [leadingInset] keeps content clear of the traffic
- * lights when the pane starts at the window's leading edge. Hosts own this header — features inside a host draw
+ * The strip moves the desktop window through [HbWindowDragArea], which reserves native caption controls.
+ * [leadingInset] is additional content padding within that safe region.
+ * Hosts own this header — features inside a host draw
  * only their content.
  */
 @Composable
