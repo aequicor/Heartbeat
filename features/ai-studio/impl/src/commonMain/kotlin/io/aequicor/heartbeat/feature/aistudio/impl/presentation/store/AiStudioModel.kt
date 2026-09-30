@@ -30,6 +30,7 @@ import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -44,6 +45,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
@@ -117,19 +119,25 @@ class AiStudioModel(
     }
 
     private suspend fun observeUsageTargets() {
-        combine(machine.state, backend.repository().observeWorkspace()) { state, workspace ->
-            val ready = state as? AiStudioState.Ready
-            if (ready == null) {
-                emptySet()
-            } else {
-                buildSet {
-                    add(ready.settings.modelId)
-                    val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
-                    workspace.sessions.filter { it.id in visible }.mapNotNullTo(this) { it.modelId }
-                }.filterTo(mutableSetOf()) { it.isNotBlank() }
+        try {
+            combine(machine.state, backend.repository().observeWorkspace()) { state, workspace ->
+                val ready = state as? AiStudioState.Ready
+                if (ready == null) {
+                    emptySet()
+                } else {
+                    buildSet {
+                        add(ready.settings.modelId)
+                        val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
+                        workspace.sessions.filter { it.id in visible }.mapNotNullTo(this) { it.modelId }
+                    }.filterTo(mutableSetOf()) { it.isNotBlank() }
+                }
+            }.distinctUntilChanged().collect { ids ->
+                machine.send(AiStudioIntent.Public.ObserveUsageTargets(ids))
             }
-        }.distinctUntilChanged().collect { ids ->
-            machine.send(AiStudioIntent.Public.ObserveUsageTargets(ids))
+        } finally {
+            withContext(NonCancellable) {
+                machine.send(AiStudioIntent.Public.ObserveUsageTargets(emptySet()))
+            }
         }
     }
 

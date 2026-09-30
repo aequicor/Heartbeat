@@ -18,8 +18,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -105,10 +105,10 @@ class ProviderUsageCatalogService(
         }
     }
 
-    override fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ProviderUsageSnapshot> =
+    override fun observe(engine: EngineId, binding: EngineBindingId): Flow<ProviderUsageSnapshot> =
         combine(eligible, snapshots) { current, cache ->
             current[engine to binding]?.let(cache::get) ?: ProviderUsageSnapshot()
-        }.stateIn(context.scope, SharingStarted.WhileSubscribed(), ProviderUsageSnapshot())
+        }.distinctUntilChanged()
 
     override suspend fun refresh(engine: EngineId, binding: EngineBindingId): ProviderUsageSnapshot {
         if (!gate.isEnabled()) fail(OperationNotAllowed)

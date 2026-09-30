@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,6 +44,21 @@ class ProviderUsageCatalogTest {
         fixture.flags.isOn.value = false
         assertFailsWith<EngineException> { fixture.refresh() }
         assertTrue(fixture.route.factory.createdRuntimes.isEmpty())
+    }
+
+    @Test
+    fun `completed route observations leave no jobs in the profile`() = runTest {
+        val fixture = UsageFixture(this)
+        runCurrent()
+        val profile = fixture.route.context.scope.coroutineContext[Job]!!
+        val initialJobs = profile.children.count()
+
+        repeat(5) {
+            fixture.catalog.observe(TestEngine, fixture.route.binding.id).first()
+            runCurrent()
+        }
+
+        assertEquals(initialJobs, profile.children.count())
     }
 
     @Test
@@ -92,15 +108,16 @@ class ProviderUsageCatalogTest {
             context,
         )
         val observed = catalog.observe(TestEngine, binding.id)
-        backgroundScope.launch { observed.collect {} }
+        var current = ProviderUsageSnapshot()
+        backgroundScope.launch { observed.collect { current = it } }
         runCurrent()
         assertEquals(25.0, catalog.refresh(TestEngine, binding.id).windows.single().usedPercent)
-        assertEquals(ProviderUsageSnapshot(), observed.value)
+        assertEquals(ProviderUsageSnapshot(), current)
 
         hydrated.value = listOf(binding)
         runCurrent()
 
-        assertEquals(25.0, observed.value.windows.single().usedPercent)
+        assertEquals(25.0, current.windows.single().usedPercent)
     }
 
     @Test

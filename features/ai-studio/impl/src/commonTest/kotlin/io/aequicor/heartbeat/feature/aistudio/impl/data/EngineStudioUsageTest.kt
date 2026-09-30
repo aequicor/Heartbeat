@@ -97,6 +97,26 @@ class EngineStudioUsageTest {
     }
 
     @Test
+    fun `detaching the screen stops provider observation and later account refreshes`() = runTest {
+        val fixture = UsageFixture(this)
+        fixture.usage.observe(setOf(fixture.modelId))
+        runCurrent()
+        assertEquals(1, fixture.providers.snapshot.subscriptionCount.value)
+
+        fixture.usage.observe(emptySet())
+        runCurrent()
+        assertEquals(0, fixture.providers.snapshot.subscriptionCount.value)
+        assertTrue(fixture.usage.state.value.providers.isEmpty())
+
+        fixture.sources.state.value = listOf(
+            UsageSource.copy(info = UsageSource.info.copy(revision = AuthRevision.Known("r2"))),
+        )
+        runCurrent()
+        assertEquals(1, fixture.providers.refreshes.size)
+        assertTrue(fixture.usage.state.value.providers.isEmpty())
+    }
+
+    @Test
     fun `the selected route refreshes quotas after an account revision changes`() = runTest {
         val fixture = UsageFixture(this)
         fixture.usage.observe(setOf(fixture.modelId))

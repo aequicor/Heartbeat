@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.api
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlin.time.Instant
 
@@ -71,8 +72,11 @@ public interface ReportsProviderUsage : EngineFeature {
 
 /** Profile-memory account observations exposed through exact engine/binding routes. */
 public interface ProviderUsageCatalog {
-    /** Reads cached telemetry without IO; unavailable routes and unknown metrics expose an empty snapshot. */
-    public fun observe(engine: EngineId, binding: EngineBindingId): StateFlow<ProviderUsageSnapshot>
+    /**
+     * Reads cached telemetry without IO; unavailable routes and unknown metrics expose an empty snapshot.
+     * Collection belongs to the caller: cancelling it releases the route observation immediately.
+     */
+    public fun observe(engine: EngineId, binding: EngineBindingId): Flow<ProviderUsageSnapshot>
 
     /** Explicit route-checked refresh, deduplicated for thirty seconds per runtime identity. */
     public suspend fun refresh(engine: EngineId, binding: EngineBindingId): ProviderUsageSnapshot

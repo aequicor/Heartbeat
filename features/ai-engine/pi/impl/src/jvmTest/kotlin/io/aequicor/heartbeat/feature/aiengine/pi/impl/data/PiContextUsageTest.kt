@@ -27,6 +27,30 @@ class PiContextUsageTest {
     }
 
     @Test
+    fun `Pi default zero counters without provider usage remain unknown`() {
+        val zeroCounts = "\"input\":0,\"output\":0,\"cacheRead\":0,\"cacheWrite\":0"
+        assertNull(piContextUsage(message("{\"totalTokens\":0,$zeroCounts}"), model, now))
+        assertNull(piContextUsage(message("{$zeroCounts}"), model, now))
+    }
+
+    @Test
+    fun `compatible model defaults do not confirm context capacity`() {
+        for (provider in listOf(PiProvider.OpenAiCompatible.id, PiProvider.AnthropicCompatible.id)) {
+            val model = json("""{"provider":"$provider","id":"test","contextWindow":128000}""")
+            assertNull(piContextUsage(message("""{"totalTokens":4096}""", provider = provider), model, now))
+        }
+    }
+
+    @Test
+    fun `fixed native provider capacity equal to compatible fallback remains known`() {
+        val provider = PiProvider.OpenAi.id
+        val model = json("""{"provider":"$provider","id":"test","contextWindow":128000}""")
+        val usage = piContextUsage(message("""{"totalTokens":4096}""", provider = provider), model, now)
+        assertEquals(4096L, usage?.usedTokens)
+        assertEquals(128000L, usage?.capacityTokens)
+    }
+
+    @Test
     fun `unknown window wrong model failed output and estimated context stay hidden`() {
         assertNull(piContextUsage(message("""{"totalTokens":610}"""), null, now))
         assertNull(piContextUsage(message("""{"totalTokens":610}"""), json("""{"id":"other"}"""), now))
@@ -34,8 +58,8 @@ class PiContextUsageTest {
         assertNull(piContextUsage(json("""{"contextUsage":{"tokens":610,"contextWindow":1000}}"""), model, now))
     }
 
-    private fun message(usage: String, reason: String = "stop") = json(
-        """{"role":"assistant","model":"test","provider":"anthropic","stopReason":"$reason","usage":$usage}""",
+    private fun message(usage: String, reason: String = "stop", provider: String = "anthropic") = json(
+        """{"role":"assistant","model":"test","provider":"$provider","stopReason":"$reason","usage":$usage}""",
     )
 
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject

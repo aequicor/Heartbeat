@@ -6,9 +6,11 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 /**
  * UI effects only wait for profile work; their cancellation never claims native cancellation.
@@ -34,11 +36,7 @@ class EngineStudioEffects(
                 )
             }
 
-            AiStudioEffect.ObserveRuntime -> runtime.state.collect {
-                machine.send(
-                    AiStudioIntent.Internal.RuntimeChanged(it),
-                )
-            }
+            AiStudioEffect.ObserveRuntime -> observeRuntime(machine)
 
             AiStudioEffect.ObserveModels -> repository.observeModels()
                 .map { models -> models.map { it.id } }
@@ -82,6 +80,16 @@ class EngineStudioEffects(
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
         }
     }
+
+    private suspend fun observeRuntime(machine: EffectScope<AiStudioIntent>) {
+        try {
+            runtime.state.collect { machine.send(AiStudioIntent.Internal.RuntimeChanged(it)) }
+        } finally {
+            // Scope destruction may stop the machine before the store can send its detach intent.
+            withContext(NonCancellable) { runtime.observeUsageTargets(emptySet()) }
+        }
+    }
+
     private suspend fun usage(effect: AiStudioEffect.Usage) {
         when (effect) {
             is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(effect.modelIds)

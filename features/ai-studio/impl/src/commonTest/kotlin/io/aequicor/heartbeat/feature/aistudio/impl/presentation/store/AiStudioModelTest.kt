@@ -42,6 +42,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -83,6 +84,24 @@ class AiStudioModelTest {
         assertEquals(4, state.transcripts.getValue("s-facade").size)
         assertEquals("heartbeat", state.projects.first().name)
         assertEquals(AiStudioIntent.Public.Start, fixture.machine.sent.first())
+    }
+
+    @Test
+    fun `usage targets detach after unsubscribe and resume when the screen returns`() = runTest {
+        val fixture = Fixture(this, ready)
+        val subscription = backgroundScope.launch { fixture.model.store.collect { awaitCancellation() } }
+        runCurrent()
+        val targets = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.ObserveUsageTargets>().last()
+        assertTrue(targets.modelIds.isNotEmpty())
+
+        subscription.cancelAndJoin()
+        // FlowMVI keeps whileSubscribed work alive for its one-second stop delay.
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(AiStudioIntent.Public.ObserveUsageTargets(emptySet()), fixture.machine.sent.last())
+
+        fixture.subscribe()
+        assertEquals(targets, fixture.machine.sent.last())
     }
 
     @Test
