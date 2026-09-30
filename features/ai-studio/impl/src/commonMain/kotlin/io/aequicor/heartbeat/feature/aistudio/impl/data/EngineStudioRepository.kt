@@ -678,7 +678,8 @@ internal class EngineStudioRepository(
 
     /** Applies [change] to the stored items of conversation [id]. */
     private suspend fun write(id: String, change: (List<SessionItem>) -> List<SessionItem>) = lock.withLock {
-        transcripts.replace(id, change(transcripts.read(id)))
+        val stored = transcripts.read(id)
+        transcripts.replace(id, change(stored), previousItems = stored)
     }
 
     override fun newMessageId(): String {

@@ -40,8 +40,8 @@ internal val StudioTranscriptDatabaseSpec =
 /**
  * One stored item of one conversation. [ordinal] is the display order, which is not the native item position: a
  * new native generation restarts positions from zero, so earlier items keep their place in front of it.
- * [revision] is the native revision the payload was written from; it only increases, so a row whose revision and
- * ordinal did not change holds the item a write received.
+ * [revision] is the native revision the payload was written from. It may restart when an adapter reopens;
+ * replacement compares the item content and display order instead of treating this value as a durable version.
  */
 @Entity(
     tableName = "transcript",
