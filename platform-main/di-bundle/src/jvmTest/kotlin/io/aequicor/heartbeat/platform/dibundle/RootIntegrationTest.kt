@@ -116,7 +116,7 @@ class RootIntegrationTest {
 
     @Test
     fun `conflated sign-out and sign-in recreates the tree for the same profile`() = runRootTest {
-        val process = Process(PersistedProfile(suspendOperations = false))
+        val process = Process(PersistedProfile(isOperationSuspensionEnabled = false))
         advanceUntilIdle()
         val sessions = process.graph.profileSessions
         val first = sessions.open(ProfileId("p1"))
@@ -142,7 +142,7 @@ class RootIntegrationTest {
 
     @Test
     fun `opening the already active session preserves its navigation tree`() = runRootTest {
-        val process = Process(PersistedProfile(suspendOperations = false))
+        val process = Process(PersistedProfile(isOperationSuspensionEnabled = false))
         advanceUntilIdle()
         val sessions = process.graph.profileSessions
         val session = sessions.open(ProfileId("p1"))

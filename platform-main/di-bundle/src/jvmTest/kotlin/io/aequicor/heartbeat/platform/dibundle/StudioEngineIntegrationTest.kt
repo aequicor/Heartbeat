@@ -232,7 +232,7 @@ class StudioEngineIntegrationTest {
         val native = TestAdapter.runtimes.single().natives.single()
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         native.cancelGate = gate
-        native.failCancellation = true
+        native.isCancellationFailureEnabled = true
         runtime.cancel(chat.id)
         assertTrue(chat.id in runtime.state.value.running)
         gate.complete(Unit)

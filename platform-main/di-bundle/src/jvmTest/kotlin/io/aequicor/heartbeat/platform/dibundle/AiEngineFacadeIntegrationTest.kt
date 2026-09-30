@@ -207,7 +207,7 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
     var closeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var cancellations = 0
     var cancelGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
-    var failCancellation = false
+    var isCancellationFailureEnabled = false
     var decision: PermissionDecision? = null
     override val route get() = error("the facade owns the route")
     override val state: StateFlow<ActiveSessionState> = native
@@ -235,7 +235,7 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
             override suspend fun cancel(turn: TurnId) {
                 cancellations++
                 cancelGate?.await()
-                if (failCancellation) {
+                if (isCancellationFailureEnabled) {
                     throw EngineException(
                         EngineFailure.Transport(
                             io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason.NetworkUnavailable,
@@ -298,7 +298,7 @@ class TestNative(override val ref: SessionRef) : ActiveSession {
     }
 
     fun finish() {
-        val turn = checkNotNull((native.value as ActiveSessionState.Running).turn)
+        val turn = (native.value as ActiveSessionState.Running).turn
         record(
             SessionItem.Message(
                 ItemInfo(ItemId("answer-${items.size}"), items.size.toLong(), 0, turn.id),
