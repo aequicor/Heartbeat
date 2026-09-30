@@ -100,7 +100,10 @@ public enum class TrustLevel {
     /** File edits run without asking; commands and other actions with side effects still ask. */
     AutoEdits,
 
-    /** Every action runs without asking. */
+    /**
+     * Actions run without asking within the adapter's automatic approval policy. An adapter may still require an
+     * explicit decision for recognised commands that terminate the application hosting the running turn.
+     */
     Full,
 }
 

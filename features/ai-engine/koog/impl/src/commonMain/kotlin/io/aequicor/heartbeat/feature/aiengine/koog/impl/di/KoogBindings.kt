@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
@@ -109,6 +110,7 @@ public object KoogBindings {
                 CreatesSessions.id,
                 SendsPrompts.id,
                 CancelsTurns.id,
+                ChangesSessionConfiguration.id,
                 SessionHistory.id,
                 SessionContextUsage.id,
                 RequestsPermissions.id,

@@ -104,6 +104,18 @@ object HbTheme {
         get() = LocalHbVisualStyle.current
 }
 
+/**
+ * Scopes the host palette's dark oak attention variant to a pending questionnaire rendered by the flat
+ * controls. Typography, geometry, motion preferences, window surfaces and the platform kit remain inherited
+ * from the surrounding [HbTheme].
+ */
+@Composable
+fun HbQuestionnaireTheme(content: @Composable () -> Unit) {
+    val hostColors = HbTheme.colors
+    val questionnaireColors = remember(hostColors) { hostColors.forQuestionnaire() }
+    CompositionLocalProvider(LocalHbColors provides questionnaireColors, content = content)
+}
+
 /** Host typography preset with the native interface font; the font resolution is logged once. */
 @Composable
 fun rememberHostTypography(isDesktop: Boolean): HbTypography {

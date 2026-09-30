@@ -94,6 +94,7 @@ include(":features:ai-engine:claude:impl")
 include(":features:ai-session-engine-transfer:api", ":features:ai-session-engine-transfer:impl")
 include(":features:effort-configuration:api", ":features:effort-configuration:impl")
 include(":features:worktree-mode:api", ":features:worktree-mode:impl")
+include(":features:feedback:api", ":features:feedback:impl")
 
 include(":features:ai-engine:codex:api")
 include(":features:ai-engine:codex:impl")

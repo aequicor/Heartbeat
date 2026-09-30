@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -29,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
@@ -37,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -47,12 +50,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
-import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
@@ -61,8 +66,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -119,8 +127,7 @@ internal data class StudioChatRecord(
     /** Managed execution identity, distinct from the project's sidebar grouping. */
     val executionWorkspace: WorkspaceRef? = null,
     val worktreeTaskId: String? = null,
-    val lastApproval: String? = null,
-    val lastEffort: String? = null,
+    val configuration: StudioSessionSettings? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
@@ -143,11 +150,14 @@ internal class EngineStudioRepository(
     private val turns: StudioTurnExecutor,
     private val runs: StudioRunCoordinator,
     workspaceProjection: StudioWorkspaceProjection,
+    private val configurations: StudioConfigurationController,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
-    StudioRunHost {
+    StudioRunHost,
+    StudioConfigurationAccess {
     private val log = Log.tag("EngineStudio")
+    private val nativeSession = StudioNativeSessionOperations()
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
     private val deliveringActions = mutableSetOf<String>()
@@ -195,6 +205,18 @@ internal class EngineStudioRepository(
                 mutableState.update { it.copy(contexts = snapshot.contexts, providerUsage = snapshot.providers) }
             }
         }
+        profile.coroutineScope.launch {
+            store.observe(ChatsKey).collect { records ->
+                log.d { "Restore confirmed configurations count=${records.orEmpty().size}" }
+                mutableState.update { runtime ->
+                    val restored = records.orEmpty().mapNotNull { record ->
+                        val saved = record.configuration
+                        saved?.let { record.id to StudioSessionConfiguration(it) }
+                    }.toMap()
+                    runtime.copy(configurations = restored + runtime.configurations)
+                }
+            }
+        }
     }
 
     override suspend fun observeUsageTargets(modelIds: Set<String>) {
@@ -227,8 +249,13 @@ internal class EngineStudioRepository(
             // A conversation stored by an earlier version becomes readable from the database before observation.
             items(sessionId)
             emitAll(
-                combine(transcripts.observe(sessionId), state, projection(sessionId)) { stored, runtime, record ->
-                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
+                combine(
+                    transcripts.observe(sessionId),
+                    state,
+                    projection(sessionId),
+                    configurations.feedback(sessionId),
+                ) { stored, runtime, record, feedback ->
+                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running, feedback) +
                         if (record.hasFailed) {
                             listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
                         } else {
@@ -308,11 +335,11 @@ internal class EngineStudioRepository(
         try {
             state.first { id !in it.running }
             val stored = record(id)
+            val confirmed = state.value.configurations[id]?.applied ?: stored.configuration
             val defaults = defaults()
             val settings = defaults.copy(
-                modelId = stored.target?.let { Json.encodeToString(EngineTarget.serializer(), it) }.orEmpty(),
-                approval = ApprovalMode.entries.firstOrNull { it.name == stored.lastApproval } ?: defaults.approval,
-                effort = ReasoningEffort.entries.firstOrNull { it.name == stored.lastEffort } ?: defaults.effort,
+                modelId = confirmed?.modelId ?: stored.target?.studioModelId().orEmpty(),
+                approval = confirmed?.approval ?: defaults.approval,
             )
             launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
                 worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
@@ -383,6 +410,7 @@ internal class EngineStudioRepository(
             }
         }
     }
+
     override suspend fun isWorktree(id: String): Boolean {
         log.d { "Read conversation execution mode" }
         return record(id).worktreeTaskId != null
@@ -396,24 +424,15 @@ internal class EngineStudioRepository(
                 updatedAt = clock.now(),
                 hasFailed = false,
                 failureKind = RunFailureKind.Unknown,
-                lastApproval = settings.approval.name,
-                lastEffort = settings.effort.name,
             )
         }
         return active
     }
 
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
+        log.i { "Submit the reserved native request" }
         val target = checkNotNull(record(request.id).target)
-        val trust = request.settings.approval.trustFor(offeredModels.value, target)
-        log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
-        return submit(
-            active,
-            request.prompt,
-            efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
-            trust,
-            request.request,
-        )
+        return submitConfigured(request.id, active, target, request.prompt, request.settings, request.request)
     }
 
     override suspend fun shouldStop(id: String): Boolean {
@@ -427,13 +446,97 @@ internal class EngineStudioRepository(
         update(id) { copy(hasFailed = true, failureKind = kind) }
         return RunOutcome.Failed
     }
+
+    /** Initial defaults are used once; accepted execution keeps the session's confirmed values. */
+    private suspend fun submitConfigured(
+        id: String,
+        active: ActiveSession,
+        target: EngineTarget,
+        prompt: String,
+        settings: RunSettings,
+        requestId: RequestId,
+    ): TurnId {
+        val stored = state.value.configurations[id]?.applied ?: record(id).configuration
+        val trust = (stored?.approval ?: settings.approval).trustFor(offeredModels.value, target)
+        val effort = if (stored != null) {
+            stored.reasoningEffort
+        } else {
+            efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target))
+        }
+        log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
+        val turn = nativeSession.submit(active, prompt, effort, trust, requestId)
+        val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
+        val confirmed = capability?.feature?.configuration?.value ?: SessionConfiguration(target.model, effort, trust)
+        configurationState(id, StudioSessionConfiguration(confirmed.studio(target)))
+        try {
+            saveConfiguration(id, confirmed.studio(target))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
+        }
+        configurations.observe(this, id, active, target)
+        return turn
+    }
+
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
         val selected = selections.observe().first()
-        val target = requireNotNull(turnTarget(settings.modelId, record(id).target, selected.defaultTarget)) {
+        val record = record(id)
+        val chosen = state.value.configurations[id]?.applied?.modelId
+            ?: record.configuration?.modelId ?: record.target?.studioModelId() ?: settings.modelId
+        val target = requireNotNull(turnTarget(chosen, record.target, selected.defaultTarget)) {
             "Select a connected model in settings"
         }
         check(selected.isEnabled(target)) { "The selected route is no longer enabled" }
         return target
+    }
+
+    override suspend fun configure(sessionId: String, change: StudioSettingChange) {
+        log.i { "Configure session parameter kind=${change::class.simpleName.orEmpty()}" }
+        configurations.configure(this, sessionId, change)
+    }
+
+    override suspend fun configurationRecord(id: String): StudioChatRecord {
+        log.d { "Read session configuration id=$id" }
+        val record = record(id)
+        val applied = state.value.configurations[id]?.applied ?: return record
+        return record.copy(configuration = applied, target = studioModelTarget(applied.modelId) ?: record.target)
+    }
+
+    override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {
+        log.d { "Resolve configuration handle id=$id engine=${target.engine.value}" }
+        return open(id, target)
+    }
+
+    override suspend fun configurationAnchor(id: String): FeedbackAnchor = lock.withLock {
+        log.d { "Read configuration transcript anchor" }
+        FeedbackAnchor(record(id).ref, transcripts.read(id).lastOrNull()?.info?.id)
+    }
+
+    override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {
+        log.d { "Save confirmed configuration id=$id" }
+        val target = requireNotNull(studioModelTarget(settings.modelId))
+        update(id) {
+            val current = state.value.configurations[id]?.applied
+            if (current != null && current != settings) this else copy(configuration = settings, target = target)
+        }
+    }
+
+    override suspend fun validateConfigurationTarget(target: EngineTarget) {
+        log.d { "Validate configuration route engine=${target.engine.value}" }
+        if (!selections.observe().first().isEnabled(target)) {
+            throw EngineException(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
+        }
+    }
+
+    override fun configurationModels(): List<StudioModel> {
+        log.d { "Read configuration model choices" }
+        return offeredModels.value
+    }
+
+    override fun configurationState(id: String, state: StudioSessionConfiguration) {
+        log.d { "Reflect configuration id=$id pending=${state.pendingOperation != null}" }
+        mutableState.update { it.copy(configurations = it.configurations + (id to state)) }
     }
 
     override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome = when (outcome) {
@@ -452,57 +555,21 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun submit(
-        active: ActiveSession,
-        prompt: String,
-        reasoningEffort: String?,
-        trust: TrustLevel?,
-        requestId: RequestId,
-    ): TurnId {
-        val request = PromptRequest(
-            requestId,
-            listOf(ContentPart.Text(prompt)),
-            reasoningEffort = reasoningEffort,
-            trust = trust,
-        )
-        return try {
-            active.features.requireFeature(SendsPrompts).send(request)
-        } catch (e: EngineException) {
-            log.e(e) { "Submission failed; inspect native acceptance before changing run status" }
-            val accepted = active.state.value.activeTurn()?.takeIf { it.request == request.id }
-            if (accepted != null) accepted.id else throw e
-        }
-    }
-
     override suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
-        try {
-            active.features.requireFeature(CancelsTurns).cancel(turn)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Native cancellation failed; continue observing the accepted turn" }
+        log.i { "Request native cancellation" }
+        if (!nativeSession.requestStop(active, turn)) {
             mutableState.update { it.copy(stopFailures = it.stopFailures + id) }
         }
     }
 
     override suspend fun refreshHistory(id: String, history: SessionHistory) {
-        try {
-            historyMirror.refresh(id, history)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Final history refresh failed" }
-        }
+        log.d { "Refresh terminal native history" }
+        nativeSession.mirrorHistory(historyMirror, id, history, isFinal = true)
     }
 
     override suspend fun observeHistory(id: String, history: SessionHistory) {
-        try {
-            historyMirror.follow(id, history)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "History observation failed; the native turn remains active" }
-        }
+        log.d { "Follow accepted native history" }
+        nativeSession.mirrorHistory(historyMirror, id, history, isFinal = false)
     }
 
     private suspend fun open(id: String, target: EngineTarget): ActiveSession = withChatLock(id) {
@@ -526,7 +593,7 @@ internal class EngineStudioRepository(
                 current.route.engine == target.engine && current.route.binding == target.binding,
             ) { "Start a new conversation to change engine or connection" }
             check(current.route.workspace == workspace) { "The conversation workspace cannot change" }
-            if (record.target?.model != target.model) {
+            if (current.configurationModel(record.target?.model) != target.model) {
                 current.features.requireFeature(SwitchesModels).switchTo(target.model)
             }
             update(id) { copy(target = target) }
@@ -563,7 +630,7 @@ internal class EngineStudioRepository(
             if (!isPersisted) {
                 withContext(NonCancellable) {
                     handlesLock.withLock { if (handles[id] === active) handles.remove(id) }
-                    closeOrphan(active)
+                    nativeSession.closeOrphan(active)
                 }
             }
         }
@@ -587,18 +654,6 @@ internal class EngineStudioRepository(
     private class ChatLock {
         val mutex = Mutex()
         var users = 0
-    }
-
-    /** Closes a native session nobody can reach any more, so it is not leaked. */
-    private suspend fun closeOrphan(active: ActiveSession) = withContext(NonCancellable) {
-        try {
-            active.close()
-            log.i { "Closed unreferenced native session" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "Could not close unreferenced native session" }
-        }
     }
 
     override suspend fun cancel(sessionId: String) {
@@ -739,6 +794,72 @@ internal class EngineStudioRepository(
     }
 }
 
+/** Native IO reports failures while the repository owns conversation identity and UI state. */
+private class StudioNativeSessionOperations {
+    private val log = Log.tag("StudioNativeSessionOperations")
+
+    suspend fun submit(
+        active: ActiveSession,
+        prompt: String,
+        reasoningEffort: String?,
+        trust: TrustLevel?,
+        requestId: RequestId,
+    ): TurnId {
+        log.i { "Send the native request" }
+        val request = PromptRequest(
+            requestId,
+            listOf(ContentPart.Text(prompt)),
+            reasoningEffort = reasoningEffort,
+            trust = trust,
+        )
+        return try {
+            active.features.requireFeature(SendsPrompts).send(request)
+        } catch (e: EngineException) {
+            log.e(e) { "Submission failed; inspect native acceptance before changing run status" }
+            val accepted = active.state.value.activeTurn()?.takeIf { it.request == request.id }
+            if (accepted != null) accepted.id else throw e
+        }
+    }
+
+    suspend fun mirrorHistory(mirror: StudioHistoryMirror, id: String, history: SessionHistory, isFinal: Boolean) {
+        try {
+            if (isFinal) mirror.refresh(id, history) else mirror.follow(id, history)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) {
+                if (isFinal) {
+                    "Final history refresh failed"
+                } else {
+                    "History observation failed; the native turn remains active"
+                }
+            }
+        }
+    }
+
+    suspend fun requestStop(active: ActiveSession, turn: TurnId): Boolean = try {
+        active.features.requireFeature(CancelsTurns).cancel(turn)
+        true
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.e(e) { "Native cancellation failed; continue observing the accepted turn" }
+        false
+    }
+
+    /** Closes a native session nobody can reach any more, so it is not leaked. */
+    suspend fun closeOrphan(active: ActiveSession) = withContext(NonCancellable) {
+        try {
+            active.close()
+            log.i { "Closed unreferenced native session" }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Could not close unreferenced native session" }
+        }
+    }
+}
+
 /** The model chosen for this turn wins; a chat keeps its stored route only when none was chosen. */
 internal fun turnTarget(modelId: String, stored: EngineTarget?, default: EngineTarget?): EngineTarget? =
     modelId.takeIf { it.isNotBlank() }?.let {
@@ -758,6 +879,11 @@ internal fun <F : EngineFeature> EngineFeatures.requireFeature(key: EngineFeatur
             EngineFailure.Access(AccessFailureReason.OperationNotAllowed),
         )
     }
+
+/** Native confirmation wins over a stored model that may lag behind a failed preference write. */
+internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
+    (features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature?.configuration?.value?.model
+        ?: fallback
 
 private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
     is ActiveSessionState.Submitting -> turn

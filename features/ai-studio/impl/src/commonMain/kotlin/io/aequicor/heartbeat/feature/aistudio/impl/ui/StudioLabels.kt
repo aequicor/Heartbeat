@@ -71,6 +71,7 @@ internal fun timelineLabels(section: String, calendar: StudioCalendar = StudioCa
         yesterday = stringResource(Res.string.date_yesterday),
         calendar = calendar,
         isGroupedByDate = true,
+        feedback = studioFeedbackLabels(),
     )
 
 /** Elapsed-time templates in the current language. */

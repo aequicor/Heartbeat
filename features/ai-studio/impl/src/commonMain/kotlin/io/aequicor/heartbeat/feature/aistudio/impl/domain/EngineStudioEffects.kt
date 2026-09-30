@@ -77,6 +77,8 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+
+            is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
         }
     }
 

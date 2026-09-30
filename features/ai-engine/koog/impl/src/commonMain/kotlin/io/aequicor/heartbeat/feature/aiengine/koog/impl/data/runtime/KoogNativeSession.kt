@@ -13,10 +13,9 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -40,6 +39,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -66,8 +68,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -108,6 +111,9 @@ internal class KoogNativeSession(
     private var isClosed = false
     private val handles = mutableListOf<MutableStateFlow<ActiveSessionState>>()
     private var current: ActiveSessionState = ActiveSessionState.Ready(initial.lastTurn)
+    private val configuration = MutableStateFlow(SessionConfiguration(initial.model, initial.reasoningEffort))
+    private val updates = MutableSharedFlow<SessionConfigurationUpdate>(extraBufferCapacity = 16)
+    private var selection = ConfigurationSelection(configuration.value)
 
     // The running turn with the permission ids resolved so far, and its pending approval; main dispatcher only.
     private var active: Turn? = null
@@ -118,7 +124,7 @@ internal class KoogNativeSession(
 
     val route: ExecutionRoute = requireNotNull(initial.summary.lastRoute)
     val ref: SessionRef = initial.summary.ref
-    val model: ModelId = initial.model
+    val model: ModelId get() = configuration.value.model
 
     fun attach(): ActiveSession {
         checkOpen()
@@ -131,6 +137,17 @@ internal class KoogNativeSession(
             override val features = KoogFeatures(
                 AppliesTrustLevels to object : AppliesTrustLevels {},
                 SessionContextUsage to contextUsage,
+                ChangesSessionConfiguration to object : ChangesSessionConfiguration {
+                    override val configuration = this@KoogNativeSession.configuration.asStateFlow()
+                    override val updates = this@KoogNativeSession.updates.asSharedFlow()
+
+                    override suspend fun apply(
+                        operationId: String,
+                        change: SessionConfigurationChange,
+                    ): SessionConfiguration = withContext(scope.coroutineContext.minusKey(Job)) {
+                        koogCall { configure(state, operationId, change) }
+                    }
+                },
                 SendsPrompts to object : SendsPrompts {
                     override suspend fun send(request: PromptRequest): TurnId = withContext(
                         scope.coroutineContext.minusKey(Job),
@@ -207,7 +224,7 @@ internal class KoogNativeSession(
         }
         val connection = access.route(route.binding, identity)
         val provider = requireNotNull(koogProvider(connection.source))
-        val effort = request.reasoningEffort
+        val effort = request.reasoningEffort ?: configuration.value.reasoningEffort
         if (effort != null && effort !in access.reasoning.levels(provider, model.value)) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
@@ -222,7 +239,7 @@ internal class KoogNativeSession(
         // The local runtime is the native authority: acceptance occurs only after its durable checkpoint.
         var isSaved = false
         try {
-            records.save(record.copy(items = history.items + user, lastTurn = turn))
+            records.save(record.copy(items = history.items + user, lastTurn = turn, reasoningEffort = effort))
             isSaved = true
         } finally {
             if (!isSaved) closeClient(client)
@@ -232,45 +249,69 @@ internal class KoogNativeSession(
             closeClient(client)
             throw unknownOutcome(request)
         }
-        record = record.copy(items = history.items + user, lastTurn = turn)
+        record = record.copy(items = history.items + user, lastTurn = turn, reasoningEffort = effort)
+        if (effort != configuration.value.reasoningEffort) {
+            install(configuration.value.copy(reasoningEffort = effort))
+        }
         history.append { SessionEvent.TurnStarted(it, turn) }
         history.append { SessionEvent.ItemUpserted(it, user) }
         active = turn
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider, model.value, effort, request.trust ?: TrustLevel.Ask)
+            runTurn(turn, client, provider, model.value, request.trust ?: TrustLevel.Ask)
         }
         return turn.id
     }
 
     private suspend fun runTurn(
         turn: Turn,
-        client: KoogClient,
+        initialClient: KoogClient,
         provider: KoogProvider,
-        model: String,
-        effort: String?,
+        initialModel: String,
         trust: TrustLevel,
     ) {
+        var client = initialClient
+        var clientModel = initialModel
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            val context = AgentToolContext(
-                ref,
-                route.workspace,
-                turn.id,
-                turn.request,
-                trust,
-                AgentToolPermissions { approveHosted(turn, it) },
-                lifetime = currentCoroutineContext()[Job],
-            )
+            val context = koogHostedContext(ref, route.workspace, turn, trust) { approveHosted(turn, it) }
             val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || access.codingToolsEnabled() }
                 ?.let { workspaces.open(it, context) }
-            val tools = turnTools(client, provider, model, workspace)
-            val hasAttachments = record.items.hasResourceInputs()
-            log.i { "Koog turn effort=${effort ?: "default"} tools=${tools.descriptors.size}" }
-            val textModel = provider.textModel(model, tools = !tools.isEmpty(), attachments = hasAttachments)
             val rounds = if (workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
-            val tooling = Tooling(tools, workspace?.instructions, rounds)
-            generateWithEffort(turn, client, provider, textModel, tooling, effort)
+            var input: Prompt? = null
+            var isComplete = false
+            var remainingRounds = rounds
+            while (remainingRounds-- > 0) {
+                // This snapshot owns the next request and all tools returned by it. Changes while it is in
+                // flight are read at the following boundary, without interrupting the stream or tool.
+                val requestSelection = mutex.withLock { selection }
+                val selectedModel = requestSelection.configuration.model.value
+                if (selectedModel != clientModel) {
+                    val connection = access.route(route.binding, identity)
+                    val next = koogCall { access.open(connection, selectedModel) }
+                    closeClient(client)
+                    client = next
+                    clientModel = selectedModel
+                }
+                val tools = turnTools(client, provider, selectedModel, workspace)
+                val textModel = provider.textModel(
+                    selectedModel,
+                    tools = !tools.isEmpty(),
+                    attachments = record.items.hasResourceInputs(),
+                )
+                val prompt = input ?: initialPrompt(provider.llmProvider, LLMParams(), workspace?.instructions)
+                val round = streamWithEffort(turn, client, provider, textModel, tools, prompt, requestSelection)
+                if (round.calls.isEmpty()) {
+                    isComplete = true
+                    break
+                }
+                val results = round.calls.map { call -> runToolCall(turn, tools, call) }
+                input = continuePrompt(prompt, round.text, results)
+            }
+            if (!isComplete) {
+                log.w { "Tool round limit reached ($rounds)" }
+                fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+            }
             outcome = TurnOutcome.Completed
         } catch (e: CancellationException) {
             // Closing a HTTP stream confirms local termination, not remote cancellation.
@@ -337,43 +378,97 @@ internal class KoogNativeSession(
         }
     }
 
+    private suspend fun configure(
+        lease: Lease,
+        operationId: String,
+        change: SessionConfigurationChange,
+    ): SessionConfiguration = try {
+        mutex.withLock {
+            checkLease(lease)
+            if (operationId.isBlank()) fail(EngineFailure.Request(RequestFailureReason.Invalid))
+            val current = configuration.value
+            val next = KoogConfigurationValidator(access, identity, route).resolve(current, change)
+            checkLease(lease)
+            access.route(route.binding, identity)
+            val updated = record.copy(model = next.model, reasoningEffort = next.reasoningEffort, items = history.items)
+            records.save(updated)
+            checkOpen()
+            record = updated
+            val effortOperation = when {
+                change is SessionConfigurationChange.Effort -> operationId
+                next.reasoningEffort != current.reasoningEffort -> null
+                else -> selection.effortOperation
+            }
+            install(next, effortOperation)
+            log.i {
+                "Installed session configuration model=${next.model.value} effort=${next.reasoningEffort ?: "default"}"
+            }
+            next
+        }
+    } finally {
+        releaseIfIdle()
+    }
+
+    private fun install(next: SessionConfiguration, effortOperation: String? = null) {
+        log.d { "Confirm session configuration model=${next.model.value} effort=${next.reasoningEffort ?: "default"}" }
+        selection = ConfigurationSelection(next, selection.revision + 1, effortOperation)
+        configuration.value = next
+    }
+
     /**
-     * A provider that refuses the reasoning parameters before producing any output gets the same prompt again without
-     * them. Only when that retry succeeds were the reasoning parameters the cause, and the model stops offering effort,
-     * so a wrong capability guess never fails the user's turn and an unrelated 400 does not disable effort.
+     * A provider refusal before this round produces output is retried with exactly the same messages and tools.
+     * Only a successful retry disables effort. A late rejection cannot overwrite a newer installed selection.
      */
-    private suspend fun generateWithEffort(
+    private suspend fun streamWithEffort(
         turn: Turn,
         client: KoogClient,
         provider: KoogProvider,
         model: LLModel,
-        tools: Tooling,
-        effort: String?,
-    ) {
+        tools: KoogToolbox,
+        input: Prompt,
+        requestSelection: ConfigurationSelection,
+    ): ToolRound {
+        val effort = requestSelection.configuration.reasoningEffort
         val produced = history.items.size
-        try {
-            generate(turn, client, model, tools, provider.reasoningParams(effort, model.maxOutputTokens))
+        return try {
+            streamRound(
+                turn,
+                client,
+                model,
+                input.withParams(provider.reasoningParams(effort, model.maxOutputTokens)),
+                tools.descriptors,
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             if (effort == null || !e.isRequestRejection() || history.items.size != produced) throw e
             log.w(e.sanitized()) { "Reasoning parameters rejected; retrying without effort" }
-            generate(turn, client, model, tools, LLMParams())
-            access.reasoning.reject(provider, model.id)
+            val result = streamRound(turn, client, model, input.withParams(LLMParams()), tools.descriptors)
+            rejectEffort(provider, requestSelection)
+            result
         }
     }
 
-    private suspend fun generate(turn: Turn, client: KoogClient, model: LLModel, tools: Tooling, params: LLMParams) {
-        log.i { "Starting provider stream" }
-        var input = initialPrompt(model.provider, params, tools.instructions)
-        repeat(tools.maxRounds) { _ ->
-            val round = streamRound(turn, client, model, input, tools.box.descriptors)
-            if (round.calls.isEmpty()) return
-            val results = round.calls.map { call -> runToolCall(turn, tools.box, call) }
-            input = continuePrompt(input, round.text, results)
+    private suspend fun rejectEffort(provider: KoogProvider, rejected: ConfigurationSelection) {
+        val update = mutex.withLock {
+            if (selection.revision == rejected.revision) {
+                access.reasoning.reject(provider, rejected.configuration.model.value)
+                val next = configuration.value.copy(reasoningEffort = null)
+                record = record.copy(reasoningEffort = null, items = history.items)
+                install(next)
+                try {
+                    records.save(record)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.w(e.sanitized()) { "Could not persist corrected reasoning effort" }
+                }
+            }
+            rejected.effortOperation?.let {
+                SessionConfigurationUpdate(it, configuration.value, EngineFailure.Request(RequestFailureReason.Invalid))
+            }
         }
-        log.w { "Tool round limit reached (${tools.maxRounds})" }
-        fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+        update?.let { updates.emit(it) }
     }
 
     private fun initialPrompt(
@@ -420,6 +515,7 @@ internal class KoogNativeSession(
         input: Prompt,
         tools: List<ToolDescriptor>,
     ): ToolRound {
+        log.i { "Starting provider stream model=${model.id}" }
         val info = ItemInfo(
             ItemId(Uuid.random().toString()),
             history.items.size.toLong(),
@@ -630,6 +726,11 @@ internal class KoogNativeSession(
     }
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {
+        mutex.withLock { persistFinished(turn, outcome) }
+        releaseIfIdle()
+    }
+
+    private suspend fun persistFinished(turn: Turn, outcome: TurnOutcome) {
         log.i { "Finishing accepted turn" }
         // The running turn carries the permissions resolved during it.
         val finished = (active ?: turn).copy(outcome = outcome)
@@ -653,7 +754,6 @@ internal class KoogNativeSession(
         } finally {
             history.append { SessionEvent.TurnFinished(it, turn.id, outcome) }
             if (!isClosed) publish(ActiveSessionState.Ready(finished))
-            releaseIfIdle()
         }
     }
 
@@ -733,8 +833,17 @@ internal val Deny = PermissionOptionId("deny")
 
 private data class PendingApproval(val request: PermissionRequest, val answer: CompletableDeferred<PermissionOptionId>)
 
-/** Tools of one turn and the system instructions of its coding workspace, if any. */
-private data class Tooling(val box: KoogToolbox, val instructions: String?, val maxRounds: Int)
+/** A monotonic selection revision keeps late provider corrections from replacing a newer choice. */
+private data class ConfigurationSelection(
+    val configuration: SessionConfiguration,
+    val revision: Long = 0,
+    val effortOperation: String? = null,
+)
+
+private fun Prompt.withParams(params: LLMParams): Prompt = prompt(
+    "heartbeat",
+    params,
+) { messages(this@withParams.messages) }
 
 /** Upper bound of tool rounds in a chat turn with search tools only. */
 internal const val MAX_TOOL_ROUNDS = 8

@@ -30,7 +30,12 @@ internal val PiApprovalAllow = PermissionOptionId("allow")
 private val PiApprovalDeny = PermissionOptionId("deny")
 
 // Pi's built-in file mutation tools; commands and extension tools are never file edits.
-private val EditTools = setOf("edit", "write")
+internal val EditTools = setOf("edit", "write")
+
+// The permission panel shows the title and the options only, so a cost the user must know is stated in them.
+private const val ALLOW_TITLE = "Разрешить"
+private const val DENY_TITLE = "Запретить"
+private const val ALLOW_HOST_TITLE = "Завершить Heartbeat и выполнить"
 private const val GIT_DIRECTORY = ".git"
 private const val FILE_SCHEME = "file:"
 
@@ -42,8 +47,9 @@ private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
 
 /**
- * Whether this level answers the approval of [call] without the user. A file edit counts only when its path was
- * pinned and lies inside [workspace], the working directory of the process. Blocking IO: resolves symbolic links.
+ * Whether this level covers [call] by its approval scope. A file edit counts only when its path was pinned and lies
+ * inside [workspace], the working directory of the process. This scope check does not apply the host-preservation
+ * exception; [answers] makes the final automatic approval decision. Blocking IO: resolves symbolic links.
  */
 internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean = when (this) {
     TrustLevel.Ask -> false
@@ -54,6 +60,18 @@ internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean 
     }
 
     TrustLevel.Full -> true
+}
+
+/**
+ * Whether this level answers the approval of [call] on its own. A command recognised as ending the host by the
+ * heuristic [terminatesHost] scan always waits for the user: the processes that forked the application would take
+ * the running turn down with them. The same applies when a wrapper chain exceeds the scan limit. Other calls the
+ * scan does not recognise remain subject to [covers], including full trust.
+ */
+internal fun TrustLevel.answers(call: PiApprovalCall, workspace: Path?): Boolean {
+    if (!terminatesHost(call)) return covers(call, workspace)
+    log.w { "Pi tool call can stop the host process; only the user decides: ${call.tool}" }
+    return false
 }
 
 /**
@@ -113,11 +131,12 @@ internal fun approvalRequest(id: String, turn: TurnId, call: PiApprovalCall): Pe
         return null
     }
     val target = visible(call.target)
+    val allow = if (terminatesHost(call)) ALLOW_HOST_TITLE else ALLOW_TITLE
     return PermissionRequest(
         PermissionRequestId(id),
         turn,
         if (target.isBlank()) call.tool else "${call.tool}: $target",
-        listOf(PermissionOption(PiApprovalAllow, "Разрешить"), PermissionOption(PiApprovalDeny, "Запретить")),
+        listOf(PermissionOption(PiApprovalAllow, allow), PermissionOption(PiApprovalDeny, DENY_TITLE)),
     )
 }
 

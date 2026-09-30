@@ -5,6 +5,8 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
@@ -23,14 +25,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
+import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -39,6 +46,10 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assume.assumeTrue
 import java.io.File
 import kotlin.test.AfterTest
@@ -46,6 +57,8 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class StudioEngineIntegrationTest {
@@ -106,6 +119,67 @@ class StudioEngineIntegrationTest {
         )
         services.modelSelections.observe().first { it.defaultTarget == target }
         return services
+    }
+
+    @Test
+    fun `a fresh native conversation starts with the selected approval and effort defaults`() = runTest {
+        TestAdapter.reasoningEfforts = listOf("low", "high")
+        TestAdapter.isTrustSupported = true
+        try {
+            val services = configured()
+            val repository = services.studioRepository
+            val runtime = services.studioRuntime
+            val settings = runtime.defaults().copy(approval = ApprovalMode.AutoApprove)
+            repository.observeModels().first { it.singleOrNull()?.reasoningEfforts == listOf("low", "high") }
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            val efforts = requireNotNull(app.machines.find(EffortConfigurationMachineKey))
+            efforts.state.first { it is EffortConfigurationState.Ready }
+            app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
+            val chat = repository.createSession(null, "Selected defaults")
+            assertNull(runtime.state.value.configurations[chat.id])
+            val run = async { runtime.run(chat.id, "Use the selected defaults", settings) }
+            val applied = runtime.state.first { chat.id in it.configurations }.configurations.getValue(chat.id).applied
+            val native = TestAdapter.runtimes.single().natives.single()
+            assertEquals("high", native.sent.single().reasoningEffort)
+            assertEquals(TrustLevel.Full, native.sent.single().trust)
+            assertEquals("high", applied.reasoningEffort)
+            assertEquals(ApprovalMode.AutoApprove, applied.approval)
+            native.finish()
+            assertEquals(RunOutcome.Completed, run.await())
+        } finally {
+            TestAdapter.reasoningEfforts = emptyList()
+            TestAdapter.isTrustSupported = false
+        }
+    }
+
+    @Test
+    fun `legacy chat keeps its saved route when new chat defaults select another model`() = runTest {
+        val services = configured()
+        val repository = services.studioRepository
+        val runtime = services.studioRuntime
+        val settings = runtime.defaults()
+        val savedTarget = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+        val chat = repository.createSession(null, "Legacy conversation")
+        val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
+        val key = jsonKey("chats", JsonArray.serializer())
+        val stored = requireNotNull(store.get(key)).single().jsonObject
+        // Earlier versions stored the route without a session configuration snapshot.
+        val legacy = JsonObject(
+            stored.filterKeys { it != "configuration" } +
+                ("target" to Json.encodeToJsonElement(EngineTarget.serializer(), savedTarget)),
+        )
+        store.set(key, JsonArray(listOf(legacy)))
+        val otherDefaults = settings.copy(
+            modelId = Json.encodeToString(EngineTarget.serializer(), savedTarget.copy(model = ModelId("other"))),
+        )
+
+        val run = async { runtime.run(chat.id, "Continue on the saved model", otherDefaults) }
+        val messages = repository.observeMessages(chat.id).first { it.isNotEmpty() }
+        assertIs<StudioMessage.Prompt>(messages.first())
+        val native = TestAdapter.runtimes.single().natives.single()
+        native.finish()
+        assertEquals(RunOutcome.Completed, run.await())
+        assertEquals(settings.modelId, runtime.state.value.configurations.getValue(chat.id).applied.modelId)
     }
 
     @Test

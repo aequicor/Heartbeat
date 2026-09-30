@@ -112,7 +112,7 @@ class PiRpcTest {
     }
 }
 
-/** Blocking pipes and native command deadlines use physical time, with a pool closed after each test. */
+/** Blocking pipes and native command deadlines use physical time, with a pool isClosed after each test. */
 private class RpcTestDispatchers :
     DispatcherProvider,
     AutoCloseable {

@@ -48,7 +48,7 @@ internal fun StudioUsage(content: PaneContent, onIntent: (AiStudioScreenIntent) 
     val context = content.contextUsage
     val provider = content.providerUsage?.takeIf { it.isVisible }
     if (context == null && provider == null) return
-    val modelId = content.session?.modelId ?: content.settings.modelId
+    val modelId = content.settings.modelId
     var isOpen by remember(content.pane.id, content.pane.sessionId, modelId) { mutableStateOf(false) }
     val title = stringResource(Res.string.usage_title)
     val accessible = context?.let { "$title: ${stringResource(Res.string.usage_percent, it.percent)}" } ?: title

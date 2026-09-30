@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
@@ -65,10 +66,27 @@ data class SettingsUi(
     val effort: EffortUi,
     val approval: ApprovalUi,
     val engineEfforts: ImmutableMap<String, String> = persistentMapOf(),
+    val nativeEffort: String? = null,
 ) {
     /** The selected model, or the first one when the id is unknown. */
     val model: ModelUi get() = StudioModelOptions.firstOrNull { it.id == modelId } ?: StudioModelOptions.first()
 }
+
+/** Confirmed configuration of one native conversation; pending operations never replace the applied values. */
+@Immutable
+data class SessionConfigurationUi(
+    val modelId: String,
+    val reasoningEffort: String?,
+    val approval: ApprovalUi,
+    val pendingOperation: String? = null,
+)
+
+internal fun StudioSessionConfiguration.toUi(): SessionConfigurationUi = SessionConfigurationUi(
+    applied.modelId,
+    applied.reasoningEffort,
+    applied.approval.toUi(),
+    pendingOperation,
+)
 
 /** Models offered by the composer, from the most capable to the fastest. */
 val StudioModelOptions: ImmutableList<ModelUi> = StudioModels.map {
@@ -92,7 +110,14 @@ enum class ToolStatusUi { Pending, Running, Done, Failed, Cancelled }
 
 /** A tool call of a reply: literal console [output] and an optional unified [diff]. */
 @Immutable
-data class ToolUi(val id: String, val title: String, val status: ToolStatusUi, val output: String, val diff: String?)
+data class ToolUi(
+    val id: String,
+    val title: String,
+    val status: ToolStatusUi,
+    val output: String,
+    val diff: String?,
+    val feedback: FeedbackUi? = null,
+)
 
 /** Chronological blocks inside one answer, retaining native identities across streaming updates. */
 @Immutable
@@ -234,4 +259,5 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
     },
     output = output,
     diff = diff,
+    feedback = feedback?.toUi(),
 )

@@ -84,6 +84,7 @@ data class AiStudioScreenState(
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
     val uncancellable: ImmutableSet<String> = persistentSetOf(),
     val settings: SettingsUi = DefaultSettingsUi,
+    val configurations: ImmutableMap<String, SessionConfigurationUi> = persistentMapOf(),
     val projects: ImmutableList<ProjectUi> = persistentListOf(),
     val sessions: ImmutableList<SessionUi> = persistentListOf(),
     val transcripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
@@ -176,17 +177,17 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Requests provider telemetry when the details panel opens. */
     data class RefreshUsage(val modelId: String) : Composer
 
-    /** Chooses the model of the next runs. */
-    data class SelectModel(val modelId: String) : Composer
+    /** Changes an existing session's model, or the default for a new page. */
+    data class SelectModel(val modelId: String, val paneId: Int? = null) : Composer
 
-    /** Chooses the reasoning effort of the next runs. */
-    data class SelectEffort(val effort: EffortUi) : Composer
+    /** Changes the session's effort for subsequent requests, or the default for a new page. */
+    data class SelectEffort(val effort: EffortUi, val paneId: Int? = null) : Composer
 
     /** Selects an advertised native effort for an exact model route; null restores the engine default. */
-    data class SelectEngineEffort(val modelId: String, val effort: String?) : Composer
+    data class SelectEngineEffort(val modelId: String, val effort: String?, val paneId: Int? = null) : Composer
 
     /** Chooses how the agent treats actions with side effects. */
-    data class SelectApproval(val approval: ApprovalUi) : Composer
+    data class SelectApproval(val approval: ApprovalUi, val paneId: Int? = null) : Composer
 
     /** Pins or unpins a session. */
     data class SetPinned(val sessionId: String, val isPinned: Boolean) : SessionAction

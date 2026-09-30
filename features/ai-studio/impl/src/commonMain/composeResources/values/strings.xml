@@ -183,4 +183,26 @@
     <string name="worktree_failure_merge_in_progress">Merge resources are still in use. Wait for the agent to stop, then check again.</string>
     <string name="worktree_failure_action_unverified">The action result could not be verified. Inspect the PR or local merge before continuing.</string>
     <string name="worktree_failure_unknown">The operation could not be completed. Check the checkout and agent history before retrying.</string>
+    <string name="feedback_model">Model</string>
+    <string name="feedback_effort">Reasoning effort</string>
+    <string name="feedback_trust">Command approval</string>
+    <string name="feedback_default">Engine default</string>
+    <string name="feedback_pending">Changing %1$s: %2$s…</string>
+    <string name="feedback_applied_tool">Session continues. From the next tool call: %1$s — %2$s.</string>
+    <string name="feedback_applied_request">Session continues. From the next model request: %1$s — %2$s.</string>
+    <string name="feedback_failed">Could not change %1$s: %2$s.</string>
+    <string name="feedback_unknown">The change to %1$s could not be confirmed.</string>
+    <string name="feedback_pending_detail">Waiting for the engine to confirm the change. The session continues running.</string>
+    <string name="feedback_next_tool">The session continues with this setting from the next tool call. A command already running keeps its previous approval.</string>
+    <string name="feedback_next_request">The session continues with this setting from the next model request. A request already running keeps its previous parameters.</string>
+    <string name="feedback_kept">The current confirmed parameters are shown in the composer.</string>
+    <string name="feedback_unknown_detail">The result could not be confirmed. Check the current session settings.</string>
+    <string name="feedback_failure_unsupported">the engine does not support this change</string>
+    <string name="feedback_failure_busy">the engine cannot change this setting while working</string>
+    <string name="feedback_failure_connection">the engine or connection cannot be changed in an existing session</string>
+    <string name="feedback_failure_invalid">the engine rejected the selected value</string>
+    <string name="feedback_failure_access">access to the engine was denied</string>
+    <string name="feedback_failure_transport">the engine could not be reached</string>
+    <string name="feedback_failure_lifecycle">the session is no longer available</string>
+    <string name="feedback_failure_unknown">the engine did not confirm the change</string>
 </resources>

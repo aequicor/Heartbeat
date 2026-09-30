@@ -80,6 +80,7 @@ public sealed interface AiStudioState : MachineState {
         val projectErrorPane: Int? = null,
         /** Desktop toggle availability; established chats retain their execution workspace. */
         val isWorktreeAvailable: Boolean = false,
+        val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -130,6 +131,9 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Requests fresh provider quotas when the usage panel opens. */
         public data class RefreshUsage(val modelId: String) : Public
+
+        /** Applies one parameter to [sessionId] without restarting its accepted work. */
+        public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Public
 
         /** Sends [prompt] from the composer of [paneId]: creates a session if needed and starts a run. */
         public data class Submit(val paneId: Int, val prompt: String) : Public
@@ -267,6 +271,9 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Persists a metadata [edit] of [sessionId]. */
     public data class Apply(val sessionId: String, val edit: SessionEdit) : AiStudioEffect
+
+    /** Hands a configuration change to the profile; cancelling the screen waiter does not cancel it. */
+    public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : AiStudioEffect
 }
 
 /** One-shot events of the studio. */

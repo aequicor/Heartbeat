@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration
@@ -53,6 +54,7 @@ data class StudioToolRun(
     val status: ToolRunStatus = ToolRunStatus.Running,
     val output: String = "",
     val diff: String? = null,
+    val feedback: FeedbackRecord? = null,
 )
 
 /** Ordered engine-visible answer content. Reasoning exists only when explicitly exposed by the engine. */

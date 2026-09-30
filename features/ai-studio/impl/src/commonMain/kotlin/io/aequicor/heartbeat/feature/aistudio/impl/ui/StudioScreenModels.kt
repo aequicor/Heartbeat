@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.Permission
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
@@ -75,7 +76,11 @@ internal data class PaneContent(
     val isWorktreeAvailable: Boolean = false,
     val worktree: WorktreeUi? = null,
     val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
-)
+    val configuration: SessionConfigurationUi? = null,
+) {
+    /** Only the settings of this pane wait while its session configuration is being confirmed. */
+    val isSettingPending: Boolean get() = configuration?.pendingOperation != null
+}
 
 /** Sidebar data only: transcripts and drafts do not recompose the session lists. */
 @Immutable
@@ -94,7 +99,8 @@ internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = session(pane.sessionId)
     val startedAt = runStartedAt[pane.sessionId]
-    val effectiveModel = settings.modelId.ifBlank { session?.modelId.orEmpty() }
+    val configuration = configurations[pane.sessionId]
+    val effectiveSettings = paneSettings(session, configuration)
     return PaneContent(
         pane = pane,
         session = session,
@@ -107,24 +113,39 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         draft = draft(pane.id),
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
-        settings = settings.copy(modelId = settings.modelId.ifBlank { session?.modelId.orEmpty() }),
+        settings = effectiveSettings,
+        configuration = configuration,
         isStopFailed = pane.sessionId in stopFailures,
         isStoppable = pane.sessionId !in uncancellable,
         isResearchAvailable = isResearchEnabled && pane.sessionId == null && pane.projectId == null &&
             models.any { it.id == settings.modelId && it.isResearchSupported },
-        models = modelsForProject(pane.projectId ?: session?.projectId, session?.modelId),
+        models = modelsForProject(
+            pane.projectId ?: session?.projectId,
+            configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank),
+        ),
         isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
         isPickingProject = addingProjectTo == pane.id,
         isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
         calendar = studioCalendar(now),
         contextUsage = contexts[pane.sessionId],
-        providerUsage = providerUsage[session?.modelId ?: effectiveModel],
+        providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
 }
+
+private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =
+    if (configuration != null) {
+        settings.copy(
+            modelId = configuration.modelId,
+            approval = configuration.approval,
+            nativeEffort = configuration.reasoningEffort,
+        )
+    } else {
+        settings.copy(modelId = session?.modelId?.takeIf(String::isNotBlank) ?: settings.modelId)
+    }
 
 /**
  * Existing project chats keep their engine and connection, but may switch between that connection's models:

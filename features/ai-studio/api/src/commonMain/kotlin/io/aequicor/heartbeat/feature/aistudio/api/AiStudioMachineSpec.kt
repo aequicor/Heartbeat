@@ -31,6 +31,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | ClosePane | several panes | Ready (pane removed) | |
  * | Ready | FocusPane | another open pane | Ready | |
  * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
+ * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
@@ -109,6 +110,13 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             }
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { intent.isEnabled })
             on<AiStudioIntent.Public.UpdateSettings> { stay { state.copy(settings = intent.settings) } }
+            on<AiStudioIntent.Public.ChangeSessionSetting>(guard = {
+                state.panes.any { it.sessionId == intent.sessionId } &&
+                    state.configurations[intent.sessionId]?.pendingOperation == null &&
+                    intent.sessionId !in state.stopping
+            }) {
+                effect { AiStudioEffect.ChangeSessionSetting(intent.sessionId, intent.change) }
+            }
             on<AiStudioIntent.Public.Edit>(guard = { intent.edit.isValid() }) {
                 stay { if (intent.edit.isArchiving()) state.leave(intent.sessionId) else state }
                 effect { AiStudioEffect.Apply(intent.sessionId, intent.edit.normalized()) }
@@ -135,6 +143,7 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
 
                 AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
                 is AiStudioEffect.Usage,
+                is AiStudioEffect.ChangeSessionSetting,
                 -> null
             }
         }
@@ -296,6 +305,7 @@ private fun ReadyTransitions.runtimeSnapshots() {
                 permissions = snapshot.permissions.filterNot { it.requestId in answered },
                 answeredPermissions = answered,
                 uncancellable = snapshot.uncancellable,
+                configurations = snapshot.configurations,
                 stopFailures = (state.stopFailures + snapshot.stopFailures).intersect(snapshot.running),
             )
         }

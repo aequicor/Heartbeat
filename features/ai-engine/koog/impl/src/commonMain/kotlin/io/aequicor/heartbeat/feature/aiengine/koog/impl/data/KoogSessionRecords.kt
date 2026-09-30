@@ -25,6 +25,7 @@ internal data class KoogRecord(
     val items: List<SessionItem> = emptyList(),
     val lastTurn: Turn? = null,
     val coverage: HistoryCoverage = HistoryCoverage.Complete,
+    val reasoningEffort: String? = null,
 )
 
 internal interface KoogSessionRecords {

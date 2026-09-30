@@ -45,6 +45,7 @@ internal data class TimelineLabels(
     val yesterday: String = "Yesterday",
     val calendar: StudioCalendar = StudioCalendar(),
     val isGroupedByDate: Boolean = false,
+    val feedback: FeedbackLabels? = null,
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -179,7 +180,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
         role = HbChatRole.Assistant,
         kind = HbMessageKind.Markdown,
         status = if (isStreaming) HbMessageStatus.Streaming else HbMessageStatus.Complete,
-        toolCalls = tools.map { it.toHb() }.toImmutableList(),
+        toolCalls = tools.map { it.toHb(labels) }.toImmutableList(),
         appearance = labels.replyAppearance,
         parts = parts.mapIndexed { index, part ->
             part.toHb(labels, isStreaming = isStreaming && index == parts.lastIndex)
@@ -205,7 +206,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
     )
 }
 
-private fun ToolUi.toHb(): HbToolCall = HbToolCall(
+private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
     id = id,
     title = title,
     status = when (status) {
@@ -215,16 +216,24 @@ private fun ToolUi.toHb(): HbToolCall = HbToolCall(
         ToolStatusUi.Done -> HbToolStatus.Complete
         ToolStatusUi.Failed -> HbToolStatus.Error
     },
+    summary = feedback?.let { labels.feedback?.summary(it) }.orEmpty(),
     blocks = listOfNotNull(
+        feedbackBlock(labels.feedback),
         output.takeIf { it.isNotBlank() }?.let { HbToolBlock.Console("$id-console", it.trimEnd()) },
         diff?.let { HbToolBlock.Diff("$id-diff", it) },
     ).toImmutableList(),
 )
 
+private fun ToolUi.feedbackBlock(labels: FeedbackLabels?): HbToolBlock.Markdown? {
+    val value = feedback ?: return null
+    val copy = labels ?: return null
+    return HbToolBlock.Markdown("$id-feedback", copy.markdown(value))
+}
+
 private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMessagePart = when (this) {
     is ReplyPartUi.Text -> HbMessagePart.Text(id, text)
 
-    is ReplyPartUi.Tool -> HbMessagePart.Tool(tool.toHb())
+    is ReplyPartUi.Tool -> HbMessagePart.Tool(tool.toHb(labels))
 
     is ReplyPartUi.Reasoning -> HbMessagePart.Tool(
         HbToolCall(
