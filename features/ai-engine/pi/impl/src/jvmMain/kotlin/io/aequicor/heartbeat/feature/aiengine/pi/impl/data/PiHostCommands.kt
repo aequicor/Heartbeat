@@ -100,27 +100,30 @@ private fun terminatesHostCmdPayload(words: List<HostWord>, wrappersLeft: Int, c
     val first = words.firstOrNull() ?: return false
     val source = first.source.substring(first.start).trim()
     context.consumeRemainder()
-    return terminatesHostCommand(cmdPayload(source), wrappersLeft)
+    return cmdPayloads(source).any { terminatesHostCommand(it, wrappersLeft) }
 }
 
 /**
  * Keeps executable-path quotes and trailing argument quotes intact. CMD's double outer quotes wrap a command
  * string, so only the first and last quotes are removed; an ordinary quoted script is opened for statement scanning.
- * This preserves CMD's quote boundaries without applying its expansion or general command-language rules.
+ * A quoted segment starting with a path can be either an executable path containing spaces or a whole script.
+ * Without resolving executable files, the heuristic checks both interpretations and asks if either can end the host.
+ * Trailing argument quotes remain intact in both, so a quoted search pattern is still data.
  */
-private fun cmdPayload(source: String): String {
-    if (!source.startsWith('"')) return source
+private fun cmdPayloads(source: String): List<String> {
+    if (!source.startsWith('"')) return listOf(source)
     val closing = source.lastIndexOf('"')
-    if (closing <= 0) return source
+    if (closing <= 0) return listOf(source)
     return if (source.startsWith("\"\"")) {
-        source.substring(1, closing) + source.substring(closing + 1)
+        listOf(source.substring(1, closing) + source.substring(closing + 1))
     } else {
         val firstClosing = source.indexOf('"', 1)
         val first = source.substring(1, firstClosing)
-        if (first.none { it.isWhitespace() } || CmdExecutablePath.containsMatchIn(first)) {
-            source
-        } else {
-            first + source.substring(firstClosing + 1)
+        val opened = first + source.substring(firstClosing + 1)
+        when {
+            first.none { it.isWhitespace() } -> listOf(source)
+            CmdExecutablePath.containsMatchIn(first) -> listOf(source, opened)
+            else -> listOf(opened)
         }
     }
 }

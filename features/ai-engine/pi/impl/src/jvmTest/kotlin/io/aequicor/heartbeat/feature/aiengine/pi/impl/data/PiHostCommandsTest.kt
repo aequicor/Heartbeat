@@ -95,6 +95,32 @@ class PiHostCommandsTest {
     }
 
     @Test
+    fun `cmd recognises whole quoted scripts beginning with an executable path`() {
+        listOf(
+            """cmd /c ".\gradlew.bat --stop"""",
+            """cmd /k "C:\repo\gradlew.bat --stop"""",
+            """cmd /d /s /c "C:\Windows\System32\taskkill.exe /F /IM java.exe"""",
+            """cmd /c ".\gradlew.bat jvmTest && C:\Windows\System32\taskkill.exe /F /IM java.exe"""",
+            """cmd /c "C:\Windows\System32\cmd.exe /c gradlew.bat --stop"""",
+        ).forEach { target ->
+            val call = command(target)
+            assertTrue(terminatesHost(call), target)
+            assertFalse(TrustLevel.Full.answers(call, null), target)
+        }
+    }
+
+    @Test
+    fun `cmd quoted executable paths and path based search scripts keep literal arguments intact`() {
+        listOf(
+            """cmd /c "C:\Repo With Spaces\gradlew.bat" jvmTest""",
+            """cmd /c "C:\Program Files\Git\bin\git.exe" grep "taskkill|Stop-Process"""",
+            """cmd /d /s /c ""C:\Program Files\Git\bin\git.exe" grep "taskkill|Stop-Process""""",
+            """cmd /c "C:\Windows\System32\findstr.exe Stop-Process *.kt"""",
+            """cmd /c "C:\Windows\System32\cmd.exe /c echo sample" "kill; Stop-Process"""",
+        ).forEach { target -> assertFalse(terminatesHost(command(target)), target) }
+    }
+
+    @Test
     fun `commands that only mention a killer or build with gradle are left to trust`() {
         assertFalse(terminatesHost(command("git grep -n \"taskkill|Stop-Process\" -- \"*.kt\"")))
         assertFalse(terminatesHost(command("Select-String -Path build.gradle.kts -Pattern 'kill'")))
