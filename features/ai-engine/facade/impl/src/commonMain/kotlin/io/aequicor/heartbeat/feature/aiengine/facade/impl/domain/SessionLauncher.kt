@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
@@ -162,4 +163,5 @@ class ProfileEngineFacade(
     override val bindings: EngineBindings,
     override val models: ModelCatalog,
     override val sessions: SessionCatalog,
+    override val providerUsage: ProviderUsageCatalog,
 ) : EngineFacade

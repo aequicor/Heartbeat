@@ -41,6 +41,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CompletableDeferred
@@ -79,6 +81,12 @@ internal fun modelInfo(binding: EngineBindingId, id: String) = ModelInfo(EngineT
 
 /** In-memory facade: bindings live in [bindingsState]; failures are injected per operation. */
 internal class FakeEngineFacade : EngineFacade {
+    override val providerUsage = object : ProviderUsageCatalog {
+        private val snapshot = MutableStateFlow(ProviderUsageSnapshot())
+        override fun observe(engine: EngineId, binding: EngineBindingId) = snapshot
+        override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = snapshot.value
+    }
+
     val bindingsState = MutableStateFlow(emptyList<EngineBinding>())
     val catalog = MutableStateFlow(listOf(engineInfo()))
     private val cachedModels = mutableMapOf<EngineBindingId, MutableStateFlow<ModelCatalogSnapshot>>()
