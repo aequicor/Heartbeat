@@ -3,7 +3,10 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -16,6 +19,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -98,6 +102,23 @@ class CodexHistoryReconciliationTest {
         val next = resumed.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next-prompt")))
         assertEquals(next, assertIs<ActiveSessionState.Running>(resumed.state.value).turn.id)
         fixture.runtime.close()
+    }
+
+    @Test
+    fun `reattachment fails when runtime closes during its history audit`() = runTest {
+        val fixture = Fixture(this)
+        val original = fixture.open()
+        val handler = fixture.wire.handler
+        fixture.wire.handler = { message ->
+            if (message.text("method") == "thread/read") fixture.runtime.close() else handler(message)
+        }
+
+        val failure = assertFailsWith<EngineException> {
+            fixture.runtime.attach(original.ref, ResumeSessionRequest(fixture.target))
+        }
+
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), failure.failure)
+        assertEquals(failure.failure, assertIs<ActiveSessionState.Unavailable>(original.state.value).failure)
     }
 
     private suspend fun Fixture.completedSession(): ActiveSession {

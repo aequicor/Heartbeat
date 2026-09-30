@@ -224,6 +224,7 @@ internal class CodexRuntime(
                         fail(EngineFailure.Session(SessionFailureReason.Changed))
                     }
                     existing.refreshHistory()
+                    ensureOpen()
                     existing.lease().also { existing.recheck() }
                 } else {
                     isOpening = true
