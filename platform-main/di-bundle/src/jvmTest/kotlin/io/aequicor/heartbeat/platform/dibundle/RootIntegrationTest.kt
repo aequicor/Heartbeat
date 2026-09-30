@@ -2,10 +2,12 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import com.arkivanov.decompose.DefaultComponentContext
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
+import com.arkivanov.essenty.lifecycle.destroy
 import com.arkivanov.essenty.lifecycle.resume
 import com.arkivanov.essenty.statekeeper.SerializableContainer
 import com.arkivanov.essenty.statekeeper.StateKeeperDispatcher
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -14,12 +16,15 @@ import io.aequicor.heartbeat.platform.dibundle.root.RootChild
 import io.aequicor.heartbeat.platform.dibundle.root.RootStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -33,6 +38,7 @@ import kotlin.test.assertSame
 class RootIntegrationTest {
 
     private val start = RootStart(guest = listOf(WelcomeRoute), profile = listOf(WelcomeRoute))
+    private val processes = mutableListOf<Process>()
 
     /** One app process: its graph and the root created in it; [save] + a new process = process death. */
     private inner class Process(
@@ -42,18 +48,34 @@ class RootIntegrationTest {
     ) {
         val graph: TestAppGraph = createGraphFactory<TestAppGraph.Factory>().create(disk)
         private val stateKeeper = StateKeeperDispatcher(saved)
+        private val lifecycle = LifecycleRegistry().apply { resume() }
+        private var isClosed = false
         val root = HeartbeatRoot(
-            context = DefaultComponentContext(LifecycleRegistry().apply { resume() }, stateKeeper = stateKeeper),
+            context = DefaultComponentContext(lifecycle, stateKeeper = stateKeeper),
             graph = graph,
             start = start,
             localProfile = localProfile,
         )
+
+        init {
+            processes += this
+        }
 
         /** Serialized like the platform does it: only bytes survive process death. */
         fun save(): SerializableContainer = Json.decodeFromString(
             SerializableContainer.serializer(),
             Json.encodeToString(SerializableContainer.serializer(), stateKeeper.save()),
         )
+
+        /** Ends a simulated process before its replacement opens the same app-owned Preferences files. */
+        suspend fun close() {
+            if (!isClosed) {
+                isClosed = true
+                lifecycle.destroy()
+                (graph.appScope as OwnedScope).close()
+            }
+            graph.appScope.coroutineScope.coroutineContext[Job]?.join()
+        }
     }
 
     private val HeartbeatRoot.child get() = slot.value.child?.instance
@@ -69,7 +91,16 @@ class RootIntegrationTest {
 
     private fun runRootTest(body: suspend TestScope.() -> Unit) = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
-        body()
+        try {
+            body()
+        } finally {
+            withContext(NonCancellable) {
+                processes.asReversed().forEach { it.close() }
+                processes.clear()
+                // Root's lifecycle scope is independent of the app job; finish its queued cancellation too.
+                advanceUntilIdle()
+            }
+        }
     }
 
     @AfterTest
@@ -93,6 +124,7 @@ class RootIntegrationTest {
         advanceUntilIdle()
         assertEquals(ProfileId("local"), assertIs<RootChild.Profile>(first.root.child).id)
 
+        first.close()
         val reopened = Process(disk, localProfile = ProfileId("local"))
         advanceUntilIdle()
         assertEquals(ProfileId("local"), assertIs<RootChild.Profile>(reopened.root.child).id)
@@ -186,6 +218,7 @@ class RootIntegrationTest {
         before.root.host?.navigator?.navigate(FeedRoute)
         val saved = before.save()
 
+        before.close()
         val after = Process(disk, saved)
         val restoring = assertIs<RootChild.Profile>(after.root.child, "slot restored before the session")
         assertNull(restoring.host.value)
@@ -202,7 +235,9 @@ class RootIntegrationTest {
         advanceUntilIdle()
         before.root.handleDeepLink("heartbeat://feed")
 
-        val after = Process(disk, before.save())
+        val saved = before.save()
+        before.close()
+        val after = Process(disk, saved)
         advanceUntilIdle()
         after.graph.profileSessions.open(ProfileId("p1"))
         advanceUntilIdle()
