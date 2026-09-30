@@ -39,7 +39,7 @@ internal class CodexLease(private val session: CodexSession) :
     override val route = session.route
     private val mutableState = MutableStateFlow(session.machine.state.value)
     override val state: StateFlow<ActiveSessionState> = mutableState.asStateFlow()
-    override val features: EngineFeatures = CodexFeatures(this, blocked = {
+    override val features: EngineFeatures = CodexFeatures(this, session.contextUsage, blocked = {
         if (closed.value) EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed) else null
     })
     private val closed = MutableStateFlow(false)

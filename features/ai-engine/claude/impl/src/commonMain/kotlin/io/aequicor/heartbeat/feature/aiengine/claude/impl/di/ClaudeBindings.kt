@@ -21,7 +21,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
@@ -54,6 +56,8 @@ public object ClaudeBindings {
                 ),
             ),
             declaredFeatures = setOf(
+                ReportsProviderUsage.id,
+                SessionContextUsage.id,
                 CreatesSessions.id,
                 AttachesSessions.id,
                 SendsPrompts.id,

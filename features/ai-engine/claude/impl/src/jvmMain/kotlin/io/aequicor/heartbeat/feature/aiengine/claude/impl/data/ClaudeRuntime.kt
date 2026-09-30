@@ -13,8 +13,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -25,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
@@ -43,6 +46,16 @@ internal class ClaudeRuntime(
     private val log = Log.tag("ClaudeRuntime")
     private val owner = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + owner)
+    private val providerUsage = ClaudeProviderUsage {
+        if (toggles.get(EngineUsageEnabled)) {
+            if (isClosed) throw EngineException(closeFailure)
+            requireClaudeEnabled(toggles)
+            account.validate(identity.revision)
+            true
+        } else {
+            false
+        }
+    }
     private val environment = ClaudeSessionEnvironment(
         transport,
         account,
@@ -50,6 +63,7 @@ internal class ClaudeRuntime(
         scope,
         closeFailure = { closeFailure },
         onReleased = ::released,
+        onUsage = providerUsage::receive,
     )
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()
@@ -63,9 +77,21 @@ internal class ClaudeRuntime(
 
     @Volatile
     private var closeFailure: EngineFailure = EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)
-    override val features = ClaudeFeatures(CreatesSessions to this, AttachesSessions to this)
+    override val features = ClaudeFeatures(
+        CreatesSessions to this,
+        AttachesSessions to this,
+        ReportsProviderUsage to providerUsage,
+    )
 
     init {
+        scope.launch {
+            toggles.observe(EngineUsageEnabled).collect { enabled ->
+                if (!enabled) {
+                    providerUsage.clear()
+                    sessions.values.forEach { it.contextUsage.clear() }
+                }
+            }
+        }
         owner.invokeOnCompletion { _ ->
             sessions.values.forEach { it.shutdown(closeFailure) }
         }
@@ -118,6 +144,7 @@ internal class ClaudeRuntime(
 
     override suspend fun close() = mutex.withLock {
         log.i { "Closing Claude runtime" }
+        providerUsage.clear()
         owner.cancelAndJoin()
         sessions.clear()
         synchronized(releasedOrder) { releasedOrder.clear() }

@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -131,6 +132,7 @@ internal class Fixture(
         )
     }
     var isSearchEnabled = true
+    var isUsageEnabled = true
     val workspacePaths = mutableMapOf<WorkspaceRef, String>()
     val environment = CodexRuntimeEnvironment(
         configuration,
@@ -138,8 +140,11 @@ internal class Fixture(
             override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flow { emit(get(toggle)) }
 
             @Suppress("UNCHECKED_CAST")
-            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
-                (toggle != SearchEngineTools || isSearchEnabled) as T
+            override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
+                SearchEngineTools -> isSearchEnabled
+                EngineUsageEnabled -> isUsageEnabled
+                else -> true
+            } as T
         },
         dispatchers,
         FakeLauncher(),
