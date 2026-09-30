@@ -102,7 +102,7 @@ class HbSettingsUiTest {
     @Test
     fun `dialog closes with Escape and runs its actions`() = runSkikoComposeUiTest(size = Size(800f, 600f)) {
         var isOpen by mutableStateOf(true)
-        var confirmed = false
+        var isConfirmed = false
         setContent {
             HbTheme {
                 if (isOpen) {
@@ -111,7 +111,7 @@ class HbSettingsUiTest {
                         onDismissRequest = { isOpen = false },
                         actions = {
                             HbButton("Отключить", {
-                                confirmed = true
+                                isConfirmed = true
                                 isOpen = false
                             }, Modifier.testTag("confirm"), style = HbButtonStyle.Danger)
                         },
@@ -124,7 +124,7 @@ class HbSettingsUiTest {
         runOnIdle { isOpen = true }
         onNodeWithTag("confirm").performClick()
         runOnIdle {
-            assertEquals(true, confirmed)
+            assertEquals(true, isConfirmed)
             assertEquals(false, isOpen)
         }
     }

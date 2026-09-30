@@ -13,7 +13,19 @@ private typealias ProjectTransitions = StateBuilder<
 /** Folder selection belongs to the workspace workflow; its native path stays inside the IO effect. */
 internal fun ProjectTransitions.projects() {
     on<AiStudioIntent.Internal.ProjectAvailabilityChanged> {
-        stay { state.copy(isProjectAddingAvailable = intent.isAvailable) }
+        stay {
+            state.copy(
+                isProjectAddingAvailable = intent.isAvailable,
+                isWorktreeAvailable = intent.isWorktreeAvailable,
+                panes = state.panes.map {
+                    if (it.sessionId == null && !it.isCreating && !intent.isWorktreeAvailable) {
+                        it.copy(isWorktree = false)
+                    } else {
+                        it
+                    }
+                },
+            )
+        }
     }
     on<AiStudioIntent.Public.AddProject>(
         guard = {

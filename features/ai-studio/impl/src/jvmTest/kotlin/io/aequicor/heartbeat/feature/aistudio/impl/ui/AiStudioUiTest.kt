@@ -68,11 +68,11 @@ class AiStudioUiTest {
 
     @Test
     fun `rail opens profile settings`() = runSkikoComposeUiTest(size = Size(1280f, 900f)) {
-        var opened = false
-        val actions = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = { opened = true })
+        var isOpened = false
+        val actions = StudioExits(onBack = {}, onOpenToggles = {}, onOpenProfileSettings = { isOpened = true })
         setContent { HbTheme(darkTheme = false) { AiStudioContent(workspace, {}, actions) } }
         onNodeWithTag("rail-profile-settings").performClick()
-        assertTrue(opened)
+        assertTrue(isOpened)
     }
 
     @Test

@@ -133,5 +133,5 @@ class PiEngineIntegrationTest {
         }
     }
 
-    private class ProfileFixture(val app: TestAppGraph, val engines: AiEngineAccessors)
+    private data class ProfileFixture(val app: TestAppGraph, val engines: AiEngineAccessors)
 }

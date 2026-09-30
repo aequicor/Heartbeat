@@ -87,7 +87,7 @@ class KoogFailureTest {
         val failure = koogResult { throw KoogHttpClientException(statusCode = 401) }.exceptionOrNull()
         assertIs<EngineFailure.Authentication>(assertIs<EngineException>(failure).failure)
         val busy = EngineFailure.Session(SessionFailureReason.Busy)
-        assertEquals(busy, (koogResult { fail(busy) }.exceptionOrNull() as EngineException).failure)
+        assertEquals(busy, (checkNotNull(koogResult { fail(busy) }.exceptionOrNull()) as EngineException).failure)
     }
 
     private fun EngineException.transport() = assertIs<EngineFailure.Transport>(failure).reason

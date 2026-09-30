@@ -65,7 +65,7 @@ internal class FakeWire : CodexWire {
     var handler: suspend (JsonObject) -> Unit = { message ->
         if (message["id"] != null && message["method"] != null) reply(message, JsonObject(emptyMap()))
     }
-    var closed = false
+    var isClosed = false
     override val messages = incoming.receiveAsFlow()
     override suspend fun write(message: JsonObject) {
         written += message
@@ -90,7 +90,7 @@ internal class FakeWire : CodexWire {
         )
     }
     override fun close() {
-        closed = true
+        isClosed = true
         incoming.close()
     }
 
@@ -108,6 +108,9 @@ internal class Fixture(
     },
     searchTools: Boolean = true,
     configuration: CodexLocalConfiguration = CodexLocalConfiguration(),
+    tools: io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools =
+        io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools,
+    manifests: CodexToolManifests = MemoryCodexToolManifests(),
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -126,6 +129,7 @@ internal class Fixture(
     var resumedTurns: JsonArray? = JsonArray(emptyList())
     var resumedHistoryMode: String? = null
     var modelList: List<JsonObject> = emptyList()
+    var nativeConfig = json("features" to JsonObject(CodexDisabledCapabilities.associateWith { JsonPrimitive(false) }))
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
             message,
@@ -142,9 +146,13 @@ internal class Fixture(
 
             @Suppress("UNCHECKED_CAST")
             override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
-                SearchEngineTools -> isSearchEnabled
-                EngineUsageEnabled -> isUsageEnabled
-                else -> true
+                is FeatureToggle.Flag -> when (toggle) {
+                    SearchEngineTools -> isSearchEnabled
+                    EngineUsageEnabled -> isUsageEnabled
+                    else -> true
+                }
+
+                is FeatureToggle.Choice -> toggle.default
             } as T
         },
         dispatchers,
@@ -162,6 +170,8 @@ internal class Fixture(
             override suspend fun register(directory: String): LocalWorkspace = error("Not used")
             override suspend fun resolve(ref: WorkspaceRef): String? = workspacePaths[ref]
         },
+        tools,
+        manifests,
     )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),
@@ -176,15 +186,17 @@ internal class Fixture(
 
                 "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
+                "config/read" -> wire.reply(message, json("config" to nativeConfig))
+
                 "thread/start" -> wire.reply(
                     message,
-                    json("thread" to json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
+                    threadResponse(json("id" to "thread".json(), "turns" to JsonArray(emptyList()))),
                 )
 
                 "thread/resume" -> wire.reply(
                     message,
-                    json(
-                        "thread" to JsonObject(
+                    threadResponse(
+                        JsonObject(
                             listOfNotNull(
                                 "id" to "thread".json(),
                                 resumedTurns?.let { "turns" to it },
@@ -207,9 +219,17 @@ internal class Fixture(
             }
         }
     }
-    suspend fun open(): ActiveSession = runtime.create(CreateSessionRequest(target))
+    suspend fun open(workspace: WorkspaceRef? = null): ActiveSession = runtime.create(
+        CreateSessionRequest(target, workspace),
+    )
     suspend fun event(method: String, vararg fields: Pair<String, JsonElement>, id: JsonElement? = null) =
         wire.event(method, json("threadId" to "thread".json(), *fields), id)
+
+    private fun threadResponse(thread: JsonObject): JsonObject = json(
+        "thread" to thread,
+        "approvalPolicy" to "never".json(),
+        "sandbox" to json("type" to "readOnly".json(), "networkAccess" to JsonPrimitive(false)),
+    )
 }
 
 internal class FakeScope(override val coroutineScope: CoroutineScope) : OwnedScope {
@@ -249,7 +269,7 @@ internal class FakeLauncher : MachineLauncher {
                 effects.handle(
                     effect,
                     object : EffectScope<I> {
-                        override suspend fun send(intent: I): SendResult = SendResult.Ignored
+                        override suspend fun send(input: I): SendResult = SendResult.Ignored
                     },
                 )
             }

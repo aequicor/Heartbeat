@@ -4,6 +4,9 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
+import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -13,9 +16,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -34,12 +40,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
@@ -49,6 +59,7 @@ internal class ClaudeSession(
     val route: ExecutionRoute,
     val target: EngineTarget,
     private val environment: ClaudeSessionEnvironment,
+    restored: ClaudeRecord? = null,
 ) {
     private val transport get() = environment.transport
     private val account get() = environment.account
@@ -57,16 +68,38 @@ internal class ClaudeSession(
     private val log = Log.tag("ClaudeSession")
     private val commands = Mutex()
     private val lock = Any()
-    private val history = ClaudeHistory()
+    private val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
+    private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
-    private var current: ActiveSessionState = ActiveSessionState.Ready()
+    private var current: ActiveSessionState = ActiveSessionState.Ready(
+        restored?.activeTurn?.let {
+            val outcome = it.outcome ?: if (it.id == restored.undelivered) {
+                TurnOutcome.Failed(LAUNCH_FAILURE)
+            } else {
+                TurnOutcome.Unknown
+            }
+            if (it.outcome == null) {
+                history.publish { checkpoint ->
+                    SessionEvent.TurnFinished(checkpoint, it.id, outcome)
+                }
+            }
+            it.copy(outcome = outcome)
+        } ?: restored?.lastTurn,
+    )
+    private var launch = restored?.launch ?: ClaudeLaunch.Prepared
+
+    @Volatile
+    private var permissions: ClaudePermissions? = null
+
+    @Volatile
+    private var cancelledTurn: TurnId? = null
 
     @Volatile
     private var operation: Job? = null
 
     @Volatile
-    private var hasNativeSession = false
+    private var hasNativeSession = restored?.launch == ClaudeLaunch.Confirmed
 
     /** Set once the runtime dropped this released session; no new lease may be opened on it. */
     private var isEvicted = false
@@ -120,6 +153,8 @@ internal class ClaudeSession(
         val unfinished = when (val state = current) {
             is ActiveSessionState.Submitting -> state.turn
             is ActiveSessionState.Running -> state.turn
+            is ActiveSessionState.AwaitingUserAction -> state.turn
+            is ActiveSessionState.Interrupting -> state.turn
             is ActiveSessionState.Unavailable -> state.activeTurn
             else -> null
         }
@@ -177,31 +212,34 @@ internal class ClaudeSession(
     }
 
     private suspend fun execute(submission: Submission, accepted: CompletableDeferred<TurnId>) {
-        val request = submission.request
-        val observer = ClaudeTurnObserver(ref, submission.turn, request, history, accepted, ::update)
+        val observer = ClaudeTurnObserver(ref, submission.turn, submission.request, history, accepted, ::update)
+        val hosted = hostedTurn(submission, observer)
+        permissions = hosted.permissions
+        val previousLaunch = launch
+        var isTransportInvoked = false
         try {
-            log.i { "Submitting Claude prompt effort=${request.reasoningEffort ?: "default"}" }
+            log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
+            val tools = hosted.prepare()
+            val isResume = launch != ClaudeLaunch.Prepared
+            launch = ClaudeLaunch.Attempted
+            persist()
+            isTransportInvoked = true
             val exit = transport.run(
                 claudeArguments(
                     target.model,
                     ref.nativeId,
-                    hasNativeSession,
+                    isResume,
                     search = toggles.get(SearchEngineTools),
-                    effort = request.reasoningEffort,
+                    effort = submission.request.reasoningEffort,
                 ),
                 submission.text,
                 route.workspace,
+                hosted = tools,
             ) {
-                val message = parseClaudeObject(it)
-                observer.receive(message)
-                if (toggles.get(EngineUsageEnabled)) {
-                    contextUsage.receive(message)
-                    environment.onUsage(message)
-                }
+                receive(observer, it)
                 false
             }
             log.i { "Claude prompt process ended exit=$exit" }
-            hasNativeSession = hasNativeSession || observer.hasMatchingSession
             if (observer.isFinished) {
                 finishObserved(observer, isConfirmed = exit == 0)
             } else {
@@ -211,23 +249,101 @@ internal class ClaudeSession(
             throw e
         } catch (e: Exception) {
             log.w(e.redacted()) { "Claude turn observation failed" }
-            hasNativeSession = hasNativeSession || observer.hasMatchingSession
-            val failure = (e as? EngineException)?.failure ?: EngineFailure.Engine(EngineFailureReason.Crashed)
-            if (observer.isFinished) {
-                finishObserved(observer, isConfirmed = false)
+            val failure = if (!isTransportInvoked) {
+                LAUNCH_FAILURE
             } else {
-                settle(submission, observer, accepted, failure)
+                (e as? EngineException)?.failure ?: EngineFailure.Engine(EngineFailureReason.Crashed)
             }
+            executionFailed(submission, observer, accepted, previousLaunch, failure)
         } finally {
-            if (!observer.isFinished && !scope.isActive) {
-                update(
-                    ActiveSessionState.Unavailable(
-                        environment.closeFailure(),
-                        activeTurn = observer.turn,
-                        lastTurn = submission.previous,
-                    ),
-                )
+            hosted.close()
+            permissions = null
+            executionEnded(submission, observer, accepted)
+            if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
+            hasNativeSession = hasNativeSession || observer.hasMatchingSession
+            withContext(NonCancellable) { persist() }
+        }
+    }
+
+    private suspend fun hostedTurn(submission: Submission, observer: ClaudeTurnObserver): ClaudeHostedTurn =
+        ClaudeHostedTurn(
+            ClaudeTurnContext(ref, route.workspace, submission.request),
+            observer,
+            history,
+            environment,
+            currentCoroutineContext()[Job],
+            ClaudeTurnCallbacks(
+                { isToolTurnActive(submission.turn.id) },
+                ::update,
+                ::persist,
+                { synchronized(lock) { leases.isNotEmpty() } },
+            ),
+        )
+
+    private fun isToolTurnActive(id: TurnId): Boolean {
+        if (!scope.isActive || cancelledTurn == id) return false
+        return synchronized(lock) {
+            when (val state = current) {
+                is ActiveSessionState.Submitting -> state.turn.id == id
+
+                is ActiveSessionState.Running -> state.turn.id == id
+
+                is ActiveSessionState.AwaitingUserAction -> state.turn.id == id
+
+                is ActiveSessionState.Ready, is ActiveSessionState.Unavailable,
+                is ActiveSessionState.Closed, is ActiveSessionState.Closing,
+                is ActiveSessionState.Interrupting,
+                -> false
             }
+        }
+    }
+
+    private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
+        val message = parseClaudeObject(line)
+        observer.receive(message)
+        if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
+        if (toggles.get(EngineUsageEnabled)) {
+            contextUsage.receive(message)
+            environment.onUsage(message)
+        }
+        persist()
+    }
+
+    private fun executionFailed(
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        accepted: CompletableDeferred<TurnId>,
+        previousLaunch: ClaudeLaunch,
+        failure: EngineFailure,
+    ) {
+        if (failure == LAUNCH_FAILURE && !observer.hasSession) launch = previousLaunch
+        if (observer.isFinished) {
+            finishObserved(observer, isConfirmed = false)
+        } else {
+            settle(submission, observer, accepted, failure)
+        }
+    }
+
+    /** A stopped process is certain after transport cleanup; profile shutdown keeps its outcome unknown. */
+    private fun executionEnded(
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        accepted: CompletableDeferred<TurnId>,
+    ) {
+        if (cancelledTurn == submission.turn.id && scope.isActive) {
+            val turn = observer.turn.copy(outcome = TurnOutcome.Cancelled)
+            history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Cancelled) }
+            update(ActiveSessionState.Ready(turn))
+            val failure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, submission.request.id)
+            accepted.completeExceptionally(EngineException(failure))
+        } else if (!observer.isFinished && !scope.isActive) {
+            update(
+                ActiveSessionState.Unavailable(
+                    environment.closeFailure(),
+                    activeTurn = observer.turn,
+                    lastTurn = submission.previous,
+                ),
+            )
         }
     }
 
@@ -281,6 +397,63 @@ internal class ClaudeSession(
             ensureOpen()
             reconcileState()
         }
+        persist()
+    }
+
+    /** Storage writes are serialized so an older frame never overwrites a newer checkpoint. */
+    suspend fun persist() = storage.withLock {
+        val record = synchronized(lock) {
+            val state = current
+            val active = when (state) {
+                is ActiveSessionState.Submitting -> state.turn
+                is ActiveSessionState.Running -> state.turn
+                is ActiveSessionState.AwaitingUserAction -> state.turn
+                is ActiveSessionState.Interrupting -> state.turn
+                is ActiveSessionState.Unavailable -> state.activeTurn
+                is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+            }
+            val last = when (state) {
+                is ActiveSessionState.Ready -> state.lastTurn
+
+                is ActiveSessionState.Unavailable -> state.lastTurn
+
+                is ActiveSessionState.Submitting, is ActiveSessionState.Running,
+                is ActiveSessionState.AwaitingUserAction, is ActiveSessionState.Interrupting,
+                is ActiveSessionState.Closing, ActiveSessionState.Closed,
+                -> null
+            }
+            ClaudeRecord(
+                ref,
+                route,
+                target,
+                launch,
+                last,
+                active,
+                history.snapshot(),
+                transport.nativeStore,
+                undelivered,
+            )
+        }
+        environment.catalog.save(record)
+    }
+
+    private suspend fun cancel(turn: TurnId, lease: Lease) = commands.withLock {
+        lease.ensureAttached()
+        ensureOpen()
+        val pending = synchronized(lock) {
+            val active = when (val state = current) {
+                is ActiveSessionState.Running -> state.turn
+                is ActiveSessionState.AwaitingUserAction -> state.turn
+                is ActiveSessionState.Interrupting -> state.turn
+                else -> null
+            }
+            if (active?.id != turn) return@withLock
+            cancelledTurn = turn
+            update(ActiveSessionState.Interrupting(active))
+            operation
+        }
+        log.i { "Stopping the current Claude native process" }
+        pending?.cancelAndJoin()
     }
 
     private fun reconcileState() {
@@ -327,7 +500,12 @@ internal class ClaudeSession(
         pending.join()
     }
 
-    private fun update(state: ActiveSessionState) = synchronized(lock) {
+    private fun update(state: ActiveSessionState): Unit = synchronized(lock) {
+        if (current is ActiveSessionState.Interrupting &&
+            (state is ActiveSessionState.Running || state is ActiveSessionState.AwaitingUserAction)
+        ) {
+            return
+        }
         log.d { "Claude execution state=${state::class.simpleName.orEmpty()}" }
         current = state
         leases.forEach { it.update(state) }
@@ -342,7 +520,10 @@ internal class ClaudeSession(
     private inner class Lease(initial: ActiveSessionState) :
         ActiveSession,
         SendsPrompts,
-        ReconcilesSession {
+        ReconcilesSession,
+        CancelsTurns,
+        RequestsPermissions,
+        AppliesTrustLevels {
         private val mutableState = MutableStateFlow(initial)
 
         @Volatile
@@ -355,7 +536,20 @@ internal class ClaudeSession(
             SessionHistory to history,
             ReconcilesSession to this,
             SessionContextUsage to contextUsage,
+            CancelsTurns to this,
+            RequestsPermissions to this,
+            AppliesTrustLevels to this,
         )
+
+        override suspend fun cancel(turn: TurnId) {
+            this@ClaudeSession.cancel(turn, this)
+        }
+
+        override suspend fun respond(decision: PermissionDecision) {
+            ensureAttached()
+            ensureOpen()
+            permissions?.respond(decision)
+        }
         override suspend fun send(request: PromptRequest): TurnId {
             log.i { "Sending Claude prompt" }
             return try {
@@ -377,6 +571,7 @@ internal class ClaudeSession(
         }
 
         override suspend fun close() {
+            persist()
             val isLast = synchronized(lock) {
                 log.i { "Detaching Claude session handle" }
                 isDetached = true
@@ -385,7 +580,10 @@ internal class ClaudeSession(
                 leases.isEmpty()
             }
             // Outside the session lock: the runtime may lock other sessions while pruning.
-            if (isLast) environment.onReleased(this@ClaudeSession)
+            if (isLast) {
+                permissions?.dismiss()
+                environment.onReleased(this@ClaudeSession)
+            }
         }
 
         fun ensureAttached() = synchronized(lock) {
@@ -427,6 +625,9 @@ internal data class ClaudeSessionEnvironment(
     val toggles: FeatureToggles,
     val scope: CoroutineScope,
     val closeFailure: () -> EngineFailure,
+    val catalog: ClaudeCatalog,
+    val tools: ProfileAgentTools,
+    val bridge: AgentToolBridge,
     /** Called outside session locks when a session may have become released (last handle closed or turn ended). */
     val onReleased: (ClaudeSession) -> Unit = {},
     /** Native account-level quota events are shared across sessions of this runtime. */

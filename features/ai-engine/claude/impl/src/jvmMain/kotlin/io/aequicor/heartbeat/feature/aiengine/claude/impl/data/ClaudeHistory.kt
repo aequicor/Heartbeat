@@ -27,18 +27,22 @@ import java.util.UUID
  * Items and replay events are bounded both by count and by total text weight ([MAX_ITEM_CHARS], [MAX_EVENT_CHARS]);
  * the newest entry is always kept, even when it alone exceeds the budget.
  */
-internal class ClaudeHistory : SessionHistory {
+internal class ClaudeHistory(snapshot: ClaudeHistorySnapshot = ClaudeHistorySnapshot()) : SessionHistory {
     private val log = Log.tag("ClaudeHistory")
     private val lock = Any()
-    private val generation = UUID.randomUUID().toString()
-    private val updates = MutableStateFlow(0L)
-    private var sequence = 0L
-    private var position = 0L
-    private val items = ArrayDeque<SessionItem>()
-    private val events = ArrayDeque<Pair<Long, SessionEvent>>()
-    private var itemChars = 0L
-    private var eventChars = 0L
+    private val generation = snapshot.generation
+    private val updates = MutableStateFlow(snapshot.sequence)
+    private var sequence = snapshot.sequence
+    private var position = snapshot.position
+    private val items = ArrayDeque(snapshot.items)
+    private val events = ArrayDeque(snapshot.events)
+    private var itemChars = snapshot.items.sumOf { it.weight() }
+    private var eventChars = snapshot.events.sumOf { it.second.weight() }
     private var isClosed = false
+
+    fun snapshot(): ClaudeHistorySnapshot = synchronized(lock) {
+        ClaudeHistorySnapshot(generation, sequence, position, items.toList(), events.toList())
+    }
 
     fun item(turn: TurnId, create: (ItemInfo) -> SessionItem) = synchronized(lock) {
         val item = create(ItemInfo(ItemId(UUID.randomUUID().toString()), position++, 0, turn))

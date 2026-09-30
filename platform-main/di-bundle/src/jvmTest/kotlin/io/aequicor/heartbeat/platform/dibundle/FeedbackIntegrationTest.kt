@@ -115,7 +115,7 @@ class FeedbackIntegrationTest {
 
     private suspend fun ready(): FeedbackState.Ready {
         val machine = requireNotNull(app.machines.find(FeedbackMachineKey))
-        return bounded("profile ${app.profileSessions.active.value?.id?.value} feedback load") {
+        return bounded("profile ${app.profileSessions.active.value?.id?.value.orEmpty()} feedback load") {
             machine.state.first { it is FeedbackState.Ready } as FeedbackState.Ready
         }
     }
@@ -130,13 +130,14 @@ class FeedbackIntegrationTest {
         }
     }
 
-    private suspend fun <T> bounded(checkpoint: String, action: suspend () -> T): T = withContext(Dispatchers.Default) {
-        try {
-            withTimeout(10_000L) { action() }
-        } catch (e: TimeoutCancellationException) {
-            throw AssertionError("Timed out at $checkpoint", e)
+    private suspend fun <T> bounded(checkpoint: String, action: suspend () -> T): T =
+        withContext(app.dispatchers.default) {
+            try {
+                withTimeout(10_000L) { action() }
+            } catch (e: TimeoutCancellationException) {
+                throw AssertionError("Timed out at $checkpoint", e)
+            }
         }
-    }
 
     private fun record(id: String, source: String): FeedbackRecord = FeedbackRecord(
         id,

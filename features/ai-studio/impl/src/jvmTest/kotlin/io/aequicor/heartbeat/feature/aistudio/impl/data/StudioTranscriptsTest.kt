@@ -27,14 +27,14 @@ class StudioTranscriptsTest {
     /** Items a previous version kept inside the chat record, and how often they were dropped from it. */
     private var carried = emptyList<SessionItem>()
     private var contractions = 0
-    private var failContraction = false
+    private var isContractionFailing = false
 
     private fun transcripts() = StudioTranscripts(
         dao,
         legacy = { carried },
         contracted = {
-            if (failContraction) {
-                failContraction = false
+            if (isContractionFailing) {
+                isContractionFailing = false
                 error("Legacy contraction interrupted")
             }
             carried = emptyList()
@@ -142,7 +142,7 @@ class StudioTranscriptsTest {
     fun `an interrupted contraction retries without replacing newer database items`() = runTest {
         carried = listOf(message("answer", 0, "legacy"))
         val store = transcripts()
-        failContraction = true
+        isContractionFailing = true
 
         assertFailsWith<IllegalStateException> { store.read("chat") }
         val newer = listOf(message("answer", 0, "newer", revision = 1))
@@ -157,7 +157,7 @@ class StudioTranscriptsTest {
     fun `a failed contraction retries in the same instance before a cleared transcript is reopened`() = runTest {
         carried = listOf(message("answer", 0, "legacy"))
         val store = transcripts()
-        failContraction = true
+        isContractionFailing = true
 
         assertFailsWith<IllegalStateException> { store.read("chat") }
         assertEquals(carried, store.read("chat"))

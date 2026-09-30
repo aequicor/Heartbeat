@@ -48,7 +48,7 @@ class CodexRpcTest {
         val rpc = CodexRpc(wire, backgroundScope)
         val error = assertFailsWith<EngineException> { rpc.request("unanswered") }
         assertEquals(EngineFailure.Transport(TransportFailureReason.Timeout), error.failure)
-        assertFalse(wire.closed)
+        assertFalse(wire.isClosed)
         rpc.close()
     }
 }

@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute as ProductionWelco
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsIntegrationTest {
     private val processes = mutableListOf<Process>()
+    private val clock = RealTestClock()
 
     private inner class Process {
         val graph = createGraphFactory<TestAppGraph.Factory>().create(PersistedProfile())
@@ -69,6 +70,7 @@ class SettingsIntegrationTest {
     fun cleanup() {
         processes.forEach { (it.graph.appScope as OwnedScope).close() }
         Dispatchers.resetMain()
+        clock.close()
     }
 
     @Test
@@ -119,7 +121,7 @@ class SettingsIntegrationTest {
         repeat(REDIRECT_ATTEMPTS) {
             advanceUntilIdle()
             if (process.host.routes.last() is SettingsRoute) return@repeat
-            withContext(Dispatchers.Default) { delay(REDIRECT_POLL_MILLIS) }
+            withContext(clock.dispatcher) { delay(REDIRECT_POLL_MILLIS) }
         }
         assertEquals(
             listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)),

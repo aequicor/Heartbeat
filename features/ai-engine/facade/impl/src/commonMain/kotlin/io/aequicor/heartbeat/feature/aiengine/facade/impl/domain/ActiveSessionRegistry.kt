@@ -10,6 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.NonCancellable
@@ -107,7 +110,13 @@ class SessionPolicy(
     private val enabled: EnabledEngines,
     val registry: ActiveSessionRegistry,
     private val context: FacadeContext,
+    private val tools: ProfileAgentTools = NoAgentTools,
 ) {
+    /** Registers the canonical identity before the native adapter can call hosted tools. */
+    suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId) {
+        tools.bindTurn(session, request, turn)
+    }
+
     /** Rechecks toggles, binding, ownership and source revision before a turn or model change. */
     suspend fun beforeTurn(route: ExecutionRoute, model: ModelId) {
         routes.recheck(route, model)

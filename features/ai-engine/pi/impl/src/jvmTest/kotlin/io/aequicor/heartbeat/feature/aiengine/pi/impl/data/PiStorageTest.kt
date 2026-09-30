@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.StorageRoot
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -73,7 +73,8 @@ private class StorageRootOf(private val dir: Path) : StorageRoot {
 }
 
 private object TestDispatchers : DispatcherProvider {
-    override val main = Dispatchers.Unconfined
-    override val default = Dispatchers.Unconfined
-    override val io = Dispatchers.Unconfined
+    private val dispatcher = UnconfinedTestDispatcher()
+    override val main = dispatcher
+    override val default = dispatcher
+    override val io = dispatcher
 }

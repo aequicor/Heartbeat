@@ -106,7 +106,7 @@ internal fun toolFailureResult(reason: String): JsonObject = toolFailure(reason)
 private const val DEFAULT_COUNT = 5
 private const val MAX_COUNT = 20
 
-private fun toolResult(success: Boolean, text: String): JsonObject = buildJsonObject {
+internal fun toolResult(success: Boolean, text: String): JsonObject = buildJsonObject {
     put("success", success)
     put(
         "contentItems",

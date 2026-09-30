@@ -20,10 +20,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ToggleStudioEntriesTest {
-    private val isEnabled = MutableStateFlow(true)
+    private val enabled = MutableStateFlow(true)
     private val sessions = FakeSessions()
-    private val isSearchEnabled = MutableStateFlow(false)
-    private val entries = ToggleStudioEntries(FakeToggles(isEnabled, isSearchEnabled), sessions, Unused)
+    private val searchEnabled = MutableStateFlow(false)
+    private val entries = ToggleStudioEntries(FakeToggles(enabled, searchEnabled), sessions, Unused)
 
     @Test
     fun `research entry observes all prerequisites and disappears on disable`() = runTest {
@@ -31,7 +31,7 @@ class ToggleStudioEntriesTest {
         val runtime = MutableStateFlow(true)
         val koog = MutableStateFlow(true)
         val gated = ToggleStudioEntries(
-            FakeToggles(isEnabled, isSearchEnabled, research, runtime, koog),
+            FakeToggles(enabled, searchEnabled, research, runtime, koog),
             sessions,
             Unused,
         )
@@ -53,7 +53,7 @@ class ToggleStudioEntriesTest {
         assertEquals(false, entries.showsConnections.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
         assertEquals(true, entries.showsConnections.first())
-        isEnabled.value = false
+        enabled.value = false
         assertEquals(false, entries.showsConnections.first())
     }
 
@@ -61,7 +61,7 @@ class ToggleStudioEntriesTest {
     fun `profile settings are offered only with search tools on and a profile active`() = runTest {
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
         assertEquals(false, entries.showsProfileSettings.first())
-        isSearchEnabled.value = true
+        searchEnabled.value = true
         assertEquals(true, entries.showsProfileSettings.first())
         sessions.active.value = null
         assertEquals(false, entries.showsProfileSettings.first())
@@ -82,7 +82,7 @@ private class FakeToggles(
             ResearchChatEnabled -> research
             StudioEngineRuntime -> runtime
             KoogEngineEnabled -> koog
-            else -> flowOf(toggle.default)
+            is FeatureToggle.Flag, is FeatureToggle.Choice -> flowOf(toggle.default)
         }
         // All toggles read here are Boolean flags checked above.
         @Suppress("UNCHECKED_CAST")

@@ -27,7 +27,7 @@ import kotlin.test.assertNull
 class PiSessionConfigurationTest {
     @Test
     fun `rejected submit restores trust before the next configuration publication`() = runTest {
-        val fixture = fixture(acceptIntent = { it !is ActiveSessionIntent.Public.Submit })
+        val fixture = fixture(this, acceptIntent = { it !is ActiveSessionIntent.Public.Submit })
         fixture.session.apply("trust", SessionConfigurationChange.Trust(TrustLevel.Full))
 
         val failure = assertFailsWith<EngineException> {
@@ -43,7 +43,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `live trust changes later tool calls and leaves outstanding permissions untouched`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("already-pending"))
         val pending = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests
@@ -67,7 +67,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `live model and effort are confirmed by Pi while the original turn keeps running`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.modelAck.complete(JsonObject(emptyMap()))
         val changed = fixture.session.apply("model", SessionConfigurationChange.Model(ModelId("anthropic/other")))
@@ -88,7 +88,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `a rejected live model keeps the actual configuration and running turn`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         val previous = fixture.session.configuration.value
         val failure = assertFailsWith<EngineException> {
@@ -107,7 +107,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `live model refreshes usage capacity while effort preserves the latest measurement`() = runTest {
-        val fixture = fixture(usageEnabled = true)
+        val fixture = fixture(this, isUsageEnabled = true)
         fixture.runningTurn()
         val usage = assertIs<FeatureAccess.Available<SessionContextUsage>>(
             fixture.session.features.resolve(SessionContextUsage),
@@ -130,7 +130,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `a lost model confirmation preserves the last known selection until explicit synchronization`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         val previous = fixture.session.configuration.value
         val transport = EngineFailure.Transport(TransportFailureReason.Timeout)
@@ -164,7 +164,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `live effort reports the level Pi clamps and a null change restores the native default`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.thinkingClamp = "low"
         val clamped = fixture.session.apply("clamp", SessionConfigurationChange.Effort("xhigh"))
@@ -177,7 +177,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `toggle-only model reports on after resetting its native effort`() = runTest {
-        val fixture = fixture { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
+        val fixture = fixture(this) { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
         assertEquals("on", fixture.session.configuration.value.reasoningEffort)
         fixture.runningTurn()
         val disabled = fixture.session.apply("off", SessionConfigurationChange.Effort("off"))
@@ -190,7 +190,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `model switch uses the confirmed model effort vocabulary`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.modelMetadata = toggleOnlyModelMetadata
         fixture.connection.modelAck.complete(JsonObject(emptyMap()))
@@ -212,7 +212,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `reconciliation preserves on for a toggle-only model without a new effort request`() = runTest {
-        val fixture = fixture { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
+        val fixture = fixture(this) { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
         val turn = fixture.runningTurn()
         fixture.session.apply("on", SessionConfigurationChange.Effort("on"))
         fixture.connection.failed(EngineFailure.Transport(TransportFailureReason.Timeout))
@@ -228,7 +228,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `invalid and refused live effort leave the native configuration unchanged`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         val previous = fixture.session.configuration.value
         val commands = fixture.connection.commands.toList()
@@ -247,7 +247,7 @@ class PiSessionConfigurationTest {
 
     @Test
     fun `prompt overrides publish confirmed effort and trust without resetting them on completion`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.session.send(prompt("configured").copy(reasoningEffort = "high", trust = TrustLevel.AutoEdits))
         val configured = fixture.session.configuration.value

@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 
 /**
- * No ambient settings, helpers, MCP or tool permissions are inherited by this text-only adapter.
+ * No ambient settings, helpers, MCP or tool permissions are inherited by the adapter.
  * `--strict-mcp-config` without `--mcp-config` admits no servers; inline JSON is avoided because Windows
  * process creation does not preserve embedded quotes.
  */

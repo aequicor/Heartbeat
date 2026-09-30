@@ -25,7 +25,7 @@ class ClaudeAccountTest {
     @Test
     fun `logged out account is not treated as successful authentication`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
-        fixture.transport.loggedIn = false
+        fixture.transport.isLoggedIn = false
         assertEquals(AuthVerdict.NeedsLogin, fixture.account.inspect().check.verdict)
     }
 

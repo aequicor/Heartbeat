@@ -73,15 +73,15 @@ class PiNativeWebTest {
     }
 
     @Test fun `private addresses are refused before any request`() = runTest {
-        var requested = false
+        var isRequested = false
         val web = PiNativeWeb(
             client {
-                requested = true
+                isRequested = true
                 respond("", HttpStatusCode.OK)
             },
         )
         assertEquals(SearchFailure.InvalidInput, failure { web.fetch("http://192.168.1.1/router") })
-        assertFalse(requested)
+        assertFalse(isRequested)
     }
 
     @Test fun `error statuses and unreadable bodies fail explicitly`() = runTest {

@@ -26,7 +26,7 @@ import kotlin.test.assertTrue
 class PiRuntimeTest {
     @Test
     fun `foreign engine store and requested engine are not resumable before native IO`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val foreign = EngineId("foreign")
         listOf(
             RuntimeRef.copy(engine = foreign) to RuntimeRequest,
@@ -43,7 +43,7 @@ class PiRuntimeTest {
 
     @Test
     fun `missing transcript releases reservation so a later attach can succeed`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         fixture.processes.transcript = { null }
         val error = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
         assertEquals(EngineFailure.Session(SessionFailureReason.NotFound), error.failure)
@@ -58,7 +58,7 @@ class PiRuntimeTest {
 
     @Test
     fun `concurrent attachment reserves the transcript before lookup and startup`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val lookup = CompletableDeferred<String?>()
         fixture.processes.transcript = { lookup.await() }
         val first = async { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
@@ -76,7 +76,7 @@ class PiRuntimeTest {
 
     @Test
     fun `reservation remains held while process startup is suspended`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val startup = CompletableDeferred<Unit>()
         fixture.processes.beforeStart = { startup.await() }
         val first = async { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
@@ -92,7 +92,7 @@ class PiRuntimeTest {
 
     @Test
     fun `detached session keeps its transcript busy until the accepted turn settles`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val first = assertIs<PiSession>(fixture.runtime.attach(RuntimeRef, RuntimeRequest))
         val connection = fixture.processes.connections.single()
         connection.promptAck.complete(JsonObject(emptyMap()))
@@ -101,10 +101,10 @@ class PiRuntimeTest {
         val second = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
         assertEquals(EngineFailure.Session(SessionFailureReason.Busy), second.failure)
         assertEquals(1, fixture.processes.connections.size)
-        assertFalse(connection.closed)
+        assertFalse(connection.isClosed)
 
         connection.event(record("""{"type":"agent_settled"}"""))
-        assertTrue(connection.closed)
+        assertTrue(connection.isClosed)
         assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
         assertEquals(2, fixture.processes.connections.size)
         fixture.runtime.close()
@@ -112,12 +112,12 @@ class PiRuntimeTest {
 
     @Test
     fun `failed switch closes the process and releases the reservation`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val failure = EngineFailure.Session(SessionFailureReason.Changed)
         fixture.processes.configure = { it.switchFailure = EngineException(failure) }
         val error = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
         assertEquals(failure, error.failure)
-        assertTrue(fixture.processes.connections.single().closed)
+        assertTrue(fixture.processes.connections.single().isClosed)
 
         fixture.processes.configure = {}
         assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
@@ -126,7 +126,7 @@ class PiRuntimeTest {
 
     @Test
     fun `cancelled transcript lookup releases reservation for another caller`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val lookup = CompletableDeferred<String?>()
         fixture.processes.transcript = { lookup.await() }
         val cancelled = async { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
@@ -141,7 +141,7 @@ class PiRuntimeTest {
 
     @Test
     fun `cancelled startup closes the late process and releases its reservation`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val startup = CompletableDeferred<Unit>()
         fixture.processes.beforeStart = { startup.await() }
         val cancelled = async { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
@@ -149,7 +149,7 @@ class PiRuntimeTest {
         cancelled.cancel()
         startup.complete(Unit)
         cancelled.join()
-        assertTrue(fixture.processes.connections.single().closed)
+        assertTrue(fixture.processes.connections.single().isClosed)
 
         fixture.processes.beforeStart = {}
         assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
@@ -159,7 +159,7 @@ class PiRuntimeTest {
 
     @Test
     fun `close during startup rejects attachment and shuts down the late process`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val startup = CompletableDeferred<Unit>()
         fixture.processes.beforeStart = { startup.await() }
         val pending = async {
@@ -169,12 +169,12 @@ class PiRuntimeTest {
         fixture.runtime.close()
         startup.complete(Unit)
         assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), pending.await().failure)
-        assertTrue(fixture.processes.connections.single().closed)
+        assertTrue(fixture.processes.connections.single().isClosed)
     }
 
     @Test
     fun `another explicit binding of the same source is used without a fallback`() = runTest {
-        val fixture = runtimeFixture()
+        val fixture = runtimeFixture(this)
         val binding = EngineBindingId("other")
         fixture.settings.bind(binding, RuntimeSource)
         val session = fixture.runtime.attach(
@@ -187,8 +187,8 @@ class PiRuntimeTest {
     }
 
     @Test
-    fun `foreign binding changed credentials and closed runtime are rejected before transcript IO`() = runTest {
-        val fixture = runtimeFixture()
+    fun `foreign binding changed credentials and isClosed runtime are rejected before transcript IO`() = runTest {
+        val fixture = runtimeFixture(this)
         val binding = EngineBindingId("foreign")
         fixture.settings.bind(binding, RuntimeSource.copy(info = RuntimeSource.info.copy(id = AuthSourceId("other"))))
         val foreign = assertFailsWith<EngineException> {
@@ -205,8 +205,8 @@ class PiRuntimeTest {
             assertIs<EngineFailure.Authentication>(changed.failure).reason.reason,
         )
         fixture.runtime.close()
-        val closed = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
-        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), closed.failure)
+        val closedError = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), closedError.failure)
         assertEquals(0, fixture.processes.transcriptReads)
         assertEquals(emptyList(), fixture.processes.connections)
     }

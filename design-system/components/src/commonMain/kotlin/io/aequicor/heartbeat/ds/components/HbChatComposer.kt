@@ -58,6 +58,7 @@ public enum class HbComposerLayout { Stacked, Inline, Panel }
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
  * independently of the send action. Menus in either slot open above the complete editor.
+ * [contextContent] is an optional scrollable context row above the editor; [inputModifier] targets its input.
  * [layout] keeps the conventional stacked editor by default; [HbComposerLayout.Inline] pairs the
  * editor with its primary action in one rounded flat surface and places secondary controls below.
  * [HbComposerLayout.Panel] keeps the editor above one integrated toolbar at every window width.
@@ -79,6 +80,8 @@ public fun HbChatComposer(
     accessibleLabel: String = placeholder,
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
+    contextContent: (@Composable RowScope.() -> Unit)? = null,
+    inputModifier: Modifier = Modifier,
 ) {
     val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
     val isSendEnabled = enabled && !isStreaming && value.isNotBlank()
@@ -101,37 +104,47 @@ public fun HbChatComposer(
                     anchor.value = IntRect(bounds.topLeft.round(), bounds.bottomRight.round())
                 },
         ) {
-            ComposerLayout(
-                layout = layout,
-                isFocused = isFocused,
-                leadingContent = leadingContent,
-                trailingContent = trailingContent,
-                action = {
-                    ComposerPrimaryAction(
-                        layout = layout,
-                        isStreaming = isStreaming,
-                        label = actionLabel,
-                        onClick = { submitComposerAction(isStreaming, onSend, onStop) },
-                        enabled = isActionEnabled,
+            HbColumn(gap = HbTheme.spacing.none) {
+                if (contextContent != null) {
+                    HbRow(
+                        Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState())
+                            .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xs),
+                        gap = HbTheme.spacing.s,
+                        content = contextContent,
                     )
-                },
-                editor = { editorModifier ->
-                    ComposerEditor(
-                        value = value,
-                        onValueChange = onValueChange,
-                        interactionSource = interactionSource,
-                        modifier = editorModifier
-                            .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight)
-                            .onPreviewKeyEvent { event ->
-                                handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
-                                    handleFocusTraversal(event, focusManager)
-                            },
-                        placeholder = placeholder,
-                        enabled = enabled,
-                        accessibleLabel = accessibleLabel,
-                    )
-                },
-            )
+                }
+                ComposerLayout(
+                    layout = layout,
+                    isFocused = isFocused,
+                    leadingContent = leadingContent,
+                    trailingContent = trailingContent,
+                    action = {
+                        ComposerPrimaryAction(
+                            layout = layout,
+                            isStreaming = isStreaming,
+                            label = actionLabel,
+                            onClick = { submitComposerAction(isStreaming, onSend, onStop) },
+                            enabled = isActionEnabled,
+                        )
+                    },
+                    editor = { editorModifier ->
+                        ComposerEditor(
+                            value = value,
+                            onValueChange = onValueChange,
+                            interactionSource = interactionSource,
+                            modifier = editorModifier.then(inputModifier)
+                                .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight)
+                                .onPreviewKeyEvent { event ->
+                                    handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
+                                        handleFocusTraversal(event, focusManager)
+                                },
+                            placeholder = placeholder,
+                            enabled = enabled,
+                            accessibleLabel = accessibleLabel,
+                        )
+                    },
+                )
+            }
         }
     }
 }

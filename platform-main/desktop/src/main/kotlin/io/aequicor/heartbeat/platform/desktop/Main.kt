@@ -27,8 +27,9 @@ import java.nio.file.Path
 import java.util.concurrent.FutureTask
 import javax.swing.SwingUtilities
 
-fun main(args: Array<String>) {
-    if (handleWindowRuntimeProbe(args)) return
+fun main(arguments: Array<String>) {
+    if (runPackagedBuildWorker(arguments)) return
+    if (handleWindowRuntimeProbe(arguments)) return
     launchHeartbeat(isDevelopment = false)
 }
 

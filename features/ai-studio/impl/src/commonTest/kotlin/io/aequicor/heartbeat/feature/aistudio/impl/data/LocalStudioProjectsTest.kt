@@ -44,7 +44,7 @@ class LocalStudioProjectsTest {
 
     @Test
     fun `registration error reaches the state machine failure handler`() = runTest {
-        val registry = Registry(fails = true)
+        val registry = Registry(isFailing = true)
         assertFailsWith<IllegalArgumentException> {
             LocalStudioProjects(registry, Picker("/missing"), Toggles(true)).choose()
         }
@@ -56,21 +56,21 @@ class LocalStudioProjectsTest {
         override suspend fun pick(): String? = result.also { calls++ }
     }
 
-    private class Registry(private val fails: Boolean = false) : LocalWorkspaces {
+    private class Registry(private val isFailing: Boolean = false) : LocalWorkspaces {
         override val isAvailable: Boolean = true
         val registered = mutableListOf<String>()
         override fun observe(): Flow<List<LocalWorkspace>> = flowOf(emptyList())
         override suspend fun resolve(ref: WorkspaceRef): String? = null
         override suspend fun register(directory: String): LocalWorkspace {
-            require(!fails) { "Folder unavailable" }
+            require(!isFailing) { "Folder unavailable" }
             registered += directory
             return LocalWorkspace(WorkspaceRef("opaque"), "project")
         }
     }
 
-    private class Toggles(private val enabled: Boolean) : FeatureToggles {
+    private class Toggles(private val isEnabled: Boolean) : FeatureToggles {
         @Suppress("UNCHECKED_CAST") // The project service requests only flag toggles.
-        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(enabled as T)
+        override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(isEnabled as T)
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = observe(toggle).first()
     }
 }

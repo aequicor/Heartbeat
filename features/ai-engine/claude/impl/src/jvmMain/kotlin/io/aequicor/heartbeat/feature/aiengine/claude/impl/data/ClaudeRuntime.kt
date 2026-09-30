@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -16,10 +17,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -33,17 +37,21 @@ import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/** One pooled source runtime. Attach only reuses sessions already known to this runtime; no native cloning. */
+/** Profile-owned native turns; catalog restoration reuses the same CLI UUID and never clones or resends. */
 internal class ClaudeRuntime(
     override val identity: RuntimeIdentity,
     transport: ClaudeTransport,
     private val account: ClaudeAccount,
     private val toggles: FeatureToggles,
     parent: CoroutineScope,
+    private val catalog: ClaudeCatalog,
+    tools: ProfileAgentTools = NoAgentTools,
+    bridge: AgentToolBridge = UnavailableAgentToolBridge,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
     private val log = Log.tag("ClaudeRuntime")
+    private val nativeStore = transport.nativeStore
     private val owner = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + owner)
     private val providerUsage = ClaudeProviderUsage {
@@ -62,6 +70,9 @@ internal class ClaudeRuntime(
         toggles,
         scope,
         closeFailure = { closeFailure },
+        catalog = catalog,
+        tools = tools,
+        bridge = bridge,
         onReleased = ::released,
         onUsage = providerUsage::receive,
     )
@@ -109,13 +120,14 @@ internal class ClaudeRuntime(
             request.workspace,
         )
         val session = ClaudeSession(ref, route, request.target, environment)
+        session.persist()
         sessions[ref] = session
         session.lease()
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
         validate(request.target)
-        val session = sessions[ref] ?: run {
+        val session = find(ref) ?: run {
             log.w { "Claude session is unknown to this runtime" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
@@ -135,11 +147,30 @@ internal class ClaudeRuntime(
             log.w { "Claude runtime is closed; stored session is unavailable" }
             throw EngineException(closeFailure)
         }
-        val session = sessions[ref] ?: run {
+        val session = find(ref) ?: run {
             log.w { "Stored Claude session is unknown to this runtime" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
         session.stored { request -> attach(ref, request) }
+    }
+
+    private suspend fun find(ref: SessionRef): ClaudeSession? = sessions[ref] ?: restore(ref)
+
+    private suspend fun restore(ref: SessionRef): ClaudeSession? {
+        val saved = catalog.find(ref) ?: return null
+        if (saved.nativeStore != nativeStore) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        }
+        if (saved.route.engine != identity.engine || saved.route.authSource != identity.source ||
+            saved.route.revision != identity.revision
+        ) {
+            authFailure(AuthFailureReason.AuthMismatch)
+        }
+        return ClaudeSession(ref, saved.route, saved.target, environment, saved).also {
+            it.persist()
+            sessions[ref] = it
+            released(it)
+        }
     }
 
     override suspend fun close() = mutex.withLock {
@@ -152,7 +183,7 @@ internal class ClaudeRuntime(
 
     /**
      * Released sessions stay resumable while few; beyond [MAX_RELEASED] the oldest released ones are dropped,
-     * so their refs later fail with NotResumable/NotFound instead of accumulating for the runtime's lifetime.
+     * and are restored from the durable catalog when addressed again.
      * Called outside session locks; only this method takes [releasedOrder] and then a session lock.
      */
     private fun released(session: ClaudeSession) {

@@ -41,7 +41,7 @@ class ProviderUsageCatalogTest {
         assertEquals(ProviderUsageSnapshot(), observed.first())
         runCurrent()
         assertTrue(fixture.route.factory.createdRuntimes.isEmpty())
-        fixture.flags.isOn.value = false
+        fixture.flags.enabledState.value = false
         assertFailsWith<EngineException> { fixture.refresh() }
         assertTrue(fixture.route.factory.createdRuntimes.isEmpty())
     }
@@ -199,13 +199,13 @@ class ProviderUsageCatalogTest {
         val fixture = UsageFixture(this)
         fixture.refresh()
         val telemetry = fixture.telemetry.single()
-        fixture.flags.isOn.value = false
+        fixture.flags.enabledState.value = false
         runCurrent()
         assertEquals(0, telemetry.state.subscriptionCount.value)
         telemetry.state.value = usage(99.0)
         assertEquals(ProviderUsageSnapshot(), fixture.catalog.observe(TestEngine, fixture.route.binding.id).first())
 
-        fixture.flags.isOn.value = true
+        fixture.flags.enabledState.value = true
         runCurrent()
         fixture.refresh()
         fixture.route.bindings.disconnect(fixture.route.binding.id)
@@ -256,11 +256,11 @@ private class UsageTelemetry : ReportsProviderUsage {
 }
 
 private class UsageFlags : EngineUsageGate {
-    val isOn = MutableStateFlow(true)
+    val enabledState = MutableStateFlow(true)
 
-    override fun observe(): Flow<Boolean> = isOn
+    override fun observe(): Flow<Boolean> = enabledState
 
-    override suspend fun isEnabled(): Boolean = isOn.value
+    override suspend fun isEnabled(): Boolean = enabledState.value
 }
 
 private fun usage(percent: Double) = ProviderUsageSnapshot(

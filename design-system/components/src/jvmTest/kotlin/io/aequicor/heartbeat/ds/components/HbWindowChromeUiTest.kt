@@ -46,12 +46,12 @@ class HbWindowChromeUiTest {
     @Test
     fun `caption excludes native controls and removes insets when fullscreen changes`() =
         runSkikoComposeUiTest(size = Size(420f, 200f)) {
-            var fullscreen by mutableStateOf(false)
+            var isFullscreen by mutableStateOf(false)
             setContent {
                 CompositionLocalProvider(LocalDensity provides Density(1f)) {
                     HbTheme(dimensions = HbDimensions.Desktop) {
                         HbWindowChromeProvider(
-                            HbWindowChrome(44.dp, 96.dp, 138.dp, fullscreen),
+                            HbWindowChrome(44.dp, 96.dp, 138.dp, isFullscreen),
                             Modifier.fillMaxSize(),
                         ) {
                             HbWindowDragArea(Modifier.fillMaxWidth().height(44.dp)) {
@@ -65,7 +65,7 @@ class HbWindowChromeUiTest {
             val caption = onNodeWithTag("safe-header").fetchSemanticsNode().boundsInRoot
             assertEquals(96f, caption.left)
             assertEquals(282f, caption.right)
-            fullscreen = true
+            isFullscreen = true
             waitForIdle()
             assertEquals(420f, onNodeWithTag("safe-header").fetchSemanticsNode().boundsInRoot.width)
         }

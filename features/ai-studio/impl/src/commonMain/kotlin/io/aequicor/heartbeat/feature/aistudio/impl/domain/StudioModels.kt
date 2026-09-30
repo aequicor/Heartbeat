@@ -32,6 +32,7 @@ data class StudioSession(
     val branch: String? = null,
     val modelId: String? = null,
     val isContinuable: Boolean = true,
+    val isWorktree: Boolean = false,
 )
 
 /** Projects and sessions shown in the sidebar. */

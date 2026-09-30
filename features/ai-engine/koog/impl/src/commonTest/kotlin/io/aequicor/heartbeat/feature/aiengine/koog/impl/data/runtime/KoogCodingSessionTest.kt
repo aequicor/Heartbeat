@@ -6,24 +6,31 @@ import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -32,8 +39,82 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogCodingSessionTest {
+    @Test
+    fun `hosted tools ignore legacy auto approve and keep trusted turn context`() = runTest {
+        val f = fixture(autoApprove = true)
+        var capturedContext: AgentToolContext? = null
+        var executions = 0
+        f.isCodingEnabled = true
+        f.hostedTools = object : ProfileAgentTools {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
+                AgentToolSpec("edit_file", "Edit file", JsonObject(mapOf("type" to JsonPrimitive("object")))),
+            )
+            override suspend fun instructions(workspace: WorkspaceRef?): String = "Use hosted tools"
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult {
+                capturedContext = context
+                if (!context.permissions.request(
+                        AgentToolApproval(name, "Edit file"),
+                    )
+                ) {
+                    return AgentToolResult("Denied", true)
+                }
+                executions++
+                return AgentToolResult("done")
+            }
+        }
+        val session = f.codingSession()
+        val turn = session.features.require(SendsPrompts).send(f.request().copy(trust = TrustLevel.Ask))
+        f.callTool("edit_file")
+        runCurrent()
+        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
+        assertEquals(0, executions)
+        assertEquals(session.ref, capturedContext?.session)
+        assertEquals(turn, capturedContext?.turn)
+        assertEquals(TrustLevel.Ask, capturedContext?.trust)
+        session.features.require(RequestsPermissions).respond(PermissionDecision(turn, pending.id, AllowOnce))
+        runCurrent()
+        assertEquals(1, executions)
+        f.executor.complete()
+        runCurrent()
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
     private val edit = RecordingTool("edit_file", isMutating = true)
     private val read = RecordingTool("read_file", isMutating = false)
+
+    @Test
+    fun `coding toggle disables hosted file and shell declarations but keeps workspace workflows`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.isCodingEnabled = false
+        f.hostedTools = object : ProfileAgentTools {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
+                "read_file",
+                "list_dir",
+                "glob",
+                "grep",
+                "write_file",
+                "edit_file",
+                "run_command",
+                "configure_build",
+            ).map { AgentToolSpec(it, it, JsonObject(mapOf("type" to JsonPrimitive("object")))) }
+            override suspend fun instructions(workspace: WorkspaceRef?): String = "Use hosted tools"
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult = error("Disabled coding tools must not execute")
+        }
+        val session = f.codingSession()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("configure_build"), f.executor.tools.single().map { it.name })
+    }
 
     @Test
     fun `project session offers coding tools and instructions`() = runTest {

@@ -189,7 +189,7 @@ class ClaudeUsageTest {
         val provider = runtime.features.available(ReportsProviderUsage)
         assertEquals(50.0, provider.refresh().windows.single().usedPercent)
         assertEquals(1, fixture.transport.calls.count { "--print" in it })
-        fixture.toggles.usageEnabled = false
+        fixture.toggles.isUsageEnabled = false
         assertEquals(emptyList(), provider.refresh().windows)
         runtime.close()
     }

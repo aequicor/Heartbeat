@@ -3,6 +3,9 @@ import { Type } from "@sinclair/typebox";
 
 const origin = process.env.HEARTBEAT_SEARCH_BRIDGE_URL;
 const token = process.env.HEARTBEAT_SEARCH_BRIDGE_TOKEN;
+// Native shell tools inherit process.env; retain this capability only in the extension closure.
+delete process.env.HEARTBEAT_SEARCH_BRIDGE_URL;
+delete process.env.HEARTBEAT_SEARCH_BRIDGE_TOKEN;
 
 async function call(name: string, args: object, signal: AbortSignal) {
   if (!origin || !token) throw new Error("Heartbeat search bridge is unavailable");

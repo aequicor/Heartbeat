@@ -210,7 +210,7 @@ class HbControlsInteractionTest {
             val expectedFill = when (it) {
                 HbButtonStyle.Primary -> colors.primary
                 HbButtonStyle.Ghost -> colors.background
-                else -> colors.buttonFill
+                HbButtonStyle.Secondary, HbButtonStyle.Danger -> colors.buttonFill
             }
             assertEquals(expectedFill.toArgb(), pixel.toArgb(), "First style frame must use its matching fill")
             assertTrue(contrastRatio(foreground, pixel) >= 4.5f, "Style transition must preserve text contrast")

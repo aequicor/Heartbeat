@@ -134,7 +134,7 @@ class EngineStudioUsageTest {
     @Test
     fun `disabled usage hides both metrics and performs no refresh until enabled`() = runTest {
         val fixture = UsageFixture(this)
-        fixture.flags.isEnabled.value = false
+        fixture.flags.enabled.value = false
         val active = fixture.session(20)
         fixture.usage.observe(setOf(fixture.modelId))
         fixture.usage.attach("chat", active)
@@ -143,12 +143,12 @@ class EngineStudioUsageTest {
         assertEquals(StudioUsageState(), fixture.usage.state.value)
         assertTrue(fixture.providers.refreshes.isEmpty())
 
-        fixture.flags.isEnabled.value = true
+        fixture.flags.enabled.value = true
         runCurrent()
         assertEquals(20, fixture.usage.state.value.contexts["chat"]?.usedTokens?.toInt())
         assertEquals(1, fixture.providers.refreshes.size)
 
-        fixture.flags.isEnabled.value = false
+        fixture.flags.enabled.value = false
         runCurrent()
         assertEquals(StudioUsageState(), fixture.usage.state.value)
     }
@@ -279,13 +279,13 @@ private class UsageProviders : ProviderUsageCatalog {
 }
 
 private class UsageFlags : FeatureToggles {
-    val isEnabled = MutableStateFlow(true)
+    val enabled = MutableStateFlow(true)
 
     @Suppress("UNCHECKED_CAST") // The helper observes only the boolean usage flag.
-    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = isEnabled.map { it as T }
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = enabled.map { it as T }
 
     @Suppress("UNCHECKED_CAST") // The helper observes only the boolean usage flag.
-    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isEnabled.value as T
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled.value as T
 }
 
 private class UsageSources : AuthSources {

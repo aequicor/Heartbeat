@@ -25,6 +25,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         contexts = machine.contexts.mapValues { it.value.toUi() }.toImmutableMap(),
         providerUsage = machine.providerUsage.mapValues { it.value.toUi() }.toImmutableMap(),
         isProjectAddingAvailable = machine.isProjectAddingAvailable,
+        isWorktreeAvailable = machine.isWorktreeAvailable,
         addingProjectTo = machine.addingProjectTo,
         projectErrorPane = machine.projectErrorPane,
         permissions = machine.permissions.map { request ->
@@ -188,4 +189,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     id, title, projectId, updatedAt, isPinned, isUnread, isArchived, branch,
     modelId = modelId,
     isContinuable = isContinuable,
+    isWorktree = isWorktree,
 )

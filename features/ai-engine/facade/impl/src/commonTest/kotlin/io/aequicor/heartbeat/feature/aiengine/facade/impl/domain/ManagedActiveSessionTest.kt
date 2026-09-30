@@ -345,7 +345,7 @@ class ManagedActiveSessionTest {
     @Test
     fun `a native turn published before send returns is not treated as lost while submitting`() = runTest {
         // Adapter without request correlation: the native turn is visible under its own id before send returns.
-        val native = FakeNativeSession().apply { correlateOnSend = false }
+        val native = FakeNativeSession().apply { isCorrelationOnSend = false }
         val (session, _) = open(RouteFixture(this), native)
 
         val turn = session.sender().send(prompt("r1"))
