@@ -35,6 +35,8 @@ git status --porcelain
 - Автоисправимое (ktlint-wrapper): `./gradlew detekt --auto-correct`, затем повтори проверку.
 - Правила с type resolution (в т.ч. `SuspendFunSwallowedCancellation`): `./gradlew :<module>:detektMainJvm` (KMP) / `:<module>:detektMain` (JVM).
 - Правки в `lint/detekt-rules`: `./gradlew :lint:detekt-rules:test`, затем `./gradlew --stop` перед `detekt` (кэш classloader-а правил в демоне).
+  **Не из-под агента внутри Heartbeat**: приложение запущено демоном Gradle и умирает вместе с ним — без стектрейса и с потерей хода.
+  Попроси пользователя остановить демоны во внешнем терминале.
 - Находки набора `heartbeat` (логирование/ошибки) чини по сообщению правила, не подавляй.
 - Остальное чини вручную. Baseline не пополняй без явного согласия пользователя.
 

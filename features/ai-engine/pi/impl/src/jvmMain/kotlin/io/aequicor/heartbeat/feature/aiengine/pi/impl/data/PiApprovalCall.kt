@@ -30,7 +30,12 @@ internal val PiApprovalAllow = PermissionOptionId("allow")
 private val PiApprovalDeny = PermissionOptionId("deny")
 
 // Pi's built-in file mutation tools; commands and extension tools are never file edits.
-private val EditTools = setOf("edit", "write")
+internal val EditTools = setOf("edit", "write")
+
+// The permission panel shows the title and the options only, so a cost the user must know is stated in them.
+private const val ALLOW_TITLE = "Разрешить"
+private const val DENY_TITLE = "Запретить"
+private const val ALLOW_HOST_TITLE = "Завершить Heartbeat и выполнить"
 private const val GIT_DIRECTORY = ".git"
 private const val FILE_SCHEME = "file:"
 
@@ -54,6 +59,17 @@ internal fun TrustLevel.covers(call: PiApprovalCall, workspace: Path?): Boolean 
     }
 
     TrustLevel.Full -> true
+}
+
+/**
+ * Whether this level answers the approval of [call] on its own. Trust never extends to a command that ends the
+ * host ([terminatesHost]): the processes that forked the application would take the running turn down with them,
+ * so such a call always waits for the user.
+ */
+internal fun TrustLevel.answers(call: PiApprovalCall, workspace: Path?): Boolean {
+    if (!terminatesHost(call)) return covers(call, workspace)
+    log.w { "Pi tool call can stop the host process; only the user decides: ${call.tool}" }
+    return false
 }
 
 /**
@@ -113,11 +129,12 @@ internal fun approvalRequest(id: String, turn: TurnId, call: PiApprovalCall): Pe
         return null
     }
     val target = visible(call.target)
+    val allow = if (terminatesHost(call)) ALLOW_HOST_TITLE else ALLOW_TITLE
     return PermissionRequest(
         PermissionRequestId(id),
         turn,
         if (target.isBlank()) call.tool else "${call.tool}: $target",
-        listOf(PermissionOption(PiApprovalAllow, "Разрешить"), PermissionOption(PiApprovalDeny, "Запретить")),
+        listOf(PermissionOption(PiApprovalAllow, allow), PermissionOption(PiApprovalDeny, DENY_TITLE)),
     )
 }
 
