@@ -180,6 +180,7 @@ internal class FakeConnection : PiConnection {
     var thinkingClamp: String? = null
     var thinkingFailure: EngineException? = null
     var switchFailure: EngineException? = null
+    var sessionIdAfterSwitch: String? = null
     var entries = """{"leafId":"later","entries":[
         {"type":"message","id":"stored","parentId":null,"message":{"role":"user","content":"Stored"}},
         {"type":"message","id":"reply","parentId":"stored",
@@ -234,6 +235,7 @@ internal class FakeConnection : PiConnection {
 
     private fun switchSession(): JsonObject {
         switchFailure?.let { throw it }
+        sessionIdAfterSwitch?.let { sessionId = it }
         return JsonObject(emptyMap())
     }
 
