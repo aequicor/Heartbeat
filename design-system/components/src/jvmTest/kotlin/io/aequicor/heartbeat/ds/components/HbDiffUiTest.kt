@@ -129,9 +129,9 @@ class HbDiffUiTest {
     fun `long diff lines keep full accessible text and horizontal scrolling in both themes`() = runSkikoComposeUiTest(
         size = Size(320f, 240f),
     ) {
-        val isDark = mutableStateOf(false)
+        val darkState = mutableStateOf(false)
         val added = "+val result = \"" + "argument ".repeat(60) + "\""
-        setContent { HbTheme(darkTheme = isDark.value) { HbDiffView(diffSource("src/Result.kt", added)) } }
+        setContent { HbTheme(darkTheme = darkState.value) { HbDiffView(diffSource("src/Result.kt", added)) } }
         val horizontal = SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange)
         onAllNodes(horizontal).assertCountEquals(1)
         onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).assertCountEquals(0)
@@ -140,7 +140,7 @@ class HbDiffUiTest {
         scroll.performSemanticsAction(SemanticsActions.ScrollBy) { it(180f, 0f) }
         assertTrue(scroll.fetchSemanticsNode().config[SemanticsProperties.HorizontalScrollAxisRange].value() > 0f)
         assertEquals(added, onNodeWithText(added).fetchSemanticsNode().config[SemanticsProperties.Text].single().text)
-        runOnIdle { isDark.value = true }
+        runOnIdle { darkState.value = true }
         assertTrue(scroll.fetchSemanticsNode().config[SemanticsProperties.HorizontalScrollAxisRange].value() > 0f)
         assertEquals(added, onNodeWithText(added).fetchSemanticsNode().config[SemanticsProperties.Text].single().text)
         onNodeWithContentDescription("Copy file path: src/Result.kt").assertExists()

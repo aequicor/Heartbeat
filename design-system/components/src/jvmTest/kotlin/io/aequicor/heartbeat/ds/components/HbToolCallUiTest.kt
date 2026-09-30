@@ -54,7 +54,7 @@ class HbToolCallUiTest {
 
     @Test
     fun `controlled disclosure reports requested state without changing external state`() = runSkikoComposeUiTest {
-        var requested: Boolean? = null
+        var isExpansionRequested: Boolean? = null
         setContent {
             HbTheme(darkTheme = false) {
                 HbToolCallView(
@@ -64,12 +64,12 @@ class HbToolCallUiTest {
                         blocks = persistentListOf(HbToolBlock.Console("log", "Payload")),
                     ),
                     isExpanded = false,
-                    onExpandedChange = { requested = it },
+                    onExpandedChange = { isExpansionRequested = it },
                 )
             }
         }
         onNodeWithText("Inspect").performClick()
-        runOnIdle { assertEquals(true, requested) }
+        runOnIdle { assertEquals(true, isExpansionRequested) }
         onNodeWithText("Payload").assertDoesNotExist()
     }
 }

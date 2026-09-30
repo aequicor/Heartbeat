@@ -71,31 +71,37 @@ class HbComposerUsageUiTest {
     @Test
     fun `quota-only button opens without a false context percentage and disabled button cannot open`() =
         runSkikoComposeUiTest(size = Size(620f, 500f)) {
-            var open by mutableStateOf(false)
-            var enabled by mutableStateOf(true)
+            var isOpen by mutableStateOf(false)
+            var isEnabled by mutableStateOf(true)
             setContent {
                 UsageTestHost {
-                    HbComposerUsageButton(null, "Лимиты", open, { open = it }, enabled = enabled) { UsageDetails() }
+                    HbComposerUsageButton(
+                        null,
+                        "Лимиты",
+                        isOpen,
+                        { isOpen = it },
+                        enabled = isEnabled,
+                    ) { UsageDetails() }
                 }
             }
             onNodeWithText("0%").assertDoesNotExist()
             onNodeWithContentDescription("Лимиты").performClick()
             onNodeWithText("Context window").assertIsDisplayed()
             runOnIdle {
-                open = false
-                enabled = false
+                isOpen = false
+                isEnabled = false
             }
             onNodeWithContentDescription("Лимиты").assertIsNotEnabled().performClick()
-            runOnIdle { assertFalse(open) }
+            runOnIdle { assertFalse(isOpen) }
         }
 
     @Test
     fun `keyboard opens detail panel and Escape restores trigger focus`() =
         runSkikoComposeUiTest(size = Size(620f, 500f)) {
-            var open by mutableStateOf(false)
+            var isOpen by mutableStateOf(false)
             setContent {
                 UsageTestHost {
-                    HbComposerUsageButton(61, "Usage", open, { open = it }) { UsageDetails() }
+                    HbComposerUsageButton(61, "Usage", isOpen, { isOpen = it }) { UsageDetails() }
                 }
             }
             for (key in listOf(Key.Enter, Key.Spacebar, Key.DirectionDown)) {
@@ -105,19 +111,19 @@ class HbComposerUsageUiTest {
                 onNode(SemanticsMatcher.expectValue(SemanticsProperties.PaneTitle, "Usage"))
                     .performKeyInput { pressKey(Key.Escape) }
                 onNodeWithContentDescription("Usage").assertIsFocused()
-                runOnIdle { assertFalse(open) }
+                runOnIdle { assertFalse(isOpen) }
             }
         }
 
     @Test
     fun `outside click dismisses usage without activating the underlying button`() =
         runSkikoComposeUiTest(size = Size(620f, 500f)) {
-            var open by mutableStateOf(false)
+            var isOpen by mutableStateOf(false)
             var backgroundClicks = 0
             setContent {
                 UsageTestHost {
                     HbButton("Outside", { backgroundClicks++ }, Modifier.align(Alignment.TopEnd))
-                    HbComposerUsageButton(61, "Usage", open, { open = it }) { UsageDetails() }
+                    HbComposerUsageButton(61, "Usage", isOpen, { isOpen = it }) { UsageDetails() }
                 }
             }
             onNodeWithContentDescription("Usage").performClick()
@@ -127,7 +133,7 @@ class HbComposerUsageUiTest {
                 release()
             }
             runOnIdle {
-                assertFalse(open)
+                assertFalse(isOpen)
                 assertEquals(0, backgroundClicks)
             }
         }
@@ -137,7 +143,7 @@ class HbComposerUsageUiTest {
         for (width in listOf(1280f, 420f)) {
             for (dark in listOf(false, true)) {
                 runSkikoComposeUiTest(size = Size(width, 800f)) {
-                    var open by mutableStateOf(false)
+                    var isOpen by mutableStateOf(false)
                     setContent {
                         UsageTestHost(dark, isMobile = width == 420f) {
                             HbChatComposer(
@@ -146,7 +152,7 @@ class HbComposerUsageUiTest {
                                 layout = HbComposerLayout.Panel,
                                 placeholder = "Message",
                                 trailingContent = {
-                                    HbComposerUsageButton(61, "Usage", open, { open = it }) { UsageDetails() }
+                                    HbComposerUsageButton(61, "Usage", isOpen, { isOpen = it }) { UsageDetails() }
                                     HbButton("Model", {}, style = HbButtonStyle.Ghost)
                                 },
                             )

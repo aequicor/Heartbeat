@@ -21,9 +21,9 @@ class HbConsoleUiTest {
         runSkikoComposeUiTest(size = Size(320f, 200f)) {
             val source = "$ command " + "argument ".repeat(80) + "\nBUILD SUCCESSFUL\nexit code: 0"
             val chunk = chunkHbConsole(source).single()
-            val isDark = mutableStateOf(false)
+            val darkState = mutableStateOf(false)
             setContent {
-                HbTheme(darkTheme = isDark.value) { HbConsoleContent(chunk) }
+                HbTheme(darkTheme = darkState.value) { HbConsoleContent(chunk) }
             }
             val node = onNodeWithText(source)
             val light = node.fetchSemanticsNode().config
@@ -35,7 +35,7 @@ class HbConsoleUiTest {
             val scrolled = node.fetchSemanticsNode().config
             assertTrue(scrolled[SemanticsProperties.HorizontalScrollAxisRange].value() > 0f)
             assertEquals(source, scrolled[SemanticsProperties.Text].single().text)
-            runOnIdle { isDark.value = true }
+            runOnIdle { darkState.value = true }
             val dark = node.fetchSemanticsNode().config
             assertEquals(source, dark[SemanticsProperties.Text].single().text)
             assertEquals(

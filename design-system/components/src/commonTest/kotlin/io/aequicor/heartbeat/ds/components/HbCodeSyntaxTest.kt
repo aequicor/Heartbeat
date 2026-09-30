@@ -47,7 +47,7 @@ class HbCodeSyntaxTest {
     fun `unknown and plain language hints never guess from the source`() {
         val source = "fun Demo() = \"value\" // clearly Kotlin"
         listOf(null, "", " ", "text", "plain", "plaintext", "none", "ruby", "not-kotlin kotlin").forEach { hint ->
-            assertTrue(highlightHbCode(source, hint).isEmpty(), "Unexpected highlighting for $hint")
+            assertTrue(highlightHbCode(source, hint).isEmpty(), "Unexpected highlighting for ${hint.orEmpty()}")
         }
     }
 

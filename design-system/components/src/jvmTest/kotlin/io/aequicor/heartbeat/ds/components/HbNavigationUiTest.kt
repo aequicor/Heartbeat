@@ -214,26 +214,26 @@ class HbNavigationUiTest {
 
     @Test
     fun `menu command can leave focus in the editor it opens`() = runSkikoComposeUiTest(size = Size(480f, 400f)) {
-        var expanded by mutableStateOf(false)
-        var editing by mutableStateOf(false)
+        var isExpanded by mutableStateOf(false)
+        var isEditing by mutableStateOf(false)
         var title by mutableStateOf("")
         var commits = 0
         setContent {
             HbTheme {
                 Column {
-                    if (editing) {
+                    if (isEditing) {
                         val focus = remember { FocusRequester() }
-                        var hadFocus by remember { mutableStateOf(false) }
+                        var hasReceivedFocus by remember { mutableStateOf(false) }
                         SideEffect(focus) { focus.requestFocus() }
                         HbTextField(
                             title,
                             { title = it },
                             Modifier.testTag("editor").focusRequester(focus).onFocusChanged {
                                 if (it.isFocused) {
-                                    hadFocus = true
-                                } else if (hadFocus) {
+                                    hasReceivedFocus = true
+                                } else if (hasReceivedFocus) {
                                     commits++
-                                    editing = false
+                                    isEditing = false
                                 }
                             },
                         )
@@ -242,9 +242,9 @@ class HbNavigationUiTest {
                         icon = HbIcons.More,
                         contentDescription = "Actions",
                         items = persistentListOf(HbMenuItem("rename", "Rename", isFocusRestoredOnSelect = false)),
-                        isExpanded = expanded,
-                        onExpandedChange = { expanded = it },
-                        onItem = { editing = true },
+                        isExpanded = isExpanded,
+                        onExpandedChange = { isExpanded = it },
+                        onItem = { isEditing = true },
                     )
                 }
             }
