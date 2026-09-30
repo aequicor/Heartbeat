@@ -34,6 +34,8 @@ kotlin {
             implementation(projects.features.aiEngine.connections.impl)
             implementation(projects.features.aiSessionEngineTransfer.impl)
             implementation(projects.features.effortConfiguration.impl)
+            implementation(projects.features.feedback.api)
+            implementation(projects.features.feedback.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)
