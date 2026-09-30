@@ -35,6 +35,24 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalTestApi::class)
 class WelcomeUiTest {
     @Test
+    fun `desktop welcome fits both themes across window widths`() {
+        for (width in listOf(1280, 900, 420)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
+                    setContent {
+                        CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                            HbTheme(darkTheme = dark) { WelcomeContent(WelcomePhase.Ready, {}) }
+                        }
+                    }
+                    onNodeWithTag("welcome-studio").assertIsDisplayed()
+                    onNodeWithTag("welcome-toggles").assertIsDisplayed()
+                    save("welcome-$width-$dark", captureToImage().toAwtImage())
+                }
+            }
+        }
+    }
+
+    @Test
     fun `six second scene reveals actions and stops at the final frame`() = runSkikoComposeUiTest(
         size = Size(1280f, 900f),
     ) {

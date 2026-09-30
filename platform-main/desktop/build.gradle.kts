@@ -1,6 +1,8 @@
 import io.aequicor.heartbeat.buildlogic.PreparePiRuntime
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
+import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
+import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
 
 plugins {
@@ -17,7 +19,15 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.compose.uiToolingPreview)
+    implementation(libs.jbr.api)
 }
+
+// The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.
+val desktopRuntime = javaToolchains.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(libs.versions.desktop.jdk.get().toInt()))
+    vendor.set(JvmVendorSpec.JETBRAINS)
+}
+val desktopJavaHome = desktopRuntime.map { it.metadata.installationPath.asFile.absolutePath }
 
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
 val piChecksums = mapOf(
@@ -42,6 +52,15 @@ val piArch = when (piArchName.lowercase()) {
     else -> null
 }
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
+val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
+    group = "verification"
+    description = "Checks the JBR native caption service before packaging desktop distributions."
+    javaLauncher.set(desktopRuntime)
+    classpath = sourceSets.main.get().runtimeClasspath
+    mainClass.set("io.aequicor.heartbeat.platform.desktop.WindowRuntimeProbeKt")
+    val supportsCaption = piOs == "windows" || piOs == "darwin"
+    onlyIf { supportsCaption }
+}
 if (piTarget == null) {
     logger.warn("Pi runtime is not available for $piOsName/$piArchName; the desktop app is built without it")
 }
@@ -65,6 +84,7 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        buildTypes.release.proguard.configurationFiles.from(layout.projectDirectory.file("proguard-rules.pro"))
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             // The jlink runtime holds only listed JDK modules; keep in sync with `suggestRuntimeModules`.
@@ -92,12 +112,22 @@ tasks.withType<ComposeHotRun>().configureEach {
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
+    tasks.withType<AbstractJvmToolOperationTask>().configureEach {
+        javaHome.set(desktopJavaHome)
+    }
+    tasks.withType<AbstractCheckNativeDistributionRuntime>().configureEach {
+        jdkHome.set(desktopJavaHome)
+    }
     tasks.withType<AbstractJPackageTask>().configureEach {
+        dependsOn(verifyWindowRuntime)
         if (!name.contains("Release")) {
             launcherMainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
         }
     }
     tasks.withType<JavaExec>().configureEach {
+        javaLauncher.set(desktopRuntime)
+        // Compose initializes an explicit executable. Gradle's non-null setter requires resolving the launcher here.
+        setExecutable(desktopRuntime.get().executablePath.asFile.absolutePath)
         if (name == "run") mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
     }
 }
