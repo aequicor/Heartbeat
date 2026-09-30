@@ -40,6 +40,11 @@ internal class StudioWorktrees(private val machines: MachineRegistry, private va
         machine?.state?.map { (it as? WorktreeState.Ready)?.tasks.orEmpty() } ?: flowOf(emptyMap())
     }
 
+    /** Only a loaded journal can establish that a saved task is absent. */
+    fun readyTasks(): Flow<Map<String, WorktreeTask>> = machines.observe(WorktreeMachineKey).flatMapLatest { machine ->
+        machine?.state?.mapNotNull { (it as? WorktreeState.Ready)?.tasks } ?: flowOf()
+    }
+
     suspend fun send(intent: WorktreeIntent.Public) {
         val machine = withTimeout(WAIT_MILLIS) { machines.observe(WorktreeMachineKey).filterNotNull().first() }
         withTimeout(WAIT_MILLIS) {

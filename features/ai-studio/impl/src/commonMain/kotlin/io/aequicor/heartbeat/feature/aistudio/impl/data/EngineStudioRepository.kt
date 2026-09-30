@@ -195,6 +195,7 @@ internal class EngineStudioRepository(
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
     init {
+        conversations.recoverPending({ lock.withLock { store.get(ChatsKey).orEmpty() } }, ::saveConversation)
         profile.coroutineScope.launch {
             worktrees.tasks().collect { tasks ->
                 // Reconcile a provisioned checkout whose screen waiter or profile ended before the final chat write.
@@ -331,14 +332,14 @@ internal class EngineStudioRepository(
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
         )
-        val record = conversations.create(pending) { changed ->
-            lock.withLock {
-                val saved = store.get(ChatsKey).orEmpty()
-                store.set(ChatsKey, conversations.updated(saved, changed))
-            }
-        }
+        val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt)
+    }
+
+    private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
+        val saved = store.get(ChatsKey).orEmpty()
+        store.set(ChatsKey, conversations.updated(saved, changed))
     }
 
     /** Mark delivery durably before invoking native code; recovery never automatically sends the action again. */

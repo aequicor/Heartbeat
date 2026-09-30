@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /** Persists recoverable chat identity before profile-owned provisioning; closing a screen only detaches its waiter. */
 @Inject
@@ -21,28 +23,60 @@ internal class StudioConversationCreation(
     private val log = Log.tag("StudioConversationCreation")
 
     suspend fun create(record: StudioChatRecord, save: suspend (StudioChatRecord) -> Unit): StudioChatRecord =
-        profile.coroutineScope.async {
-            log.i { "Persist conversation before provisioning" }
+        profile.coroutineScope.async { provision(record, save, isNew = true) }.await().getOrThrow()
+
+    /** Retries only startup identities whose preparation never reached the loaded durable journal. */
+    fun recoverPending(records: suspend () -> List<StudioChatRecord>, save: suspend (StudioChatRecord) -> Unit) {
+        profile.coroutineScope.launch {
             try {
-                save(record)
-                if (record.worktreeTaskId == null) return@async Result.success(record)
-                val project = WorkspaceRef(checkNotNull(record.projectId))
-                worktrees.send(WorktreeIntent.Public.Prepare(record.worktreeTaskId, project))
-                val task = worktrees.await(record.worktreeTaskId) {
-                    it.executionWorkspace != null || it.phase == WorktreePhase.Failed
+                val pending = records().filter { it.worktreeTaskId != null && it.executionWorkspace == null }
+                if (pending.isEmpty()) return@launch
+                val loaded = worktrees.readyTasks().first()
+                pending.filter { it.worktreeTaskId !in loaded }.forEach { record ->
+                    launch {
+                        log.i { "Resume conversation preparation absent from the loaded journal" }
+                        provision(record, save, isNew = false)
+                    }
                 }
-                check(task.executionWorkspace != null && task.phase != WorktreePhase.Failed) {
-                    "Worktree preparation failed: ${task.failure.orEmpty()}"
-                }
-                Result.success(record.copy(executionWorkspace = task.executionWorkspace).also { save(it) })
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.e(error) { "Conversation preparation failed; retain its recoverable identity" }
-                markFailed(record, save)
-                Result.failure(error)
+                log.e(error) { "Could not inspect pending conversation preparation" }
             }
-        }.await().getOrThrow()
+        }
+    }
+
+    private suspend fun provision(
+        record: StudioChatRecord,
+        save: suspend (StudioChatRecord) -> Unit,
+        isNew: Boolean,
+    ): Result<StudioChatRecord> = try {
+        if (isNew) {
+            log.i { "Persist conversation before provisioning" }
+            save(record)
+        }
+        if (record.worktreeTaskId == null) {
+            Result.success(record)
+        } else {
+            val project = WorkspaceRef(checkNotNull(record.projectId))
+            worktrees.send(WorktreeIntent.Public.Prepare(record.worktreeTaskId, project))
+            val task = worktrees.await(record.worktreeTaskId) {
+                it.executionWorkspace != null || it.phase == WorktreePhase.Failed
+            }
+            check(task.executionWorkspace != null && task.phase != WorktreePhase.Failed) {
+                "Worktree preparation failed: ${task.failure.orEmpty()}"
+            }
+            Result.success(
+                record.copy(executionWorkspace = task.executionWorkspace, hasFailed = false).also { save(it) },
+            )
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.e(error) { "Conversation preparation failed; retain its recoverable identity" }
+        markFailed(record, save)
+        Result.failure(error)
+    }
 
     /** Restores a final checkout write interrupted by profile shutdown. */
     fun recovered(records: List<StudioChatRecord>, tasks: Map<String, WorktreeTask>): List<StudioChatRecord> =

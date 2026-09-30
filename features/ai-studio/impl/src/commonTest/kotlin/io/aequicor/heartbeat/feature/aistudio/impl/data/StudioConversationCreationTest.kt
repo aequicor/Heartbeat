@@ -11,17 +11,25 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeOutput
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRun
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,11 +85,92 @@ class StudioConversationCreationTest {
         assertFalse(fixture.saved.getValue("chat").hasFailed)
         assertNull(fixture.saved.getValue("chat").worktreeTaskId)
     }
+
+    @Test
+    fun `startup resumes a chat interrupted after persistence only after the journal becomes ready`() = runTest {
+        val saved = mutableMapOf<String, StudioChatRecord>()
+        val previousScope = CoroutineScope(
+            backgroundScope.coroutineContext + Job(backgroundScope.coroutineContext[Job]),
+        )
+        val previous = CreationFixture(previousScope, saved)
+        val savedBeforePrepare = CompletableDeferred<Unit>()
+        previous.afterSave = { savedBeforePrepare.await() }
+        val caller = async { previous.create() }
+        runCurrent()
+        assertEquals(1, saved.size)
+        assertEquals(0, previous.machine.preparations)
+        previousScope.cancel()
+        runCurrent()
+        assertFailsWith<CancellationException> { caller.await() }
+
+        val restarted = CreationFixture(backgroundScope, saved)
+        restarted.machine.state.value = WorktreeState.Loading
+        saved["ordinary"] = restarted.pending().copy(id = "ordinary", worktreeTaskId = null)
+        saved["ready"] = restarted.pending().copy(id = "ready", executionWorkspace = WorkspaceRef("existing"))
+        restarted.recoverPending()
+        runCurrent()
+        assertEquals(0, restarted.machine.preparations)
+        restarted.machine.state.value = WorktreeState.LoadError
+        runCurrent()
+        assertEquals(0, restarted.machine.preparations)
+        val edited = saved.getValue("chat").copy(title = "Renamed", isPinned = true, isArchived = true)
+        saved["chat"] = edited
+        saved["later"] = restarted.pending().copy(id = "later", worktreeTaskId = "later")
+        restarted.machine.state.value = WorktreeState.Ready()
+        runCurrent()
+        assertEquals(1, restarted.machine.preparations)
+        restarted.machine.prepared()
+        runCurrent()
+        assertEquals(edited.copy(executionWorkspace = WorkspaceRef("checkout")), saved.getValue("chat"))
+        assertEquals(4, saved.size)
+        assertNull(saved.getValue("later").executionWorkspace)
+        restarted.machine.state.value = WorktreeState.Ready()
+        runCurrent()
+        assertEquals(1, restarted.machine.preparations)
+    }
+
+    @Test
+    fun `startup does not replay preparation or actions of any existing uncertain task`() = runTest {
+        for (phase in listOf(WorktreePhase.Preparing, WorktreePhase.Failed, WorktreePhase.RecoveryRequired)) {
+            val fixture = CreationFixture(backgroundScope)
+            fixture.saved["chat"] = fixture.pending()
+            val existing = WorktreeTask(
+                "chat",
+                WorkspaceRef("project"),
+                phase = phase,
+                run = WorktreeRun(RequestId("request")),
+                actionRequest = WorktreeActionRequest("action", WorktreeRunKind.CreatePr, "Create the pull request"),
+            )
+            val state = WorktreeState.Ready(mapOf("chat" to existing))
+            fixture.machine.state.value = state
+            fixture.recoverPending()
+            runCurrent()
+            assertEquals(0, fixture.machine.preparations)
+            assertEquals(state, fixture.machine.state.value)
+            assertEquals(fixture.pending(), fixture.saved.getValue("chat"))
+        }
+    }
+
+    @Test
+    fun `failed startup preparation marks the saved chat without throwing into the profile`() = runTest {
+        val fixture = CreationFixture(backgroundScope)
+        fixture.saved["chat"] = fixture.pending()
+        fixture.recoverPending()
+        runCurrent()
+        fixture.machine.failed()
+        runCurrent()
+        assertTrue(fixture.saved.getValue("chat").hasFailed)
+        assertNull(fixture.saved.getValue("chat").executionWorkspace)
+        assertTrue(backgroundScope.coroutineContext[Job]?.isActive == true)
+    }
 }
 
-private class CreationFixture(scope: CoroutineScope) {
-    val saved = mutableMapOf<String, StudioChatRecord>()
+private class CreationFixture(
+    scope: CoroutineScope,
+    val saved: MutableMap<String, StudioChatRecord> = mutableMapOf(),
+) {
     val machine = CreationMachine { id -> assertTrue(id in saved, "Chat must precede Prepare") }
+    var afterSave: suspend () -> Unit = {}
     private val profile = object : ScopeHandle {
         override val name = "creation-profile"
         override val coroutineScope = scope
@@ -91,15 +180,24 @@ private class CreationFixture(scope: CoroutineScope) {
     }
     private val creation = StudioConversationCreation(profile, StudioWorktrees(creationRegistry(machine), NoAgentTools))
 
-    suspend fun create(isWorktree: Boolean = true): StudioChatRecord = creation.create(
-        StudioChatRecord(
-            "chat",
-            "Task",
-            Instant.DISTANT_PAST,
-            projectId = "project",
-            worktreeTaskId = "chat".takeIf { isWorktree },
-        ),
-    ) { saved[it.id] = it }
+    suspend fun create(isWorktree: Boolean = true): StudioChatRecord = creation.create(pending(isWorktree), ::save)
+
+    fun pending(isWorktree: Boolean = true) = StudioChatRecord(
+        "chat",
+        "Task",
+        Instant.DISTANT_PAST,
+        projectId = "project",
+        worktreeTaskId = "chat".takeIf { isWorktree },
+    )
+
+    fun recoverPending() = creation.recoverPending({ saved.values.toList() }, ::save)
+
+    private suspend fun save(changed: StudioChatRecord) {
+        val records = creation.updated(saved.values.toList(), changed)
+        saved.clear()
+        records.forEach { saved[it.id] = it }
+        afterSave()
+    }
 }
 
 private class CreationMachine(private val beforePrepare: (String) -> Unit) :
