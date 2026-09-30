@@ -8,6 +8,14 @@ import kotlin.test.assertTrue
 
 class PiSearchRegistrationTest {
     @Test
+    fun `search toggle controls the explicit native tools allowlist`() {
+        val shell = if (System.getProperty("os.name").startsWith("Windows")) "powershell" else "bash"
+        val base = listOf("read", shell, "edit", "write")
+        assertEquals(base, piTools(searchTools = false).split(","))
+        assertEquals(base + listOf("web_search", "web_fetch"), piTools(searchTools = true).split(","))
+    }
+
+    @Test
     fun `isolated Pi process loads bundled search tools beside approval gate`() {
         val arguments = piCommand(
             Path.of("pi"),

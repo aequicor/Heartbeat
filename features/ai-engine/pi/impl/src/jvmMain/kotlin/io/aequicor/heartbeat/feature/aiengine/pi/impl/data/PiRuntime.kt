@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -41,9 +42,9 @@ internal data class PiRuntimeCredentials(
 /** Profile services a runtime validates against, launches processes with and publishes next to its sessions. */
 internal data class PiRuntimeServices(
     val settings: PiSettings,
-    val processes: PiProcessLauncher,
+    val processes: PiProcesses,
     val workspaces: LocalWorkspaces,
-    val nativeWeb: PiNativeWeb,
+    val nativeWeb: NativeWebFetch,
 )
 
 internal class PiRuntime(
@@ -64,6 +65,9 @@ internal class PiRuntime(
     private val workspaces get() = services.workspaces
     private val mutex = Mutex()
     private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
+
+    // Reserved before transcript lookup and process startup; only accessed under mutex.
+    private val attaching = mutableSetOf<SessionRef>()
 
     @Volatile var isClosed: Boolean = false
         private set
@@ -86,41 +90,55 @@ internal class PiRuntime(
 
     /**
      * Restarts Pi on the stored transcript of [ref] in this profile, e.g. after an application restart.
-     * A transcript still served by a live process of this runtime is never opened twice.
+     * Reserves the ref before any transcript IO, so concurrent attachments cannot start a second process.
+     *
+     * Pi transcripts and [SessionRef] carry no credential binding. The caller explicitly chooses the target:
+     * its binding must resolve to this runtime's exact source, revision and current credential fingerprint
+     * through [prepare] and [validate]. Another binding of that same source is allowed; no fallback binding
+     * or credentials are selected from the transcript. Foreign sources must use their own validated runtime.
      */
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
-        if (ref.engine != identity.engine || ref.source != PiSessionSource) {
+        if (ref.engine != identity.engine || ref.source != PiSessionSource ||
+            request.target.engine != identity.engine
+        ) {
             piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        val file = processes.transcript(ref.nativeId)
-            ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
-        log.i { "Attaching stored Pi session" }
-        return launch(CreateSessionRequest(request.target, request.workspace), PiTranscript(ref, file))
+        mutex.withLock {
+            validate()
+            validateTarget(request.target, settings.snapshot())
+            if (isServed(ref) || !attaching.add(ref)) busy()
+        }
+        try {
+            val file = processes.transcript(ref.nativeId)
+                ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
+            log.i { "Attaching stored Pi session" }
+            return launch(CreateSessionRequest(request.target, request.workspace), PiTranscript(ref, file))
+        } finally {
+            withContext(NonCancellable) { mutex.withLock { attaching.remove(ref) } }
+        }
     }
 
     private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): ActiveSession {
-        if (transcript != null && mutex.withLock { isServed(transcript.ref) }) busy()
         val session = prepare(request)
-        // Process startup runs outside the lock so close() and other creations are not blocked by it.
-        session.first.start(
-            { event, failed -> processes.start(source, session.second, event, failed) },
-            transcript,
-        )
-        // A started process must be registered or shut down even if the caller is cancelled meanwhile.
-        withContext(NonCancellable) {
-            mutex.withLock {
-                if (isClosed) {
-                    session.first.shutdown()
-                    piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+        var isRegistered = false
+        try {
+            // Startup stays outside the lock so close() and unrelated creations can proceed.
+            session.first.start(
+                { event, failed -> processes.start(source, session.second, event, failed) },
+                transcript,
+            )
+            // A started process must be registered or shut down even when its caller is cancelled.
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    if (isClosed) piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+                    sessions += session.first
+                    isRegistered = true
                 }
-                if (transcript != null && isServed(transcript.ref)) {
-                    session.first.shutdown()
-                    busy()
-                }
-                sessions += session.first
             }
+            return session.first
+        } finally {
+            if (!isRegistered) withContext(NonCancellable) { session.first.shutdown() }
         }
-        return session.first
     }
 
     /** A transcript is served by at most one live Pi process; a detached one keeps it until its turn settles. */
@@ -134,14 +152,7 @@ internal class PiRuntime(
     private suspend fun prepare(request: CreateSessionRequest): Pair<PiSession, String?> = mutex.withLock {
         validate()
         val configuration = settings.snapshot()
-        if (request.target.engine != identity.engine ||
-            configuration.bindings[request.target.binding.value] != source
-        ) {
-            authenticationFailure(AuthFailureReason.AuthMismatch, identity.source)
-        }
-        if (!request.target.model.value.startsWith(source.scope.provider.value + "/")) {
-            piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
-        }
+        validateTarget(request.target, configuration)
         val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
         withContext(dispatchers.main) {
             PiSession(
@@ -158,6 +169,15 @@ internal class PiRuntime(
                 { sessions.remove(it) },
             )
         } to directory
+    }
+
+    private fun validateTarget(target: EngineTarget, configuration: PiConfiguration) {
+        if (target.engine != identity.engine || configuration.bindings[target.binding.value] != source) {
+            authenticationFailure(AuthFailureReason.AuthMismatch, identity.source)
+        }
+        if (!target.model.value.startsWith(source.scope.provider.value + "/")) {
+            piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
+        }
     }
 
     override suspend fun close() = mutex.withLock {
