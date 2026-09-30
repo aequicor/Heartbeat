@@ -56,7 +56,7 @@ internal class LocalCodexTransport(
                 "app-server",
                 "-c",
                 "model_provider=\"openai\"",
-            )
+            ) + CodexDisabledCapabilities.flatMap { listOf("-c", "features.$it=false") }
             val builder = ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD)
             builder.environment().apply {
                 remove("OPENAI_API_KEY")

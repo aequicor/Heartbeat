@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 
 @Inject
@@ -22,4 +24,6 @@ internal data class CodexRuntimeEnvironment(
     val search: SearchEngine,
     @ForScope(ProfileScope::class) val profile: ScopeHandle,
     val workspaces: LocalWorkspaces,
+    val tools: ProfileAgentTools = NoAgentTools,
+    val manifests: CodexToolManifests = MemoryCodexToolManifests(),
 )

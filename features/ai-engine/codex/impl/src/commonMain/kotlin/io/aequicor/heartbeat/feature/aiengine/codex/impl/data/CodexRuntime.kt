@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
@@ -46,9 +47,8 @@ internal class CodexRuntime(
     private val rpc: CodexRpc,
     val host: CodexRuntimeEnvironment,
     /**
-     * Whether this app-server was initialized with the experimental API for dynamic tools (toggle
-     * `search.engine_tools` at creation). A later toggle change never restarts it; turning the toggle off still
-     * stops dynamic tools for new threads and refuses tool calls.
+     * Search availability captured at app-server creation. A later toggle change never restarts it;
+     * turning the toggle off stops search declarations and calls. Hosted tools always use the experimental API.
      */
     val isSearchToolsEnabled: Boolean = false,
 ) : EngineRuntime,
@@ -238,20 +238,21 @@ internal class CodexRuntime(
 
     private suspend fun openNative(nativeId: String?, target: EngineTarget, route: ExecutionRoute): ActiveSession {
         val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
-        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled)
+        val hostedManifest = hostedManifest(route.workspace)
+        val isHosted = validateHostedResume(nativeId, hostedManifest)
+        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, isHosted)
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
-        val thread = response.obj("thread")
-        val id = thread.text("id") ?: protocolFailure()
-        if (nativeId != null && nativeId != id) protocolFailure()
-        if (thread.text("modelProvider")?.let { it != "openai" } == true) protocolFailure()
+        val thread = validateNativeThread(nativeId, response)
+        val id = checkNotNull(thread.text("id"))
         val turns = thread["turns"] as? JsonArray
-        validateIdle(thread, turns.orEmpty())
+        if (nativeId == null && hostedManifest != null) host.manifests.save(id, hostedManifest)
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
             route,
             target,
             this,
             rpc,
+            isHosted,
         )
         try {
             session.load(turns, isNew = nativeId == null)
@@ -267,6 +268,56 @@ internal class CodexRuntime(
         return session.lease()
     }
 
+    private suspend fun validateHostedResume(nativeId: String?, expected: String?): Boolean {
+        if (nativeId == null) return true
+        val stored = host.manifests.get(nativeId)
+        val isRequired = stored != null || host.manifests.isRequired(nativeId)
+        if (isRequired) {
+            if (stored == null || stored != expected) fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+        }
+        return stored != null
+    }
+
+    private fun validateNativeThread(nativeId: String?, response: JsonObject): JsonObject {
+        validateNativeIsolation(response)
+        val thread = response.obj("thread")
+        val id = thread.text("id") ?: protocolFailure()
+        if (nativeId != null && nativeId != id) protocolFailure()
+        if (thread.text("modelProvider")?.let { it != "openai" } == true) protocolFailure()
+        validateIdle(thread, (thread["turns"] as? JsonArray).orEmpty())
+        return thread
+    }
+
+    private fun validateNativeIsolation(response: JsonObject) {
+        val sandbox = response["sandbox"] as? JsonObject
+        val isPolicyMatching = response.text("approvalPolicy") == APPROVAL_POLICY
+        val isSandboxMatching = sandbox?.text("type") == "readOnly" && sandbox["networkAccess"] == JsonPrimitive(false)
+        if (!isPolicyMatching || !isSandboxMatching) fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    }
+
+    /** Resume restores native declarations; changing them silently would advertise tools Codex cannot call. */
+    private suspend fun hostedManifest(workspace: WorkspaceRef?): String? {
+        if (workspace == null) return null
+        val tools = host.tools.specifications(workspace)
+        if (tools.isEmpty()) return null
+        return buildJsonObject {
+            put("version", 1)
+            put("workspace", workspace.value)
+            put(
+                "tools",
+                JsonArray(
+                    tools.sortedBy { it.name }.map { spec ->
+                        buildJsonObject {
+                            put("name", spec.name)
+                            put("description", spec.description)
+                            put("schema", spec.inputSchema)
+                        }
+                    },
+                ),
+            )
+        }.toString()
+    }
+
     private fun validateIdle(thread: JsonObject, turns: List<JsonElement>) {
         val isActive = (thread["status"] as? JsonObject)?.text("type") == "active"
         if (isActive || turns.any { (it as? JsonObject)?.text("status") == "inProgress" }) {
@@ -279,22 +330,41 @@ internal class CodexRuntime(
         target: EngineTarget,
         workspace: WorkspaceRef?,
         tools: Boolean,
+        hostedEnabled: Boolean,
     ): JsonObject {
         val path = workspace?.let {
             host.workspaces.resolve(it) ?: config.workspaces[it]
                 ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
+        val hostedWorkspace = workspace.takeIf { hostedEnabled }
+        val hosted = hostedParameters(hostedWorkspace)
+        val declarations = hosted.first + if (tools) searchToolSpecs() else emptyList()
+        val instructions = hosted.second
+        val isolation = codexIsolationConfig(rpc, path, tools)
         return buildJsonObject {
             put("model", target.model.value)
             put("modelProvider", "openai")
             put("approvalPolicy", APPROVAL_POLICY)
             put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
-            if (nativeId == null && tools) put("dynamicTools", searchToolSpecs())
-            // Codex's hosted web search runs next to the dynamic tools; the model picks either.
-            if (tools) put("config", buildJsonObject { put("web_search", WEB_SEARCH_MODE) })
+            if (nativeId == null && declarations.isNotEmpty()) put("dynamicTools", JsonArray(declarations))
+            if (instructions.isNotBlank()) put("developerInstructions", instructions)
+            put("config", isolation)
             if (nativeId != null) put("threadId", nativeId)
         }
+    }
+
+    private suspend fun hostedParameters(workspace: WorkspaceRef?): Pair<List<JsonObject>, String> {
+        if (workspace == null) return emptyList<JsonObject>() to ""
+        val declarations = host.tools.specifications(workspace).map { spec ->
+            buildJsonObject {
+                put("type", "function")
+                put("name", spec.name)
+                put("description", spec.description)
+                put("inputSchema", spec.inputSchema)
+            }
+        }
+        return declarations to host.tools.instructions(workspace)
     }
 
     private suspend fun event(message: JsonObject) {
@@ -366,10 +436,7 @@ internal class CodexRuntime(
         const val EARLY_LIMIT = 512
 
         // app-server v2 wire spellings (AskForApproval, SandboxMode), not the Rust variant names.
-        const val APPROVAL_POLICY = "untrusted"
+        const val APPROVAL_POLICY = "never"
         const val SANDBOX_MODE = "read-only"
-
-        /** Live hosted search; `cached` would answer from OpenAI's index snapshot only. */
-        const val WEB_SEARCH_MODE = "live"
     }
 }

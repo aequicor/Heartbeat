@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -33,6 +34,7 @@ internal class CodexLease(private val session: CodexSession) :
     SendsPrompts,
     CancelsTurns,
     RequestsPermissions,
+    AppliesTrustLevels,
     SessionHistory {
     private val log = Log.tag("CodexLease")
     override val ref = session.ref

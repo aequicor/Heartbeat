@@ -18,5 +18,13 @@ internal fun codexTurnParams(threadId: String, model: String, input: JsonArray, 
         put("threadId", threadId)
         put("model", model)
         put("input", input)
+        put("approvalPolicy", "never")
+        put(
+            "sandboxPolicy",
+            buildJsonObject {
+                put("type", "readOnly")
+                put("networkAccess", false)
+            },
+        )
         effort?.let { put("effort", it) }
     }

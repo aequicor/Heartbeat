@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.serialization.json.JsonObject
 import java.io.ByteArrayInputStream
 import java.io.InputStream
@@ -26,21 +26,21 @@ class ProcessCodexWireTest {
         wire.close()
         wire.close()
 
-        assertTrue(process.descendantsRequested)
+        assertTrue(process.areDescendantsRequested)
         assertEquals(1, process.destroyed)
-        assertTrue(process.stdin.closed)
+        assertTrue(process.stdin.isClosed)
         assertEquals(1, releases)
     }
 
     @Test
     fun `close still stops process when descendants are unsupported`() {
-        val process = FakeProcess(descendantsSupported = false)
+        val process = FakeProcess(areDescendantsSupported = false)
         val wire = ProcessCodexWire(process, TestDispatchers) {}
 
         wire.close()
 
         assertEquals(1, process.destroyed)
-        assertTrue(process.stdin.closed)
+        assertTrue(process.stdin.isClosed)
     }
 
     @Test
@@ -51,22 +51,23 @@ class ProcessCodexWireTest {
         assertTrue(process.stdin.entered.await(5, TimeUnit.SECONDS))
 
         wire.close()
-        assertFalse(process.stdin.closed)
+        assertFalse(process.stdin.isClosed)
         process.stdin.proceed.countDown()
         writer.join(5_000)
 
         assertFalse(writer.isAlive)
-        assertTrue(process.stdin.closed)
+        assertTrue(process.stdin.isClosed)
     }
 
     private object TestDispatchers : DispatcherProvider {
-        override val main = Dispatchers.Unconfined
-        override val default = Dispatchers.Unconfined
-        override val io = Dispatchers.Unconfined
+        private val dispatcher = UnconfinedTestDispatcher()
+        override val main = dispatcher
+        override val default = dispatcher
+        override val io = dispatcher
     }
 
     private class TrackingStream : OutputStream() {
-        @Volatile var closed = false
+        @Volatile var isClosed = false
         val entered = CountDownLatch(1)
         val proceed = CountDownLatch(1)
 
@@ -76,14 +77,14 @@ class ProcessCodexWireTest {
         }
 
         override fun close() {
-            closed = true
+            isClosed = true
         }
     }
 
-    private class FakeProcess(private val descendantsSupported: Boolean = true) : Process() {
+    private class FakeProcess(private val areDescendantsSupported: Boolean = true) : Process() {
         val stdin = TrackingStream()
         var destroyed = 0
-        var descendantsRequested = false
+        var areDescendantsRequested = false
 
         override fun getOutputStream(): OutputStream = stdin
 
@@ -102,8 +103,8 @@ class ProcessCodexWireTest {
         override fun destroyForcibly(): Process = apply { destroy() }
 
         override fun descendants(): Stream<ProcessHandle> {
-            descendantsRequested = true
-            if (!descendantsSupported) throw UnsupportedOperationException("unsupported in test")
+            areDescendantsRequested = true
+            if (!areDescendantsSupported) throw UnsupportedOperationException("unsupported in test")
             return Stream.empty()
         }
     }
