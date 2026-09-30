@@ -415,7 +415,7 @@ class WorktreeJournalTest {
         var buildGate: CompletableDeferred<Unit>? = null
         override suspend fun plan(source: String, identity: String): WorktreeProvision {
             check(!hasPlanFailure) { "GitProcessUnavailable" }
-            return WorktreeProvision("/source", "/checkout", "/common", "master", "codex/task", "sha")
+            return WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/task", "sha")
         }
         override suspend fun trackMain(source: String): WorktreeProvision = plan(source, "main")
         override suspend fun materialize(record: WorktreeRecord) = Unit
