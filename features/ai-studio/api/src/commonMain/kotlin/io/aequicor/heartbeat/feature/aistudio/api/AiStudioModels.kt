@@ -27,12 +27,15 @@ public data class StudioDefaults(val projectId: String?, val settings: RunSettin
 /**
  * One column of the workspace. Shows the session [sessionId], or the new-session page targeting [projectId]
  * (`null` — a conversation outside projects). [isCreating] is set while a submitted prompt creates its session.
+ * [createRequestId] identifies that submission independently of the reusable pane [id]. It remains after a
+ * failure until the page is replaced or another prompt is submitted, so delayed draft restoration is correlated.
  */
 public data class StudioPane(
     val id: Int,
     val sessionId: String? = null,
     val projectId: String? = null,
     val isCreating: Boolean = false,
+    val createRequestId: Long? = null,
 )
 
 /** Metadata change of a session, persisted by the studio effects. */
