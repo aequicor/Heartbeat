@@ -20,7 +20,7 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbHorizontalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
-/** A stable editor and preferences toolbar; touch layouts give each preference group its own row. */
+/** A stable editor and preferences toolbar; narrow layouts give each preference group its own row. */
 @Composable
 internal fun ComposerPanelLayout(
     isFocused: Boolean,
@@ -41,7 +41,12 @@ internal fun ComposerPanelLayout(
     ) {
         editor(Modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.xs, vertical = HbTheme.spacing.xs))
         HbBoxWithConstraints(Modifier.fillMaxWidth()) {
-            if (!HbTheme.dimensions.isDesktop && maxWidth < HbTheme.dimensions.compactBreakpoint) {
+            val toolbarBreakpoint = if (HbTheme.dimensions.isDesktop) {
+                HbTheme.dimensions.composerToolbarBreakpoint
+            } else {
+                HbTheme.dimensions.compactBreakpoint
+            }
+            if (maxWidth < toolbarBreakpoint) {
                 HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
                     HbRow(
                         Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState()),

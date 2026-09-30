@@ -134,6 +134,8 @@ class HbPanelComposerUiTest {
             val compactEditor = editor.fetchSemanticsNode().boundsInRoot
             val compactModel = onNodeWithText("Model").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue(compactModel.top > compactEditor.bottom)
+            val context = onNodeWithContentDescription("Add").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            assertTrue(compactModel.top >= context.bottom, "Narrow toolbar must separate context and model controls")
             assertEquals("Keep this draft", editor.fetchSemanticsNode().config[SemanticsProperties.EditableText].text)
             onNodeWithContentDescription("Send").assertIsDisplayed().performClick()
             runOnIdle { assertEquals(1, sends) }

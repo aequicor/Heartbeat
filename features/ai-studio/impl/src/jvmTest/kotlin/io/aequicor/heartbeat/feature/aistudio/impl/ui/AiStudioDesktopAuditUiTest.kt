@@ -81,6 +81,32 @@ class AiStudioDesktopAuditUiTest {
     }
 
     @Test
+    fun `new chat keeps composer beside hero after leaving a conversation in both themes`() {
+        for (width in listOf(420, 1280)) {
+            for (isDark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
+                    var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))
+                    setContent {
+                        CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                            HbTheme(darkTheme = isDark) { AiStudioContent(state, {}, auditExits) }
+                        }
+                    }
+                    settleAudit()
+                    val conversationComposer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                    runOnIdle { state = state.copy(panes = persistentListOf(PaneUi(0))) }
+                    settleAudit()
+                    onNodeWithTag("new-session-hero").assertIsDisplayed()
+                    onNodeWithTag("composer-0").assertIsDisplayed()
+                    val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
+                    assertTrue(composer.bottom < conversationComposer.top, "New chat input belongs beside its heading")
+                    assertTrue(composer.left >= 0f && composer.right <= width, "Input must fit a narrow desktop")
+                    saveAudit("$width-$isDark-centered-new-chat", width, isDark, "centered-new-chat")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `desktop audit records selected hover tab and search focus states`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {
             var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))

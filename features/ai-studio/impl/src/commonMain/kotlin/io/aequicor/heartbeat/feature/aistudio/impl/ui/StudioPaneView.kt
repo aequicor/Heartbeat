@@ -114,13 +114,28 @@ internal fun StudioPaneView(
     ) {
         val sessionId = pane.sessionId
         val transcript = content.transcript
+        val isCenteredComposer = sessionId == null && HbTheme.dimensions.isDesktop
         if (sessionId == null) {
-            Box(Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset)) {
+            Box(
+                Modifier.fillMaxSize().padding(
+                    top = topInset,
+                    bottom = if (isCenteredComposer) HbTheme.spacing.none else bottomInset,
+                ),
+            ) {
                 NewSessionHero(
                     content.project,
                     onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
+                    composer = if (isCenteredComposer) {
+                        {
+                            Box(Modifier.testTag("pane-footer-${pane.id}")) {
+                                PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
+                            }
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
         } else if (transcript != null) {
@@ -150,17 +165,19 @@ internal fun StudioPaneView(
         ) {
             PaneHeader(content, layout, onIntent, isAtWindowLeadingEdge)
         }
-        Box(
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                .onSizeChanged { footerHeight = it.height }
-                .testTag("pane-footer-${pane.id}"),
-        ) {
-            HbColumn(
-                Modifier.fillMaxWidth(),
-                gap = HbTheme.spacing.none,
+        if (!isCenteredComposer) {
+            Box(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .onSizeChanged { footerHeight = it.height }
+                    .testTag("pane-footer-${pane.id}"),
             ) {
-                PaneNotices(content, onIntent, questions)
-                PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
+                HbColumn(
+                    Modifier.fillMaxWidth(),
+                    gap = HbTheme.spacing.none,
+                ) {
+                    PaneNotices(content, onIntent, questions)
+                    PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
+                }
             }
         }
     }
@@ -360,10 +377,15 @@ private fun PaneLayoutActions(
 }
 
 @Composable
-private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun NewSessionHero(
+    project: ProjectUi?,
+    onDraft: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    composer: (@Composable () -> Unit)? = null,
+) {
     HbColumn(
-        modifier.widthIn(max = HbTheme.dimensions.chatMessageMaxWidth)
-            .hbVerticalScroll(rememberScrollState()).padding(HbTheme.spacing.xxl)
+        modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth + HbTheme.spacing.xl * 2)
+            .fillMaxWidth().hbVerticalScroll(rememberScrollState()).padding(vertical = HbTheme.spacing.xxl)
             .testTag("new-session-hero"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -380,15 +402,18 @@ private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modif
             style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
             color = HbTheme.colors.textSecondary,
         )
+        composer?.let { editor ->
+            Box(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.xxl)) { editor() }
+        }
         val starters = listOf(
-            Res.string.template_plan to Res.string.template_plan_prompt,
-            Res.string.template_review to Res.string.template_review_prompt,
-            Res.string.template_tests to Res.string.template_tests_prompt,
+            Triple(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan),
+            Triple(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
+            Triple(Res.string.template_tests, Res.string.template_tests_prompt, HbIcons.Check),
         )
         HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
-            starters.forEach { (label, promptResource) ->
+            starters.forEach { (label, promptResource, icon) ->
                 val prompt = stringResource(promptResource)
-                HbChip(label = stringResource(label), onClick = { onDraft(prompt) }, trailingIcon = null)
+                HbChip(label = stringResource(label), icon = icon, onClick = { onDraft(prompt) }, trailingIcon = null)
             }
         }
     }
