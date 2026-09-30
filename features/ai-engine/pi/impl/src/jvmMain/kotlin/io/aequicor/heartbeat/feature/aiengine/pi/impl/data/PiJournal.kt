@@ -31,8 +31,9 @@ import java.util.UUID
 
 /**
  * Atomic transcript with bounded replay: live events of this process, preceded by the stored conversation
- * when the session is resumed ([restore]). Native files remain owned by Pi.
+ * when its whole branch can be restored on resume ([restore]). Native files remain owned by Pi.
  * Items are never dropped, so the history is complete for a new session and after restoring a whole stored branch.
+ * An incomplete branch is omitted: its regenerated item IDs cannot safely overlap a consumer's saved transcript.
  */
 internal class PiJournal : SessionHistory {
     private val log = Log.tag("PiJournal")
@@ -58,12 +59,21 @@ internal class PiJournal : SessionHistory {
      * Seeds the journal of a resumed session with the stored native [branch], so observers see the
      * conversation Pi continues instead of an empty history. Called once, before any live event.
      * A stored tool call without a result never finished: its process is gone, so it is reported as cancelled.
-     * A branch that lost its beginning leaves the history partial.
+     * A branch that lost its beginning is not seeded: restored items get new IDs, so replaying a partial tail
+     * would duplicate content already saved by consumers. An empty [HistoryCoverage.Partial] snapshot preserves
+     * their saved transcript, and subsequent live events append only newly observed items. If no consumer copy
+     * exists, this journal cannot display the incomplete native tail; the native file remains unchanged.
      */
     fun restore(branch: PiStoredBranch) = synchronized(lock) {
         check(items.isEmpty()) { "Pi history is already populated" }
-        val messages = branch.messages
         coverage = if (branch.isComplete) HistoryCoverage.Complete else HistoryCoverage.Partial
+        if (!branch.isComplete) {
+            log.i {
+                "Pi incomplete history replay omitted: ${branch.messages.size} messages, coverage=${coverage.name}"
+            }
+            return@synchronized
+        }
+        val messages = branch.messages
         val statuses = settled(messages)
         messages.forEachIndexed { index, message ->
             publish(PiMessages.message(message, info(items.size, null)))
