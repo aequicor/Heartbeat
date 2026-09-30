@@ -89,7 +89,20 @@ public data class SessionPage(
 
 /** Completeness of the native transcript independently from page boundaries. */
 @Serializable
-public enum class HistoryCoverage { Complete, Partial, Unknown }
+public enum class HistoryCoverage {
+    /** The available pages represent the whole native transcript, including all observed item identities. */
+    Complete,
+
+    /**
+     * Some native content is unavailable. Consumers may retain their earlier saved transcript before this
+     * window. Adapters must not reseed earlier content under new item IDs: partial replay must preserve the
+     * identity of previously observed items, or omit that replay and expose only newly observed content.
+     */
+    Partial,
+
+    /** The adapter cannot establish whether native content is missing. */
+    Unknown,
+}
 
 /**
  * Chronological page. Checkpoint and items are an atomic view; watch(checkpoint) replays later changes.

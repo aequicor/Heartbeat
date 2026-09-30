@@ -31,19 +31,20 @@ import kotlin.uuid.Uuid
 
 /**
  * Bounded journal; slow consumers receive invalidation rather than a silently truncated stream. Main confined.
- * Items are never dropped, so once seeded from the whole native thread the pages cover it as loaded plus the
- * notifications observed since.
+ * Items are never dropped or reseeded. Only a canonical full replay can seed a resumed thread; later reads
+ * may lower coverage when unseen native content is discovered without replacing the richer live journal.
  */
 internal class CodexHistory : SessionHistory {
     private val log = Log.tag("CodexHistory")
 
-    /** Complete once the thread is new or was loaded with its native turns; Partial while they are unknown. */
+    /** Complete for a new thread or a canonical full replay, until a read discovers missing native content. */
     var coverage: HistoryCoverage = HistoryCoverage.Partial
         private set
 
     private val generation = Uuid.random().toString()
     private var sequence = 0L
     private val items = linkedMapOf<ItemId, SessionItem>()
+    private val nativeSnapshots = mutableMapOf<ItemId, JsonObject>()
     private val reasoning = CodexReasoning()
 
     /** [floor] is the last sequence lost to truncation; checkpoints below it cannot be replayed. */
@@ -57,6 +58,9 @@ internal class CodexHistory : SessionHistory {
     fun seeded(isComplete: Boolean) {
         coverage = if (isComplete) HistoryCoverage.Complete else HistoryCoverage.Partial
     }
+
+    /** Conservative snapshot comparison: even changed metadata makes completeness uncertain, without reseeding. */
+    fun matches(native: JsonObject): Boolean = nativeSnapshots[ItemId(native.text("id") ?: protocolFailure())] == native
 
     override suspend fun page(request: HistoryPageRequest): HistoryPage {
         log.d { "Codex history page" }
@@ -164,6 +168,7 @@ internal class CodexHistory : SessionHistory {
         )
         val kind = native.text("type")
         val item = decodeNativeItem(native, kind, info, isStarted)
+        nativeSnapshots[id] = native
         items[id] = item
         publish { SessionEvent.ItemUpserted(it, item) }
         if (kind == "dynamicToolCall" && native.text("status") in setOf("completed", "failed")) {
@@ -251,6 +256,8 @@ internal class CodexHistory : SessionHistory {
 
     fun reasoningDelta(native: JsonObject, turn: TurnId?) {
         val id = ItemId(native.text("itemId") ?: protocolFailure())
+        // Deltas do not carry the full native snapshot; completion will restore an auditable snapshot.
+        nativeSnapshots.remove(id)
         val old = items[id]
         val info = ItemInfo(
             id,

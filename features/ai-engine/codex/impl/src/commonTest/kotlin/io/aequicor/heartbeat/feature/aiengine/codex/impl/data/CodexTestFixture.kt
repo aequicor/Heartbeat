@@ -124,6 +124,7 @@ internal class Fixture(
 
     /** Native turns of a resumed thread; null omits them from the response. */
     var resumedTurns: JsonArray? = JsonArray(emptyList())
+    var resumedHistoryMode: String? = null
     var modelList: List<JsonObject> = emptyList()
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
@@ -184,7 +185,11 @@ internal class Fixture(
                     message,
                     json(
                         "thread" to JsonObject(
-                            listOfNotNull("id" to "thread".json(), resumedTurns?.let { "turns" to it }).toMap(),
+                            listOfNotNull(
+                                "id" to "thread".json(),
+                                resumedTurns?.let { "turns" to it },
+                                resumedHistoryMode?.let { "historyMode" to it.json() },
+                            ).toMap(),
                         ),
                     ),
                 )
