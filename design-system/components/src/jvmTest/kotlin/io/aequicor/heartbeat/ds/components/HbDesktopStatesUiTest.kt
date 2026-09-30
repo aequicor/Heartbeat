@@ -112,6 +112,42 @@ class HbDesktopStatesUiTest {
     }
 
     @Test
+    fun `field focus wraps the rounded field edge and leaves its corners quiet`() {
+        // macOS keeps its outset contour ring; the edge contour is the treatment of the other kits.
+        focusCases().filter { it.style == HbVisualStyle.Flat && it.platform != PlatformUi.MacOs }.forEach { case ->
+            runSkikoComposeUiTest(size = Size(420f, 260f)) {
+                setContent { FocusHost(case) }
+                val field = onNodeWithTag("field")
+                val bounds = field.fetchSemanticsNode().boundsInRoot
+                val edges = listOf(
+                    bounds.center.x.toInt() to bounds.top.toInt(),
+                    bounds.center.x.toInt() to (bounds.bottom - 1).toInt(),
+                    bounds.left.toInt() to bounds.center.y.toInt(),
+                    (bounds.right - 1).toInt() to bounds.center.y.toInt(),
+                )
+                val idle = captureToImage().toAwtImage()
+                field.performMouseInput {
+                    moveTo(center)
+                    press()
+                    release()
+                    exit()
+                }
+                field.assertIsFocused()
+                val focused = captureToImage().toAwtImage()
+                val accent = case.colors.focusAccent.toArgb()
+                val background = case.colors.background.toArgb()
+                edges.forEach { (x, y) ->
+                    assertNotEquals(accent, idle.getRGB(x, y), "$case idle edge $x,$y")
+                    assertEquals(accent, focused.getRGB(x, y), "$case focused edge $x,$y")
+                }
+                val cornerX = bounds.left.toInt()
+                val cornerY = bounds.top.toInt()
+                assertEquals(background, focused.getRGB(cornerX, cornerY), "$case rounded corner stays quiet")
+            }
+        }
+    }
+
+    @Test
     fun `former soft style leaves no shadow outside controls or fields`() {
         listOf(false, true).forEach { isDark ->
             runSkikoComposeUiTest(size = Size(420f, 260f)) {

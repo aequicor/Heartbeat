@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.ds.adaptive
 
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.NonRestartableComposable
@@ -31,8 +33,15 @@ fun AdaptiveTheme(
 ) {
     val currentContent by rememberUpdatedState(content)
     val movableContent = remember { movableContentOf { currentContent() } }
+    val selectionColors = remember(colors) {
+        TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
+    }
+    // Provided inside the kit theme so native schemes cannot replace the palette selection.
+    val themedContent = @Composable {
+        CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) { movableContent() }
+    }
     CompositionLocalProvider(LocalAdaptiveColors provides colors, LocalPlatformUi provides platformUi) {
-        if (applyKitTheme) platformKit(platformUi).Theme(colors, typography, movableContent) else movableContent()
+        if (applyKitTheme) platformKit(platformUi).Theme(colors, typography, themedContent) else themedContent()
     }
 }
 
