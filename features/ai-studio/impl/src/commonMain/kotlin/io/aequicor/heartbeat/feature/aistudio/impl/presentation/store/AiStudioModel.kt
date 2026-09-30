@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
@@ -252,15 +253,25 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
 
-            is AiStudioScreenIntent.SelectModel -> updateSettings(pipeline) { copy(modelId = intent.modelId) }
+            is AiStudioScreenIntent.SelectModel -> selectSetting(
+                pipeline,
+                intent.paneId,
+                StudioSettingChange.Model(intent.modelId),
+            ) { copy(modelId = intent.modelId) }
 
-            is AiStudioScreenIntent.SelectEffort -> updateSettings(pipeline) { copy(effort = intent.effort.toDomain()) }
+            is AiStudioScreenIntent.SelectEffort -> {
+                val effort = if (intent.effort == EffortUi.VeryHigh) "xhigh" else intent.effort.name.lowercase()
+                selectSetting(pipeline, intent.paneId, StudioSettingChange.Effort(effort)) {
+                    copy(effort = intent.effort.toDomain())
+                }
+            }
 
             is AiStudioScreenIntent.SelectEngineEffort -> selectEngineEffort(pipeline, intent)
 
             is AiStudioScreenIntent.SelectApproval -> {
                 log.i { "select approval: ${intent.approval}" }
-                updateSettings(pipeline) { copy(approval = intent.approval.toDomain()) }
+                val change = StudioSettingChange.Approval(intent.approval.toDomain())
+                selectSetting(pipeline, intent.paneId, change) { copy(approval = intent.approval.toDomain()) }
             }
         }
     }
@@ -306,6 +317,7 @@ class AiStudioModel(
     private suspend fun selectEngineEffort(pipeline: StudioPipeline, intent: AiStudioScreenIntent.SelectEngineEffort) =
         with(pipeline) {
             log.i { "select effort: ${intent.effort ?: "default"}" }
+            if (changeSessionSetting(pipeline, intent.paneId, StudioSettingChange.Effort(intent.effort))) return@with
             val target = studioModelTarget(intent.modelId) ?: return@with log.w {
                 "effort selection ignored: model is not an engine route"
             }
@@ -313,6 +325,34 @@ class AiStudioModel(
             val result = machines.send(EffortConfigurationMachineKey, select)
             if (result != SendResult.Accepted) log.w { "effort selection not applied: $result" }
         }
+
+    private suspend fun selectSetting(
+        pipeline: StudioPipeline,
+        paneId: Int?,
+        change: StudioSettingChange,
+        changeDefault: RunSettings.() -> RunSettings,
+    ) {
+        if (!changeSessionSetting(pipeline, paneId, change)) updateSettings(pipeline, changeDefault)
+    }
+
+    /** Routes an existing native chat through its machine; new pages and scripted chats keep local defaults. */
+    private suspend fun changeSessionSetting(
+        pipeline: StudioPipeline,
+        paneId: Int?,
+        change: StudioSettingChange,
+    ): Boolean = with(pipeline) {
+        var isHandled = true
+        withState {
+            val pane = panes.firstOrNull { it.id == (paneId ?: focusedPaneId) } ?: return@withState
+            isHandled = false
+            val sessionId = pane.sessionId ?: return@withState
+            val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
+            if (studioModelTarget(modelId) == null) return@withState
+            isHandled = true
+            sendTo(machine, AiStudioIntent.Public.ChangeSessionSetting(sessionId, change))
+        }
+        isHandled
+    }
 
     private suspend fun edit(pipeline: StudioPipeline, sessionId: String, edit: SessionEdit) = with(pipeline) {
         sendTo(machine, AiStudioIntent.Public.Edit(sessionId, edit))

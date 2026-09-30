@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -21,16 +22,20 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -65,7 +70,7 @@ class StudioComposerUiTest {
             onNodeWithText("future-effort").performClick()
             runOnIdle {
                 assertEquals(
-                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectEngineEffort(model.id, "future-effort")),
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectEngineEffort(model.id, "future-effort", 0)),
                     events,
                 )
             }
@@ -110,9 +115,9 @@ class StudioComposerUiTest {
             runOnIdle {
                 assertEquals(
                     listOf<AiStudioScreenIntent>(
-                        AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoApprove),
-                        AiStudioScreenIntent.SelectEffort(EffortUi.Low),
-                        AiStudioScreenIntent.SelectModel("pulse-mini"),
+                        AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoApprove, 0),
+                        AiStudioScreenIntent.SelectEffort(EffortUi.Low, 0),
+                        AiStudioScreenIntent.SelectModel("pulse-mini", 0),
                         AiStudioScreenIntent.DraftChanged(0, planPrompt),
                     ),
                     events,
@@ -173,11 +178,79 @@ class StudioComposerUiTest {
         onNodeWithText(editsLabel).performClick()
         runOnIdle {
             assertEquals(
-                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoEdits)),
+                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoEdits, 0)),
                 events,
             )
         }
     }
+
+    @Test
+    fun `running native session offers model changes and a default effort is not replaced by its preference`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val pane = PaneUi(3, sessionId = "session")
+            val native = ModelUi(
+                "native-route",
+                "Native model",
+                reasoningEfforts = persistentListOf("medium", "high"),
+                defaultReasoningEffort = "medium",
+            )
+            val next = ModelUi("next-route", "Next model")
+            val initial = AiStudioScreenState()
+            val state = initial.copy(
+                panes = persistentListOf(pane),
+                models = persistentListOf(native, next),
+                running = persistentSetOf("session"),
+                settings = initial.settings.copy(engineEfforts = persistentMapOf(native.id to "high")),
+                configurations = persistentMapOf("session" to SessionConfigurationUi(native.id, null, ApprovalUi.Ask)),
+            )
+            var automatic = ""
+            setContent {
+                automatic = stringResource(Res.string.effort_default)
+                NativeComposerFixture(state.paneContent(pane), events::add)
+            }
+            onNodeWithText(automatic).assertIsDisplayed()
+            onNodeWithTag("model-chip").performClick()
+            onNodeWithText(next.name).performClick()
+            runOnIdle {
+                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectModel(next.id, 3)), events)
+            }
+        }
+
+    @Test
+    fun `pending configuration disables setting controls but the template menu remains available`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(3, sessionId = "session")
+            val native = ModelUi(
+                "native-route",
+                "Native model",
+                reasoningEfforts = persistentListOf("medium"),
+                isTrustSupported = true,
+            )
+            val state = AiStudioScreenState(
+                panes = persistentListOf(pane),
+                models = persistentListOf(native),
+                configurations = persistentMapOf(
+                    "session" to SessionConfigurationUi(native.id, "medium", ApprovalUi.Ask, "operation"),
+                ),
+            )
+            var addLabel = ""
+            var autoLabel = ""
+            var planLabel = ""
+            var effortLabel = ""
+            setContent {
+                addLabel = stringResource(Res.string.composer_add)
+                autoLabel = stringResource(Res.string.approval_auto)
+                planLabel = stringResource(Res.string.template_plan)
+                effortLabel = stringResource(Res.string.composer_effort_menu)
+                NativeComposerFixture(state.paneContent(pane), {})
+            }
+            onNodeWithContentDescription(native.name).assertIsNotEnabled()
+            onNodeWithContentDescription(effortLabel).assertIsNotEnabled()
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(autoLabel).assertIsNotEnabled()
+            onNodeWithText(planLabel).assertIsDisplayed()
+        }
 }
 
 @Composable

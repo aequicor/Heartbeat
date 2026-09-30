@@ -262,8 +262,13 @@ internal class EngineStudioRepository(
             // A conversation stored by an earlier version becomes readable from the database before observation.
             items(sessionId)
             emitAll(
-                combine(transcripts.observe(sessionId), state, projection(sessionId)) { stored, runtime, record ->
-                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
+                combine(
+                    transcripts.observe(sessionId),
+                    state,
+                    projection(sessionId),
+                    configurations.feedback(sessionId),
+                ) { stored, runtime, record, feedback ->
+                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running, feedback) +
                         if (record.hasFailed) {
                             listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
                         } else {
