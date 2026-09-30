@@ -158,6 +158,57 @@ class PiSessionConfigurationTest {
     }
 
     @Test
+    fun `toggle-only model reports on after resetting its native effort`() = runTest {
+        val fixture = fixture { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
+        assertEquals("on", fixture.session.configuration.value.reasoningEffort)
+        fixture.runningTurn()
+        val disabled = fixture.session.apply("off", SessionConfigurationChange.Effort("off"))
+        assertEquals("off", disabled.reasoningEffort)
+        val reset = fixture.session.apply("reset", SessionConfigurationChange.Effort(null))
+        assertEquals("medium", fixture.connection.thinkingLevel)
+        assertEquals("on", reset.reasoningEffort)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `model switch uses the confirmed model effort vocabulary`() = runTest {
+        val fixture = fixture()
+        fixture.runningTurn()
+        fixture.connection.modelMetadata = toggleOnlyModelMetadata
+        fixture.connection.modelAck.complete(JsonObject(emptyMap()))
+        val toggled = fixture.session.apply(
+            "toggle-model",
+            SessionConfigurationChange.Model(ModelId("anthropic/other")),
+        )
+        assertEquals("on", toggled.reasoningEffort)
+        fixture.connection.modelMetadata = record(
+            """{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":true}}""",
+        )
+        val numeric = fixture.session.apply(
+            "numeric-model",
+            SessionConfigurationChange.Model(ModelId("anthropic/test")),
+        )
+        assertEquals("medium", numeric.reasoningEffort)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `reconciliation preserves on for a toggle-only model without a new effort request`() = runTest {
+        val fixture = fixture { _, connection -> connection.modelMetadata = toggleOnlyModelMetadata }
+        val turn = fixture.runningTurn()
+        fixture.session.apply("on", SessionConfigurationChange.Effort("on"))
+        fixture.connection.failed(EngineFailure.Transport(TransportFailureReason.Timeout))
+        assertIs<ActiveSessionState.Unavailable>(fixture.session.state.value)
+        fixture.connection.isStreaming = true
+        fixture.connection.thinkingLevel = "high"
+        fixture.session.synchronize()
+        assertEquals("on", fixture.session.configuration.value.reasoningEffort)
+        assertEquals(turn, assertIs<ActiveSessionState.Running>(fixture.session.state.value).turn.id)
+        assertEquals(1, fixture.connection.commands.count { it == "prompt" })
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `invalid and refused live effort leave the native configuration unchanged`() = runTest {
         val fixture = fixture()
         fixture.runningTurn()
@@ -188,6 +239,10 @@ class PiSessionConfigurationTest {
         assertEquals(configured, fixture.session.configuration.value)
         fixture.session.shutdown()
     }
+
+    private val toggleOnlyModelMetadata = record(
+        """{"reasoning":true,"compat":{"thinkingFormat":"qwen","supportsReasoningEffort":false}}""",
+    )
 
     private fun usageMessage(model: String) = record(
         """{"type":"message_end","message":{"role":"assistant","model":"$model",

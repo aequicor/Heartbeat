@@ -172,6 +172,7 @@ internal class FakeConnection : PiConnection {
     var closed = false
     var sessionId = "native"
     var model = "test"
+    var modelMetadata = JsonObject(emptyMap())
     var contextWindow = 1000L
     var isStreaming = false
     var stateFailure: EngineException? = null
@@ -217,10 +218,17 @@ internal class FakeConnection : PiConnection {
 
     private fun state(): JsonObject {
         stateFailure?.let { throw it }
+        val selectedModel = JsonObject(
+            modelMetadata + mapOf(
+                "provider" to JsonPrimitive("anthropic"),
+                "id" to JsonPrimitive(model),
+                "contextWindow" to JsonPrimitive(contextWindow),
+            ),
+        )
         return Json.parseToJsonElement(
             """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":$isStreaming,
                "thinkingLevel":"$thinkingLevel",
-               "model":{"provider":"anthropic","id":"$model","contextWindow":$contextWindow}}""",
+               "model":$selectedModel}""",
         ).jsonObject
     }
 

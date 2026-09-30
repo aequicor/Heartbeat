@@ -71,11 +71,14 @@ internal class PiSessionConfiguration(
         if (level != appliedThinking) {
             rpc().command("set_thinking_level", JsonObject(mapOf("level" to JsonPrimitive(level))))
         }
-        confirm(rpc().command("get_state"), requested)
+        confirm(rpc().command("get_state"))
     }
 
-    /** Parses the entire native snapshot before publishing any part of its configuration. */
-    fun confirm(snapshot: JsonObject, requestedEffort: String? = null) {
+    /**
+     * Parses the entire native snapshot before publishing it. Toggle-only models always expose `off` or `on`,
+     * including snapshots obtained after resetting effort, switching models or reconciling the session.
+     */
+    fun confirm(snapshot: JsonObject) {
         if (snapshot.string("sessionId") != nativeId()) {
             piFailure(EngineFailure.Session(SessionFailureReason.Changed))
         }
@@ -89,7 +92,7 @@ internal class PiSessionConfiguration(
         val confirmedModel = ModelId("$provider/$id")
         val confirmedThinking = snapshot.string("thinkingLevel")
             ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val effort = if (requestedEffort == PI_THINKING_ON && confirmedThinking != "off") {
+        val effort = if (PI_THINKING_ON in model.piThinkingLevels() && confirmedThinking != "off") {
             PI_THINKING_ON
         } else {
             confirmedThinking

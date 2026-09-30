@@ -68,6 +68,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
@@ -434,7 +435,7 @@ internal class EngineStudioRepository(
         val selected = selections.observe().first()
         val record = record(id)
         val chosen = state.value.configurations[id]?.applied?.modelId
-            ?: record.configuration?.modelId ?: settings.modelId
+            ?: record.configuration?.modelId ?: record.target?.studioModelId() ?: settings.modelId
         val target = requireNotNull(turnTarget(chosen, record.target, selected.defaultTarget)) {
             "Select a connected model in settings"
         }

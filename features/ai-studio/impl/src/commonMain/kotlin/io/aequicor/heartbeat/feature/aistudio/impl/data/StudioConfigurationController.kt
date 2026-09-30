@@ -45,10 +45,13 @@ import io.aequicor.heartbeat.feature.feedback.api.FeedbackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -82,8 +85,7 @@ internal class StudioConfigurationController(
     private val log = Log.tag("StudioConfiguration")
     private val lock = Mutex()
     private val changing = mutableSetOf<String>()
-    private val observed = mutableMapOf<String, ActiveSession>()
-    private val observedTargets = mutableMapOf<String, EngineTarget>()
+    private val observed = mutableMapOf<String, ConfigurationObservation>()
     private val reports = mutableMapOf<String, FeedbackRecord>()
     private val published = mutableSetOf<String>()
 
@@ -112,9 +114,9 @@ internal class StudioConfigurationController(
     private suspend fun complete(access: StudioConfigurationAccess, id: String, completion: StudioSessionSettings?) {
         val latest = lock.withLock {
             changing.remove(id)
-            val feature = observed[id]?.features?.resolve(ChangesSessionConfiguration)
+            val feature = observed[id]?.session?.features?.resolve(ChangesSessionConfiguration)
             val native = (feature as? FeatureAccess.Available)?.feature?.configuration?.value
-            val target = observedTargets[id]
+            val target = observed[id]?.target
             val settings = if (native != null && target != null) native.studio(target) else completion
             if (settings != null) access.configurationState(id, StudioSessionConfiguration(settings))
             settings.takeIf { native != null }
@@ -209,30 +211,49 @@ internal class StudioConfigurationController(
         }
     }
 
-    /** Attaches once per native handle; observation and provider corrections outlive screen effects. */
+    /** Profile-owned observation outlives screens, but releases both collectors when its handle closes or changes. */
     suspend fun observe(access: StudioConfigurationAccess, id: String, session: ActiveSession, target: EngineTarget) {
         val capability = (session.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature
             ?: return
-        val isAttached = lock.withLock {
-            if (observed[id] === session) {
-                false
-            } else {
-                observed[id] = session
-                observedTargets[id] = target
-                true
+        lock.withLock {
+            if (observed[id]?.session === session || session.state.value == ActiveSessionState.Closed) return
+            observed[id]?.job?.cancel()
+            val job = profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    followConfiguration(access, id, session, target, capability)
+                } finally {
+                    withContext(NonCancellable) {
+                        lock.withLock {
+                            if (observed[id]?.session === session) observed.remove(id)
+                        }
+                    }
+                }
             }
+            observed[id] = ConfigurationObservation(session, target, job)
         }
-        if (!isAttached) return
-        profile.coroutineScope.launch {
-            mirrorConfiguration(access, id, session, target, capability)
-        }
-        profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+    }
+
+    private suspend fun followConfiguration(
+        access: StudioConfigurationAccess,
+        id: String,
+        session: ActiveSession,
+        target: EngineTarget,
+        capability: ChangesSessionConfiguration,
+    ) = coroutineScope {
+        val configuration = launch { mirrorConfiguration(access, id, session, target, capability) }
+        val corrections = launch(start = CoroutineStart.UNDISPATCHED) {
             mirrorCorrections(access, id, session, target, capability)
+        }
+        try {
+            session.state.first { it == ActiveSessionState.Closed }
+        } finally {
+            configuration.cancel()
+            corrections.cancel()
         }
     }
 
     private suspend fun canReflect(id: String, session: ActiveSession): Boolean =
-        lock.withLock { id !in changing && observed[id] === session }
+        lock.withLock { id !in changing && observed[id]?.session === session }
 
     private suspend fun mirrorConfiguration(
         access: StudioConfigurationAccess,
@@ -305,6 +326,8 @@ internal class StudioConfigurationController(
         val result = machines.send(FeedbackMachineKey, FeedbackIntent.Public.Publish(record))
         if (result != SendResult.Accepted) log.w { "Feedback publication was not accepted: $result" }
     }
+
+    private data class ConfigurationObservation(val session: ActiveSession, val target: EngineTarget, val job: Job)
 
     private suspend fun saveEffort(target: EngineTarget, effort: String?) {
         if (profile.isClosed) return
