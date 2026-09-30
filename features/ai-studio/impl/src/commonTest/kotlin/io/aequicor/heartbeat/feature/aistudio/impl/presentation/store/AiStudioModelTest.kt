@@ -124,7 +124,7 @@ class AiStudioModelTest {
                 AiStudioIntent.Public.UpdateSettings(DefaultRunSettings.copy(effort = ReasoningEffort.Low)),
                 AiStudioIntent.Public.Edit("s-adr", SessionEdit.SetPinned(true)),
             ),
-            fixture.machine.sent.drop(1),
+            fixture.machine.sent.filterNot { it is AiStudioIntent.Public.ObserveUsageTargets }.drop(1),
         )
     }
 
@@ -161,7 +161,7 @@ class AiStudioModelTest {
         runCurrent()
         assertEquals(
             listOf<AiStudioIntent>(AiStudioIntent.Public.Edit("s-adr", SessionEdit.Rename("ADR review"))),
-            fixture.machine.sent.drop(1),
+            fixture.machine.sent.filterNot { it is AiStudioIntent.Public.ObserveUsageTargets }.drop(1),
         )
         assertEquals(null, screen.states.value.sidebar.renaming)
     }

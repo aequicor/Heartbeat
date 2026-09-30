@@ -93,6 +93,7 @@ class AiStudioModel(
                 launch { observeWorkspace(pipeline) }
                 launch { observeResearch(pipeline) }
                 launch { observeEfforts(pipeline) }
+                launch { observeUsageTargets() }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
                     backend.repository().observeModels().collect { models ->
@@ -113,6 +114,23 @@ class AiStudioModel(
     init {
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
+    }
+
+    private suspend fun observeUsageTargets() {
+        combine(machine.state, backend.repository().observeWorkspace()) { state, workspace ->
+            val ready = state as? AiStudioState.Ready
+            if (ready == null) {
+                emptySet()
+            } else {
+                buildSet {
+                    add(ready.settings.modelId)
+                    val visible = ready.panes.mapNotNull { it.sessionId }.toSet()
+                    workspace.sessions.filter { it.id in visible }.mapNotNullTo(this) { it.modelId }
+                }.filterTo(mutableSetOf()) { it.isNotBlank() }
+            }
+        }.distinctUntilChanged().collect { ids ->
+            machine.send(AiStudioIntent.Public.ObserveUsageTargets(ids))
+        }
     }
 
     private suspend fun observeEfforts(pipeline: StudioPipeline) {
@@ -207,6 +225,8 @@ class AiStudioModel(
 
     private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
         when (intent) {
+            is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
+
             is AiStudioScreenIntent.RespondPermission -> sendTo(
                 machine,
                 AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),

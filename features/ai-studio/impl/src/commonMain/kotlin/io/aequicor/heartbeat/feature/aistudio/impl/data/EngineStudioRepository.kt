@@ -128,6 +128,7 @@ internal class EngineStudioRepository(
     private val clock: Clock,
     private val workspaces: LocalWorkspaces,
     private val efforts: EffortChoicesView,
+    private val usage: EngineStudioUsage,
 ) : StudioRepository,
     StudioRuntime {
     private val log = Log.tag("EngineStudio")
@@ -158,6 +159,25 @@ internal class EngineStudioRepository(
     private val opening = mutableMapOf<String, ChatLock>()
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
+
+    init {
+        profile.coroutineScope.launch {
+            usage.state.collect { snapshot ->
+                log.d { "Update studio usage snapshot" }
+                mutableState.update { it.copy(contexts = snapshot.contexts, providerUsage = snapshot.providers) }
+            }
+        }
+    }
+
+    override suspend fun observeUsageTargets(modelIds: Set<String>) {
+        log.d { "Observe composer usage routes" }
+        usage.observe(modelIds)
+    }
+
+    override suspend fun refreshUsage(modelId: String) {
+        log.d { "Refresh composer usage" }
+        usage.refresh(modelId)
+    }
 
     private val offeredModels = facade.observeStudioModels(selections, sources)
         .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
@@ -482,6 +502,7 @@ internal class EngineStudioRepository(
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
         persistReference(id, target, active)
+        usage.attach(id, active)
         active
     }
 

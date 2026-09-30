@@ -49,6 +49,8 @@ class EngineStudioEffects(
                 machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(it))
             }
 
+            is AiStudioEffect.Usage -> usage(effect)
+
             is AiStudioEffect.ChooseProject -> machine.send(
                 AiStudioIntent.Internal.ProjectChosen(effect.paneId, checkNotNull(projects).choose()),
             )
@@ -78,6 +80,12 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
+    private suspend fun usage(effect: AiStudioEffect.Usage) {
+        when (effect) {
+            is AiStudioEffect.ObserveUsageTargets -> runtime.observeUsageTargets(effect.modelIds)
+            is AiStudioEffect.RefreshUsage -> runtime.refreshUsage(effect.modelId)
         }
     }
 }

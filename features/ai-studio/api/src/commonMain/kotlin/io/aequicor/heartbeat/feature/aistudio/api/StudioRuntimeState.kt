@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import kotlin.time.Instant
 
 /** A live permission offered by the engine; only these exact options can be answered. */
@@ -49,4 +51,8 @@ public data class StudioRuntimeState(
     val stopFailures: Set<String> = emptySet(),
     val uncancellable: Set<String> = emptySet(),
     val runStartedAt: Map<String, Instant> = emptyMap(),
+    /** Last measured context by conversation; missing entries have no telemetry. */
+    val contexts: Map<String, ContextUsage> = emptyMap(),
+    /** Provider quotas keyed by the full studio model route. */
+    val providerUsage: Map<String, ProviderUsageSnapshot> = emptyMap(),
 )

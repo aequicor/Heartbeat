@@ -21,6 +21,8 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
 
     is AiStudioState.Ready -> copy(
         phase = StudioPhase.Ready,
+        contexts = machine.contexts.mapValues { it.value.toUi() }.toImmutableMap(),
+        providerUsage = machine.providerUsage.mapValues { it.value.toUi() }.toImmutableMap(),
         isProjectAddingAvailable = machine.isProjectAddingAvailable,
         addingProjectTo = machine.addingProjectTo,
         projectErrorPane = machine.projectErrorPane,

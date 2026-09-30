@@ -37,6 +37,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
  * | Ready | RunFinished | | Ready (idle unless latest snapshot runs it) | Apply(SetUnread) if hidden; output RunEnded |
+ * | Ready | ObserveUsageTargets / RefreshUsage | | Ready | ObserveUsageTargets / RefreshUsage |
  * | Ready | RuntimeChanged | | Ready (profile execution snapshot with start times, answered permissions hidden) | |
  * | Ready | RuntimeLost | | Ready (nothing running, stopping or awaiting permission) | |
  * | Ready | RespondPermission | pending, offered, not answered | Ready (answered) | RespondPermission(answer) |
@@ -91,6 +92,12 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
         }
         state<AiStudioState.Ready> {
             runtime()
+            on<AiStudioIntent.Public.ObserveUsageTargets> {
+                effect { AiStudioEffect.ObserveUsageTargets(intent.modelIds) }
+            }
+            on<AiStudioIntent.Public.RefreshUsage> {
+                effect { AiStudioEffect.RefreshUsage(intent.modelId) }
+            }
             navigation()
             projects()
             conversations()
@@ -125,7 +132,9 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 is AiStudioEffect.RespondPermission ->
                     AiStudioIntent.Internal.PermissionAnswerFailed(effect.sessionId, effect.requestId)
 
-                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply -> null
+                AiStudioEffect.ObserveModels, AiStudioEffect.ObserveAvailability, is AiStudioEffect.Apply,
+                is AiStudioEffect.Usage,
+                -> null
             }
         }
     }
@@ -259,7 +268,7 @@ private fun ReadyTransitions.executions() {
     }
 }
 
-private fun ReadyTransitions.runtime() {
+private fun ReadyTransitions.runtimeSnapshots() {
     on<AiStudioIntent.Internal.RuntimeChanged> {
         stay {
             val snapshot = intent.snapshot
@@ -267,6 +276,8 @@ private fun ReadyTransitions.runtime() {
             state.copy(
                 running = snapshot.running,
                 observedRunning = snapshot.running,
+                contexts = snapshot.contexts,
+                providerUsage = snapshot.providerUsage,
                 runStartedAt = snapshot.runStartedAt.filterKeys { it in snapshot.running },
                 stopping = state.stopping.intersect(snapshot.running) - snapshot.stopFailures,
                 permissions = snapshot.permissions.filterNot { it.requestId in answered },
@@ -281,6 +292,8 @@ private fun ReadyTransitions.runtime() {
             state.copy(
                 running = emptySet(),
                 observedRunning = emptySet(),
+                contexts = emptyMap(),
+                providerUsage = emptyMap(),
                 runStartedAt = emptyMap(),
                 stopping = emptySet(),
                 stopFailures = emptySet(),
@@ -289,6 +302,10 @@ private fun ReadyTransitions.runtime() {
             )
         }
     }
+}
+
+private fun ReadyTransitions.runtime() {
+    runtimeSnapshots()
     on<AiStudioIntent.Public.RespondPermission>(guard = {
         intent.requestId !in state.answeredPermissions && state.permissions.any {
             it.sessionId == intent.sessionId && it.requestId == intent.requestId &&
