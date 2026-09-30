@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionOutput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -21,6 +22,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
@@ -31,6 +35,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -54,9 +59,9 @@ data class SessionParts(
  * it through a bridge running in the handle scope, independently of state-scoped effects. [send] completes only
  * after native acceptance, and every ignored command is reported as a domain failure.
  *
- * The one command outside the machine is the model switch ([SwitchesModels]): ActiveSessionMachineSpec has no
- * model state, and a switch does not change the handle lifecycle. It is therefore only allowed in Ready and is
- * serialized with every turn of the native session through [ActiveSessionRegistry.exclusive].
+ * Configuration operations preserve the handle lifecycle and are serialized with native session commands
+ * through [ActiveSessionRegistry.exclusive]. [SwitchesModels] is idle-only; [ChangesSessionConfiguration]
+ * may apply at a runtime boundary during an accepted turn without changing that turn's identity.
  */
 class ManagedActiveSession(
     override val ref: SessionRef,
@@ -79,6 +84,9 @@ class ManagedActiveSession(
                 RequestsPermissions.id to parts.native.features.wrap(RequestsPermissions) { Permissions() },
                 ReconcilesSession.id to available(Reconciler()),
                 SwitchesModels.id to parts.native.features.wrap(SwitchesModels) { ModelSwitcher(it) },
+                ChangesSessionConfiguration.id to parts.native.features.wrap(ChangesSessionConfiguration) {
+                    ConfigurationChanger(it)
+                },
             ),
             parts.native.features,
         ),
@@ -170,7 +178,8 @@ class ManagedActiveSession(
                 log.w { "trust level refused: engine=${ref.engine.value} does not apply trust levels" }
                 fail(InvalidRequest)
             }
-            val model = currentModel.value
+            val model = (parts.native.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)
+                ?.feature?.configuration?.value?.model ?: currentModel.value
             policy.beforeTurn(route, model)
             return policy.registry.exclusive(ref) {
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
@@ -231,6 +240,40 @@ class ManagedActiveSession(
                 if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
                 adapterCall(log, "switchModel") { native.switchTo(model) }
                 currentModel.value = model
+            }
+        }
+    }
+
+    /** Serializes live changes with other native commands while keeping accepted execution alive. */
+    private inner class ConfigurationChanger(private val native: ChangesSessionConfiguration) :
+        ChangesSessionConfiguration {
+        override val configuration: StateFlow<SessionConfiguration> get() = native.configuration
+        override val updates: Flow<SessionConfigurationUpdate> get() = native.updates
+
+        override suspend fun apply(operationId: String, change: SessionConfigurationChange): SessionConfiguration {
+            log.i {
+                "change session configuration engine=${route.engine.value} kind=${change::class.simpleName.orEmpty()}"
+            }
+            policy.beforeTurn(route, (change as? SessionConfigurationChange.Model)?.model ?: configuration.value.model)
+            return policy.registry.exclusive(ref) {
+                if (policy.registry.isBusy(ref, this@ManagedActiveSession)) fail(Busy)
+                when (val current = machine.state.value) {
+                    is ActiveSessionState.Ready, is ActiveSessionState.Running,
+                    is ActiveSessionState.AwaitingUserAction,
+                    -> Unit
+
+                    is ActiveSessionState.Unavailable -> fail(current.failure)
+
+                    is ActiveSessionState.Closing, ActiveSessionState.Closed ->
+                        fail(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
+
+                    is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting -> fail(Busy)
+                }
+                untilStopped {
+                    adapterCall(log, "configure") { native.apply(operationId, change) }.also {
+                        currentModel.value = it.model
+                    }
+                }
             }
         }
     }
