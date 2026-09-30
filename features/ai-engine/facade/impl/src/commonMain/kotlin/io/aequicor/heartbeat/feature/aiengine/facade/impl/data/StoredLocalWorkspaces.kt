@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
@@ -52,15 +53,29 @@ internal class StoredLocalWorkspaces(
     override fun observe(): Flow<List<LocalWorkspace>> {
         if (!isAvailable) return flowOf(emptyList())
         log.d { "Observing local projects" }
-        return store.observe(ProjectsKey).map { raw -> decode(raw).map { it.metadata() } }.distinctUntilChanged()
+        return store.observe(ProjectsKey).map { raw ->
+            decode(raw).filterNot { it.isManaged }.map { it.metadata() }
+        }.distinctUntilChanged()
     }
 
-    override suspend fun register(directory: String): LocalWorkspace = mutex.withLock {
+    override suspend fun register(directory: String): LocalWorkspace = register(directory, isManaged = false)
+
+    override suspend fun registerManaged(directory: String): LocalWorkspace = register(directory, isManaged = true)
+
+    private suspend fun register(directory: String, isManaged: Boolean): LocalWorkspace = mutex.withLock {
         requireAvailable()
         val canonical = requireNotNull(directories.canonical(directory)) { "Local project directory is unavailable" }
         val saved = decode(store.get(ProjectsKey))
-        saved.firstOrNull { it.directory == canonical.path }?.let { return@withLock it.metadata() }
-        val entry = WorkspaceEntry(Uuid.random().toString(), canonical.name, canonical.path)
+        saved.firstOrNull { it.directory == canonical.path }?.let { existing ->
+            if (!isManaged && existing.isManaged) {
+                store.set(
+                    ProjectsKey,
+                    Json.encodeToString(saved.map { if (it.id == existing.id) it.copy(isManaged = false) else it }),
+                )
+            }
+            return@withLock existing.metadata()
+        }
+        val entry = WorkspaceEntry(Uuid.random().toString(), canonical.name, canonical.path, isManaged)
         log.i { "Registering local project" }
         store.set(ProjectsKey, Json.encodeToString(saved + entry))
         entry.metadata()
@@ -98,7 +113,12 @@ internal fun Exception.safeWorkspaceFailure(): IllegalStateException =
     IllegalStateException("Local project operation failed (${this::class.simpleName.orEmpty()})")
 
 @Serializable
-private data class WorkspaceEntry(val id: String, val name: String, val directory: String) {
+private data class WorkspaceEntry(
+    val id: String,
+    val name: String,
+    val directory: String,
+    @SerialName("managed") val isManaged: Boolean = false,
+) {
     fun metadata(): LocalWorkspace = LocalWorkspace(WorkspaceRef(id), name)
     override fun toString(): String = "WorkspaceEntry"
 }

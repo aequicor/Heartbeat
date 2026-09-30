@@ -156,10 +156,10 @@ internal class FakeNativeSession(
 
     /** Runs inside the native send before anything else, e.g. to end a scope while the command is in flight. */
     var onSend: () -> Unit = {}
-    var acceptOnSend = true
+    var isAcceptanceOnSend = true
 
     /** Whether the published native turn carries the request id (adapters may not correlate). */
-    var correlateOnSend = true
+    var isCorrelationOnSend = true
     var closes = 0
     var closeGate: CompletableDeferred<Unit>? = null
     val models = mutableListOf<ModelId>()
@@ -181,8 +181,8 @@ internal class FakeNativeSession(
                         sendFailure?.let { throw it }
                         sent += request
                         val id = TurnId("native-${sent.size}")
-                        if (acceptOnSend) {
-                            val correlated = request.id.takeIf { correlateOnSend }
+                        if (isAcceptanceOnSend) {
+                            val correlated = request.id.takeIf { isCorrelationOnSend }
                             native.value = ActiveSessionState.Running(Turn(id, correlated, TestTarget))
                         }
                         return id
@@ -244,8 +244,7 @@ internal class FakeNativeSession(
 }
 
 /** Runtime handing out [FakeNativeSession]s for creation and attachment. */
-internal class FakeRuntime(override val identity: RuntimeIdentity, private val supports: Boolean = true) :
-    EngineRuntime {
+internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boolean = true) : EngineRuntime {
     val sessions = mutableListOf<FakeNativeSession>()
     var closes = 0
 
