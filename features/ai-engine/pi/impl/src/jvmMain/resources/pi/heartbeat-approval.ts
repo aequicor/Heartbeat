@@ -10,6 +10,19 @@
  * `edit` / `write` paths are pinned: the path is resolved against the working directory and written back into the
  * call, so the host judges exactly the file Pi writes (Pi executes the mutated input and leaves an absolute path
  * unchanged). Paths Pi rewrites before resolving them are not pinned and always reach the user.
+ *
+ * Pi upgrade checklist (repeat for each bundled version on macOS and Windows):
+ * - Inspect Pi's tool pipeline: validate -> tool_call -> execute must pass the same mutable event.input to the
+ *   tool; edit/write must execute our pinned absolute path without applying another rewrite.
+ * - In a disposable workspace, exercise edit and write with relative and absolute paths. Compare the RPC
+ *   approval payload's path with the actual file changed; AutoEdits may approve an ordinary file inside it.
+ * - Exercise @, ~, file:, Unicode spaces from UNICODE_SPACES, and Windows /c/, /mnt/c/ and /cygdrive/c/ paths.
+ *   Also use a cwd containing a Unicode space: when either the input or resolved path would be rewritten,
+ *   the approval payload must omit path and AutoEdits must ask the user.
+ * - Check an outside-workspace path and a protected project file (for example .git/config): AutoEdits must
+ *   ask the user. A denied, missing, cancelled or failed confirmation must leave every target unchanged.
+ * Record the tested Pi version, OS and results in the upgrade PR; if an invariant changes, update the pinning
+ * and host approval policy before shipping the new runtime. JVM approval fixtures do not execute this script.
  */
 import { resolve } from "node:path";
 
