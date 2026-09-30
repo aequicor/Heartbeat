@@ -129,12 +129,49 @@ class AiStudioModelTest {
 
     @Test
     fun `a failed submit restores the prompt into its composer`() = runTest {
-        val fixture = Fixture(this, ready)
+        val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
+        val fixture = Fixture(this, failed)
         val screen = fixture.subscribe()
-        fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Lost prompt"))
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Lost prompt", 7))
         runCurrent()
         assertEquals("Lost prompt", screen.states.value.draft(0))
         assertTrue(0 in screen.states.value.failedPanes)
+    }
+
+    @Test
+    fun `delayed submit failure cannot restore into a replaced closed or reused pane`() = runTest {
+        val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
+        val targets = listOf(
+            ready,
+            failed.copy(panes = listOf(StudioPane(0))),
+            failed.copy(panes = listOf(StudioPane(1)), focusedPaneId = 1),
+            failed.copy(panes = listOf(StudioPane(0, isCreating = true, createRequestId = 8))),
+            failed.copy(panes = listOf(StudioPane(0, createRequestId = 8))),
+            AiStudioState.Disabled,
+        )
+        for (target in targets) {
+            val fixture = Fixture(this, failed)
+            val screen = fixture.subscribe()
+            // Deliver before reflection catches up; correlation must read the latest machine state.
+            fixture.machine.state.value = target
+            fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Old prompt", 7))
+            runCurrent()
+            assertTrue(screen.states.value.drafts.isEmpty())
+            assertTrue(screen.states.value.failedPanes.isEmpty())
+        }
+    }
+
+    @Test
+    fun `a failed submit does not replace input typed before its output arrives`() = runTest {
+        val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
+        val fixture = Fixture(this, failed)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "New input"))
+        runCurrent()
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Old prompt", 7))
+        runCurrent()
+        assertEquals("New input", screen.states.value.draft(0))
+        assertTrue(screen.states.value.failedPanes.isEmpty())
     }
 
     @Test

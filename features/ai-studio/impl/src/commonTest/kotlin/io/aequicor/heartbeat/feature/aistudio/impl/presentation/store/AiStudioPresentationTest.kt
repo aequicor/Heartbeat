@@ -121,7 +121,7 @@ class AiStudioPresentationTest {
 
     @Test
     fun `drafts are forgotten when emptied and editing clears a failure`() {
-        val failed = state.restoreDraft(1, "Prompt")
+        val failed = state.withDraft(1, "Prompt").copy(failedPanes = persistentSetOf(1))
         assertEquals("Prompt", failed.draft(1))
         val edited = failed.withDraft(1, "")
         assertEquals("", edited.draft(1))

@@ -79,6 +79,8 @@ public sealed interface AiStudioState : MachineState {
         val addingProjectTo: Int? = null,
         val projectErrorPane: Int? = null,
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
+        /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
+        val nextCreateRequestId: Long = 0,
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -171,16 +173,17 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The workspace toggle reports [isEnabled]; the first report repeats the current value. */
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
 
-        /** The prompt submitted from [paneId] created [sessionId]; its run starts now. */
+        /** [requestId] created [sessionId]; only its still-owning pane may start the first run. */
         public data class SessionCreated(
             val paneId: Int,
             val sessionId: String,
             val prompt: String,
             val settings: RunSettings,
+            val requestId: Long,
         ) : Internal
 
-        /** The session for a prompt of [paneId] could not be created. */
-        public data class CreateFailed(val paneId: Int, val prompt: String) : Internal
+        /** [requestId] failed; only its still-owning pane may restore [prompt]. */
+        public data class CreateFailed(val paneId: Int, val prompt: String, val requestId: Long) : Internal
 
         /** Explicit stop failed; keep observing the native turn and permit another stop attempt. */
         public data class CancelFailed(val sessionId: String) : Internal
@@ -245,12 +248,13 @@ public sealed interface AiStudioEffect : MachineEffect {
         val answer: StudioPermissionAnswer? = null,
     ) : AiStudioEffect
 
-    /** Creates a session for the first [prompt] of [paneId] inside [projectId]. */
+    /** Creates a session for [prompt]; [requestId] correlates both success and failure with its pane. */
     public data class CreateSession(
         val paneId: Int,
         val projectId: String?,
         val prompt: String,
         val settings: RunSettings,
+        val requestId: Long,
     ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
@@ -268,8 +272,8 @@ public sealed interface AiStudioEffect : MachineEffect {
 
 /** One-shot events of the studio. */
 public sealed interface AiStudioOutput : MachineOutput {
-    /** The prompt of [paneId] was not sent; the composer can restore it. */
-    public data class SubmitFailed(val paneId: Int, val prompt: String) : AiStudioOutput
+    /** Restore [prompt] only while [paneId] still owns [requestId], without replacing newer input. */
+    public data class SubmitFailed(val paneId: Int, val prompt: String, val requestId: Long) : AiStudioOutput
 
     /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
     public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput
