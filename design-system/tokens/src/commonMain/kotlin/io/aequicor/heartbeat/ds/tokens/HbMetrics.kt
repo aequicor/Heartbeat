@@ -99,6 +99,8 @@ data class HbDimensions(
     val usageRingStrokeWidth: Dp = 2.dp,
     /** Height of determinate usage bars in detail panels. */
     val usageBarHeight: Dp = 4.dp,
+    /** Amber attention strip above a newly presented questionnaire. */
+    val questionnaireAccentHeight: Dp = 4.dp,
     /** Blur and vertical offset of [HbColors.popupShadow]. */
     val popupShadowRadius: Dp = 12.dp,
     val popupShadowOffset: Dp = 4.dp,
@@ -211,4 +213,8 @@ data class HbMotion(
     val scrollbarHideDelayMillis: Int = 700,
     val scrollbarFadeMillis: Int = 180,
     val tooltipDelayMillis: Int = 600,
+    /** Duration of each bounded attention pulse when a questionnaire appears. */
+    val questionnairePulseMillis: Int = 450,
+    /** Number of attention pulses per questionnaire; ongoing answers never restart them. */
+    val questionnairePulseCount: Int = 2,
 )

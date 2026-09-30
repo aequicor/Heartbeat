@@ -1,4 +1,5 @@
 <resources>
+    <string name="questionnaire_attention">Your answer is needed</string>
     <string name="questionnaire_submit">Answer</string>
     <string name="questionnaire_skip">Skip</string>
     <string name="questionnaire_text_hint">Your answer</string>
