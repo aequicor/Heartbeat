@@ -18,11 +18,15 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 internal fun terminatesHost(call: PiApprovalCall): Boolean =
     call.tool !in EditTools && terminatesHostCommand(call.target)
 
-private fun terminatesHostCommand(command: String, wrappersLeft: Int = HOST_WRAPPER_LIMIT): Boolean =
-    HostCommandScan().scan(command).any { terminatesHostWords(it, wrappersLeft) }
+private fun terminatesHostCommand(command: String, wrappersLeft: Int = HOST_WRAPPER_LIMIT): Boolean {
+    val context = HostCommandContext()
+    return HostCommandScan().scan(command).asSequence()
+        .takeWhile { !context.isRemainderConsumed }
+        .any { terminatesHostWords(it, wrappersLeft, context) }
+}
 
 /** Examines executables and wrappers only; the other words of an ordinary command are data. */
-private fun terminatesHostWords(words: List<HostWord>, wrappersLeft: Int): Boolean {
+private fun terminatesHostWords(words: List<HostWord>, wrappersLeft: Int, context: HostCommandContext): Boolean {
     val index = words.indexOfFirst { !it.value.isIntroducer() }
     if (index < 0) return false
     val command = words[index].value.commandName()
@@ -36,23 +40,30 @@ private fun terminatesHostWords(words: List<HostWord>, wrappersLeft: Int): Boole
             wrappersLeft <= 0 || terminatesHostCommand(arguments.joinToString(" ") { it.value }, wrappersLeft - 1)
 
         command in CommandLaunchers ->
-            wrappersLeft <= 0 || terminatesHostWrapper(command, arguments, wrappersLeft - 1)
+            wrappersLeft <= 0 || terminatesHostWrapper(command, arguments, wrappersLeft - 1, context)
 
         else -> false
     }
 }
 
 /** Skips known wrapper options and their values before examining the executable or shell command payload. */
-private fun terminatesHostWrapper(command: String, words: List<HostWord>, wrappersLeft: Int): Boolean {
+private fun terminatesHostWrapper(
+    command: String,
+    words: List<HostWord>,
+    wrappersLeft: Int,
+    context: HostCommandContext,
+): Boolean {
     val index = wrapperCommandIndex(command, words)
     val option = words.getOrNull(index)?.value?.lowercase() ?: return false
     val hasCommandOption = isShellCommandOption(command, option)
     val hasFileOption = command in PowerShellLaunchers && option in PowerShellFileOptions
     val arguments = words.drop(index + if (hasCommandOption || hasFileOption) 1 else 0)
-    return if (hasCommandOption || (command in PowerShellLaunchers && !hasFileOption)) {
-        terminatesHostPayload(arguments, wrappersLeft)
+    return if (command == "cmd" && hasCommandOption) {
+        terminatesHostCmdPayload(arguments, wrappersLeft, context)
+    } else if (hasCommandOption || (command in PowerShellLaunchers && !hasFileOption)) {
+        terminatesHostPayload(arguments, wrappersLeft, context)
     } else {
-        terminatesHostWords(arguments, wrappersLeft)
+        terminatesHostWords(arguments, wrappersLeft, context)
     }
 }
 
@@ -77,12 +88,42 @@ private fun wrapperCommandIndex(command: String, words: List<HostWord>): Int {
 }
 
 /** Only a wrapper's quoted command string is parsed again; quoted search patterns never reach this function. */
-private fun terminatesHostPayload(words: List<HostWord>, wrappersLeft: Int): Boolean =
+private fun terminatesHostPayload(words: List<HostWord>, wrappersLeft: Int, context: HostCommandContext): Boolean =
     if (words.firstOrNull()?.isQuoted == true) {
         terminatesHostCommand(words.first().value, wrappersLeft)
     } else {
-        terminatesHostWords(words, wrappersLeft)
+        terminatesHostWords(words, wrappersLeft, context)
     }
+
+/** CMD executes the whole remainder after `/c` or `/k`, including arguments after a quoted executable. */
+private fun terminatesHostCmdPayload(words: List<HostWord>, wrappersLeft: Int, context: HostCommandContext): Boolean {
+    val first = words.firstOrNull() ?: return false
+    val source = first.source.substring(first.start).trim()
+    context.consumeRemainder()
+    return terminatesHostCommand(cmdPayload(source), wrappersLeft)
+}
+
+/**
+ * Keeps executable-path quotes and trailing argument quotes intact. CMD's double outer quotes wrap a command
+ * string, so only the first and last quotes are removed; an ordinary quoted script is opened for statement scanning.
+ * This preserves CMD's quote boundaries without applying its expansion or general command-language rules.
+ */
+private fun cmdPayload(source: String): String {
+    if (!source.startsWith('"')) return source
+    val closing = source.lastIndexOf('"')
+    if (closing <= 0) return source
+    return if (source.startsWith("\"\"")) {
+        source.substring(1, closing) + source.substring(closing + 1)
+    } else {
+        val firstClosing = source.indexOf('"', 1)
+        val first = source.substring(1, firstClosing)
+        if (first.none { it.isWhitespace() } || CmdExecutablePath.containsMatchIn(first)) {
+            source
+        } else {
+            first + source.substring(firstClosing + 1)
+        }
+    }
+}
 
 private fun isShellCommandOption(command: String, option: String): Boolean = when (command) {
     "cmd" -> option == "/c" || option == "/k"
@@ -100,8 +141,18 @@ private fun wrapperValueOptions(command: String): Set<String> = when (command) {
     else -> emptySet()
 }
 
-/** One argument with its outer quotes removed; [isQuoted] identifies a wrapper's quoted command payload. */
-private data class HostWord(val value: String, val isQuoted: Boolean)
+/** An unquoted argument; [source] and [start] preserve the original CMD payload's quote boundaries and tail. */
+private data class HostWord(val value: String, val isQuoted: Boolean, val source: String, val start: Int)
+
+/** A CMD payload already scans the raw remainder, whose quote boundaries can differ from the initial scan. */
+private class HostCommandContext {
+    var isRemainderConsumed = false
+        private set
+
+    fun consumeRemainder() {
+        isRemainderConsumed = true
+    }
+}
 
 /**
  * Separates statements and arguments while retaining quoted paths and strings. PowerShell backticks escape the
@@ -112,19 +163,23 @@ private class HostCommandScan {
     private val statements = mutableListOf<List<HostWord>>()
     private val words = mutableListOf<HostWord>()
     private val word = StringBuilder()
+    private var source = ""
+    private var start = 0
     private var quote: Char? = null
     private var isEscaped = false
     private var isQuoted = false
     private var isStarted = false
 
     fun scan(command: String): List<List<HostWord>> {
-        command.forEach { take(it) }
+        source = command
+        command.forEachIndexed { index, char -> take(index, char) }
         if (isEscaped) word.append('`')
         finishStatement()
         return statements
     }
 
-    private fun take(char: Char) {
+    private fun take(index: Int, char: Char) {
+        if (!isStarted && !char.isWhitespace() && char !in HostSeparators) start = index
         when {
             isEscaped -> {
                 append(char)
@@ -164,7 +219,7 @@ private class HostCommandScan {
     }
 
     private fun finishWord() {
-        if (isStarted) words.add(HostWord(word.toString(), isQuoted))
+        if (isStarted) words.add(HostWord(word.toString(), isQuoted, source, start))
         word.clear()
         isQuoted = false
         isStarted = false
@@ -193,6 +248,9 @@ private val HostCallOperators = setOf(".", "&", "&&", "||")
 
 /** A one- or two-letter `cmd` switch; a longer `/`-prefixed word may be an absolute executable path. */
 private val CmdSwitch = Regex("/[A-Za-z]{1,2}")
+
+/** Drive-rooted, absolute and explicitly relative paths can contain spaces inside an executable's quotes. */
+private val CmdExecutablePath = Regex("^(?:[A-Za-z]:[\\\\/]|[\\\\/]|\\.\\.?[\\\\/])")
 
 /** `NAME=value` (sh) and `$env:NAME='value'` (PowerShell) set the environment instead of running a command. */
 private val HostAssignment = Regex("^(\\\$env:)?[A-Za-z_][A-Za-z0-9_]*=.*")

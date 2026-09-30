@@ -66,6 +66,35 @@ class PiHostCommandsTest {
     }
 
     @Test
+    fun `cmd preserves arguments after quoted executables and double outer quotes`() {
+        listOf(
+            """cmd /c "gradlew.bat" --stop""",
+            """cmd.exe /k "gradlew.bat" "--stop""",
+            """cmd.exe /c "C:\repo\gradlew.bat" --stop""",
+            """cmd /c "powershell.exe" -Command "Stop-Process -Id 4008"""",
+            """cmd /c ""C:\Repo With Spaces\gradlew.bat" --stop"""",
+            """cmd /c "C:\Repo With Spaces\gradlew.bat" --stop""",
+            """cmd /d /s /c ""C:\Repo With Spaces\gradlew.bat" --stop"""",
+            """cmd /d /s /k "".\Repo With Spaces\gradlew.bat" "--stop""""",
+            """cmd /c "cd /d C:\repo && gradlew.bat" --stop""",
+            """powershell -Command 'cmd /c "gradlew.bat" --stop'""",
+            """cmd /c "cmd /c gradlew.bat --stop"""",
+        ).forEach { target -> assertTrue(terminatesHost(command(target)), target) }
+    }
+
+    @Test
+    fun `cmd quoted search arguments and posix command zero are not executable payloads`() {
+        listOf(
+            """cmd /c "echo" "kill; Stop-Process"""",
+            """cmd /d /s /c ""echo" "kill; Stop-Process""""",
+            """cmd /c "git" grep "taskkill|Stop-Process"""",
+            """cmd /c "cmd /c echo sample" "kill; Stop-Process"""",
+            """bash -c "gradlew" --stop""",
+            """sh -c "echo sample" "kill; Stop-Process"""",
+        ).forEach { target -> assertFalse(terminatesHost(command(target)), target) }
+    }
+
+    @Test
     fun `commands that only mention a killer or build with gradle are left to trust`() {
         assertFalse(terminatesHost(command("git grep -n \"taskkill|Stop-Process\" -- \"*.kt\"")))
         assertFalse(terminatesHost(command("Select-String -Path build.gradle.kts -Pattern 'kill'")))
