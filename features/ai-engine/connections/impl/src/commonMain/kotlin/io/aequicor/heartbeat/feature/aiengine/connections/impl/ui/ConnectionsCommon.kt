@@ -71,7 +71,11 @@ internal fun StandaloneHeader(title: String, onBack: () -> Unit, modifier: Modif
     HbPaneHeader(
         title,
         modifier,
-        leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+        leadingInset = if (HbTheme.dimensions.isDesktop) {
+            HbTheme.spacing.m
+        } else {
+            HbTheme.dimensions.titlebarLeadingInset
+        },
         navigation = {
             HbIconButton(
                 HbIcons.ArrowLeft,

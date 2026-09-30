@@ -71,7 +71,7 @@ class ProfileSettingsUiTest {
 
     @Test
     fun `renders snapshots`() {
-        for (width in listOf(1280, 420)) {
+        for (width in listOf(1280, 900, 420)) {
             for (isDark in listOf(false, true)) {
                 render(width, isDark) { ProfileSettingsContent(loaded, {}, onBack = null) }
             }

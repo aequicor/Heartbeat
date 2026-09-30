@@ -128,8 +128,14 @@ private fun SidebarHeader(onNew: () -> Unit, onCollapse: () -> Unit) {
                 .padding(horizontal = HbTheme.spacing.l),
             gap = HbTheme.spacing.m,
         ) {
-            HbStudioMark()
-            HbText(stringResource(Res.string.studio_brand), Modifier.weight(1f), style = HbTheme.typography.label)
+            if (!HbTheme.dimensions.isDesktop) HbStudioMark()
+            HbText(
+                stringResource(Res.string.studio_brand),
+                Modifier.weight(1f),
+                style = HbTheme.typography.label,
+                color = if (HbTheme.dimensions.isDesktop) HbTheme.colors.textSecondary else HbTheme.colors.textPrimary,
+                maxLines = 1,
+            )
             HbIconButton(
                 HbIcons.Plus,
                 stringResource(Res.string.sidebar_new_session),

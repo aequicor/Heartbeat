@@ -113,6 +113,12 @@ class QuestionnaireUiTest {
     }
 
     @Test
+    fun `medium desktop questionnaire remains readable in both themes`() {
+        verifyQuestionnaireLayout(isDark = false, width = 900)
+        verifyQuestionnaireLayout(isDark = true, width = 900)
+    }
+
+    @Test
     fun `reduced motion keeps the attention accent static`() = runSkikoComposeUiTest(size = Size(420f, 480f)) {
         mainClock.autoAdvance = false
         setContent {

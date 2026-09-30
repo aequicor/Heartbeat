@@ -138,7 +138,11 @@ private fun CompactList(state: SettingsScreenState, onSelect: (SettingsSectionUi
     HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
         HbPaneHeader(
             stringResource(Res.string.settings_title),
-            leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+            leadingInset = if (HbTheme.dimensions.isDesktop) {
+                HbTheme.spacing.m
+            } else {
+                HbTheme.dimensions.titlebarLeadingInset
+            },
             background = HbTheme.surfaces.backdrop,
             navigation = { BackButton(onBack) },
         )
@@ -151,7 +155,11 @@ private fun CompactSection(state: SettingsScreenState, onBack: () -> Unit, secti
     HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
         HbPaneHeader(
             state.selected?.let { sectionTitle(it) }.orEmpty(),
-            leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+            leadingInset = if (HbTheme.dimensions.isDesktop) {
+                HbTheme.spacing.m
+            } else {
+                HbTheme.dimensions.titlebarLeadingInset
+            },
             background = HbTheme.surfaces.backdrop,
             navigation = { BackButton(onBack) },
         )
@@ -159,7 +167,7 @@ private fun CompactSection(state: SettingsScreenState, onBack: () -> Unit, secti
     }
 }
 
-/** Sidebar of the wide window: traffic-light inset, "back", the heading and the section rows. */
+/** Sidebar of the wide window: one caption-safe header followed by section rows. */
 @Composable
 private fun SectionList(
     state: SettingsScreenState,
@@ -170,19 +178,27 @@ private fun SectionList(
 ) {
     val dimensions = HbTheme.dimensions
     HbColumn(modifier.testTag("settings-sections"), gap = HbTheme.spacing.none) {
-        HbWindowDragArea(Modifier.fillMaxWidth().padding(top = dimensions.titlebarInset)) {
-            HbColumn(Modifier.fillMaxWidth().padding(HbTheme.spacing.m), gap = HbTheme.spacing.xxs) {
-                HbNavigationItem(
-                    stringResource(Res.string.settings_back),
-                    onBack,
-                    Modifier.testTag("settings-back"),
-                    icon = HbIcons.ArrowLeft,
-                    minHeight = dimensions.navigationRowHeight,
-                )
-                HbNavigationHeader(
-                    stringResource(Res.string.settings_title),
-                    minHeight = dimensions.sidebarHeadingHeight,
-                )
+        if (dimensions.isDesktop) {
+            HbPaneHeader(
+                stringResource(Res.string.settings_title),
+                background = HbTheme.surfaces.sidebar,
+                navigation = { BackButton(onBack) },
+            )
+        } else {
+            HbWindowDragArea(Modifier.fillMaxWidth().padding(top = dimensions.titlebarInset)) {
+                HbColumn(Modifier.fillMaxWidth().padding(HbTheme.spacing.m), gap = HbTheme.spacing.xxs) {
+                    HbNavigationItem(
+                        stringResource(Res.string.settings_back),
+                        onBack,
+                        Modifier.testTag("settings-back"),
+                        icon = HbIcons.ArrowLeft,
+                        minHeight = dimensions.navigationRowHeight,
+                    )
+                    HbNavigationHeader(
+                        stringResource(Res.string.settings_title),
+                        minHeight = dimensions.sidebarHeadingHeight,
+                    )
+                }
             }
         }
         SectionRows(

@@ -99,7 +99,11 @@ internal fun TogglesPanelContent(
         if (onBack != null) {
             HbPaneHeader(
                 stringResource(Res.string.flags_title),
-                leadingInset = HbTheme.dimensions.titlebarLeadingInset,
+                leadingInset = if (HbTheme.dimensions.isDesktop) {
+                    HbTheme.spacing.m
+                } else {
+                    HbTheme.dimensions.titlebarLeadingInset
+                },
                 navigation = {
                     HbIconButton(
                         HbIcons.ArrowLeft,

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.width
@@ -31,9 +32,11 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -91,6 +94,9 @@ internal fun AiStudioContent(
                     StudioPhase.Disabled -> StudioPlaceholder(exits.onBack)
 
                     StudioPhase.Ready -> StudioWorkspace(state, onIntent, exits, chatArea)
+                }
+                if (HbTheme.dimensions.isDesktop && state.phase != StudioPhase.Ready) {
+                    HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
                 }
             }
         }
@@ -198,22 +204,33 @@ private fun WideWorkspace(
         ) {
             shown.forEach { pane ->
                 key(pane.id) {
-                    StudioPaneView(
-                        content = state.paneContent(pane),
-                        onOpenResearch = exits.onOpenResearch,
-                        questions = exits.questions,
-                        onIntent = onIntent,
-                        layout = PaneLayout(
-                            isSplitAllowed = isSplitAllowed && state.panes.size == 1,
-                            isCloseAllowed = shown.size > 1,
-                            isCompact = false,
-                        ),
-                        isAtWindowLeadingEdge = !state.sidebar.isVisible && pane == shown.first(),
-                        modifier = Modifier.weight(1f).fillMaxHeight(),
-                    )
+                    PaneFrame(pane != shown.first(), Modifier.weight(1f).fillMaxHeight()) {
+                        StudioPaneView(
+                            content = state.paneContent(pane),
+                            onOpenResearch = exits.onOpenResearch,
+                            questions = exits.questions,
+                            onIntent = onIntent,
+                            layout = PaneLayout(
+                                isSplitAllowed = isSplitAllowed && state.panes.size == 1,
+                                isCloseAllowed = shown.size > 1,
+                                isCompact = false,
+                            ),
+                            isAtWindowLeadingEdge = !state.sidebar.isVisible && pane == shown.first(),
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+/** The divider overlays the pane edge, preserving the existing split threshold and mobile spacing. */
+@Composable
+private fun PaneFrame(hasDivider: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Box(modifier) {
+        content()
+        if (hasDivider && HbTheme.dimensions.isDesktop) HbDivider(isVertical = true)
     }
 }
 
