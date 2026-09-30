@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceInfo
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
@@ -35,9 +36,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
@@ -81,7 +84,8 @@ internal class KoogTestFixture(test: TestScope) {
     var isAutoApprove = true
     val usageEnabled = MutableStateFlow(false)
     var workspace: KoogWorkspace? = null
-    var modelSupportsTools = true
+    var hostedTools: ProfileAgentTools? = null
+    var isModelSupportingTools = true
     var modelContextLength: Long? = null
     var opens = 0
     var beforeModels: suspend () -> Unit = {}
@@ -90,11 +94,15 @@ internal class KoogTestFixture(test: TestScope) {
         @Suppress("UNCHECKED_CAST") // Fixture only supplies boolean switches.
         override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
             when (toggle) {
-                SearchEngineTools -> isSearchEnabled
-                KoogCodingTools -> isCodingEnabled
-                KoogAutoApprove -> isAutoApprove
-                EngineUsageEnabled -> usageEnabled.value
-                else -> isEnabled
+                is FeatureToggle.Flag -> when (toggle) {
+                    SearchEngineTools -> isSearchEnabled
+                    KoogCodingTools -> isCodingEnabled
+                    KoogAutoApprove -> isAutoApprove
+                    EngineUsageEnabled -> usageEnabled.value
+                    else -> isEnabled
+                }
+
+                is FeatureToggle.Choice -> toggle.default
             } as T
 
         @Suppress("UNCHECKED_CAST") // The usage toggle is a boolean flow.
@@ -126,7 +134,7 @@ internal class KoogTestFixture(test: TestScope) {
                 opens++
                 return KoogClient(executor) {
                     beforeModels()
-                    val capabilities = if (modelSupportsTools) listOf(LLMCapability.Tools) else emptyList()
+                    val capabilities = if (isModelSupportingTools) listOf(LLMCapability.Tools) else emptyList()
                     listOf(
                         LLModel(provider.llmProvider, "test-model", capabilities, contextLength = modelContextLength),
                     )
@@ -149,7 +157,17 @@ internal class KoogTestFixture(test: TestScope) {
         records,
         KoogSessionCache(profile),
         search,
-        { workspace },
+        object : KoogWorkspaces {
+            override val hasHostedTools: Boolean get() = hostedTools != null
+            override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = workspace
+            override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
+                val tools = hostedTools ?: return workspace
+                return KoogWorkspace(
+                    koogHostedTools(tools.specifications(ref), tools, context),
+                    tools.instructions(ref),
+                )
+            }
+        },
         profile,
     )
     val identity = RuntimeIdentity(KoogEngineId, source.info.id, source.info.revision)

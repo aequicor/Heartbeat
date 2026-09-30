@@ -12,6 +12,10 @@ import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -45,6 +49,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -61,6 +66,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.emitAll
@@ -123,6 +129,7 @@ internal class KoogNativeSession(
             override val route = this@KoogNativeSession.route
             override val state = state.asStateFlow()
             override val features = KoogFeatures(
+                AppliesTrustLevels to object : AppliesTrustLevels {},
                 SessionContextUsage to contextUsage,
                 SendsPrompts to object : SendsPrompts {
                     override suspend fun send(request: PromptRequest): TurnId = withContext(
@@ -231,7 +238,7 @@ internal class KoogNativeSession(
         active = turn
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider, model.value, effort)
+            runTurn(turn, client, provider, model.value, effort, request.trust ?: TrustLevel.Ask)
         }
         return turn.id
     }
@@ -242,10 +249,21 @@ internal class KoogNativeSession(
         provider: KoogProvider,
         model: String,
         effort: String?,
+        trust: TrustLevel,
     ) {
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
-            val workspace = route.workspace?.takeIf { access.codingToolsEnabled() }?.let { workspaces.open(it) }
+            val context = AgentToolContext(
+                ref,
+                route.workspace,
+                turn.id,
+                turn.request,
+                trust,
+                AgentToolPermissions { approveHosted(turn, it) },
+                lifetime = currentCoroutineContext()[Job],
+            )
+            val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || access.codingToolsEnabled() }
+                ?.let { workspaces.open(it, context) }
             val tools = turnTools(client, provider, model, workspace)
             val hasAttachments = record.items.hasResourceInputs()
             log.i { "Koog turn effort=${effort ?: "default"} tools=${tools.descriptors.size}" }
@@ -571,6 +589,31 @@ internal class KoogNativeSession(
             fail(EngineFailure.Session(SessionFailureReason.Changed))
         }
         pending.answer.complete(decision.option)
+    }
+
+    /** Hosted tools use only the shared TrustLevel gate, independent of the legacy auto-approve setting. */
+    private suspend fun approveHosted(turn: Turn, action: AgentToolApproval): Boolean {
+        if (active?.id != turn.id || handles.isEmpty() || current is ActiveSessionState.Interrupting) return false
+        val request = PermissionRequest(
+            PermissionRequestId(Uuid.random().toString()),
+            turn.id,
+            action.title,
+            listOf(PermissionOption(AllowOnce, "Разрешить"), PermissionOption(Deny, "Запретить")),
+            description = action.description,
+        )
+        val pending = PendingApproval(request, CompletableDeferred())
+        approval = pending
+        val running = active ?: turn
+        publish(ActiveSessionState.AwaitingUserAction(running, listOf(request)))
+        history.append { SessionEvent.PermissionRequested(it, request) }
+        return try {
+            pending.answer.await() == AllowOnce
+        } finally {
+            approval = null
+            val resolved = running.copy(resolvedPermissions = running.resolvedPermissions + request.id)
+            active = resolved
+            if (current is ActiveSessionState.AwaitingUserAction) publish(ActiveSessionState.Running(resolved))
+        }
     }
 
     private fun continuePrompt(input: Prompt, text: String, calls: List<HandledToolCall>): Prompt = prompt(

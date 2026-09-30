@@ -42,8 +42,8 @@ class KoogUsageTest {
                 reads++
                 listOf(advertised)
             }
-            val fixedVendor = provider == KoogProvider.OpenAI || provider == KoogProvider.Anthropic
-            val expected = if (fixedVendor) 128000L else null
+            val isFixedVendor = provider == KoogProvider.OpenAI || provider == KoogProvider.Anthropic
+            val expected = if (isFixedVendor) 128000L else null
             assertEquals(expected, f.access.contextWindows.resolve(connection, "gpt-4o", client))
             assertEquals(0, reads)
             val models = f.adapter.discoverModels(connection.source, EngineContext(f.binding.engine, f.binding.id))

@@ -1,14 +1,7 @@
-package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.workspace
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
-import ai.koog.agents.core.tools.ToolDescriptor
-import ai.koog.agents.core.tools.ToolParameterDescriptor
-import ai.koog.agents.core.tools.ToolParameterType
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogTool
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogToolResult
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.argFlag
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.argInt
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.argText
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
@@ -34,7 +27,7 @@ import kotlin.io.path.name
  * File tools of a coding session confined to [root]. Reads run freely; [write_file] and [edit_file] are mutating
  * and need the session's approval. Tool output is sent to the provider, never logged: logs name the tool only.
  */
-internal fun koogFileTools(root: ProjectRoot, io: CoroutineDispatcher): List<KoogTool> = listOf(
+internal fun codingFileTools(root: ProjectRoot, io: CoroutineDispatcher): List<CodingTool> = listOf(
     ReadFile(root, io),
     ListDirectory(root, io),
     GlobFiles(root, io),
@@ -43,32 +36,32 @@ internal fun koogFileTools(root: ProjectRoot, io: CoroutineDispatcher): List<Koo
     EditFile(root, io),
 )
 
-private val fileLog = Log.tag("KoogFileTools")
+private val fileLog = Log.tag("CodingFileTools")
 
-private abstract class FileTool(protected val root: ProjectRoot, private val io: CoroutineDispatcher) : KoogTool {
-    final override suspend fun run(args: JsonObject): KoogToolResult = try {
+private abstract class FileTool(protected val root: ProjectRoot, private val io: CoroutineDispatcher) : CodingTool {
+    final override suspend fun run(args: JsonObject): AgentToolResult = try {
         withContext(io) { execute(args) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: OutsideProjectException) {
         fileLog.w(e) { "${descriptor.name} refused a path outside the project" }
-        KoogToolResult(e.message.orEmpty(), true)
+        AgentToolResult(e.message.orEmpty(), true)
     } catch (e: IOException) {
         fileLog.w(e) { "${descriptor.name} failed: ${e::class.simpleName.orEmpty()}" }
-        KoogToolResult("${e::class.simpleName.orEmpty()}: ${e.message.orEmpty()}", true)
+        AgentToolResult("${e::class.simpleName.orEmpty()}: ${e.message.orEmpty()}", true)
     } catch (e: UncheckedIOException) {
         fileLog.w(e) { "${descriptor.name} failed while listing" }
-        KoogToolResult("IOException: ${e.cause?.message.orEmpty()}", true)
+        AgentToolResult("IOException: ${e.cause?.message.orEmpty()}", true)
     } catch (e: InvalidPathException) {
         fileLog.w(e) { "${descriptor.name} rejected an invalid path" }
-        KoogToolResult("Invalid path: ${e.message.orEmpty()}", true)
+        AgentToolResult("Invalid path: ${e.message.orEmpty()}", true)
     }
 
-    protected abstract suspend fun execute(args: JsonObject): KoogToolResult
+    protected abstract suspend fun execute(args: JsonObject): AgentToolResult
 
-    protected fun failed(message: String) = KoogToolResult(message, true)
+    protected fun failed(message: String) = AgentToolResult(message, true)
 
-    protected fun ok(text: String) = KoogToolResult(text, false)
+    protected fun ok(text: String) = AgentToolResult(text, false)
 }
 
 private class ReadFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(root, io) {
@@ -82,7 +75,7 @@ private class ReadFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(ro
         ),
     )
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val file = root.resolve(args.argText("path"))
         if (!Files.isRegularFile(file)) return failed("Not a file: ${root.relative(file)}")
         val text = readText(file) ?: return failed("Binary or non UTF-8 file: ${root.relative(file)}")
@@ -106,7 +99,7 @@ private class ListDirectory(root: ProjectRoot, io: CoroutineDispatcher) : FileTo
         listOf(path("Directory relative to the project root, default is the root")),
     )
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val directory = root.resolve(args.argText("path"))
         if (!Files.isDirectory(directory)) return failed("Not a directory: ${root.relative(directory)}")
         val entries = Files.list(directory).use { stream ->
@@ -125,7 +118,7 @@ private class GlobFiles(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(r
         listOf(path("Directory to search in, default is the root")),
     )
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val matcher = try {
             FileSystems.getDefault().getPathMatcher("glob:${args.argText("pattern")}")
         } catch (e: IllegalArgumentException) {
@@ -160,7 +153,7 @@ private class GrepFiles(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(r
         ),
     )
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val regex = try {
             val options = if (args.argFlag("ignore_case") == true) setOf(RegexOption.IGNORE_CASE) else emptySet()
             Regex(args.argText("pattern"), options)
@@ -210,7 +203,7 @@ private class WriteFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(r
 
     override fun details(args: JsonObject) = preview(args.argText("content"))
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val file = root.resolve(args.argText("path"))
         if (Files.isDirectory(file)) return failed("Is a directory: ${root.relative(file)}")
         val isNew = !Files.exists(file)
@@ -239,7 +232,7 @@ private class EditFile(root: ProjectRoot, io: CoroutineDispatcher) : FileTool(ro
     override fun details(args: JsonObject) =
         "− ${preview(args.argText("old_string"))}\n+ ${preview(args.argText("new_string"))}"
 
-    override suspend fun execute(args: JsonObject): KoogToolResult {
+    override suspend fun execute(args: JsonObject): AgentToolResult {
         val file = root.resolve(args.argText("path"))
         val old = args.argText("old_string")
         val text = if (Files.isRegularFile(file)) readText(file) else null

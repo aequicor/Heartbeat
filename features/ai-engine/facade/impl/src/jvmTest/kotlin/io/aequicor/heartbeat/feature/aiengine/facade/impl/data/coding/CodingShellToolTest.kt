@@ -1,10 +1,11 @@
-package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.workspace
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Files
+import java.util.concurrent.Executors
 import kotlin.io.path.writeText
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -12,12 +13,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class KoogShellToolTest {
-    private val project = Files.createTempDirectory("koog-shell")
-    private val tool = KoogShellTool(ProjectRoot(project), Dispatchers.IO)
+class CodingShellToolTest {
+    private val project = Files.createTempDirectory("coding-shell")
+    private val dispatcher = Executors.newCachedThreadPool().asCoroutineDispatcher()
+    private val tool = CodingShellTool(ProjectRoot(project), dispatcher)
 
     @AfterTest
     fun cleanUp() {
+        dispatcher.close()
         project.toFile().deleteRecursively()
     }
 
@@ -25,17 +28,17 @@ class KoogShellToolTest {
     fun commandRunsInTheProjectRootAndReportsExitCode() = runTest {
         project.resolve("marker.txt").writeText("x")
         val listing = tool.run(args("ls"))
-        assertFalse(listing.isFailed)
+        assertFalse(listing.isError)
         assertTrue("marker.txt" in listing.text)
         assertTrue(listing.text.startsWith("Exit code: 0"))
-        assertTrue(tool.run(args("exit 3")).isFailed)
+        assertTrue(tool.run(args("exit 3")).isError)
     }
 
     @Test
     fun commandIsKilledAfterTimeout() = runTest {
         val started = System.nanoTime()
         val sleep = tool.run(args(if (isWindows) "Start-Sleep -Seconds 30" else "sleep 30", timeout = 1))
-        assertTrue(sleep.isFailed)
+        assertTrue(sleep.isError)
         assertTrue(sleep.text.startsWith("Timed out"))
         assertTrue(elapsedSeconds(started) < QUICK_SECONDS)
     }

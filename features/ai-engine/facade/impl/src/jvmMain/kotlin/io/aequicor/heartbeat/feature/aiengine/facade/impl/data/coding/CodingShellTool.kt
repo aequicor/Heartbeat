@@ -1,16 +1,12 @@
-package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.workspace
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
-import ai.koog.agents.core.tools.ToolDescriptor
-import ai.koog.agents.core.tools.ToolParameterDescriptor
-import ai.koog.agents.core.tools.ToolParameterType
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogTool
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogToolResult
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.argInt
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.argText
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.serialization.json.JsonObject
@@ -19,6 +15,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.coroutineContext
 
 /**
  * Runs one shell command in the project root: PowerShell on Windows, `/bin/sh` elsewhere. Always mutating: a
@@ -26,17 +23,18 @@ import java.util.concurrent.TimeUnit
  * the process tree is killed on timeout or turn cancellation, and output is truncated for the model. Children
  * detached from the shell (build daemons, `cmd &`) outlive the command; their output is read only briefly after exit.
  */
-internal class KoogShellTool(
+internal class CodingShellTool(
     private val root: ProjectRoot,
     private val io: CoroutineDispatcher,
     private val isWindows: Boolean = System.getProperty("os.name").orEmpty().startsWith("Windows"),
-) : KoogTool {
-    private val log = Log.tag("KoogShellTool")
+) : CodingTool {
+    private val log = Log.tag("CodingShellTool")
 
     override val descriptor = ToolDescriptor(
         "run_command",
         "Run a ${if (isWindows) "PowerShell" else "POSIX shell"} command in the project root and return its exit " +
-            "code and combined output. Use for builds, tests, git and other CLI tools; not for interactive programs.",
+            "code and combined output. Use for git and other CLI tools; use run_build for builds and tests when " +
+            "available. Interactive programs are unsupported.",
         listOf(ToolParameterDescriptor("command", "Command line to run", ToolParameterType.String)),
         listOf(
             ToolParameterDescriptor(
@@ -50,9 +48,9 @@ internal class KoogShellTool(
 
     override fun target(args: JsonObject) = args.argText("command")
 
-    override suspend fun run(args: JsonObject): KoogToolResult {
+    override suspend fun run(args: JsonObject): AgentToolResult {
         val command = args.argText("command")
-        if (command.isBlank()) return KoogToolResult("command is empty", true)
+        if (command.isBlank()) return AgentToolResult("command is empty", true)
         val timeout = (args.argInt("timeout_seconds") ?: DEFAULT_TIMEOUT_SECONDS).coerceIn(1, MAX_TIMEOUT_SECONDS)
         return try {
             execute(command, timeout.toLong())
@@ -60,11 +58,11 @@ internal class KoogShellTool(
             throw e
         } catch (e: IOException) {
             log.w(e) { "Command could not start" }
-            KoogToolResult("Could not start the command: ${e.message.orEmpty()}", true)
+            AgentToolResult("Could not start the command: ${e.message.orEmpty()}", true)
         }
     }
 
-    private suspend fun execute(command: String, timeout: Long): KoogToolResult = withContext(io) {
+    private suspend fun execute(command: String, timeout: Long): AgentToolResult = withContext(io) {
         val shell = if (isWindows) {
             listOf("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
         } else {
@@ -79,26 +77,37 @@ internal class KoogShellTool(
         log.i { "Starting command; ${removed.size} secret-like variables withheld" }
         val process = builder.start()
         val output = OutputCollector()
-        val isFinished = try {
-            output.drain(process, TimeUnit.SECONDS.toMillis(timeout))
+        val children = mutableMapOf<Long, ProcessHandle>()
+        var isFinished = false
+        try {
+            isFinished = output.drain(process, TimeUnit.SECONDS.toMillis(timeout)) {
+                process.descendants().use { descendants -> descendants.forEach { children[it.pid()] = it } }
+            }
         } finally {
-            if (process.isAlive) kill(process)
-            closeOutput(process)
+            val isTerminationRequired = !isFinished || process.isAlive || !coroutineContext.isActive
+            withContext(NonCancellable) {
+                if (isTerminationRequired) kill(process, children.values.toList())
+                closeOutput(process)
+            }
         }
         if (isFinished) {
             val code = process.exitValue()
             log.i { "Command exited with $code" }
-            KoogToolResult("Exit code: $code\n${output.text()}", code != 0)
+            AgentToolResult("Exit code: $code\n${output.text()}", code != 0)
         } else {
             log.w { "Command timed out after ${timeout}s" }
-            KoogToolResult("Timed out after ${timeout}s\n${output.text()}", true)
+            AgentToolResult("Timed out after ${timeout}s\n${output.text()}", true)
         }
     }
 
-    private fun kill(process: Process) {
+    private suspend fun kill(process: Process, children: List<ProcessHandle>) = withContext(NonCancellable) {
         log.i { "Killing command process tree" }
-        process.descendants().forEach { it.destroyForcibly() }
+        children.filter { it.isAlive }.forEach { it.destroyForcibly() }
         process.destroyForcibly()
+        while (process.isAlive || children.any { it.isAlive }) {
+            children.filter { it.isAlive }.forEach { it.destroyForcibly() }
+            delay(POLL_MILLIS)
+        }
     }
 
     private fun closeOutput(process: Process) {
@@ -122,13 +131,14 @@ internal class KoogShellTool(
         private var dropped = 0L
 
         /** Collects output until the process exits or [timeoutMillis] passes; returns whether it exited. */
-        suspend fun drain(process: Process, timeoutMillis: Long): Boolean {
+        suspend fun drain(process: Process, timeoutMillis: Long, observeChildren: () -> Unit): Boolean {
             val input = process.inputStream
             val buffer = ByteArray(BUFFER_BYTES)
             val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
             var exitedAt = 0L
             var hasExited: Boolean? = null
             while (hasExited == null) {
+                observeChildren()
                 val read = readAvailable(input, buffer)
                 val now = System.nanoTime()
                 val isAlive = process.isAlive

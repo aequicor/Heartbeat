@@ -1,4 +1,4 @@
-package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.workspace
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
 import java.io.IOException
 import java.nio.file.Files
@@ -28,10 +28,20 @@ internal class ProjectRoot(directory: Path) {
         } catch (e: InvalidPathException) {
             throw OutsideProjectException("Invalid path: ${e.reason}", e)
         }
-        if (!candidate.startsWith(path) || !real(candidate).startsWith(path)) {
+        val realPath = real(candidate)
+        if (!candidate.startsWith(path) || !realPath.startsWith(path)) {
             throw OutsideProjectException("Path is outside the project: $raw")
         }
+        rejectMetadata(candidate, realPath)
         return candidate
+    }
+
+    private fun rejectMetadata(candidate: Path, realPath: Path) {
+        if (path.relativize(candidate).firstOrNull()?.toString().equals(".git", ignoreCase = true) ||
+            path.relativize(realPath).firstOrNull()?.toString().equals(".git", ignoreCase = true)
+        ) {
+            throw OutsideProjectException("Direct Git metadata access is unavailable")
+        }
     }
 
     /** Project-relative form of [file] with `/` separators, `.` for the root. */

@@ -1,13 +1,13 @@
-package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.workspace
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.coding
 
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogTool
-import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogToolResult
-import kotlinx.coroutines.Dispatchers
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.Executors
 import kotlin.io.path.createDirectories
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
@@ -17,13 +17,15 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class KoogFileToolsTest {
-    private val parent: Path = Files.createTempDirectory("koog-tools")
+class CodingFileToolsTest {
+    private val parent: Path = Files.createTempDirectory("coding-tools")
     private val project: Path = parent.resolve("project").createDirectories()
-    private val tools = koogFileTools(ProjectRoot(project), Dispatchers.IO).associateBy { it.descriptor.name }
+    private val dispatcher = Executors.newCachedThreadPool().asCoroutineDispatcher()
+    private val tools = codingFileTools(ProjectRoot(project), dispatcher).associateBy { it.descriptor.name }
 
     @AfterTest
     fun cleanUp() {
+        dispatcher.close()
         parent.toFile().deleteRecursively()
     }
 
@@ -31,26 +33,26 @@ class KoogFileToolsTest {
     fun readReturnsNumberedLinesAndPagination() = runTest {
         project.resolve("a.txt").writeText("one\ntwo\nthree")
         val result = call("read_file", "path" to "a.txt", "offset" to 2, "limit" to 1)
-        assertFalse(result.isFailed)
+        assertFalse(result.isError)
         assertEquals("2\ttwo\n… 1 more lines, continue with offset=3", result.text)
     }
 
     @Test
     fun pathsOutsideTheProjectAreRefused() = runTest {
         parent.resolve("secret.txt").writeText("secret")
-        assertTrue(call("read_file", "path" to "../secret.txt").isFailed)
-        assertTrue(call("read_file", "path" to parent.resolve("secret.txt").toString()).isFailed)
-        assertTrue(call("write_file", "path" to "../escape.txt", "content" to "x").isFailed)
+        assertTrue(call("read_file", "path" to "../secret.txt").isError)
+        assertTrue(call("read_file", "path" to parent.resolve("secret.txt").toString()).isError)
+        assertTrue(call("write_file", "path" to "../escape.txt", "content" to "x").isError)
         assertFalse(Files.exists(parent.resolve("escape.txt")))
     }
 
     @Test
     fun writeCreatesParentsAndEditReplacesUniqueFragment() = runTest {
-        assertFalse(call("write_file", "path" to "src/Main.kt", "content" to "fun a() = 1\nfun b() = 1").isFailed)
+        assertFalse(call("write_file", "path" to "src/Main.kt", "content" to "fun a() = 1\nfun b() = 1").isError)
         val ambiguous = call("edit_file", "path" to "src/Main.kt", "old_string" to "= 1", "new_string" to "= 2")
-        assertTrue(ambiguous.isFailed)
+        assertTrue(ambiguous.isError)
         val edited = call("edit_file", "path" to "src/Main.kt", "old_string" to "b() = 1", "new_string" to "b() = 2")
-        assertFalse(edited.isFailed)
+        assertFalse(edited.isError)
         assertEquals("fun a() = 1\nfun b() = 2", project.resolve("src/Main.kt").readText())
     }
 
@@ -66,7 +68,7 @@ class KoogFileToolsTest {
     @Test
     fun invalidGlobIsReportedAsFailure() = runTest {
         val grep = call("grep", "pattern" to "needle", "glob" to "{a")
-        assertTrue(grep.isFailed)
+        assertTrue(grep.isError)
         assertTrue(grep.text.startsWith("Invalid glob"))
     }
 
@@ -74,11 +76,11 @@ class KoogFileToolsTest {
     fun onlyWritesAreMutating() {
         assertEquals(
             setOf("write_file", "edit_file"),
-            tools.values.filter(KoogTool::isMutating).map { it.descriptor.name }.toSet(),
+            tools.values.filter(CodingTool::isMutating).map { it.descriptor.name }.toSet(),
         )
     }
 
-    private suspend fun call(name: String, vararg args: Pair<String, Any>): KoogToolResult =
+    private suspend fun call(name: String, vararg args: Pair<String, Any>): AgentToolResult =
         requireNotNull(tools[name]).run(
             JsonObject(
                 args.associate { (key, value) ->
