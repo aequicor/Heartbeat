@@ -15,11 +15,15 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
-/** Joins the user's selected routes with cached capability updates; observation never starts discovery. */
+/**
+ * Joins selected routes with loaded cached capabilities without starting discovery. The temporary catalog
+ * placeholder is not an offered model: submitting against it would silently discard a restored effort choice.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 internal fun EngineFacade.observeStudioModels(
     selections: ModelSelections,
@@ -30,7 +34,7 @@ internal fun EngineFacade.observeStudioModels(
             val binding = bindings.firstOrNull { it.id == enabled.binding && it.isEnabled } ?: return@mapNotNull null
             val engine = engines.firstOrNull { it.descriptor.id == binding.engine } ?: return@mapNotNull null
             val label = auth.firstOrNull { it.info.id == binding.authSource }?.info?.label.orEmpty()
-            models.observe(binding.engine, binding.id).map { snapshot ->
+            models.observe(binding.engine, binding.id).filter { it.isLoaded }.map { snapshot ->
                 enabled.models.map { model ->
                     val target = EngineTarget(binding.engine, binding.id, model)
                     studioModel(

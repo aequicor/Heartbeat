@@ -1,10 +1,12 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.ui
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchMessageUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchPartUi
@@ -33,6 +36,25 @@ import kotlin.test.assertEquals
 
 @OptIn(ExperimentalTestApi::class)
 class ResearchUiTest {
+    @Test
+    fun `research snapshots cover both themes and desktop widths`() {
+        for (width in listOf(1280, 900, 420)) {
+            for (dark in listOf(false, true)) {
+                runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
+                    setContent {
+                        CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                            HbTheme(darkTheme = dark) { ResearchScreenContent(researchUiSample(), {}, {}) }
+                        }
+                    }
+                    onNodeWithTag("research-transcript").assertIsDisplayed()
+                    val file = File("build/reports/snapshots/research-$width-$dark.png")
+                    file.parentFile.mkdirs()
+                    check(ImageIO.write(captureToImage().toAwtImage(), "png", file))
+                }
+            }
+        }
+    }
+
     @Test
     fun `research tools and exposed reasoning expand within one answer and survive streaming updates`() =
         runSkikoComposeUiTest(size = Size(900f, 900f)) {

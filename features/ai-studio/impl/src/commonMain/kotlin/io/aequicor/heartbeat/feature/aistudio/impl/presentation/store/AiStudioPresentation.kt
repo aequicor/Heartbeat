@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -59,10 +60,20 @@ internal fun AiStudioScreenState.withDraft(paneId: Int, text: String): AiStudioS
     failedPanes = (failedPanes - paneId).toImmutableSet(),
 )
 
-internal fun AiStudioScreenState.restoreDraft(paneId: Int, prompt: String): AiStudioScreenState = copy(
-    drafts = (drafts + (draftKey(paneId) to prompt)).toImmutableMap(),
-    failedPanes = (failedPanes + paneId).toImmutableSet(),
-)
+/** Outputs can lag behind navigation and state reflection; restore only into the owning new-session draft. */
+internal fun AiStudioScreenState.restoreDraft(
+    output: AiStudioOutput.SubmitFailed,
+    machine: AiStudioState,
+): AiStudioScreenState {
+    val pane = (machine as? AiStudioState.Ready)?.panes?.firstOrNull { it.id == output.paneId } ?: return this
+    if (pane.sessionId != null || pane.isCreating || pane.createRequestId != output.requestId) return this
+    val key = "pane:${output.paneId}"
+    if (!drafts[key].isNullOrEmpty()) return this
+    return copy(
+        drafts = (drafts + (key to output.prompt)).toImmutableMap(),
+        failedPanes = (failedPanes + output.paneId).toImmutableSet(),
+    )
+}
 
 /** Local follow-up of an accepted navigation: the drawer closes, closed panes forget their drafts. */
 internal fun AiStudioScreenState.afterNavigation(intent: AiStudioScreenIntent.Navigation): AiStudioScreenState =

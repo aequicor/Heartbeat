@@ -32,9 +32,13 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
@@ -46,9 +50,11 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assume.assumeTrue
 import java.io.File
@@ -57,6 +63,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -122,6 +129,32 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
+    fun `configuration read failure after native acceptance preserves outcome observation`() = runTest {
+        TestAdapter.isConfigurationFailureEnabled = true
+        try {
+            val services = configured()
+            val repository = services.studioRepository
+            val runtime = services.studioRuntime
+            val chat = repository.createSession(null, "Accepted configuration failure")
+            val run = async { runtime.run(chat.id, "Keep observing the accepted turn", runtime.defaults()) }
+            repository.observeMessages(chat.id).first { messages -> messages.any { it is StudioMessage.Prompt } }
+            val native = TestAdapter.runtimes.single().natives.single()
+            native.configurationReadFailures.first { it > 0 }
+            assertEquals(1, native.sent.size)
+            assertTrue(chat.id in runtime.state.value.running)
+            assertFalse(run.isCompleted)
+            assertEquals(0, native.cancellations)
+            native.finish()
+            assertEquals(RunOutcome.Completed, run.await())
+            assertTrue(runtime.state.value.running.isEmpty())
+            val messages = repository.observeMessages(chat.id).first { it.size == 2 }
+            assertTrue(messages.none { it is StudioMessage.Failed })
+        } finally {
+            TestAdapter.isConfigurationFailureEnabled = false
+        }
+    }
+
+    @Test
     fun `a fresh native conversation starts with the selected approval and effort defaults`() = runTest {
         TestAdapter.reasoningEfforts = listOf("low", "high")
         TestAdapter.isTrustSupported = true
@@ -150,6 +183,81 @@ class StudioEngineIntegrationTest {
             TestAdapter.reasoningEfforts = emptyList()
             TestAdapter.isTrustSupported = false
         }
+    }
+
+    @Test
+    fun `start page choices survive profile restart and configure successive new conversations`() = runTest {
+        TestAdapter.reasoningEfforts = listOf("low", "high")
+        TestAdapter.isTrustSupported = true
+        try {
+            val services = configured()
+            val settings = services.studioRuntime.defaults().copy(approval = ApprovalMode.AutoEdits)
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            saveStartPageChoices(services, settings, target)
+            assertTrue(services.studioRepository.observeWorkspace().first().sessions.isEmpty())
+            app.profileSessions.close()
+
+            val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
+            assertEquals(settings, restored.studioRuntime.defaults())
+            val choices = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
+            assertEquals("high", assertIs<EffortConfigurationState.Ready>(choices).effortFor(target))
+            restored.studioRepository.observeModels().first { it.isNotEmpty() }
+            repeat(2) { iteration ->
+                val chat = restored.studioRepository.createSession(null, "Restored defaults $iteration")
+                val run = async { restored.studioRuntime.run(chat.id, "Hello", restored.studioRuntime.defaults()) }
+                restored.studioRuntime.state.first { chat.id in it.configurations }
+                val native = TestAdapter.runtimes.last().natives.last()
+                assertEquals("high", native.sent.single().reasoningEffort)
+                assertEquals(TrustLevel.AutoEdits, native.sent.single().trust)
+                native.finish()
+                assertEquals(RunOutcome.Completed, run.await())
+            }
+            app.profileSessions.close()
+            val isolated = app.profileSessions.open(ProfileId("isolated-defaults")).graph as AiEngineTestAccessors
+            assertEquals(ApprovalMode.Ask, isolated.studioRuntime.defaults().approval)
+            assertEquals("", isolated.studioRuntime.defaults().modelId)
+        } finally {
+            TestAdapter.reasoningEfforts = emptyList()
+            TestAdapter.isTrustSupported = false
+        }
+    }
+
+    private suspend fun saveStartPageChoices(
+        services: AiEngineTestAccessors,
+        settings: RunSettings,
+        target: EngineTarget,
+    ) {
+        val lifecycle = LifecycleRegistry().apply { resume() }
+        (services as ProfileNavigation).navigation.create(DefaultComponentContext(lifecycle), listOf(AiStudioRoute))
+        requireNotNull(app.machines.find(AiStudioMachineKey)).state.first { it is AiStudioState.Ready }
+        app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.UpdateSettings(settings))
+        val stores = (services as TestStorageAccessors).stores
+        stores.keyValue(KeyValueSpec("ai_studio_preferences"))
+            .observe(jsonKey("new_session", JsonObject.serializer()))
+            .first { it?.get("approval") == JsonPrimitive(settings.approval.name) }
+        app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
+        stores.keyValue(KeyValueSpec("effort_configuration"))
+            .observe(jsonKey("choices", ListSerializer(EffortChoice.serializer())))
+            .first { it == listOf(EffortChoice(target, "high")) }
+        lifecycle.destroy()
+    }
+
+    @Test
+    fun `explicitly disabling effort persistence preserves model and approval persistence`() = runTest {
+        (app as TestToggleAccessors).toggleControl.setOverride(EffortConfiguration, false)
+        val services = configured()
+        val settings = services.studioRuntime.defaults().copy(approval = ApprovalMode.AutoApprove)
+        services.studioRuntime.saveDefaults(settings, StudioSettingsVersion("test", 1))
+        val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+        app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
+        val before = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
+        assertEquals("high", assertIs<EffortConfigurationState.Ready>(before).effortFor(target))
+        app.profileSessions.close()
+
+        val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
+        assertEquals(settings, restored.studioRuntime.defaults())
+        val after = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
+        assertNull(assertIs<EffortConfigurationState.Ready>(after).effortFor(target))
     }
 
     @Test

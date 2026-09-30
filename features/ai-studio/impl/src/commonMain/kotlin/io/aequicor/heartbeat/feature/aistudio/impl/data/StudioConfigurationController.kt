@@ -32,8 +32,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
-import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackChange
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackEnabled
@@ -167,7 +165,6 @@ internal class StudioConfigurationController(
             persist(access, id, settings)
             val latest = capability?.configuration?.value ?: actual
             val latestTarget = target.copy(model = latest.model)
-            if (change is StudioSettingChange.Effort) saveEffort(latestTarget, latest.reasoningEffort)
             observe(access, id, session, confirmedTarget)
             latest.studio(latestTarget)
         } catch (e: CancellationException) {
@@ -292,7 +289,6 @@ internal class StudioConfigurationController(
             val latest = native.studio(latestTarget)
             access.configurationState(id, StudioSessionConfiguration(latest))
             persist(access, id, latest)
-            if (previous.change is FeedbackChange.Effort) saveEffort(latestTarget, latest.reasoningEffort)
         }
     }
 
@@ -328,15 +324,6 @@ internal class StudioConfigurationController(
     }
 
     private data class ConfigurationObservation(val session: ActiveSession, val target: EngineTarget, val job: Job)
-
-    private suspend fun saveEffort(target: EngineTarget, effort: String?) {
-        if (profile.isClosed) return
-        val result = machines.send(
-            EffortConfigurationMachineKey,
-            EffortConfigurationIntent.Public.Select(target, effort),
-        )
-        if (result != SendResult.Accepted) log.w { "Effort preference was not accepted: $result" }
-    }
 }
 
 private fun unsupported(): Nothing =

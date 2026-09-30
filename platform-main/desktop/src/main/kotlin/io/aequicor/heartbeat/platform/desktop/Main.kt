@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.platform.desktop
 
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -16,7 +15,6 @@ import com.arkivanov.decompose.extensions.compose.lifecycle.LifecycleController
 import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.ds.components.HbWindowDragProvider
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
@@ -31,6 +29,7 @@ import javax.swing.SwingUtilities
 
 fun main(arguments: Array<String>) {
     if (runPackagedBuildWorker(arguments)) return
+    if (handleWindowRuntimeProbe(arguments)) return
     launchHeartbeat(isDevelopment = false)
 }
 
@@ -61,11 +60,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
             state = windowState,
             onPreviewKeyEvent = { event -> openSettingsOnShortcut(event, root) },
         ) {
-            DisposableEffect(window) {
-                configureDesktopChrome(window.rootPane)
-                onDispose { }
-            }
-            HbWindowDragProvider { App(root) }
+            DesktopWindowContent(windowState) { App(root) }
         }
     }
 }

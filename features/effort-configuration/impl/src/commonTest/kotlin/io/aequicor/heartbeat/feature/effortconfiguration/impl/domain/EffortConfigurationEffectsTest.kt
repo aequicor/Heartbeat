@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationEffect
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import kotlinx.coroutines.test.runTest
@@ -20,7 +21,7 @@ class EffortConfigurationEffectsTest {
     fun `saved choices are loaded back`() = runTest {
         val store = MemoryChoices()
         val machine = RecordingScope()
-        val effects = EffortConfigurationEffects(store) { true }
+        val effects = EffortConfigurationEffects(store) { EffortConfiguration.default }
 
         effects.handle(EffortConfigurationEffect.Save(listOf(choice)), machine)
         effects.handle(EffortConfigurationEffect.Load, machine)

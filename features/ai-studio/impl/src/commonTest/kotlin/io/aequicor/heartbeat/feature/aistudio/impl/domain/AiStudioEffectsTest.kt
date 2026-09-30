@@ -49,11 +49,14 @@ class AiStudioEffectsTest {
         val fixture = Fixture(this, agent = { flowOf() })
         val prompt = "Design the engine facade\nwith details"
         fixture.effects.handle(
-            AiStudioEffect.CreateSession(3, "p-heartbeat", prompt, DefaultRunSettings),
+            AiStudioEffect.CreateSession(3, "p-heartbeat", prompt, DefaultRunSettings, 42),
             fixture.machine,
         )
         val created = assertIs<AiStudioIntent.Internal.SessionCreated>(fixture.machine.sent.single())
         assertEquals(3, created.paneId)
+        assertEquals(42L, created.requestId)
+        assertEquals(prompt, created.prompt)
+        assertEquals(DefaultRunSettings, created.settings)
         val session = fixture.repository.observeWorkspace().first().session(created.sessionId)
         assertEquals("Design the engine facade", session?.title)
         assertEquals("p-heartbeat", session?.projectId)

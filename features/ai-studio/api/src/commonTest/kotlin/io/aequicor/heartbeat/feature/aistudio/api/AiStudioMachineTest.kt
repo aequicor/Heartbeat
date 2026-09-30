@@ -80,8 +80,8 @@ class AiStudioMachineTest {
             AiStudioMachineSpec.onEffectFailure(AiStudioEffect.Load, error),
         )
         assertEquals(
-            AiStudioIntent.Internal.CreateFailed(0, "Design"),
-            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.CreateSession(0, "p", "Design", settings), error),
+            AiStudioIntent.Internal.CreateFailed(0, "Design", 0),
+            AiStudioMachineSpec.onEffectFailure(AiStudioEffect.CreateSession(0, "p", "Design", settings, 0), error),
         )
         assertEquals(
             AiStudioIntent.Internal.RunFinished("s1", RunOutcome.Failed),
@@ -251,28 +251,35 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = home,
             intent = AiStudioIntent.Public.Submit(0, "  Design the facade "),
-            to = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true))),
-            effects = listOf(AiStudioEffect.CreateSession(0, "heartbeat", "Design the facade", settings)),
+            to = home.copy(
+                panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true, createRequestId = 0)),
+                nextCreateRequestId = 1,
+            ),
+            effects = listOf(AiStudioEffect.CreateSession(0, "heartbeat", "Design the facade", settings, 0)),
         )
         AiStudioMachineSpec.assertIgnored(home, AiStudioIntent.Public.Submit(0, "   "))
-        val creating = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true)))
+        val creating = home.copy(
+            panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true, createRequestId = 0)),
+        )
         AiStudioMachineSpec.assertIgnored(creating, AiStudioIntent.Public.Submit(0, "again"))
     }
 
     @Test
     fun `created session is shown in its pane and starts running`() {
-        val creating = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true)))
+        val creating = home.copy(
+            panes = listOf(StudioPane(0, projectId = "heartbeat", isCreating = true, createRequestId = 0)),
+        )
         AiStudioMachineSpec.assertTransition(
             from = creating,
-            intent = AiStudioIntent.Internal.SessionCreated(0, "s9", "Design", settings),
+            intent = AiStudioIntent.Internal.SessionCreated(0, "s9", "Design", settings, 0),
             to = home.copy(panes = listOf(StudioPane(0, sessionId = "s9")), running = setOf("s9")),
             effects = listOf(AiStudioEffect.Run("s9", "Design", settings)),
         )
         AiStudioMachineSpec.assertTransition(
             from = creating,
-            intent = AiStudioIntent.Internal.CreateFailed(0, "Design"),
-            to = home,
-            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Design")),
+            intent = AiStudioIntent.Internal.CreateFailed(0, "Design", 0),
+            to = home.copy(panes = listOf(StudioPane(0, projectId = "heartbeat", createRequestId = 0))),
+            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Design", 0)),
         )
     }
 
@@ -282,7 +289,8 @@ class AiStudioMachineTest {
         AiStudioMachineSpec.assertTransition(
             from = session,
             intent = AiStudioIntent.Public.UpdateSettings(fast),
-            to = session.copy(settings = fast),
+            to = session.copy(settings = fast, settingsVersion = StudioSettingsVersion(revision = 1)),
+            effects = listOf(AiStudioEffect.SaveSettings(fast, StudioSettingsVersion(revision = 1))),
         )
         AiStudioMachineSpec.assertTransition(
             from = session,
@@ -334,11 +342,11 @@ class AiStudioMachineTest {
     fun `first prompt uses settings captured before asynchronous chat creation`() {
         val creating = home.copy(
             settings = settings.copy(modelId = "another-route"),
-            panes = listOf(StudioPane(0, isCreating = true)),
+            panes = listOf(StudioPane(0, isCreating = true, createRequestId = 0)),
         )
         AiStudioMachineSpec.assertTransition(
             from = creating,
-            intent = AiStudioIntent.Internal.SessionCreated(0, "s1", "First prompt", settings),
+            intent = AiStudioIntent.Internal.SessionCreated(0, "s1", "First prompt", settings, 0),
             to = creating.copy(panes = listOf(StudioPane(0, sessionId = "s1")), running = setOf("s1")),
             effects = listOf(AiStudioEffect.Run("s1", "First prompt", settings)),
         )

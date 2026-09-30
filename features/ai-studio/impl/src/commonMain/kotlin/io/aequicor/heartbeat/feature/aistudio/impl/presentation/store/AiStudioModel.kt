@@ -87,7 +87,7 @@ class AiStudioModel(
     ) {
         reflect(machine, onOutput = { output ->
             when (output) {
-                is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output.paneId, output.prompt) }
+                is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output, machine.state.value) }
 
                 // Delivery results of engine questions are handled by the question bridge.
                 is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit

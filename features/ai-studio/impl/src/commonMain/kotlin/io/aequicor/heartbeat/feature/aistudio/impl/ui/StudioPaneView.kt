@@ -146,7 +146,6 @@ internal fun StudioPaneView(
         Box(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()
                 .onSizeChanged { headerHeight = it.height }
-                .pointerInput(Unit) { detectTapGestures { } }
                 .testTag("pane-header-${pane.id}"),
         ) {
             PaneHeader(content, layout, onIntent, isAtWindowLeadingEdge)
@@ -226,19 +225,13 @@ private fun PaneHeader(
     isAtWindowLeadingEdge: Boolean,
 ) {
     val pane = content.pane
-    val studio = HbTheme.dimensions
-    val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
-        studio.titlebarLeadingInset
-    } else {
-        HbTheme.spacing.m
-    }
-    HbWindowDragArea(Modifier.fillMaxWidth()) {
+    HbWindowDragArea(Modifier.fillMaxWidth().background(HbTheme.surfaces.header)) {
         HbRow(
             Modifier.fillMaxWidth()
                 .heightIn(min = HbTheme.dimensions.headerHeight)
                 .background(HbTheme.surfaces.header)
                 .padding(
-                    start = leadingInset,
+                    start = HbTheme.spacing.m,
                     end = HbTheme.spacing.m,
                     top = HbTheme.spacing.xs,
                     bottom = HbTheme.spacing.xs,
@@ -274,18 +267,13 @@ private fun PaneHeader(
 @Composable
 internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
     val studio = HbTheme.dimensions
-    val leadingInset = if (isAtWindowLeadingEdge && studio.isDesktop && studio.titlebarInset > HbTheme.spacing.none) {
-        studio.titlebarLeadingInset
-    } else {
-        HbTheme.spacing.m
-    }
-    HbWindowDragArea(Modifier.fillMaxWidth()) {
+    HbWindowDragArea(Modifier.fillMaxWidth().background(HbTheme.surfaces.header)) {
         HbRow(
             Modifier.fillMaxWidth()
                 .heightIn(min = studio.headerHeight)
                 .background(HbTheme.surfaces.header)
                 .padding(
-                    start = leadingInset,
+                    start = HbTheme.spacing.m,
                     end = HbTheme.spacing.m,
                     top = HbTheme.spacing.xs,
                     bottom = HbTheme.spacing.xs,

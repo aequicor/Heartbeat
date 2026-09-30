@@ -223,6 +223,8 @@ internal class CodexRuntime(
                     if (existing.route != route || existing.target != target) {
                         fail(EngineFailure.Session(SessionFailureReason.Changed))
                     }
+                    existing.refreshHistory()
+                    ensureOpen()
                     existing.lease().also { existing.recheck() }
                 } else {
                     isOpening = true
@@ -244,7 +246,7 @@ internal class CodexRuntime(
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = validateNativeThread(nativeId, response)
         val id = checkNotNull(thread.text("id"))
-        val turns = thread["turns"] as? JsonArray
+        val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
         if (nativeId == null && hostedManifest != null) host.manifests.save(id, hostedManifest)
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
@@ -255,7 +257,15 @@ internal class CodexRuntime(
             isHosted,
         )
         try {
-            session.load(turns, isNew = nativeId == null)
+            val isUnpaged = listOf("turnsBackwardsCursor", "itemsBackwardsCursor").all { field ->
+                val cursor = response[field]
+                cursor == null || cursor == JsonNull
+            }
+            session.load(
+                turns,
+                isNew = nativeId == null,
+                isCanonical = thread.text("historyMode") == "paginated" && isUnpaged,
+            )
         } catch (e: EngineException) {
             session.shutdown(e.failure)
             throw e
@@ -284,7 +294,8 @@ internal class CodexRuntime(
         val id = thread.text("id") ?: protocolFailure()
         if (nativeId != null && nativeId != id) protocolFailure()
         if (thread.text("modelProvider")?.let { it != "openai" } == true) protocolFailure()
-        validateIdle(thread, (thread["turns"] as? JsonArray).orEmpty())
+        val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
+        validateIdle(thread, turns.orEmpty())
         return thread
     }
 

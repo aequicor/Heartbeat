@@ -46,7 +46,7 @@ internal class PiProcessLauncher(
     private val storage: PiStorage,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
-) {
+) : PiProcesses {
     private val log = Log.tag("PiProcessLauncher")
     private val isMissingResourcesReported = AtomicBoolean(false)
     private val nativeSearch = AtomicReference<SearchBridgeAttachment?>(null)
@@ -64,26 +64,30 @@ internal class PiProcessLauncher(
         return Path.of(root, "pi", name)
     }
 
-    suspend fun credentialFingerprint(source: AuthSource.ManagedKey): String = withContext(dispatchers.io) {
+    override suspend fun credentialFingerprint(source: AuthSource.ManagedKey): String = withContext(dispatchers.io) {
         val secret = secrets.read(SecretKey(source.secret.value))
             ?: authenticationFailure(AuthFailureReason.NotAuthenticated, source.info.id)
         secret.use { it.reveal { chars -> fingerprint(String(chars)) } }
     }
 
     /** Stored transcript of the native session [nativeId] of this profile, or null when Pi has none. */
-    suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
-        val owner = stores.owner as? StorageOwner.Profile ?: return@withContext null
+    override suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
+        val owner = stores.owner as? StorageOwner.Profile
+        if (owner == null) {
+            log.w { "Pi transcript lookup requires profile storage" }
+            return@withContext null
+        }
         storage.transcript(sessionDirectory(storage.profileRoot(owner.id.value)), nativeId).also {
             log.d { if (it == null) "Pi transcript not found" else "Pi transcript found" }
         }
     }
 
-    suspend fun start(
+    override suspend fun start(
         source: AuthSource.ManagedKey,
         workspace: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
-        hosted: PiHostedTools? = null,
+        hosted: PiHostedTools?,
     ): PiConnection {
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = compatibleModelsJson(source)

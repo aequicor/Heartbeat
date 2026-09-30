@@ -58,10 +58,12 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -69,6 +71,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
+import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
@@ -151,13 +154,14 @@ internal class EngineStudioRepository(
     private val runs: StudioRunCoordinator,
     workspaceProjection: StudioWorkspaceProjection,
     private val configurations: StudioConfigurationController,
+    private val preferences: StudioPreferences,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess {
     private val log = Log.tag("EngineStudio")
-    private val nativeSession = StudioNativeSessionOperations()
+    private val nativeSession = StudioNativeSessionOperations(configurations)
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
     private val deliveringActions = mutableSetOf<String>()
@@ -285,9 +289,15 @@ internal class EngineStudioRepository(
         log.d { "Read model defaults" }
         val selection = selections.observe().first()
         val target = selection.defaultTarget
-        return DefaultRunSettings.copy(
-            modelId = target?.let { Json.encodeToString(EngineTarget.serializer(), it) }.orEmpty(),
+        efforts.state.first { it is EffortConfigurationState.Ready }
+        return preferences.load(
+            DefaultRunSettings.copy(modelId = target?.studioModelId().orEmpty()),
         )
+    }
+
+    override suspend fun saveDefaults(settings: RunSettings, version: StudioSettingsVersion) {
+        log.d { "Save start-page preferences revision=${version.revision}" }
+        preferences.save(settings, version)
     }
 
     override suspend fun defaultProjectId(): String? {
@@ -465,17 +475,13 @@ internal class EngineStudioRepository(
         }
         log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
         val turn = nativeSession.submit(active, prompt, effort, trust, requestId)
-        val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
-        val confirmed = capability?.feature?.configuration?.value ?: SessionConfiguration(target.model, effort, trust)
-        configurationState(id, StudioSessionConfiguration(confirmed.studio(target)))
-        try {
-            saveConfiguration(id, confirmed.studio(target))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
-        }
-        configurations.observe(this, id, active, target)
+        nativeSession.confirmConfiguration(
+            this,
+            id,
+            active,
+            target,
+            SessionConfiguration(target.model, effort, trust),
+        )
         return turn
     }
 
@@ -795,8 +801,36 @@ internal class EngineStudioRepository(
 }
 
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
-private class StudioNativeSessionOperations {
+private class StudioNativeSessionOperations(private val controller: StudioConfigurationController) {
     private val log = Log.tag("StudioNativeSessionOperations")
+
+    suspend fun confirmConfiguration(
+        access: StudioConfigurationAccess,
+        id: String,
+        active: ActiveSession,
+        target: EngineTarget,
+        fallback: SessionConfiguration,
+    ) {
+        log.d { "Reflect accepted native configuration" }
+        try {
+            val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
+            val confirmed = capability?.feature?.configuration?.value ?: fallback
+            access.configurationState(id, StudioSessionConfiguration(confirmed.studio(target)))
+            try {
+                access.saveConfiguration(id, confirmed.studio(target))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
+            }
+            controller.observe(access, id, active, target)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Native acceptance owns the turn even when configuration reflection is unavailable.
+            log.e(e) { "Accepted turn configuration could not be reflected; continue native observation" }
+        }
+    }
 
     suspend fun submit(
         active: ActiveSession,

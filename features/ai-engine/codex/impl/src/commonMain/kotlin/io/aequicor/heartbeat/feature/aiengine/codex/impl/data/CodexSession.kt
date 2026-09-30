@@ -35,12 +35,10 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -63,6 +61,7 @@ internal class CodexSession(
     val history = CodexHistory()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
+    private val loadedTurns = mutableSetOf<String>()
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
@@ -209,6 +208,18 @@ internal class CodexSession(
         }
     }
 
+    /** A reused idle session may have been changed by another client; a failed audit keeps its live lease usable. */
+    suspend fun refreshHistory() {
+        if (runtime.isClosed || machine.state.value !is ActiveSessionState.Ready) return
+        try {
+            readNativeHistory()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EngineException) {
+            log.w(e) { "Codex history audit unavailable; preserving observed history" }
+        }
+    }
+
     private suspend fun executeCommand(effect: ActiveSessionEffect) {
         when (effect) {
             is ActiveSessionEffect.Submit -> submit(effect)
@@ -266,10 +277,7 @@ internal class CodexSession(
             log.i { "Codex recheck skipped: session already available" }
             return
         }
-        val thread = rpc.request(
-            "thread/read",
-            json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
-        ).obj("thread")
+        val turns = readNativeHistory().orEmpty()
         // A completion or a parallel recheck may have moved the session while the read was in flight.
         // A failure-only update (a concurrent Busy probe) is not a move and must not strand this result.
         val now = machine.state.value
@@ -277,7 +285,6 @@ internal class CodexSession(
             log.i { "Codex recheck superseded" }
             return
         }
-        val turns = (thread["turns"] as? JsonArray).orEmpty().map { it as? JsonObject ?: protocolFailure() }
         val running = turns.filter { it.text("status") == IN_PROGRESS }
         val active = before.activeTurn
         // Never adopt an unmapped running turn: it may belong to another client, and its approvals are not ours.
@@ -297,6 +304,46 @@ internal class CodexSession(
 
             else -> synchronizeIdle(active, remembered)
         }
+    }
+
+    /** Audits identity and content without replacing live items with a potentially thinner rollout projection. */
+    private suspend fun readNativeHistory(): List<JsonObject>? {
+        try {
+            val thread = rpc.request(
+                "thread/read",
+                json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
+            ).obj("thread")
+            return auditNativeHistory(thread)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EngineException) {
+            history.seeded(isComplete = false)
+            throw e
+        }
+    }
+
+    private fun auditNativeHistory(thread: JsonObject): List<JsonObject>? {
+        if (thread.text("id") != ref.nativeId) protocolFailure()
+        val turns = thread["turns"]?.let { value ->
+            (value as? JsonArray ?: protocolFailure()).map { it as? JsonObject ?: protocolFailure() }
+        }
+        var isCovered = turns != null
+        val missingTurns = (loadedTurns + nativeTurns.keys).toMutableSet()
+        for (turn in turns.orEmpty()) {
+            val id = turn.text("id") ?: protocolFailure()
+            missingTurns.remove(id)
+            val items = nativeItems(turn)
+            val view = turn.text("itemsView")
+            val isKnownTurn = id in loadedTurns || id in nativeTurns
+            val isFullView = view == null || view == "full"
+            val isMatching = items?.all { history.matches(it) } == true
+            if (!isKnownTurn || !isFullView || !isMatching) {
+                isCovered = false
+            }
+        }
+        if (!isCovered || missingTurns.isNotEmpty()) history.seeded(isComplete = false)
+        log.d { "Codex native history audited coverage=${history.coverage}" }
+        return turns
     }
 
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
@@ -326,23 +373,35 @@ internal class CodexSession(
      * Seeds the history with the native [turns]; null when the native response did not carry them.
      * [isNew] marks a thread just created by `thread/start`, which has no earlier native history. A resumed
      * thread is stored only after its first turn, so resumed empty [turns] mean the history was not loaded.
-     * A turn whose `itemsView` is `summary` or `notLoaded` carries only part of its items; servers without the
-     * field send full turns.
+     * [isCanonical] requires the native `paginated` history mode without pending turn/item cursors. Its persisted
+     * ItemCompleted records retain live IDs. Legacy replay synthesizes IDs and can omit tools even with
+     * `itemsView=full`; seeding it as Partial would still duplicate messages or truncate a richer saved transcript.
+     * Such replay, and any non-full canonical snapshot, is omitted entirely: empty Partial lets consumers keep
+     * their saved history.
      */
-    fun load(turns: List<JsonElement>?, isNew: Boolean) {
-        val isLoaded = !turns.isNullOrEmpty() &&
-            turns.all { (it as? JsonObject)?.text("itemsView").let { view -> view == null || view == "full" } }
+    fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
+        val snapshots = turns.orEmpty().map { value ->
+            val turn = value as? JsonObject ?: protocolFailure()
+            if (turn.text("id") == null) protocolFailure()
+            turn to nativeItems(turn)
+        }
+        val isLoaded = isCanonical && snapshots.isNotEmpty() &&
+            snapshots.all { (turn, items) -> turn.text("itemsView") == "full" && items != null }
         history.seeded(isComplete = isNew || isLoaded)
         log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
-        for (value in turns.orEmpty()) {
-            val turn = value as? JsonObject ?: protocolFailure()
+        if (!isNew && !isLoaded) return
+        for ((turn, items) in snapshots) {
             val id = TurnId(turn.text("id") ?: protocolFailure())
-            (turn["items"] as? JsonArray).orEmpty().forEach {
-                history.nativeItem(
-                    it as? JsonObject ?: protocolFailure(),
-                    id,
-                )
-            }
+            loadedTurns += id.value
+            items.orEmpty().forEach { history.nativeItem(it, id) }
+        }
+    }
+
+    private fun nativeItems(turn: JsonObject): List<JsonObject>? = turn["items"]?.let { value ->
+        (value as? JsonArray ?: protocolFailure()).map {
+            val item = it as? JsonObject ?: protocolFailure()
+            if (item.text("id") == null) protocolFailure()
+            item
         }
     }
 
@@ -421,19 +480,20 @@ internal class CodexSession(
         accept(turn)
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
-        CoroutineScope(scope.coroutineScope.coroutineContext + parent).launch {
-            // The tool reports its own failures. A call cancelled with its turn or by its provider is still
-            // answered, a fatal error propagates unanswered: only the completion cause tells them apart.
-            val onCancelled = coroutineContext.job.invokeOnCompletion { cause ->
-                if (cause is CancellationException) answerCancelled(id)
-            }
+        var isResponseStarted = false
+        scope.coroutineScope.launch(parent) {
             val result = if (isSearch) {
                 executeSearchTool(runtime.host.search, tool, arguments)
             } else {
                 executeHostedTool(turn, params, tool, arguments)
             }
-            onCancelled.dispose()
+            // Once delivery starts, cancellation must not send another response for the same request.
+            isResponseStarted = true
             respondQuietly(id, result)
+        }.invokeOnCompletion { cause ->
+            // Register outside the body: cancellation can happen before the tool's first dispatch.
+            // Provider cancellation is answered too; fatal errors still propagate unanswered.
+            if (cause is CancellationException && !isResponseStarted) answerCancelled(id)
         }
     }
 

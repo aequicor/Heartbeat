@@ -187,7 +187,13 @@ private fun Modifier.messageBubbleSurface(
 ): Modifier {
     if (background.alpha == 0f) return this
     val corners = HbTheme.shapes.medium
-    if (hasTop && hasBottom && !isReadingSurface) return hbSurface(background, corners)
+    if (hasTop && hasBottom && !isReadingSurface) {
+        return hbSurface(
+            background,
+            corners,
+            isQuiet = HbTheme.dimensions.isDesktop,
+        )
+    }
     val square = CornerSize(HbTheme.elevation.none)
     val shape = corners.copy(
         topStart = if (hasTop) corners.topStart else square,

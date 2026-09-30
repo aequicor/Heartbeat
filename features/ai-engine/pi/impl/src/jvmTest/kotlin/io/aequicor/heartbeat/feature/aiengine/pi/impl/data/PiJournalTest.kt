@@ -179,12 +179,21 @@ class PiJournalTest {
     }
 
     @Test
-    fun `restored branch that lost its beginning is partial`() = runTest {
+    fun `incomplete restored branch is omitted and only new live items enter the partial journal`() = runTest {
         val journal = PiJournal()
         journal.restore(branch("""[{"role":"assistant","content":"Tail"}]""", isComplete = false))
         val page = journal.page()
-        assertEquals(1, page.items.size)
+        assertEquals(emptyList(), page.items)
         assertEquals(HistoryCoverage.Partial, page.coverage)
+
+        val turn = TurnId("continued")
+        journal.record(record("""{"type":"message_end","message":{"role":"user","content":"Next"}}"""), turn)
+
+        val item = assertIs<SessionItem.Message>(journal.page().items.single())
+        assertEquals(listOf(ContentPart.Text("Next")), item.parts)
+        assertEquals(turn, item.info.turn)
+        assertEquals(HistoryCoverage.Partial, journal.page().coverage)
+        assertEquals(item, assertIs<SessionEvent.ItemUpserted>(journal.watch(page.checkpoint).first()).item)
     }
 
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject

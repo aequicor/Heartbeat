@@ -4,8 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -32,9 +34,14 @@ public fun HbPanel(
 
 /** Decorative boundary between related controls and content, without extra spacing or semantics. */
 @Composable
-public fun HbDivider(modifier: Modifier = Modifier) {
+public fun HbDivider(modifier: Modifier = Modifier, isVertical: Boolean = false) {
+    val geometry = if (isVertical) {
+        Modifier.fillMaxHeight().width(HbTheme.dimensions.borderWidth)
+    } else {
+        Modifier.fillMaxWidth().height(HbTheme.dimensions.borderWidth)
+    }
     Box(
-        modifier = modifier.fillMaxWidth().height(HbTheme.dimensions.borderWidth)
+        modifier = modifier.then(geometry)
             .background(HbTheme.colors.outlineSubtle),
     )
 }

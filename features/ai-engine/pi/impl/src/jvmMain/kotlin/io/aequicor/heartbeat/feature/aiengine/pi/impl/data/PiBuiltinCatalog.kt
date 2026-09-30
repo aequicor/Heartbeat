@@ -24,23 +24,46 @@ import java.util.Comparator
 /**
  * Model definitions of the bundled Pi's own catalog, read once per profile from an offline probe process that
  * unlocks [PiCatalogProviders] with a placeholder key (no request leaves the machine). A failed probe yields an
- * empty catalog and is retried on the next start: compatible models then simply stay without thinking levels.
+ * empty catalog cached for the rest of this profile lifetime, just like a successful empty response. Concurrent
+ * callers share one probe; cancellation is propagated and does not cache a partial result.
  */
-@Inject
 @SingleIn(ProfileScope::class)
-internal class PiBuiltinCatalog(
-    private val dispatchers: DispatcherProvider,
-    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
-) {
+internal class PiBuiltinCatalog(private val probe: suspend (Path, Path) -> List<JsonObject>) {
+    @Inject
+    constructor(
+        dispatchers: DispatcherProvider,
+        @ForScope(ProfileScope::class) profile: ScopeHandle,
+    ) : this(PiCatalogProbe(dispatchers, profile)::read)
+
     private val log = Log.tag("PiBuiltinCatalog")
     private val mutex = Mutex()
     private var models: List<JsonObject>? = null
 
     suspend fun models(executable: Path, runtimeRoot: Path): List<JsonObject> = mutex.withLock {
-        models ?: probe(executable, runtimeRoot).also { if (it.isNotEmpty()) models = it }
+        models ?: read(executable, runtimeRoot).also { models = it }
     }
 
-    private suspend fun probe(executable: Path, runtimeRoot: Path): List<JsonObject> = withContext(dispatchers.io) {
+    private suspend fun read(executable: Path, runtimeRoot: Path): List<JsonObject> = try {
+        probe(executable, runtimeRoot)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        log.w(e) { "Pi catalog probe failed" }
+        emptyList()
+    } catch (e: IOException) {
+        log.w(e) { "Pi catalog probe could not start" }
+        emptyList()
+    } catch (e: SecurityException) {
+        log.w(e) { "Pi catalog probe was denied" }
+        emptyList()
+    }
+}
+
+/** One isolated offline process; every exit path releases its connection and temporary directory. */
+private class PiCatalogProbe(private val dispatchers: DispatcherProvider, private val profile: ScopeHandle) {
+    private val log = Log.tag("PiCatalogProbe")
+
+    suspend fun read(executable: Path, runtimeRoot: Path): List<JsonObject> = withContext(dispatchers.io) {
         log.i { "Reading the bundled Pi model catalog" }
         var agentDir: Path? = null
         var connection: PiRpc? = null
@@ -66,17 +89,6 @@ internal class PiBuiltinCatalog(
                 .mapNotNull { it as? JsonObject }
             log.i { "Bundled Pi catalog read: ${catalog.size} models" }
             catalog
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: EngineException) {
-            log.w(e) { "Pi catalog probe failed" }
-            emptyList()
-        } catch (e: IOException) {
-            log.w(e) { "Pi catalog probe could not start" }
-            emptyList()
-        } catch (e: SecurityException) {
-            log.w(e) { "Pi catalog probe was denied" }
-            emptyList()
         } finally {
             // A started process removes its directory on exit; one that never started leaves only models.json.
             connection?.close() ?: agentDir?.let(::deleteTree)

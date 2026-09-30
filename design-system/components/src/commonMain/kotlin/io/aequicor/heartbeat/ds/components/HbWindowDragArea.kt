@@ -8,15 +8,16 @@ import androidx.compose.ui.tooling.preview.Preview
 import io.aequicor.heartbeat.ds.theme.HbTheme
 
 /**
- * Moves a macOS host window from otherwise unhandled presses inside this area.
+ * Moves a desktop host window from otherwise unhandled presses inside this area.
  * The desktop entry point must install its window scope with `HbWindowDragProvider`.
  * Child buttons and editors retain their gestures; mobile and hosts without a provider
- * use the same layout without window interaction. The wrapper adds no styling or semantics.
+ * use the same layout without window interaction. Native caption exclusions are applied only where this area
+ * intersects the top corners of the window. The wrapper adds no styling or semantics.
  */
 @Composable
 @NonRestartableComposable
 fun HbWindowDragArea(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    HbPlatformWindowDragArea(modifier, content)
+    WindowCaptionSafeArea(modifier) { HbPlatformWindowDragArea(Modifier, content) }
 }
 
 @Composable

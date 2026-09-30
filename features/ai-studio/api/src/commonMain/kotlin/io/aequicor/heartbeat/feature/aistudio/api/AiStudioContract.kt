@@ -81,6 +81,9 @@ public sealed interface AiStudioState : MachineState {
         /** Desktop toggle availability; established chats retain their execution workspace. */
         val isWorktreeAvailable: Boolean = false,
         val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
+        /** Next creation token; never reused while Ready survives, even when pane ids are reused. */
+        val nextCreateRequestId: Long = 0,
+        val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -123,7 +126,7 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Moves the keyboard and composer focus to another pane. */
         public data class FocusPane(val paneId: Int) : Public
 
-        /** Replaces the model preferences for the next runs. */
+        /** Replaces and persists new-conversation preferences selected on a start page. */
         public data class UpdateSettings(val settings: RunSettings) : Public
 
         /** Observes quotas for the model routes currently visible in composer panes. */
@@ -173,19 +176,23 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** The workspace could not be prepared. */
         public data object LoadFailed : Internal
 
+        /** Persistence failed; the current in-memory new-conversation preferences remain usable. */
+        public data object SettingsSaveFailed : Internal
+
         /** The workspace toggle reports [isEnabled]; the first report repeats the current value. */
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
 
-        /** The prompt submitted from [paneId] created [sessionId]; its run starts now. */
+        /** [requestId] created [sessionId]; only its still-owning pane may start the first run. */
         public data class SessionCreated(
             val paneId: Int,
             val sessionId: String,
             val prompt: String,
             val settings: RunSettings,
+            val requestId: Long,
         ) : Internal
 
-        /** The session for a prompt of [paneId] could not be created. */
-        public data class CreateFailed(val paneId: Int, val prompt: String) : Internal
+        /** [requestId] failed; only its still-owning pane may restore [prompt]. */
+        public data class CreateFailed(val paneId: Int, val prompt: String, val requestId: Long) : Internal
 
         /** Explicit stop failed; keep observing the native turn and permit another stop attempt. */
         public data class CancelFailed(val sessionId: String) : Internal
@@ -221,6 +228,12 @@ public sealed interface AiStudioEffect : MachineEffect {
     /** Resolves the workspace toggle and defaults. */
     public data object Load : AiStudioEffect
 
+    /** Writes explicit start-page preferences or the confirmed settings of an existing conversation. */
+    public sealed interface Configuration : AiStudioEffect
+
+    /** Saves start-page preferences in profile-owned work; older writes from this writer are ignored. */
+    public data class SaveSettings(val settings: RunSettings, val version: StudioSettingsVersion) : Configuration
+
     /** Reports changes of the workspace toggle for as long as the current state lasts. */
     public data object ObserveAvailability : AiStudioEffect
 
@@ -253,12 +266,13 @@ public sealed interface AiStudioEffect : MachineEffect {
         val answer: StudioPermissionAnswer? = null,
     ) : AiStudioEffect
 
-    /** Creates a session for the first [prompt] of [paneId] inside [projectId]. */
+    /** Creates a session for [prompt]; [requestId] correlates both success and failure with its pane. */
     public data class CreateSession(
         val paneId: Int,
         val projectId: String?,
         val prompt: String,
         val settings: RunSettings,
+        val requestId: Long,
         /** Prepare an isolated checkout before the first native create. */
         val isWorktree: Boolean = false,
     ) : AiStudioEffect
@@ -273,13 +287,13 @@ public sealed interface AiStudioEffect : MachineEffect {
     public data class Apply(val sessionId: String, val edit: SessionEdit) : AiStudioEffect
 
     /** Hands a configuration change to the profile; cancelling the screen waiter does not cancel it. */
-    public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : AiStudioEffect
+    public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Configuration
 }
 
 /** One-shot events of the studio. */
 public sealed interface AiStudioOutput : MachineOutput {
-    /** The prompt of [paneId] was not sent; the composer can restore it. */
-    public data class SubmitFailed(val paneId: Int, val prompt: String) : AiStudioOutput
+    /** Restore [prompt] only while [paneId] still owns [requestId], without replacing newer input. */
+    public data class SubmitFailed(val paneId: Int, val prompt: String, val requestId: Long) : AiStudioOutput
 
     /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
     public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput

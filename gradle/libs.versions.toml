@@ -39,8 +39,10 @@ fluent = "v0.1.0"
 macos = "1.1.0"
 kotlinx-collectionsImmutable = "0.5.2"
 desktop-jdk = "21"
+jbr-api = "1.10.1"
 
 [libraries]
+jbr-api = { module = "org.jetbrains.runtime:jbr-api", version.ref = "jbr-api" }
 koog-executor = { module = "ai.koog:prompt-executor-model", version.ref = "koog" }
 koog-openai = { module = "ai.koog:prompt-executor-openai-client", version.ref = "koog" }
 koog-anthropic = { module = "ai.koog:prompt-executor-anthropic-client", version.ref = "koog" }

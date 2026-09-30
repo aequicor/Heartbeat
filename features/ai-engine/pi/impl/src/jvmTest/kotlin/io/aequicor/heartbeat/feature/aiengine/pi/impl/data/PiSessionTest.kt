@@ -143,6 +143,7 @@ class PiSessionTest {
     @Test
     fun `synchronize after process loss restarts pi on the same transcript`() = runTest {
         val fixture = fixture(this)
+        val ref = fixture.session.ref
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         val turn = fixture.session.send(prompt("first"))
         fixture.connection.isOpen = false
@@ -151,11 +152,16 @@ class PiSessionTest {
         fixture.session.synchronize()
         val restarted = fixture.connections.last()
         assertEquals(2, fixture.connections.size)
-        assertEquals(listOf("switch_session", "get_state"), restarted.commands)
+        assertEquals(listOf("switch_session", "get_state", "get_state"), restarted.commands)
         assertEquals("native.jsonl", restarted.fields.first().string("sessionPath"))
+        assertEquals(ref, fixture.session.ref)
+        assertFalse(restarted.isClosed)
         val ready = assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         assertEquals(turn, ready.lastTurn?.id)
         assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
+        restarted.promptAck.complete(JsonObject(emptyMap()))
+        fixture.session.send(prompt("continued"))
+        assertEquals("prompt", restarted.commands.last())
         fixture.session.shutdown()
     }
 
@@ -178,6 +184,24 @@ class PiSessionTest {
         )
         // Restored items carry new ids; complete coverage lets observers replace their copy instead of adding it.
         assertEquals(HistoryCoverage.Complete, history.coverage)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `resuming a branch with a missing parent exposes no regenerated partial replay`() = runTest {
+        val ref = SessionRef(PiEngineId, PiSessionSource, "native")
+        val fixture = fixture(this, transcript = PiTranscript(ref, "stored.jsonl")) { _, connection ->
+            connection.entries = """{"leafId":"tail","entries":[
+                {"type":"message","id":"tail","parentId":"missing",
+                    "message":{"role":"assistant","content":"Already saved"}}]}"""
+        }
+        val history = assertIs<FeatureAccess.Available<SessionHistory>>(
+            fixture.session.features.resolve(SessionHistory),
+        ).feature.page()
+
+        assertEquals(emptyList(), history.items)
+        assertEquals(HistoryCoverage.Partial, history.coverage)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         fixture.session.shutdown()
     }
@@ -578,12 +602,33 @@ class PiSessionTest {
     }
 
     @Test
-    fun `a restarted process on another transcript is rejected`() = runTest {
-        val fixture = fixture(this) { index, connection -> if (index == 1) connection.sessionId = "other" }
+    fun `process loss before the first persisted assistant message never adopts a new session`() = runTest {
+        val fixture = fixture(this) { index, connection ->
+            // Pi returns a path immediately, but writes the transcript only after the first assistant message.
+            // Switching to the missing file succeeds and silently creates a new native session.
+            if (index > 0) connection.sessionIdAfterSwitch = "replacement-$index"
+        }
+        val ref = fixture.session.ref
+        val turn = fixture.runningTurn()
         fixture.connection.isOpen = false
         fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
-        val failure = assertFailsWith<EngineException> { fixture.session.synchronize() }
-        assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+        repeat(2) { attempt ->
+            val failure = assertFailsWith<EngineException> { fixture.session.synchronize() }
+            assertEquals(EngineFailure.Session(SessionFailureReason.Changed), failure.failure)
+            val rejected = fixture.connections[attempt + 1]
+            assertEquals(listOf("switch_session", "get_state"), rejected.commands)
+            assertEquals("native.jsonl", rejected.fields.first().string("sessionPath"))
+            assertTrue(rejected.isClosed)
+            assertEquals(ref, fixture.session.ref)
+            val unavailable = assertIs<ActiveSessionState.Unavailable>(fixture.session.state.value)
+            assertEquals(turn, unavailable.activeTurn?.id)
+            assertFailsWith<EngineException> { fixture.session.send(prompt("retry-$attempt")) }
+            assertFalse("prompt" in rejected.commands)
+            // A rejected process must not settle the remembered turn through late callbacks.
+            rejected.event(record("""{"type":"agent_settled"}"""))
+            assertEquals(unavailable, fixture.session.state.value)
+        }
+        assertEquals(3, fixture.connections.size)
         fixture.session.shutdown()
     }
 

@@ -198,7 +198,9 @@ data class HbDimensions(
             emptyStateVerticalBias = -0.14f,
             settingsRowHeight = 44.dp,
         )
-        val DesktopMacOs = Desktop.copy(titlebarInset = 32.dp, navigationHeaderTopInset = 32.dp)
+
+        /** Native caption exclusions are supplied by the window host, not a second row above the sidebar. */
+        val DesktopMacOs = Desktop
     }
 }
 

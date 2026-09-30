@@ -17,11 +17,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -109,6 +114,42 @@ class RouteAndModelsTest {
 
         val error = assertFailsWith<EngineException> { fixture.routes.recheck(route, ModelId("m1")) }
         assertEquals(authFailure(AuthFailureReason.SourceChanged, fixture.source.info.id), error.failure)
+    }
+
+    @Test
+    fun `catalog distinguishes an unread cache from an empty loaded cache`() = runTest {
+        val fixture = RouteFixture(this)
+        val catalog = ModelCatalogService(FakeModelCache(), fixture.routes, fixture.context)
+        val observed = catalog.observe(TestEngine, fixture.binding.id)
+        assertFalse(observed.value.isLoaded)
+
+        val loaded = observed.first { it.isLoaded }
+        assertEquals(emptyList(), loaded.models)
+        assertEquals(Observation(), loaded.observation)
+    }
+
+    @Test
+    fun `a delayed cache read exposes saved effort capabilities in its first loaded snapshot`() = runTest {
+        val fixture = RouteFixture(this)
+        val cache = FakeModelCache()
+        val model = ModelInfo(fixture.target, "Cached", reasoningEfforts = listOf("high"))
+        cache.entries.value = listOf(CachedModels(TestEngine, fixture.binding.id, listOf(model), fixture.clock.now))
+        val reading = CompletableDeferred<Unit>()
+        val delayed = object : ModelCache by cache {
+            override fun observe(): Flow<List<CachedModels>> = flow {
+                reading.await()
+                emitAll(cache.observe())
+            }
+        }
+        val catalog = ModelCatalogService(delayed, fixture.routes, fixture.context)
+        val observed = catalog.observe(TestEngine, fixture.binding.id)
+        val loaded = async { observed.first { it.isLoaded } }
+        runCurrent()
+        assertFalse(loaded.isCompleted)
+        assertFalse(observed.value.isLoaded)
+
+        reading.complete(Unit)
+        assertEquals(listOf(model), loaded.await().models)
     }
 
     @Test

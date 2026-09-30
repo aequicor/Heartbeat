@@ -20,8 +20,13 @@ class AiStudioWorktreeTest {
         AiStudioMachineSpec.assertTransition(
             selected,
             AiStudioIntent.Public.Submit(0, "Implement"),
-            selected.copy(panes = listOf(selected.panes[0].copy(isCreating = true), selected.panes[1])),
-            effects = listOf(AiStudioEffect.CreateSession(0, "project", "Implement", settings, isWorktree = true)),
+            selected.copy(
+                panes = listOf(selected.panes[0].copy(isCreating = true, createRequestId = 0), selected.panes[1]),
+                nextCreateRequestId = 1,
+            ),
+            effects = listOf(
+                AiStudioEffect.CreateSession(0, "project", "Implement", settings, requestId = 0, isWorktree = true),
+            ),
         )
     }
 
@@ -47,12 +52,46 @@ class AiStudioWorktreeTest {
 
     @Test
     fun `failed preparation releases the pane and returns its prompt`() {
-        val selected = ready.copy(panes = listOf(StudioPane(0, projectId = "project", isWorktree = true)))
+        val selected = ready.copy(
+            panes = listOf(StudioPane(0, projectId = "project", createRequestId = 17, isWorktree = true)),
+            nextCreateRequestId = 18,
+        )
         AiStudioMachineSpec.assertTransition(
             selected.copy(panes = listOf(selected.panes.single().copy(isCreating = true))),
-            AiStudioIntent.Internal.CreateFailed(0, "Draft"),
+            AiStudioIntent.Internal.CreateFailed(0, "Draft", requestId = 17),
             selected,
-            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Draft")),
+            outputs = listOf(AiStudioOutput.SubmitFailed(0, "Draft", requestId = 17)),
+        )
+    }
+
+    @Test
+    fun `abandoned isolated creation cannot start a run in a reused pane`() {
+        val creating = ready.copy(
+            panes = listOf(
+                StudioPane(0, projectId = "project", isCreating = true, createRequestId = 17, isWorktree = true),
+            ),
+            nextCreateRequestId = 18,
+        )
+        val replaced = creating.copy(panes = listOf(StudioPane(0, projectId = "other")))
+        AiStudioMachineSpec.assertTransition(creating, AiStudioIntent.Public.NewSession("other"), replaced)
+        AiStudioMachineSpec.assertIgnored(
+            replaced,
+            AiStudioIntent.Internal.SessionCreated(0, "isolated-chat", "Implement", settings, requestId = 17),
+        )
+        AiStudioMachineSpec.assertIgnored(
+            replaced,
+            AiStudioIntent.Internal.CreateFailed(0, "Implement", requestId = 17),
+        )
+        AiStudioMachineSpec.assertTransition(
+            replaced,
+            AiStudioIntent.Public.Submit(0, "Next"),
+            replaced.copy(
+                panes = listOf(StudioPane(0, projectId = "other", isCreating = true, createRequestId = 18)),
+                nextCreateRequestId = 19,
+            ),
+            effects = listOf(
+                AiStudioEffect.CreateSession(0, "other", "Next", settings, requestId = 18, isWorktree = false),
+            ),
         )
     }
 }

@@ -6,12 +6,14 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import kotlin.uuid.Uuid
 
 /**
  * UI effects only wait for profile work; their cancellation never claims native cancellation.
@@ -28,8 +30,13 @@ class EngineStudioEffects(
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
             AiStudioEffect.Load -> machine.send(
-                AiStudioIntent.Internal.Loaded(availability.isEnabled(), StudioDefaults(null, runtime.defaults())),
+                AiStudioIntent.Internal.Loaded(
+                    availability.isEnabled(),
+                    StudioDefaults(null, runtime.defaults(), StudioSettingsVersion(Uuid.random().toString())),
+                ),
             )
+
+            is AiStudioEffect.Configuration -> configure(effect)
 
             AiStudioEffect.ObserveAvailability -> availability.observe().collect {
                 machine.send(
@@ -55,7 +62,13 @@ class EngineStudioEffects(
             is AiStudioEffect.CreateSession -> {
                 val session = repository.createSession(effect.projectId, titleOf(effect.prompt), effect.isWorktree)
                 machine.send(
-                    AiStudioIntent.Internal.SessionCreated(effect.paneId, session.id, effect.prompt, effect.settings),
+                    AiStudioIntent.Internal.SessionCreated(
+                        effect.paneId,
+                        session.id,
+                        effect.prompt,
+                        effect.settings,
+                        effect.requestId,
+                    ),
                 )
             }
 
@@ -77,7 +90,12 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+        }
+    }
 
+    private suspend fun configure(effect: AiStudioEffect.Configuration) {
+        when (effect) {
+            is AiStudioEffect.SaveSettings -> runtime.saveDefaults(effect.settings, effect.version)
             is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
         }
     }

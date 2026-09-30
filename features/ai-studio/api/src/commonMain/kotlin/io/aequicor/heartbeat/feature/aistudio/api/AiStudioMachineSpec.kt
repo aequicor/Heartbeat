@@ -30,13 +30,14 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | OpenBeside | | Ready (second pane, focused) | Apply(SetUnread(false)) for sessions |
  * | Ready | ClosePane | several panes | Ready (pane removed) | |
  * | Ready | FocusPane | another open pane | Ready | |
- * | Ready | UpdateSettings | | Ready (including route-scoped native effort preferences) | |
+ * | Ready | UpdateSettings | | Ready (new-conversation preferences, revision + 1) | SaveSettings |
+ * | Ready | SettingsSaveFailed | | Ready (in-memory preferences retained) | |
  * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
  * | Ready | Submit | prompt, new-session page, not creating | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
- * | Ready | SessionCreated | | Ready (pane shows session, running) | Run |
- * | Ready | CreateFailed | | Ready (pane not creating) | output SubmitFailed |
+ * | Ready | SessionCreated | matching pending request | Ready (pane shows session, running) | Run |
+ * | Ready | CreateFailed | matching pending request | Ready (pane not creating) | output SubmitFailed(request) |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
  * | Ready | RunFinished | | Ready (idle unless latest snapshot runs it) | Apply(SetUnread) if hidden; output RunEnded |
  * | Ready | ObserveUsageTargets / RefreshUsage | | Ready | ObserveUsageTargets / RefreshUsage |
@@ -49,9 +50,14 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | Edit | valid edit | Ready (archived session leaves panes) | Apply |
  *
  * Runs are effects of Ready and continue across every Ready update; several sessions may run at once.
+ * Replacing or closing a creating pane abandons its first prompt before a run is accepted. Late creation
+ * results are ignored, including results arriving after the pane id is reused or another submit starts. A
+ * session already saved by creation remains an idle sidebar entry; it never starts a hidden run. Focusing
+ * another pane preserves the pending request, and already started runs survive all Ready navigation.
  * Switching the workspace toggle off detaches effects; accepted native turns remain owned by the profile.
  * Effect failures: Load → LoadFailed, CreateSession → CreateFailed, Run → RunFinished(Failed),
- * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed; failed Apply,
+ * Cancel → CancelFailed, ObserveRuntime → RuntimeLost, RespondPermission → PermissionAnswerFailed,
+ * SaveSettings → SettingsSaveFailed; failed Apply,
  * ObserveModels and
  * ObserveAvailability are only logged. The workspace data lives outside the machine: a restarted
  * process restores stored chats while the transient pane machine starts afresh.
@@ -109,7 +115,21 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                 effect { AiStudioEffect.ObserveAvailability }
             }
             on<AiStudioIntent.Internal.AvailabilityChanged>(guard = { intent.isEnabled })
-            on<AiStudioIntent.Public.UpdateSettings> { stay { state.copy(settings = intent.settings) } }
+            on<AiStudioIntent.Public.UpdateSettings> {
+                stay {
+                    state.copy(
+                        settings = intent.settings,
+                        settingsVersion = state.settingsVersion.copy(revision = state.settingsVersion.revision + 1),
+                    )
+                }
+                effect {
+                    AiStudioEffect.SaveSettings(
+                        intent.settings,
+                        state.settingsVersion.copy(revision = state.settingsVersion.revision + 1),
+                    )
+                }
+            }
+            on<AiStudioIntent.Internal.SettingsSaveFailed>()
             on<AiStudioIntent.Public.ChangeSessionSetting>(guard = {
                 state.panes.any { it.sessionId == intent.sessionId } &&
                     state.configurations[intent.sessionId]?.pendingOperation == null &&
@@ -126,7 +146,13 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
             when (effect) {
                 AiStudioEffect.Load -> AiStudioIntent.Internal.LoadFailed
 
-                is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(effect.paneId, effect.prompt)
+                is AiStudioEffect.SaveSettings -> AiStudioIntent.Internal.SettingsSaveFailed
+
+                is AiStudioEffect.CreateSession -> AiStudioIntent.Internal.CreateFailed(
+                    effect.paneId,
+                    effect.prompt,
+                    effect.requestId,
+                )
 
                 is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
 
@@ -204,13 +230,18 @@ private fun ReadyTransitions.conversations() {
     on<AiStudioIntent.Public.Submit>(
         guard = { intent.prompt.isNotBlank() && state.pane(intent.paneId)?.isNewSessionPage() == true },
     ) {
-        stay { state.replacePane(intent.paneId) { it.copy(isCreating = true) } }
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(isCreating = true, createRequestId = state.nextCreateRequestId)
+            }.copy(nextCreateRequestId = state.nextCreateRequestId + 1)
+        }
         effect {
             AiStudioEffect.CreateSession(
                 intent.paneId,
                 state.pane(intent.paneId)?.projectId,
                 intent.prompt.trim(),
                 state.settings,
+                requestId = state.nextCreateRequestId,
                 isWorktree = state.pane(intent.paneId)?.isWorktree == true,
             )
         }
@@ -225,11 +256,13 @@ private fun ReadyTransitions.conversations() {
         stay { state.copy(running = state.running + intent.sessionId) }
         effect { AiStudioEffect.Run(intent.sessionId, intent.prompt.trim(), state.settings) }
     }
-    on<AiStudioIntent.Internal.SessionCreated> {
+    on<AiStudioIntent.Internal.SessionCreated>(guard = {
+        state.ownsCreateRequest(intent.paneId, intent.requestId)
+    }) {
         stay {
             state.copy(
                 panes = state.panes.map { pane ->
-                    if (pane.id == intent.paneId && pane.isCreating) {
+                    if (pane.id == intent.paneId) {
                         StudioPane(pane.id, sessionId = intent.sessionId)
                     } else {
                         pane
@@ -240,9 +273,11 @@ private fun ReadyTransitions.conversations() {
         }
         effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, intent.settings) }
     }
-    on<AiStudioIntent.Internal.CreateFailed> {
+    on<AiStudioIntent.Internal.CreateFailed>(guard = {
+        state.ownsCreateRequest(intent.paneId, intent.requestId)
+    }) {
         stay { state.updatePane(intent.paneId) { it.copy(isCreating = false) } }
-        output { AiStudioOutput.SubmitFailed(intent.paneId, intent.prompt) }
+        output { AiStudioOutput.SubmitFailed(intent.paneId, intent.prompt, intent.requestId) }
     }
 }
 
@@ -365,12 +400,16 @@ private fun initialWorkspace(defaults: StudioDefaults): AiStudioState.Ready = Ai
     panes = listOf(StudioPane(id = 0, projectId = defaults.projectId)),
     focusedPaneId = 0,
     settings = defaults.settings,
+    settingsVersion = defaults.settingsVersion,
     defaultProjectId = defaults.projectId,
 )
 
 private fun AiStudioState.Ready.pane(id: Int): StudioPane? = panes.firstOrNull { it.id == id }
 
 private fun AiStudioState.Ready.hasPane(id: Int?): Boolean = id == null || pane(id) != null
+
+private fun AiStudioState.Ready.ownsCreateRequest(paneId: Int, requestId: Long): Boolean =
+    pane(paneId)?.let { it.isCreating && it.createRequestId == requestId } == true
 
 private fun AiStudioState.Ready.isIdle(sessionId: String): Boolean = sessionId !in running
 

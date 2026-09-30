@@ -18,21 +18,34 @@ public enum class ApprovalMode {
     AutoApprove,
 }
 
-/** Model preferences applied to the next run of every pane. [modelId] references the studio model catalog. */
+/** New-conversation preferences; existing engine chats keep their own settings. [modelId] is a studio route. */
 public data class RunSettings(val modelId: String, val effort: ReasoningEffort, val approval: ApprovalMode)
 
 /** Values the studio starts with, resolved from the workspace and the model catalog. */
-public data class StudioDefaults(val projectId: String?, val settings: RunSettings)
+public data class StudioDefaults(
+    val projectId: String?,
+    val settings: RunSettings,
+    val settingsVersion: StudioSettingsVersion = StudioSettingsVersion(),
+)
+
+/**
+ * Orders preference writes from one loaded workspace. [writer] changes on every load; [revision] increases on
+ * each explicit choice. Independent workspace instances never discard each other's writes as stale.
+ */
+public data class StudioSettingsVersion(val writer: String = "", val revision: Long = 0)
 
 /**
  * One column of the workspace. Shows the session [sessionId], or the new-session page targeting [projectId]
  * (`null` — a conversation outside projects). [isCreating] is set while a submitted prompt creates its session.
+ * [createRequestId] identifies that submission independently of the reusable pane [id]. It remains after a
+ * failure until the page is replaced or another prompt is submitted, so delayed draft restoration is correlated.
  */
 public data class StudioPane(
     val id: Int,
     val sessionId: String? = null,
     val projectId: String? = null,
     val isCreating: Boolean = false,
+    val createRequestId: Long? = null,
     /** Fixed at creation; only a new local-project pane can change its execution mode. */
     val isWorktree: Boolean = false,
 )
