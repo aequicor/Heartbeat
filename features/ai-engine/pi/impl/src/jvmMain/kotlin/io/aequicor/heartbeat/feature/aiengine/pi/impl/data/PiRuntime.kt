@@ -39,14 +39,19 @@ internal data class PiRuntimeCredentials(
     val fingerprint: String,
 )
 
+/** Profile services a runtime validates against, launches processes with and publishes next to its sessions. */
+internal data class PiRuntimeServices(
+    val settings: PiSettings,
+    val processes: PiProcessLauncher,
+    val toggles: FeatureToggles,
+    val workspaces: LocalWorkspaces,
+    val nativeWeb: PiNativeWeb,
+)
+
 internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
-    private val settings: PiSettings,
-    private val processes: PiProcessLauncher,
     private val environment: PiSessionEnvironment,
-    private val toggles: FeatureToggles,
-    private val workspaces: LocalWorkspaces,
-    private val nativeWeb: PiNativeWeb,
+    private val services: PiRuntimeServices,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -56,13 +61,17 @@ internal class PiRuntime(
     private val credential get() = credentials.fingerprint
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
+    private val settings get() = services.settings
+    private val processes get() = services.processes
+    private val toggles get() = services.toggles
+    private val workspaces get() = services.workspaces
     private val mutex = Mutex()
     private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
 
     @Volatile var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
-        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to nativeWeb))
+        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to services.nativeWeb))
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {

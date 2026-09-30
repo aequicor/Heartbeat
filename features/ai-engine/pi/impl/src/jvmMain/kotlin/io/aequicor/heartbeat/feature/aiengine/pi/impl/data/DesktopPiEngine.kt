@@ -170,12 +170,8 @@ internal class DesktopPiEngine(
         // Runtime/session/transport objects carry request-specific state and are owned by this profile service.
         PiRuntime(
             PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
-            settings,
-            processes,
             environment,
-            toggles,
-            workspaces,
-            nativeWeb,
+            PiRuntimeServices(settings, processes, toggles, workspaces, nativeWeb),
         ).also { runtimes[identity.source] = it }
     }
 
