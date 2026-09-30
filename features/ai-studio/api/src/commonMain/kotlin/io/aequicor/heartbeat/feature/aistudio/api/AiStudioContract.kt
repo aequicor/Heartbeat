@@ -78,6 +78,8 @@ public sealed interface AiStudioState : MachineState {
         val isProjectAddingAvailable: Boolean = false,
         val addingProjectTo: Int? = null,
         val projectErrorPane: Int? = null,
+        /** Desktop toggle availability; established chats retain their execution workspace. */
+        val isWorktreeAvailable: Boolean = false,
     ) : AiStudioState {
         init {
             require(panes.isNotEmpty()) { "The workspace always shows at least one pane" }
@@ -101,6 +103,9 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Changes the project a new session of [paneId] will belong to. */
         public data class SelectProject(val paneId: Int, val projectId: String?) : Public
+
+        /** Selects isolated execution before the first native session is created. */
+        public data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Public
 
         /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
         public data class AddProject(val paneId: Int) : Public
@@ -194,7 +199,10 @@ public sealed interface AiStudioIntent : MachineIntent {
         public data class ModelsChanged(val modelIds: List<String>) : Internal
 
         /** Local project feature and platform availability changed. */
-        public data class ProjectAvailabilityChanged(val isAvailable: Boolean) : Internal
+        public data class ProjectAvailabilityChanged(
+            val isAvailable: Boolean,
+            val isWorktreeAvailable: Boolean = false,
+        ) : Internal
 
         /** The picker registered a stable project id, or returned null when cancelled. */
         public data class ProjectChosen(val paneId: Int, val projectId: String?) : Internal
@@ -247,6 +255,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val projectId: String?,
         val prompt: String,
         val settings: RunSettings,
+        /** Prepare an isolated checkout before the first native create. */
+        val isWorktree: Boolean = false,
     ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */

@@ -26,7 +26,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -48,6 +47,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
+import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
@@ -55,21 +55,20 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
-import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,11 +80,9 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -119,9 +116,15 @@ internal data class StudioChatRecord(
     val hasFailed: Boolean = false,
     val failureKind: RunFailureKind = RunFailureKind.Unknown,
     val projectId: String? = null,
+    /** Managed execution identity, distinct from the project's sidebar grouping. */
+    val executionWorkspace: WorkspaceRef? = null,
+    val worktreeTaskId: String? = null,
+    val lastApproval: String? = null,
+    val lastEffort: String? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
@@ -136,11 +139,18 @@ internal class EngineStudioRepository(
     private val workspaces: LocalWorkspaces,
     private val efforts: EffortChoicesView,
     private val usage: EngineStudioUsage,
+    private val worktrees: StudioWorktrees,
+    private val turns: StudioTurnExecutor,
+    private val runs: StudioRunCoordinator,
+    workspaceProjection: StudioWorkspaceProjection,
 ) : StudioRepository,
-    StudioRuntime {
+    StudioRuntime,
+    StudioTurnHost,
+    StudioRunHost {
     private val log = Log.tag("EngineStudio")
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
+    private val deliveringActions = mutableSetOf<String>()
 
     /**
      * Items live in the feature database; a conversation stored by an earlier version inside its record is moved
@@ -162,14 +172,6 @@ internal class EngineStudioRepository(
     private val stopRequests = mutableSetOf<String>()
 
     /**
-     * Continuability probes of stored refs cached per set of enabled engines: a recompute triggered by one
-     * changed chat or run must not re-open every other stored session from the catalog.
-     */
-    private val continuableLock = Mutex()
-    private var continuableEngines: Set<EngineId>? = null
-    private val continuableByRef = mutableMapOf<SessionRef, Boolean>()
-
-    /**
      * One lock per conversation so a native session is created, resumed or released at most once at a time.
      * An entry lives only while someone holds or awaits it.
      */
@@ -178,6 +180,15 @@ internal class EngineStudioRepository(
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
     init {
+        profile.coroutineScope.launch {
+            worktrees.tasks().collect { tasks ->
+                tasks.values.forEach { task ->
+                    val action = task.actionRequest ?: return@forEach
+                    val isDeliveryRequired = lock.withLock { deliveringActions.add(action.operation) }
+                    if (isDeliveryRequired) profile.coroutineScope.launch { deliverAction(task.chatId, action) }
+                }
+            }
+        }
         profile.coroutineScope.launch {
             usage.state.collect { snapshot ->
                 log.d { "Update studio usage snapshot" }
@@ -199,73 +210,15 @@ internal class EngineStudioRepository(
     private val offeredModels = facade.observeStudioModels(selections, sources)
         .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
 
-    /** Recomputed only when stored refs, engines or running chats change; storage writes per event do not. */
-    private val continuability: Flow<Map<String, Boolean>> = combine(
-        store.observe(ChatsKey).map { records -> records.orEmpty().map { it.id to it.ref } }.distinctUntilChanged(),
-        facade.engines.state,
-        state.map { it.running }.distinctUntilChanged(),
-    ) { refs, _, _ ->
-        log.d { "Recompute conversation continuability count=${refs.size}" }
-        refs.associate { (id, ref) -> id to isContinuable(id, ref) }
-    }
-
-    /** One shared pipeline: every subscriber reuses it instead of re-collecting the continuability probes. */
-    private val workspaceFlow: Flow<StudioWorkspace> = combine(
+    /** All subscribers share the same sidebar projection and native-resume probes. */
+    private val workspaceFlow = workspaceProjection.observe(
         store.observe(ChatsKey),
-        continuability,
-        workspaces.observe(),
-    ) { records, continuable, projects ->
-        StudioWorkspace(
-            projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
-            records.orEmpty().map {
-                StudioSession(
-                    it.id,
-                    it.projectId,
-                    it.title,
-                    it.updatedAt,
-                    it.isPinned,
-                    it.isUnread,
-                    it.isArchived,
-                    modelId = it.target?.let { target ->
-                        Json.encodeToString(EngineTarget.serializer(), target)
-                    },
-                    isContinuable = continuable[it.id] ?: true,
-                )
-            },
-        )
-    }.shareIn(profile.coroutineScope, SharingStarted.WhileSubscribed(WORKSPACE_REUSE_TIMEOUT_MILLIS), replay = 1)
-
+        profile.coroutineScope,
+        state.map { it.running },
+    ) { id -> handlesLock.withLock { handles[id] } }
     override fun observeWorkspace(): Flow<StudioWorkspace> {
         log.d { "observeWorkspace" }
         return workspaceFlow
-    }
-
-    private suspend fun isContinuable(id: String, ref: SessionRef?): Boolean {
-        if (ref == null) return true
-        val current = handlesLock.withLock { handles[id] }
-        if (current != null) {
-            return current.state.value !is ActiveSessionState.Closing &&
-                current.state.value != ActiveSessionState.Closed
-        }
-        val engines = facade.engines.state.value.mapTo(mutableSetOf()) { it.descriptor.id }
-        continuableLock.withLock {
-            if (continuableEngines != engines) {
-                continuableEngines = engines
-                continuableByRef.clear()
-            }
-            continuableByRef[ref]?.let { return it }
-        }
-        return try {
-            val isResumable =
-                facade.sessions.get(ref).features.resolve(ResumesSessions) is FeatureAccess.Available
-            continuableLock.withLock { continuableByRef[ref] = isResumable }
-            isResumable
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "Stored chat cannot currently be resumed" }
-            false
-        }
     }
 
     override fun observeMessages(sessionId: String): Flow<List<StudioMessage>> {
@@ -316,103 +269,164 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun createSession(projectId: String?, title: String): StudioSession {
+        log.i { "Create conversation in the selected project" }
+        return createSession(projectId, title, isWorktree = false)
+    }
+
+    override suspend fun createSession(projectId: String?, title: String, isWorktree: Boolean): StudioSession {
+        log.i { "Create studio conversation worktree=$isWorktree" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
         }
-        val record = StudioChatRecord(Uuid.random().toString(), title, clock.now(), projectId = projectId)
+        val id = Uuid.random().toString()
+        val isolated = if (isWorktree) {
+            val project = WorkspaceRef(requireNotNull(projectId) { "Worktree requires a local project" })
+            worktrees.send(WorktreeIntent.Public.Prepare(id, project))
+            worktrees.await(id) { it.executionWorkspace != null || it.phase == WorktreePhase.Failed }.also {
+                check(it.executionWorkspace != null && it.phase != WorktreePhase.Failed) {
+                    "Worktree preparation failed: ${it.failure.orEmpty()}"
+                }
+            }
+        } else {
+            null
+        }
+        val record = StudioChatRecord(
+            id,
+            title,
+            clock.now(),
+            projectId = projectId,
+            executionWorkspace = isolated?.executionWorkspace,
+            worktreeTaskId = isolated?.chatId,
+        )
         lock.withLock { store.set(ChatsKey, store.get(ChatsKey).orEmpty() + record) }
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt)
     }
 
-    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
-        log.i { "Start profile-owned execution" }
-        val job = lock.withLock {
-            check(!profile.isClosed) { "Profile is closed" }
-            check(sessionId !in state.value.running) { "Session is busy" }
-            val startedAt = clock.now()
-            mutableState.update {
-                it.copy(running = it.running + sessionId, runStartedAt = it.runStartedAt + (sessionId to startedAt))
-            }
-            profile.coroutineScope.async(start = CoroutineStart.LAZY) { execute(sessionId, prompt, settings) }.also {
-                it.start()
-            }
-        }
-        return job.await()
-    }
-
-    private suspend fun execute(id: String, prompt: String, settings: RunSettings): RunOutcome {
+    /** Mark delivery durably before invoking native code; recovery never automatically sends the action again. */
+    private suspend fun deliverAction(id: String, action: WorktreeActionRequest) {
         try {
-            val result = executeTurn(id, prompt, settings)
-            // Profile shutdown owns native cleanup; never wait for its cancelled machine uninterruptibly.
-            releaseArchived(id)
-            return result
-        } finally {
-            log.i { "Profile execution ended; clear local run state" }
-            // Atomic with cancel(): a stop is recorded only while the chat still counts as running.
-            withContext(NonCancellable) {
-                handlesLock.withLock {
-                    stopRequests.remove(id)
-                    mutableState.update {
-                        it.copy(
-                            running = it.running - id,
-                            runStartedAt = it.runStartedAt - id,
-                            stopFailures = it.stopFailures - id,
-                            uncancellable = it.uncancellable - id,
-                            permissions = it.permissions.filterNot { request -> request.sessionId == id },
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    private suspend fun executeTurn(id: String, prompt: String, settings: RunSettings): RunOutcome {
-        try {
-            val target = target(id, settings)
-            val active = open(id, target)
-            update(id) { copy(updatedAt = clock.now(), hasFailed = false, failureKind = RunFailureKind.Unknown) }
-            val history = active.features.requireFeature(SessionHistory)
-            return supervisorScope {
-                val observation = launch {
-                    observeHistory(id, history)
-                }
-                val permissions = launch { active.state.collect { updatePermissions(id, it) } }
-                try {
-                    val trust = settings.approval.trustFor(offeredModels.value, target)
-                    log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
-                    val turn = submit(
-                        active,
-                        prompt,
-                        efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
-                        trust,
-                    )
-                    if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
-                    val terminal = active.state.first {
-                        (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
-                            (it is ActiveSessionState.Unavailable && it.activeTurn == null && it.lastTurn?.id == turn)
-                    }
-                    observation.cancelAndJoin()
-                    refreshHistory(id, history)
-                    val finished =
-                        (terminal as? ActiveSessionState.Ready)?.lastTurn
-                            ?: (terminal as? ActiveSessionState.Unavailable)?.lastTurn
-                    outcome(id, finished?.outcome)
-                } finally {
-                    observation.cancel()
-                    permissions.cancel()
+            state.first { id !in it.running }
+            val stored = record(id)
+            val defaults = defaults()
+            val settings = defaults.copy(
+                modelId = stored.target?.let { Json.encodeToString(EngineTarget.serializer(), it) }.orEmpty(),
+                approval = ApprovalMode.entries.firstOrNull { it.name == stored.lastApproval } ?: defaults.approval,
+                effort = ReasoningEffort.entries.firstOrNull { it.name == stored.lastEffort } ?: defaults.effort,
+            )
+            launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
+                worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
+                worktrees.await(id, failOnTaskError = false) {
+                    it.actionRequest == null && it.phase == WorktreePhase.ActionWorking &&
+                        it.expectedAction?.operation == action.operation
                 }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.e(e) { "Studio execution failed" }
-            val kind = (e as? EngineException)?.failure.toRunFailureKind()
-            update(id) { copy(hasFailed = true, failureKind = kind) }
-            return RunOutcome.Failed
+            log.e(e) { "Worktree action delivery failed; preserve the journal for explicit recovery" }
+            try {
+                worktrees.send(WorktreeIntent.Public.ActionDeliveryFailed(id, action.operation, "ActionDeliveryFailed"))
+            } catch (deliveryError: CancellationException) {
+                throw deliveryError
+            } catch (deliveryError: Exception) {
+                log.e(deliveryError) { "Could not persist the failed action handoff" }
+            }
+            update(id) { copy(hasFailed = true) }
         }
     }
 
+    override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
+        log.i { "Run studio conversation" }
+        return launchRun(sessionId, prompt, settings, WorktreeRunKind.Coding, RequestId(Uuid.random().toString()))
+    }
+
+    private suspend fun launchRun(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        kind: WorktreeRunKind,
+        request: RequestId,
+        waitForIdle: Boolean = false,
+        beforeExecute: suspend () -> Unit = {},
+    ): RunOutcome = runs.run(
+        this,
+        StudioTurnRequest(sessionId, prompt, settings, kind, request),
+        waitForIdle,
+        beforeExecute,
+    )
+
+    override suspend fun startedRun(id: String, at: Instant) {
+        log.i { "Start profile-owned execution" }
+        mutableState.update { it.copy(running = it.running + id, runStartedAt = it.runStartedAt + (id to at)) }
+    }
+
+    override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
+        log.i { "Execute the reserved native request" }
+        val result = turns.execute(this, request)
+        releaseArchived(request.id)
+        return result
+    }
+
+    override suspend fun finishedRun(id: String) {
+        log.i { "Profile execution ended; clear local run state" }
+        handlesLock.withLock {
+            stopRequests.remove(id)
+            mutableState.update {
+                it.copy(
+                    running = it.running - id,
+                    runStartedAt = it.runStartedAt - id,
+                    stopFailures = it.stopFailures - id,
+                    uncancellable = it.uncancellable - id,
+                    permissions = it.permissions.filterNot { request -> request.sessionId == id },
+                )
+            }
+        }
+    }
+    override suspend fun isWorktree(id: String): Boolean {
+        log.d { "Read conversation execution mode" }
+        return record(id).worktreeTaskId != null
+    }
+
+    override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
+        log.i { "Open the conversation's fixed execution workspace" }
+        val active = open(id, target(id, settings))
+        update(id) {
+            copy(
+                updatedAt = clock.now(),
+                hasFailed = false,
+                failureKind = RunFailureKind.Unknown,
+                lastApproval = settings.approval.name,
+                lastEffort = settings.effort.name,
+            )
+        }
+        return active
+    }
+
+    override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
+        val target = checkNotNull(record(request.id).target)
+        val trust = request.settings.approval.trustFor(offeredModels.value, target)
+        log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        return submit(
+            active,
+            request.prompt,
+            efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target)),
+            trust,
+            request.request,
+        )
+    }
+
+    override suspend fun shouldStop(id: String): Boolean {
+        log.d { "Read pending native stop request" }
+        return handlesLock.withLock { id in stopRequests }
+    }
+
+    override suspend fun failedTurn(id: String, error: Exception): RunOutcome {
+        log.e(error) { "Persist failed native turn" }
+        val kind = (error as? EngineException)?.failure.toRunFailureKind()
+        update(id) { copy(hasFailed = true, failureKind = kind) }
+        return RunOutcome.Failed
+    }
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
         val selected = selections.observe().first()
         val target = requireNotNull(turnTarget(settings.modelId, record(id).target, selected.defaultTarget)) {
@@ -422,7 +436,7 @@ internal class EngineStudioRepository(
         return target
     }
 
-    private suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome = when (outcome) {
+    override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome = when (outcome) {
         TurnOutcome.Completed -> RunOutcome.Completed
 
         TurnOutcome.Cancelled -> RunOutcome.Stopped
@@ -443,9 +457,10 @@ internal class EngineStudioRepository(
         prompt: String,
         reasoningEffort: String?,
         trust: TrustLevel?,
+        requestId: RequestId,
     ): TurnId {
         val request = PromptRequest(
-            RequestId(Uuid.random().toString()),
+            requestId,
             listOf(ContentPart.Text(prompt)),
             reasoningEffort = reasoningEffort,
             trust = trust,
@@ -459,7 +474,7 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
+    override suspend fun requestStop(id: String, active: ActiveSession, turn: TurnId) {
         try {
             active.features.requireFeature(CancelsTurns).cancel(turn)
         } catch (e: CancellationException) {
@@ -470,7 +485,7 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun refreshHistory(id: String, history: SessionHistory) {
+    override suspend fun refreshHistory(id: String, history: SessionHistory) {
         try {
             historyMirror.refresh(id, history)
         } catch (e: CancellationException) {
@@ -480,7 +495,7 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun observeHistory(id: String, history: SessionHistory) {
+    override suspend fun observeHistory(id: String, history: SessionHistory) {
         try {
             historyMirror.follow(id, history)
         } catch (e: CancellationException) {
@@ -501,7 +516,7 @@ internal class EngineStudioRepository(
             ) {
                 "Choose a model with local project access"
             }
-            val ref = WorkspaceRef(projectId)
+            val ref = record.executionWorkspace ?: WorkspaceRef(projectId)
             checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
             ref
         }
@@ -597,6 +612,7 @@ internal class EngineStudioRepository(
             stopRequests += sessionId
             handles[sessionId]
         } ?: return
+        worktrees.cancelBuilds(sessionId)
         if (active.state.value is ActiveSessionState.Unavailable) {
             active.features.requireFeature(
                 ReconcilesSession,
@@ -632,7 +648,7 @@ internal class EngineStudioRepository(
         error("Permission answer rejected: $reason")
     }
 
-    private suspend fun updatePermissions(id: String, state: ActiveSessionState) {
+    override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.d { "Update pending permission projection" }
         val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { it.toStudio(id) }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
@@ -720,11 +736,6 @@ internal class EngineStudioRepository(
     override suspend fun setBranch(sessionId: String, branch: String) {
         log.w { "Rejected local branch mutation" }
         error("Native tools own branch metadata")
-    }
-
-    private companion object {
-        /** Shared upstream stays hot between screen re-subscriptions (configuration changes, navigation). */
-        const val WORKSPACE_REUSE_TIMEOUT_MILLIS = 5_000L
     }
 }
 

@@ -30,6 +30,8 @@ public data class StudioPane(
     val sessionId: String? = null,
     val projectId: String? = null,
     val isCreating: Boolean = false,
+    /** Fixed at creation; only a new local-project pane can change its execution mode. */
+    val isWorktree: Boolean = false,
 )
 
 /** Metadata change of a session, persisted by the studio effects. */

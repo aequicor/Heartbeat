@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioLocalProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioDirectoryPicker
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeModeEnabled
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -26,6 +27,11 @@ internal class LocalStudioProjects(
         toggles.observe(StudioLocalProjects),
         toggles.observe(StudioEngineRuntime),
     ) { projects, runtime -> projects && runtime && workspaces.isAvailable && picker.isAvailable }
+
+    override val worktreeAvailability: Flow<Boolean> = combine(
+        toggles.observe(WorktreeModeEnabled),
+        toggles.observe(StudioEngineRuntime),
+    ) { enabled, runtime -> enabled && runtime && workspaces.isAvailable }
 
     override suspend fun choose(): String? {
         check(availability.first()) { "Local project selection is unavailable" }
