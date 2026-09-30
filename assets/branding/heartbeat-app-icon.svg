@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Heartbeat app icon</title>
+  <desc id="desc">An optical small-size version of the glass hexagonal Heartbeat icon with a crisp white ECG.</desc>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0.2" x2="1" y2="0.8">
+      <stop stop-color="#3982F5"/>
+      <stop offset="0.52" stop-color="#5264ED"/>
+      <stop offset="1" stop-color="#A44AE8"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#8CD9FF"/>
+      <stop offset="0.5" stop-color="#677EFF"/>
+      <stop offset="1" stop-color="#CB80FA"/>
+    </linearGradient>
+  </defs>
+  <path d="M36 19L70 9C78 7 85 10 91 17L113 42C120 50 122 57 120 66L111 96C109 105 102 111 93 113L58 119C48 121 41 117 35 110L13 84C7 77 6 70 9 61L18 35C21 26 28 22 36 19Z" fill="url(#tile)" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M26 69H42C45 69 46 70 48 74L50 78C51 81 53 78 54 74L60 40Q61 34 62 40L66 85Q67 91 69 85L72 73Q73 70 77 69C82 68 82 61 86 61C90 61 92 69 98 69H103" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

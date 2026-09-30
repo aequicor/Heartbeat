@@ -1,0 +1,10 @@
+Generated with the built-in image_gen tool. Input 1: heartbeat-desktop-logo.png. Inputs 2 and 3: user-provided macOS icon presentation references.
+
+Use case: precise-object-edit
+Asset type: fully filled native macOS app icon for Heartbeat, matching the macOS icon examples.
+Input images: Image 1 is the Heartbeat ECG brand reference and edit target. Images 2 and 3 are shape, fullness and macOS icon presentation references only; do not copy their document, stars, pill or phone symbols.
+Primary request: Replace the tilted hexagonal silhouette of Image 1 with a completely filled rounded-square macOS application tile. The finished tile must feel like the solid filled MagicPaper and Amphetamine icons in the macOS references. Keep Heartbeat's blue-to-violet glass color identity and elegant luminous white ECG mark.
+Composition/framing: one straight-on rounded-square app tile, centered and occupying virtually the whole square image. Continuous blue-violet material fills the tile from edge to edge, including every space around the white ECG. No transparent hole inside the icon, no inner hexagon, no emblem floating on an empty background, no nested square. Only the natural outer rounded-corner cutouts may be transparent, with at most a 3 percent clear margin.
+Style/medium: sophisticated macOS icon, smooth sculpted glass surface, restrained bevel, subtle top highlight and rich violet lower shading. Strong attractive depth, calm studio polish rather than oversaturated neon. The tile itself is the background.
+Subject: a single elegant balanced white ECG waveform, with a compact dip, tall positive spike, short negative return and gentle recovery curve. Preserve the graceful curve language of Image 1. White line is crisp and moderately substantial, with very restrained localized glow and ample room around it; no chunky overlapping blobs.
+Constraints: actual transparent alpha only outside rounded-square silhouette; filled interior must be fully opaque. No words, no letters, no watermark, no hearts, no H, no medical objects. Keep only the macOS app icon itself; no desktop screenshot, no captions or surrounding UI.

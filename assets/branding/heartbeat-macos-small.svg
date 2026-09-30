@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 128 128" role="img" aria-labelledby="title">
+  <title id="title">Heartbeat macOS small icon</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#3982F5"/>
+      <stop offset="0.5" stop-color="#5264ED"/>
+      <stop offset="1" stop-color="#824CD8"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#9DDFFF"/>
+      <stop offset="1" stop-color="#AE80EA"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#tile)" stroke="url(#edge)" stroke-width="2"/>
+  <path d="M26 69H42C45 69 46 70 48 74L50 78C51 81 53 78 54 74L60 40Q61 34 62 40L66 85Q67 91 69 85L72 73Q73 70 77 69C82 68 82 61 86 61C90 61 92 69 98 69H103" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

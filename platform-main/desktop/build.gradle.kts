@@ -97,6 +97,20 @@ compose.desktop {
             modules("java.instrument", "java.management", "jdk.httpserver", "jdk.unsupported")
             packageName = "io.aequicor"
             packageVersion = "1.0.0"
+            description = "Heartbeat AI Studio"
+            vendor = "Aequicor"
+            macOS {
+                iconFile.set(layout.projectDirectory.file("icons/heartbeat.icns"))
+                dockName = "Heartbeat"
+            }
+            windows {
+                iconFile.set(layout.projectDirectory.file("icons/heartbeat.ico"))
+                shortcut = true
+                menuGroup = "Heartbeat"
+            }
+            linux {
+                iconFile.set(layout.projectDirectory.file("icons/heartbeat.png"))
+            }
             preparePiRuntime?.let { task -> appResourcesRootDir.set(task.flatMap { it.outputDirectory }) }
         }
     }
@@ -143,8 +157,9 @@ afterEvaluate {
 // macOS DMG has no uninstaller, so app data there is removed only by the user.
 val appImageOnlyOptions = setOf(
     "--input", "--runtime-image", "--main-jar", "--main-class", "--java-options", "--arguments",
-    "--add-modules", "--icon", "--resource-dir",
+    "--add-modules", "--resource-dir",
 )
+// Keep --icon in the installer invocation too: WiX uses it for ARPPRODUCTICON in Windows' installed app list.
 tasks.withType<AbstractJPackageTask>().configureEach {
     if (targetFormat == TargetFormat.Msi) {
         val packagingDir = layout.projectDirectory.dir("packaging/windows").asFile
