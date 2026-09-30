@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
@@ -44,9 +43,8 @@ internal class PiRuntime(
     private val settings: PiSettings,
     private val processes: PiProcessLauncher,
     private val environment: PiSessionEnvironment,
-    private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
-    private val nativeWeb: PiNativeWeb,
+    nativeWeb: PiNativeWeb,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -68,7 +66,7 @@ internal class PiRuntime(
         if (isClosed || profile.isClosed) {
             piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
-        if (!toggles.get(AiEngines) || !toggles.get(PiEnabled)) {
+        if (!environment.toggles.get(AiEngines) || !environment.toggles.get(PiEnabled)) {
             piFailure(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
         if (settings.source(identity.source) != source || processes.credentialFingerprint(source) != credential) {

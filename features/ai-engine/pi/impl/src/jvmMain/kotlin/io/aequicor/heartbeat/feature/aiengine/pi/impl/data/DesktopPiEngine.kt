@@ -173,7 +173,6 @@ internal class DesktopPiEngine(
             settings,
             processes,
             environment,
-            toggles,
             workspaces,
             nativeWeb,
         ).also { runtimes[identity.source] = it }

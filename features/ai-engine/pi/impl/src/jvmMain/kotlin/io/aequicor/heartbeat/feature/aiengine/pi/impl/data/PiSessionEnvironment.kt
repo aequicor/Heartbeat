@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeFactory
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
 
 /** Profile services shared by all ephemeral native-session objects. */
@@ -15,4 +16,5 @@ internal data class PiSessionEnvironment(
     val scopes: ScopeFactory,
     @ForScope(ProfileScope::class) val profile: ScopeHandle,
     val dispatchers: DispatcherProvider,
+    val toggles: FeatureToggles,
 )

@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -90,6 +91,7 @@ internal class PiSession(
     private var connection: PiConnection? = null
     private var connector: PiConnector? = null
     private var nativeRef: SessionRef? = null
+    private val usage = PiSessionUsage(environment, handle)
 
     // Native transcript path, used only to reattach a restarted process; never logged.
     private var sessionFile: String? = null
@@ -149,6 +151,7 @@ internal class PiSession(
             RequestsPermissions to this,
             AppliesTrustLevels to this,
             SessionHistory to journal,
+            SessionContextUsage to usage,
         ),
     )
 
@@ -165,6 +168,7 @@ internal class PiSession(
             val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
             rpc().command("set_model", modelFields(target.model))
             val snapshot = rpc().command("get_state")
+            usage.model(snapshot["model"] as? JsonObject)
             val nativeId = snapshot.string("sessionId")
                 ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             // Pi must sit on exactly the stored transcript; any other session is never adopted silently.
@@ -256,7 +260,8 @@ internal class PiSession(
                 piFailure(EngineFailure.Session(SessionFailureReason.Busy))
             }
             try {
-                rpc().command("set_model", modelFields(model))
+                val selected = rpc().command("set_model", modelFields(model))
+                usage.model((selected["model"] as? JsonObject) ?: selected)
             } catch (e: EngineException) {
                 // A rejected model leaves the session usable; only transport or process loss needs recovery.
                 if (e.failure !is EngineFailure.Request && e.failure !is EngineFailure.Access) failed(e.failure)
@@ -295,6 +300,7 @@ internal class PiSession(
     /** Detaches the handle; the process stays until an accepted native turn settles, then it is released. */
     override suspend fun close() = mutex.withLock {
         withContext(dispatchers.main) {
+            usage.close()
             machine.send(ActiveSessionIntent.Public.Close)
             cancellationAck?.completeExceptionally(
                 EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
@@ -312,6 +318,7 @@ internal class PiSession(
     }
 
     suspend fun shutdown() = withContext(NonCancellable + dispatchers.main) {
+        usage.close()
         val active = turn
         if (active != null && isTurnStarted) {
             finish(TurnOutcome.Unknown)
@@ -356,6 +363,7 @@ internal class PiSession(
         connection?.takeIf { it.isOpen }?.let { return it }
         connection?.close()
         connection = null
+        usage.clear()
         // Approvals belonged to the lost process; its extension can no longer receive an answer.
         permissions.clear()
         dialogs.clear()
@@ -477,6 +485,7 @@ internal class PiSession(
     }
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
+        usage.event(record)
         journal.record(record, turn?.id)
         when (record.string("type")) {
             "agent_start" -> turn?.let {
