@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="en_usage_title">Context and provider limits</string>
+    <string name="en_usage_limits">Limits</string>
+    <string name="en_usage_context">Context window</string>
+    <string name="en_usage_weekly">Weekly · all models</string>
+    <string name="en_usage_reset_example">Resets Thursday at 4:00 PM</string>
     <string name="en_icons">Icons</string>
     <string name="en_icons_description">Soft outlines, rounded strokes and a filled home for the active state. Navigation: 18 dp. Metadata: 14 dp.</string>
     <string name="en_app_name">Heartbeat</string>
