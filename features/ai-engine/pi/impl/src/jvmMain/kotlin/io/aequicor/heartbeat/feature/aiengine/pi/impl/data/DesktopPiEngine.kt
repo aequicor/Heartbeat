@@ -54,9 +54,10 @@ internal class DesktopPiEngine(
     private val processes: PiProcessLauncher,
     private val dispatchers: DispatcherProvider,
     private val toggles: FeatureToggles,
-    private val environment: PiRuntimeEnvironment,
+    private val environment: PiSessionEnvironment,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val workspaces: LocalWorkspaces,
+    private val nativeWeb: PiNativeWeb,
 ) : PiAdapter {
     private val log = Log.tag("DesktopPiEngine")
     private val mutex = Mutex()
@@ -169,11 +170,8 @@ internal class DesktopPiEngine(
         // Runtime/session/transport objects carry request-specific state and are owned by this profile service.
         PiRuntime(
             PiRuntimeCredentials(identity, source, processes.credentialFingerprint(source)),
-            settings,
-            processes,
             environment,
-            toggles,
-            workspaces,
+            PiRuntimeServices(settings, processes, workspaces, nativeWeb),
         ).also { runtimes[identity.source] = it }
     }
 

@@ -116,6 +116,7 @@ internal fun StudioComposer(
         },
         trailingContent = {
             ComposerEffort(content, hasRunPreferences, onIntent)
+            StudioUsage(content, onIntent)
             ModelMenu(
                 settings.modelId,
                 content.models,

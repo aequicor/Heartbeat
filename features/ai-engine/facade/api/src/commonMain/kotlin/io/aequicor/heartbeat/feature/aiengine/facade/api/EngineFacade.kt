@@ -21,6 +21,9 @@ public interface EngineFacade {
 
     /** Unified catalog of Heartbeat and externally created sessions. */
     public val sessions: SessionCatalog
+
+    /** Cached account limits on an explicit credential route, independent of active conversations. */
+    public val providerUsage: ProviderUsageCatalog
 }
 
 /** Cached engine catalog; neither observation nor feature lookup starts a process. */

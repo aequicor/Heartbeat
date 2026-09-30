@@ -77,7 +77,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -97,7 +99,12 @@ import kotlin.uuid.Uuid
 private val ChatSpec = KeyValueSpec("ai_studio_chats")
 private val ChatsKey = jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
-/** Persistent identity and projection; no credential material or opaque history cursors are stored. */
+/**
+ * Persistent identity and projection; no credential material or opaque history cursors are stored.
+ *
+ * [items] is the carrier a version before [StudioTranscripts] wrote the transcript into: it is read once to move
+ * the items into the feature database and is written empty from then on.
+ */
 @Serializable
 internal data class StudioChatRecord(
     val id: String,
@@ -128,14 +135,25 @@ internal class EngineStudioRepository(
     private val clock: Clock,
     private val workspaces: LocalWorkspaces,
     private val efforts: EffortChoicesView,
+    private val usage: EngineStudioUsage,
 ) : StudioRepository,
     StudioRuntime {
     private val log = Log.tag("EngineStudio")
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
+
+    /**
+     * Items live in the feature database; a conversation stored by an earlier version inside its record is moved
+     * there on the first read. Both callbacks run under [lock], so a move never races a streamed write.
+     */
+    private val transcripts = StudioTranscripts(
+        stores.database(StudioTranscriptDatabaseSpec).transcripts(),
+        legacy = { id -> record(id).items },
+        contracted = { id -> updateRecord(id) { copy(items = emptyList()) } },
+    )
     private val historyMirror = StudioHistoryMirror(
-        read = { id -> record(id).items },
-        update = { id, change -> update(id, change) },
+        read = { id -> items(id) },
+        update = { id, change -> write(id, change) },
     )
 
     /** Guards [handles], [stopRequests] and [opening]; never held across native or storage calls. */
@@ -158,6 +176,25 @@ internal class EngineStudioRepository(
     private val opening = mutableMapOf<String, ChatLock>()
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
+
+    init {
+        profile.coroutineScope.launch {
+            usage.state.collect { snapshot ->
+                log.d { "Update studio usage snapshot" }
+                mutableState.update { it.copy(contexts = snapshot.contexts, providerUsage = snapshot.providers) }
+            }
+        }
+    }
+
+    override suspend fun observeUsageTargets(modelIds: Set<String>) {
+        log.d { "Observe composer usage routes" }
+        usage.observe(modelIds)
+    }
+
+    override suspend fun refreshUsage(modelId: String) {
+        log.d { "Refresh composer usage" }
+        usage.refresh(modelId)
+    }
 
     private val offeredModels = facade.observeStudioModels(selections, sources)
         .stateIn(profile.coroutineScope, SharingStarted.WhileSubscribed(), emptyList())
@@ -233,20 +270,31 @@ internal class EngineStudioRepository(
 
     override fun observeMessages(sessionId: String): Flow<List<StudioMessage>> {
         log.d { "observeMessages" }
-        return combine(
-            store.observe(ChatsKey),
-            state,
-        ) { records, runtime ->
-            records.orEmpty().firstOrNull { it.id == sessionId }?.let { record ->
-                record.items.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
-                    if (record.hasFailed) {
-                        listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
-                    } else {
-                        emptyList()
-                    }
-            }.orEmpty()
+        return flow {
+            // A conversation stored by an earlier version becomes readable from the database before observation.
+            items(sessionId)
+            emitAll(
+                combine(transcripts.observe(sessionId), state, projection(sessionId)) { stored, runtime, record ->
+                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running) +
+                        if (record.hasFailed) {
+                            listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
+                        } else {
+                            emptyList()
+                        }
+                },
+            )
         }
     }
+
+    /**
+     * What the transcript of [id] is projected with: the items live in the database, while the time and the failure
+     * of the conversation stay in its record. Only their change re-projects, never a stored item.
+     */
+    private fun projection(id: String): Flow<StudioChatRecord> = store.observe(ChatsKey)
+        .map { records ->
+            records.orEmpty().firstOrNull { it.id == id } ?: StudioChatRecord(id, "", Instant.DISTANT_PAST)
+        }
+        .distinctUntilChanged()
 
     override fun observeModels(): Flow<List<StudioModel>> {
         log.d { "Observe enabled models and their cached capabilities" }
@@ -482,6 +530,7 @@ internal class EngineStudioRepository(
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
         persistReference(id, target, active)
+        usage.attach(id, active)
         active
     }
 
@@ -637,7 +686,21 @@ internal class EngineStudioRepository(
     }
 
     private suspend fun update(id: String, change: StudioChatRecord.() -> StudioChatRecord) = lock.withLock {
+        updateRecord(id, change)
+    }
+
+    /** Read-modify-write of the record list; the caller holds [lock]. */
+    private suspend fun updateRecord(id: String, change: StudioChatRecord.() -> StudioChatRecord) {
         store.set(ChatsKey, store.get(ChatsKey).orEmpty().map { if (it.id == id) it.change() else it })
+    }
+
+    /** Stored items of conversation [id], moved out of its record when an earlier version kept them there. */
+    private suspend fun items(id: String): List<SessionItem> = lock.withLock { transcripts.read(id) }
+
+    /** Applies [change] to the stored items of conversation [id]. */
+    private suspend fun write(id: String, change: (List<SessionItem>) -> List<SessionItem>) = lock.withLock {
+        val stored = transcripts.read(id)
+        transcripts.replace(id, change(stored), previousItems = stored)
     }
 
     override fun newMessageId(): String {

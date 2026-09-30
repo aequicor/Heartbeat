@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
@@ -39,6 +40,7 @@ internal class KoogAccess(
     private val transport: KoogTransport,
     /** Effort levels offered per model; shared by discovery and sessions of this profile. */
     val reasoning: KoogReasoningLevels,
+    val contextWindows: KoogContextWindows,
 ) {
     private val log = Log.tag("KoogAccess")
 
@@ -74,6 +76,10 @@ internal class KoogAccess(
 
     /** Whether mutating coding tools run without asking (toggle `ai.koog.auto_approve`). */
     suspend fun autoApprove(): Boolean = toggles.get(KoogAutoApprove)
+
+    suspend fun usageEnabled(): Boolean = toggles.get(EngineUsageEnabled)
+
+    val usageEnabledChanges get() = toggles.observe(EngineUsageEnabled)
 
     suspend fun checkEnabled() {
         if (profile.isClosed) fail(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))

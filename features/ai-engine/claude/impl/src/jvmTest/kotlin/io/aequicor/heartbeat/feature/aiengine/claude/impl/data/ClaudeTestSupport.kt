@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -63,10 +64,19 @@ internal class FakeClaudeTransport : ClaudeTransport {
 
 internal class TestClaudeToggles : FeatureToggles {
     var enabled = true
+    var usageEnabled = true
 
     // Tests read only ClaudeEngine.Enabled, a Boolean flag, so T is always Boolean here.
     @Suppress("UNCHECKED_CAST")
-    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = enabled as T
+    override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = (
+        if (toggle ==
+            EngineUsageEnabled
+        ) {
+            usageEnabled
+        } else {
+            enabled
+        }
+    ) as T
 
     // Same as get: the only observed toggle is the Boolean ClaudeEngine.Enabled flag.
     @Suppress("UNCHECKED_CAST")

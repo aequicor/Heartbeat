@@ -6,6 +6,7 @@ import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
 import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
@@ -35,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -94,6 +96,7 @@ internal class KoogNativeSession(
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
+    private val contextUsage = KoogSessionUsage(access, scope)
     private var record = initial
     private var job: Job? = null
     private var isClosed = false
@@ -120,6 +123,7 @@ internal class KoogNativeSession(
             override val route = this@KoogNativeSession.route
             override val state = state.asStateFlow()
             override val features = KoogFeatures(
+                SessionContextUsage to contextUsage,
                 SendsPrompts to object : SendsPrompts {
                     override suspend fun send(request: PromptRequest): TurnId = withContext(
                         scope.coroutineContext.minusKey(Job),
@@ -408,6 +412,7 @@ internal class KoogNativeSession(
         val calls = mutableListOf<StreamFrame.ToolCallComplete>()
         var revision = 0L
         var isEnded = false
+        contextUsage.start(client)
         client.executor.executeStreaming(input, model, tools).collect { frame ->
             when (frame) {
                 is StreamFrame.ToolCallComplete -> {
@@ -416,6 +421,7 @@ internal class KoogNativeSession(
 
                 is StreamFrame.End -> {
                     isEnded = true
+                    recordUsage(client, model, frame.metaInfo)
                 }
 
                 is StreamFrame.TextDelta,
@@ -437,6 +443,18 @@ internal class KoogNativeSession(
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
         return ToolRound(content.text, calls)
+    }
+
+    private suspend fun recordUsage(client: KoogClient, model: LLModel, metadata: ResponseMetaInfo) {
+        if (!access.usageEnabled()) return
+        try {
+            contextUsage.complete(model.provider, model.id, access.route(route.binding, identity), client, metadata)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.sanitized()) { "Context telemetry unavailable after provider response" }
+            contextUsage.clear()
+        }
     }
 
     private suspend fun runToolCall(
@@ -598,7 +616,10 @@ internal class KoogNativeSession(
 
     private fun releaseIfIdle() {
         // A locked mutex means a submission may still become durable, so the session is not idle yet.
-        if (handles.isEmpty() && current is ActiveSessionState.Ready && !mutex.isLocked) onIdle(this)
+        if (handles.isEmpty() && current is ActiveSessionState.Ready && !mutex.isLocked) {
+            contextUsage.close()
+            onIdle(this)
+        }
     }
 
     private suspend fun interrupt(turn: TurnId) {
@@ -625,6 +646,7 @@ internal class KoogNativeSession(
 
     fun dispose() {
         isClosed = true
+        contextUsage.close()
         job?.cancel()
         publish(ActiveSessionState.Closed)
     }
@@ -632,6 +654,7 @@ internal class KoogNativeSession(
     suspend fun shutdown() {
         mutex.withLock {
             isClosed = true
+            contextUsage.close()
             job?.cancel()
             publish(ActiveSessionState.Closed)
         }

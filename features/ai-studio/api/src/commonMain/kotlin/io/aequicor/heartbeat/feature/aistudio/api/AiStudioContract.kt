@@ -7,6 +7,8 @@ import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -69,6 +71,10 @@ public sealed interface AiStudioState : MachineState {
         val observedRunning: Set<String> = emptySet(),
         val answeredPermissions: Set<String> = emptySet(),
         val runStartedAt: Map<String, Instant> = emptyMap(),
+        /** Last measured context by conversation; missing entries have no telemetry. */
+        val contexts: Map<String, ContextUsage> = emptyMap(),
+        /** Provider quotas keyed by the full studio model route. */
+        val providerUsage: Map<String, ProviderUsageSnapshot> = emptyMap(),
         val isProjectAddingAvailable: Boolean = false,
         val addingProjectTo: Int? = null,
         val projectErrorPane: Int? = null,
@@ -113,6 +119,12 @@ public sealed interface AiStudioIntent : MachineIntent {
 
         /** Replaces the model preferences for the next runs. */
         public data class UpdateSettings(val settings: RunSettings) : Public
+
+        /** Observes quotas for the model routes currently visible in composer panes. */
+        public data class ObserveUsageTargets(val modelIds: Set<String>) : Public
+
+        /** Requests fresh provider quotas when the usage panel opens. */
+        public data class RefreshUsage(val modelId: String) : Public
 
         /** Sends [prompt] from the composer of [paneId]: creates a session if needed and starts a run. */
         public data class Submit(val paneId: Int, val prompt: String) : Public
@@ -208,6 +220,15 @@ public sealed interface AiStudioEffect : MachineEffect {
 
     /** Observes whether local project selection is available. */
     public data object ObserveProjects : AiStudioEffect
+
+    /** Read-only usage commands; failure never changes conversation execution state. */
+    public sealed interface Usage : AiStudioEffect
+
+    /** Updates the model routes whose provider quotas the studio observes. */
+    public data class ObserveUsageTargets(val modelIds: Set<String>) : Usage
+
+    /** Refreshes provider quotas for one model route without generating a turn. */
+    public data class RefreshUsage(val modelId: String) : Usage
 
     /** Picks and registers a local folder without logging or exposing its path to the machine. */
     public data class ChooseProject(val paneId: Int) : AiStudioEffect

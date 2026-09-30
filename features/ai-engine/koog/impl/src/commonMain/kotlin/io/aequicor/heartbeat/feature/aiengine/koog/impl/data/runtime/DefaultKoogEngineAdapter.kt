@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCursor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -119,14 +120,20 @@ internal class DefaultKoogEngineAdapter(
             koogCall {
                 access.open(connection).use { client ->
                     val models = client.models().distinctBy { it.id }
+                    if (access.usageEnabled()) access.contextWindows.record(connection, models)
                     val ids = models.map { it.id }
                     val levels = access.reasoning.discover(provider, ids, client.reasoning(ids))
                     models.map {
                         ModelInfo(
                             EngineTarget(KoogEngineId, context.binding, ModelId(it.id)),
                             title = it.id,
-                            features = setOf(SendsPrompts.id, CancelsTurns.id, SessionHistory.id),
-                            contextLimitTokens = it.contextLength?.takeIf { limit -> limit > 0 },
+                            features = setOf(
+                                SendsPrompts.id,
+                                CancelsTurns.id,
+                                SessionHistory.id,
+                                SessionContextUsage.id,
+                            ),
+                            contextLimitTokens = provider.catalogContextCapacity(it),
                             reasoningEfforts = levels[it.id].orEmpty(),
                         )
                     }

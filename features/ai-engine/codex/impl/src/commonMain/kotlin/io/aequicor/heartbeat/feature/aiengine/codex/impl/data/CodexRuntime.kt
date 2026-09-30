@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -58,7 +59,26 @@ internal class CodexRuntime(
     val dispatchers get() = host.dispatchers
     val profile get() = host.profile
     private val log = Log.tag("CodexRuntime")
-    override val features: EngineFeatures = CodexFeatures(this, blocked = {
+    private val providerUsage = CodexProviderUsage(dispatchers.main) {
+        if (usageEnabled()) {
+            gate()
+            val accountEpoch = usageAccountEpoch
+            val snapshot = rpc.request("account/rateLimits/read", JsonObject(emptyMap()))
+            checkAccount()
+            if (accountEpoch == usageAccountEpoch) {
+                validateUsageAccount(snapshot)
+                isUsageAccountTrusted = true
+                snapshot
+            } else {
+                log.d { "Codex quota response discarded after account observation changed" }
+                null
+            }
+        } else {
+            isUsageAccountTrusted = false
+            null
+        }
+    }
+    override val features: EngineFeatures = CodexFeatures(this, providerUsage, blocked = {
         if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
     })
     private val sessions = mutableMapOf<String, CodexSession>()
@@ -66,6 +86,9 @@ internal class CodexRuntime(
     private var isOpening = false
     private val commands = Mutex()
     private var account: List<String?>? = null
+    private var isUsageAccountTrusted = false
+    private var usageAccountEpoch = 0L
+    private var usageAccountId: String? = null
     var isClosed = false
         private set
     private var cleanup: DisposableHandle? = null
@@ -83,6 +106,18 @@ internal class CodexRuntime(
         }
     }
 
+    private val usageObserver = profile.coroutineScope.launch {
+        toggles.observe(EngineUsageEnabled).collect { enabled ->
+            if (!enabled) {
+                isUsageAccountTrusted = false
+                providerUsage.clear()
+                sessions.values.forEach { it.contextUsage.clear() }
+            }
+        }
+    }
+
+    suspend fun usageEnabled(): Boolean = toggles.get(EngineUsageEnabled)
+
     suspend fun checkAccount() {
         ensureOpen()
         val current = rpc.request(
@@ -90,6 +125,7 @@ internal class CodexRuntime(
             json("refreshToken" to JsonPrimitive(false)),
         )["account"] as? JsonObject
         if (current == null) {
+            isUsageAccountTrusted = false
             fail(
                 EngineFailure.Authentication(AuthFailure(AuthFailureReason.NotAuthenticated, identity.source)),
             )
@@ -98,6 +134,7 @@ internal class CodexRuntime(
                 "type",
             ) != "chatgpt"
         ) {
+            isUsageAccountTrusted = false
             fail(
                 EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch, identity.source)),
             )
@@ -115,9 +152,23 @@ internal class CodexRuntime(
         account = login
     }
 
+    private fun validateUsageAccount(snapshot: JsonObject) {
+        val id = snapshot.text("accountId") ?: return
+        val previous = usageAccountId
+        if (previous != null && previous != id) {
+            val failure = EngineFailure.Authentication(AuthFailure(AuthFailureReason.SourceChanged, identity.source))
+            shutdown(failure)
+            fail(failure)
+        }
+        usageAccountId = id
+    }
+
     suspend fun gate() {
         ensureOpen()
-        if (!toggles.get(CodexEngine.Enabled)) fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        if (!toggles.get(CodexEngine.Enabled)) {
+            isUsageAccountTrusted = false
+            fail(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
+        }
         checkAccount()
     }
 
@@ -252,7 +303,13 @@ internal class CodexRuntime(
             message["id"]?.let { rpc.reject(it) }
             return
         }
+        if (message.text("method") == "account/rateLimits/updated" && isUsageAccountTrusted && usageEnabled()) {
+            providerUsage.receive(params)
+        }
         if (message.text("method") == "account/updated") {
+            providerUsage.clear()
+            isUsageAccountTrusted = false
+            usageAccountEpoch++
             // The next operation revalidates account/read; an active turn remains observable.
             log.i { "Codex account observation changed" }
         }
@@ -283,6 +340,9 @@ internal class CodexRuntime(
 
     private fun shutdown(failure: EngineFailure) {
         isClosed = true
+        isUsageAccountTrusted = false
+        providerUsage.clear()
+        usageObserver.cancel()
         sessions.values.forEach { it.shutdown(failure) }
         sessions.clear()
         rpc.close()

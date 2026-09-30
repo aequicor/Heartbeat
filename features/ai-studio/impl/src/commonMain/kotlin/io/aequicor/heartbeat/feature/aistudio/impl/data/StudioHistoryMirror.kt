@@ -33,7 +33,7 @@ import kotlin.time.Duration.Companion.milliseconds
  */
 internal class StudioHistoryMirror(
     private val read: suspend (String) -> List<SessionItem>,
-    private val update: suspend (String, StudioChatRecord.() -> StudioChatRecord) -> Unit,
+    private val update: suspend (String, (List<SessionItem>) -> List<SessionItem>) -> Unit,
 ) {
     private val log = Log.tag("StudioHistoryMirror")
 
@@ -55,13 +55,15 @@ internal class StudioHistoryMirror(
                 withContext(NonCancellable) { session.flush() }
             }
             check(session.isInvalidated) { "History stream ended without invalidation" }
+            log.d { "History stream invalidated; reload snapshot" }
         }
     }
 
     /**
-     * Coalescing mirror of one watch stream: streamed revisions accumulate in memory and reach the record
-     * in one write per [WRITE_COALESCE] window (plus a final flush), so a token burst does not rewrite
-     * the stored transcript on every revision.
+     * Coalescing mirror of one watch stream: streamed revisions accumulate in memory and reach the transcript in
+     * one write per [WRITE_COALESCE] window (plus a final flush), so a token burst does not rewrite the stored
+     * items on every revision. The timer ends with its stream so invalidation can reload the snapshot and resume
+     * watching from a fresh checkpoint.
      */
     private inner class StreamSession(
         val id: String,
@@ -84,13 +86,17 @@ internal class StudioHistoryMirror(
             launch { produce(events) }
             // The timer, not the next event, drives the flush: a finished burst still reaches the record
             // within one window, and virtual-time tests observe the transcript without waiting for wall clock.
-            launch {
+            val timer = launch {
                 while (currentCoroutineContext().isActive) {
                     delay(WRITE_COALESCE)
                     flush()
                 }
             }
-            for (event in events) accept(event)
+            try {
+                for (event in events) accept(event)
+            } finally {
+                timer.cancel()
+            }
         }
 
         private suspend fun produce(events: SendChannel<SessionEvent>) {
@@ -128,13 +134,13 @@ internal class StudioHistoryMirror(
         /** Buffers one streamed revision under the session lock. */
         private suspend fun accept(event: SessionEvent) = lock.withLock { apply(event) }
 
-        /** Applies the accumulated batch in a single record write under the session lock; clears both queues. */
+        /** Applies the accumulated batch in a single transcript write under the session lock; clears both queues. */
         suspend fun flush() = lock.withLock {
             if (upserts.isEmpty() && removals.isEmpty()) return@withLock
-            update(id) {
-                var next = if (removals.isEmpty()) items else items.filterNot { it.info.id in removals }
+            update(id) { stored ->
+                var next = if (removals.isEmpty()) stored else stored.filterNot { it.info.id in removals }
                 upserts.values.forEach { item -> next = next.upsert(item, window) }
-                copy(items = next)
+                next
             }
             upserts.clear()
             removals.clear()
@@ -155,10 +161,10 @@ internal class StudioHistoryMirror(
         val window = items.distinctBy { it.info.id }.sortedBy { it.info.position }
         val isComplete = coverage == HistoryCoverage.Complete
         var kept = 0
-        update(id) {
-            val earlier = if (isComplete) emptyList() else keepEarlier(this.items, window)
+        update(id) { stored ->
+            val earlier = if (isComplete) emptyList() else keepEarlier(stored, window)
             kept = earlier.size
-            copy(items = earlier + window)
+            earlier + window
         }
         if (kept > 0) log.i { "Engine history is ${coverage.name}; kept $kept earlier stored items" }
         return Snapshot(latest.checkpoint, window.mapTo(mutableSetOf()) { it.info.id })

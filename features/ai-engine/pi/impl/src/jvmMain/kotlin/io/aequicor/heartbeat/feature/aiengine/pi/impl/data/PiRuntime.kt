@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
@@ -39,13 +38,18 @@ internal data class PiRuntimeCredentials(
     val fingerprint: String,
 )
 
+/** Profile services a runtime validates against, launches processes with and publishes next to its sessions. */
+internal data class PiRuntimeServices(
+    val settings: PiSettings,
+    val processes: PiProcessLauncher,
+    val workspaces: LocalWorkspaces,
+    val nativeWeb: PiNativeWeb,
+)
+
 internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
-    private val settings: PiSettings,
-    private val processes: PiProcessLauncher,
-    private val environment: PiRuntimeEnvironment,
-    private val toggles: FeatureToggles,
-    private val workspaces: LocalWorkspaces,
+    private val environment: PiSessionEnvironment,
+    private val services: PiRuntimeServices,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -53,21 +57,24 @@ internal class PiRuntime(
     override val identity get() = credentials.identity
     private val source get() = credentials.source
     private val credential get() = credentials.fingerprint
-    private val profile get() = environment.sessions.profile
-    private val dispatchers get() = environment.sessions.dispatchers
+    private val profile get() = environment.profile
+    private val dispatchers get() = environment.dispatchers
+    private val settings get() = services.settings
+    private val processes get() = services.processes
+    private val workspaces get() = services.workspaces
     private val mutex = Mutex()
     private val sessions: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
 
     @Volatile var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
-        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to environment.nativeWeb))
+        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to services.nativeWeb))
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {
             piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
         }
-        if (!toggles.get(AiEngines) || !toggles.get(PiEnabled)) {
+        if (!environment.toggles.get(AiEngines) || !environment.toggles.get(PiEnabled)) {
             piFailure(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         }
         if (settings.source(identity.source) != source || processes.credentialFingerprint(source) != credential) {
@@ -146,7 +153,7 @@ internal class PiRuntime(
                     identity.revision,
                     request.workspace,
                 ),
-                environment.sessions,
+                environment,
                 ::validate,
                 { sessions.remove(it) },
             )
