@@ -396,9 +396,16 @@ internal class PiSession(
         val fresh = open(factory)
         try {
             fresh.reattach(file)
+            // Pi can acknowledge switch_session by creating a new session when the file was never persisted.
+            // Verify identity before publishing the connection, otherwise this handle could keep that process.
+            val snapshot = fresh.command("get_state")
+            if (snapshot.string("sessionId") != nativeRef?.nativeId) {
+                piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+            }
         } catch (e: EngineException) {
             // Never keep a process that sits on a different transcript than this handle.
             log.w(e) { "Pi session recovery could not reattach the transcript" }
+            generation++
             fresh.close()
             throw e
         }
