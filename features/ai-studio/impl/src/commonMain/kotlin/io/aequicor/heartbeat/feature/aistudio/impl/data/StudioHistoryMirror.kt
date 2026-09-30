@@ -55,13 +55,15 @@ internal class StudioHistoryMirror(
                 withContext(NonCancellable) { session.flush() }
             }
             check(session.isInvalidated) { "History stream ended without invalidation" }
+            log.d { "History stream invalidated; reload snapshot" }
         }
     }
 
     /**
      * Coalescing mirror of one watch stream: streamed revisions accumulate in memory and reach the record
      * in one write per [WRITE_COALESCE] window (plus a final flush), so a token burst does not rewrite
-     * the stored transcript on every revision.
+     * the stored transcript on every revision. The timer ends with its stream so invalidation can reload
+     * the snapshot and resume watching from a fresh checkpoint.
      */
     private inner class StreamSession(
         val id: String,
@@ -84,13 +86,17 @@ internal class StudioHistoryMirror(
             launch { produce(events) }
             // The timer, not the next event, drives the flush: a finished burst still reaches the record
             // within one window, and virtual-time tests observe the transcript without waiting for wall clock.
-            launch {
+            val timer = launch {
                 while (currentCoroutineContext().isActive) {
                     delay(WRITE_COALESCE)
                     flush()
                 }
             }
-            for (event in events) accept(event)
+            try {
+                for (event in events) accept(event)
+            } finally {
+                timer.cancel()
+            }
         }
 
         private suspend fun produce(events: SendChannel<SessionEvent>) {
