@@ -112,6 +112,27 @@ class StudioUsageUiTest {
         }
     }
 
+    @Test
+    fun `usage refresh uses confirmed pane settings while session metadata still names the old model`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val base = pane()
+            val content = base.copy(
+                session = SessionUi("s", "Chat", null, Instant.fromEpochSeconds(1), modelId = "old-model"),
+                settings = base.settings.copy(modelId = "confirmed-model"),
+                models = persistentListOf(ModelUi("confirmed-model", "Confirmed")),
+                contextUsage = ContextUsageUi(42, 1000, 4),
+            )
+            setContent { UsageHost(content, onIntent = events::add) }
+            onNodeWithTag("usage-0").performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RefreshUsage("confirmed-model")),
+                    events,
+                )
+            }
+        }
+
     private fun pane(): PaneContent {
         val pane = PaneUi(0)
         val state = AiStudioScreenState(

@@ -42,6 +42,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
         stopFailures = machine.stopFailures.toImmutableSet(),
         uncancellable = machine.uncancellable.toImmutableSet(),
         settings = machine.settings.toUi().copy(engineEfforts = settings.engineEfforts),
+        configurations = machine.configurations.mapValues { it.value.toUi() }.toImmutableMap(),
     )
 }
 

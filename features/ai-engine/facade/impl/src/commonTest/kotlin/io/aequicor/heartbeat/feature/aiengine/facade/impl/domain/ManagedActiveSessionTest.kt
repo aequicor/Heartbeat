@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -23,6 +24,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -34,6 +37,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -76,6 +80,71 @@ class ManagedActiveSessionTest {
     }
 
     private fun ActiveSession.sender() = (features.resolve(SendsPrompts) as FeatureAccess.Available).feature
+
+    private class Configuration : ChangesSessionConfiguration {
+        override val configuration = MutableStateFlow(SessionConfiguration(ModelId("m1"), trust = TrustLevel.Ask))
+        val changes = mutableListOf<SessionConfigurationChange>()
+        override suspend fun apply(operationId: String, change: SessionConfigurationChange): SessionConfiguration {
+            changes += change
+            val current = configuration.value
+            configuration.value = when (change) {
+                is SessionConfigurationChange.Model -> current.copy(model = change.model)
+                is SessionConfigurationChange.Effort -> current.copy(reasoningEffort = change.effort)
+                is SessionConfigurationChange.Trust -> current.copy(trust = change.trust)
+            }
+            return configuration.value
+        }
+    }
+
+    @Test
+    fun `live configuration preserves an accepted turn and pending permission`() = runTest {
+        val configuration = Configuration()
+        val native = FakeNativeSession(configuration = configuration)
+        val (session, _) = open(RouteFixture(this), native)
+        session.sender().send(prompt("live"))
+        native.ask("permission")
+        runCurrent()
+        val before = session.state.value
+        val feature = (session.features.resolve(ChangesSessionConfiguration) as FeatureAccess.Available).feature
+        val changed = feature.apply("operation", SessionConfigurationChange.Trust(TrustLevel.Full))
+        runCurrent()
+        assertEquals(TrustLevel.Full, changed.trust)
+        assertEquals(before, session.state.value)
+        assertTrue(native.cancelled.isEmpty())
+        assertTrue(native.decisions.isEmpty())
+        assertEquals(1, native.sent.size)
+    }
+
+    @Test
+    fun `live configuration refuses a different handle while the native session runs`() = runTest {
+        val fixture = RouteFixture(this)
+        val native = FakeNativeSession(configuration = Configuration())
+        val (first, _) = open(fixture, native)
+        val other = Configuration()
+        val (second, _) = open(fixture, FakeNativeSession(native.ref, configuration = other))
+        first.sender().send(prompt("owner"))
+        runCurrent()
+        val feature = (second.features.resolve(ChangesSessionConfiguration) as FeatureAccess.Available).feature
+        val failure = assertFailsWith<EngineException> {
+            feature.apply("other", SessionConfigurationChange.Trust(TrustLevel.Full))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), failure.failure)
+        assertTrue(other.changes.isEmpty())
+    }
+
+    @Test
+    fun `an acquired configuration capability revalidates rotated credentials`() = runTest {
+        val fixture = RouteFixture(this)
+        val configuration = Configuration()
+        val (session, _) = open(fixture, FakeNativeSession(configuration = configuration))
+        val feature = (session.features.resolve(ChangesSessionConfiguration) as FeatureAccess.Available).feature
+        fixture.sources.remove(fixture.source.info.id)
+        fixture.sources.add(managedKey(revision = AuthRevision.Known("new")))
+        assertFailsWith<EngineException> {
+            feature.apply("stale", SessionConfigurationChange.Trust(TrustLevel.Full))
+        }
+        assertTrue(configuration.changes.isEmpty())
+    }
 
     @Test
     fun `send completes after native acceptance and the native outcome finishes the turn`() = runTest {

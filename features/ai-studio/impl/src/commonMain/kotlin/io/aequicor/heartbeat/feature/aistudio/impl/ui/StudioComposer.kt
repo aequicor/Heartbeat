@@ -93,7 +93,8 @@ internal fun StudioComposer(
                 draft = draft,
                 approval = settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
                 onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
-                onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it)) },
+                onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, pane.id)) },
+                approvalEnabled = !content.isSettingPending,
             )
             if (pane.sessionId == null) {
                 ContextTray(
@@ -121,7 +122,8 @@ internal fun StudioComposer(
                 settings.modelId,
                 content.models,
                 onIntent,
-                canSelect = session?.modelId == null || (content.project != null && !session.isRunning),
+                canSelect = !content.isSettingPending,
+                paneId = pane.id,
             )
         },
     )
@@ -135,10 +137,14 @@ private fun ComposerEffort(
 ) {
     val model = content.models.firstOrNull { it.id == content.settings.modelId }
     if (model != null && model.reasoningEfforts.isNotEmpty()) {
-        val selected = content.settings.engineEfforts[model.id]?.takeIf { it in model.reasoningEfforts }
-        EngineEffortMenu(model, selected, onIntent)
+        val selected = if (content.configuration != null) {
+            content.settings.nativeEffort
+        } else {
+            content.settings.engineEfforts[model.id]?.takeIf { it in model.reasoningEfforts }
+        }
+        EngineEffortMenu(model, selected, onIntent, content.pane.id, enabled = !content.isSettingPending)
     } else if (hasDemoPreferences) {
-        EffortMenu(content.settings.effort, onIntent)
+        EffortMenu(content.settings.effort, onIntent, content.pane.id, enabled = !content.isSettingPending)
     }
 }
 
@@ -212,6 +218,7 @@ private fun TemplatesMenu(
     approval: ApprovalUi?,
     onDraft: (String) -> Unit,
     onApproval: (ApprovalUi) -> Unit,
+    approvalEnabled: Boolean,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val templates = listOf(
@@ -220,7 +227,8 @@ private fun TemplatesMenu(
         Template("review", Res.string.template_review, Res.string.template_review_prompt),
     )
     val prompts = templates.associate { it.id to stringResource(it.prompt) }
-    val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } + approvalActions(approval)
+    val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
+        approvalActions(approval, approvalEnabled)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
         actions = actions.toImmutableList(),
@@ -246,6 +254,7 @@ private fun ModelMenu(
     models: ImmutableList<ModelUi>,
     onIntent: (AiStudioScreenIntent) -> Unit,
     canSelect: Boolean,
+    paneId: Int,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val model = models.firstOrNull { it.id == modelId }
@@ -258,7 +267,7 @@ private fun ModelMenu(
         actions = items.toImmutableList(),
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(AiStudioScreenIntent.SelectModel(it)) },
+        onAction = { onIntent(AiStudioScreenIntent.SelectModel(it, paneId)) },
         modifier = Modifier.testTag("model-chip"),
         accessibleLabel = model?.name ?: stringResource(Res.string.connect_model_hint),
         headerLabel = stringResource(Res.string.model_menu),
@@ -269,7 +278,7 @@ private fun ModelMenu(
 }
 
 @Composable
-private fun EffortMenu(effort: EffortUi, onIntent: (AiStudioScreenIntent) -> Unit) {
+private fun EffortMenu(effort: EffortUi, onIntent: (AiStudioScreenIntent) -> Unit, paneId: Int, enabled: Boolean) {
     var isOpen by remember { mutableStateOf(false) }
     val actions = EffortUi.entries.map {
         HbComposerAction(it.name, effortLabel(it), isSelected = it == effort)
@@ -279,17 +288,18 @@ private fun EffortMenu(effort: EffortUi, onIntent: (AiStudioScreenIntent) -> Uni
         actions = actions,
         isExpanded = isOpen,
         onExpandedChange = { isOpen = it },
-        onAction = { onIntent(AiStudioScreenIntent.SelectEffort(EffortUi.valueOf(it))) },
+        onAction = { onIntent(AiStudioScreenIntent.SelectEffort(EffortUi.valueOf(it), paneId)) },
         modifier = Modifier.testTag("effort-chip"),
         accessibleLabel = stringResource(Res.string.composer_effort_menu),
         headerLabel = stringResource(Res.string.composer_effort_menu),
         icon = HbIcons.Sparkles,
         style = HbComposerMenuStyle.AccentPill,
+        enabled = enabled,
     )
 }
 
 @Composable
-private fun approvalActions(selected: ApprovalUi?): List<HbComposerAction> {
+private fun approvalActions(selected: ApprovalUi?, enabled: Boolean): List<HbComposerAction> {
     if (selected == null) return emptyList()
     return ApprovalUi.entries.mapIndexed { index, approval ->
         HbComposerAction(
@@ -297,6 +307,7 @@ private fun approvalActions(selected: ApprovalUi?): List<HbComposerAction> {
             label = approvalLabel(approval),
             sectionLabel = if (index == 0) stringResource(Res.string.approval_menu) else null,
             isSelected = approval == selected,
+            isEnabled = enabled,
         )
     }
 }

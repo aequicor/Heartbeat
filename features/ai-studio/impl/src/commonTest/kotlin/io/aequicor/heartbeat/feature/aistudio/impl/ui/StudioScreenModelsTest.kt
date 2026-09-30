@@ -2,12 +2,15 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import kotlinx.collections.immutable.persistentListOf
@@ -82,14 +85,58 @@ class StudioScreenModelsTest {
     }
 
     @Test
-    fun `existing chat displays the model selected for the next run`() {
+    fun `existing chat without hydrated configuration displays its saved model instead of a global preference`() {
         val restored = state.copy(
             sessions = persistentListOf(session.copy(modelId = "saved-sol")),
             settings = state.settings.copy(modelId = "selected-luna"),
         )
-        assertEquals("selected-luna", restored.paneContent(restored.panes.first()).settings.modelId)
+        assertEquals("saved-sol", restored.paneContent(restored.panes.first()).settings.modelId)
+        assertEquals("selected-luna", restored.paneContent(PaneUi(7)).settings.modelId)
         val noSelection = restored.copy(settings = state.settings.copy(modelId = ""))
         assertEquals("saved-sol", noSelection.paneContent(noSelection.panes.first()).settings.modelId)
+        val noSavedModel = restored.copy(sessions = persistentListOf(session.copy(modelId = "")))
+        assertEquals("selected-luna", noSavedModel.paneContent(noSavedModel.panes.first()).settings.modelId)
+    }
+
+    @Test
+    fun `provider usage follows the confirmed model while chat metadata still has the previous model`() {
+        val previous = ProviderUsageUi(persistentListOf(), null, "previous", null, false)
+        val current = previous.copy(planName = "current")
+        val changed = state.copy(
+            sessions = persistentListOf(session.copy(modelId = "old-model")),
+            configurations = persistentMapOf("s" to SessionConfigurationUi("new-model", "low", ApprovalUi.Ask)),
+            providerUsage = persistentMapOf("old-model" to previous, "new-model" to current),
+        )
+        val content = changed.paneContent(changed.panes.first())
+        assertEquals("new-model", content.settings.modelId)
+        assertEquals(current, content.providerUsage)
+    }
+
+    @Test
+    fun `two composers show their own confirmed settings and only the pending one is disabled`() {
+        val pending = SessionConfigurationUi("pi-a", null, ApprovalUi.Ask, pendingOperation = "operation")
+        val applied = SessionConfigurationUi("pi-b", "low", ApprovalUi.AutoApprove)
+        val split = state.copy(
+            panes = persistentListOf(PaneUi(0, sessionId = "s"), PaneUi(1, sessionId = "other")),
+            configurations = persistentMapOf("s" to pending, "other" to applied),
+            settings = state.settings.copy(
+                modelId = "global-model",
+                approval = ApprovalUi.AutoEdits,
+                engineEfforts = persistentMapOf("pi-a" to "high"),
+            ),
+            running = persistentSetOf("s", "other"),
+        )
+        val first = split.paneContent(split.panes[0])
+        val second = split.paneContent(split.panes[1])
+        assertEquals("pi-a", first.settings.modelId)
+        assertEquals(ApprovalUi.Ask, first.settings.approval)
+        assertNull(first.settings.nativeEffort)
+        assertTrue(first.isSettingPending)
+        assertEquals("pi-b", second.settings.modelId)
+        assertEquals(ApprovalUi.AutoApprove, second.settings.approval)
+        assertEquals("low", second.settings.nativeEffort)
+        assertEquals(false, second.isSettingPending)
+        assertEquals("global-model", split.paneContent(PaneUi(7)).settings.modelId)
     }
 
     @Test

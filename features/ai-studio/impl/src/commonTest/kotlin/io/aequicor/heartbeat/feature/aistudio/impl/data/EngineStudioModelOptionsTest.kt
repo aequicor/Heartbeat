@@ -1,10 +1,13 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
@@ -53,5 +56,21 @@ class EngineStudioModelOptionsTest {
         val switching = studioModel(target, null, "Engine", "Connection", true, isModelSwitchSupported = true)
         assertEquals("engine/connection", switching.toUi().connectionKey)
         assertNull(studioModel(target, null, "Engine", "Connection", true).toUi().connectionKey)
+    }
+
+    @Test
+    fun `native configuration without the legacy setter still exposes sibling models on its binding`() {
+        val features = setOf(ChangesSessionConfiguration.id)
+        val native = studioModel(
+            target,
+            null,
+            "Engine",
+            "Connection",
+            true,
+            isModelSwitchSupported = features.supportsStudioModelSwitch(),
+        )
+        assertEquals("engine/connection", native.toUi().connectionKey)
+        assertTrue(setOf(SwitchesModels.id).supportsStudioModelSwitch())
+        assertEquals(false, emptySet<EngineFeatureId>().supportsStudioModelSwitch())
     }
 }

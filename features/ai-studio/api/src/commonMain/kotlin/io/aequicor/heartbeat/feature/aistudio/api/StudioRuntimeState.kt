@@ -55,4 +55,5 @@ public data class StudioRuntimeState(
     val contexts: Map<String, ContextUsage> = emptyMap(),
     /** Provider quotas keyed by the full studio model route. */
     val providerUsage: Map<String, ProviderUsageSnapshot> = emptyMap(),
+    val configurations: Map<String, StudioSessionConfiguration> = emptyMap(),
 )

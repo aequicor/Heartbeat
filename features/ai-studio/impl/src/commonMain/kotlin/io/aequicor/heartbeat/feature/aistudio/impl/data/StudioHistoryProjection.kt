@@ -8,6 +8,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
 import kotlin.time.Instant
 
 /**
@@ -17,9 +19,25 @@ import kotlin.time.Instant
  * Items are projected in stored order: [StudioHistoryMirror] keeps earlier generations first, whose positions
  * overlap the engine window's.
  */
-internal fun List<SessionItem>.toStudioMessages(time: Instant, isRunning: Boolean): List<StudioMessage> {
+internal fun List<SessionItem>.toStudioMessages(
+    time: Instant,
+    isRunning: Boolean,
+    feedback: List<FeedbackRecord> = emptyList(),
+): List<StudioMessage> {
     val projection = NativeHistoryProjection(time)
-    forEach(projection::append)
+    val anchored = feedback.groupBy { entry ->
+        if (entry.anchor.after == null) {
+            -1
+        } else {
+            val index = indexOfFirst { it.info.id == entry.anchor.after }
+            if (index >= 0) index else lastIndex
+        }
+    }
+    anchored[-1].orEmpty().forEach(projection::appendFeedback)
+    forEachIndexed { index, item ->
+        projection.append(item)
+        anchored[index].orEmpty().forEach(projection::appendFeedback)
+    }
     return projection.finish(isRunning)
 }
 
@@ -27,8 +45,26 @@ internal fun List<SessionItem>.toStudioMessages(time: Instant, isRunning: Boolea
 private class NativeHistoryProjection(private val time: Instant) {
     private val messages = mutableListOf<StudioMessage>()
     private var answer: NativeAnswer? = null
+    private var streamingAnswer: String? = null
     private val answers = mutableMapOf<String, NativeAnswer>()
     private val toolOwners = mutableMapOf<Pair<String?, String>, NativeAnswer>()
+
+    fun appendFeedback(record: FeedbackRecord) {
+        flush()
+        val status = when (record.outcome) {
+            FeedbackOutcome.Pending -> ToolRunStatus.Running
+            is FeedbackOutcome.Applied -> ToolRunStatus.Done
+            is FeedbackOutcome.Failed -> ToolRunStatus.Failed
+            FeedbackOutcome.Unknown -> ToolRunStatus.Cancelled
+        }
+        val tool = StudioToolRun("feedback:${record.id}", "feedback", status, feedback = record)
+        messages += StudioMessage.Reply(
+            id = "feedback:${record.id}",
+            createdAt = record.createdAt,
+            tools = listOf(tool),
+            parts = listOf(StudioReplyPart.Tool(tool)),
+        )
+    }
 
     fun append(item: SessionItem) {
         if (updateOwnedTool(item)) return
@@ -41,11 +77,11 @@ private class NativeHistoryProjection(private val time: Instant) {
     }
 
     fun finish(isRunning: Boolean): List<StudioMessage> {
-        val hasLatestAnswer = answer != null
         flush()
-        val latest = messages.lastOrNull() as? StudioMessage.Reply
-        if (isRunning && hasLatestAnswer && latest != null) {
-            messages[messages.lastIndex] = latest.copy(isStreaming = true)
+        val index = messages.indexOfLast { it.id == streamingAnswer }
+        val latest = messages.getOrNull(index) as? StudioMessage.Reply
+        if (isRunning && latest != null) {
+            messages[index] = latest.copy(isStreaming = true)
         }
         return messages.map(::refreshAnswer)
     }
@@ -54,6 +90,7 @@ private class NativeHistoryProjection(private val time: Instant) {
         when (item.role) {
             MessageRole.User -> {
                 flush()
+                streamingAnswer = null
                 messages += StudioMessage.Prompt(item.info.id.value, time, item.parts.text(), isTimestampKnown = false)
             }
 
@@ -65,6 +102,7 @@ private class NativeHistoryProjection(private val time: Instant) {
 
     private fun appendNotice(id: String, text: String) {
         flush()
+        streamingAnswer = null
         messages += StudioMessage.Reply(id, time, text, isTimestampKnown = false)
     }
 
@@ -75,6 +113,7 @@ private class NativeHistoryProjection(private val time: Instant) {
             answer = it
             answers[it.id] = it
         }
+        streamingAnswer = current.id
         current.append(item)
         if (item is SessionItem.ToolCall) toolOwners[current.turn to item.call.value] = current
     }

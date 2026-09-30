@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
@@ -11,6 +13,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackChange
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
+import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -20,6 +26,82 @@ import kotlin.time.Instant
 
 class StudioHistoryProjectionTest {
     private val now = Instant.fromEpochSeconds(100)
+
+    private fun feedback(after: String?, id: String = "operation", outcome: FeedbackOutcome = FeedbackOutcome.Pending) =
+        FeedbackRecord(
+            id,
+            "chat",
+            0,
+            now,
+            FeedbackAnchor(after = after?.let(::ItemId)),
+            FeedbackChange.Effort(null, "high"),
+            outcome,
+        )
+
+    @Test
+    fun `feedback separates native answers and never claims to stream`() {
+        val items = listOf(
+            message("before", 0, MessageRole.Assistant, "Before", "turn"),
+            message("after", 1, MessageRole.Assistant, "After", "turn"),
+        )
+        val result = items.toStudioMessages(now, true, listOf(feedback("before")))
+        assertEquals(listOf("before", "feedback:operation", "after"), result.map { it.id })
+        assertFalse(assertIs<StudioMessage.Reply>(result[1]).isStreaming)
+        assertTrue(assertIs<StudioMessage.Reply>(result[2]).isStreaming)
+        assertEquals("feedback", assertIs<StudioMessage.Reply>(result[1]).tools.single().title)
+    }
+
+    @Test
+    fun `feedback before native history stays in place when the first items arrive`() {
+        val record = feedback(null)
+        assertEquals(
+            listOf("feedback:operation"),
+            emptyList<SessionItem>().toStudioMessages(now, false, listOf(record)).map { it.id },
+        )
+        val result = listOf(
+            message("prompt", 0, MessageRole.User, "Start"),
+            message("answer", 1, MessageRole.Assistant, "Working"),
+        )
+            .toStudioMessages(now, true, listOf(record))
+        assertEquals(listOf("feedback:operation", "prompt", "answer"), result.map { it.id })
+        assertFalse(assertIs<StudioMessage.Reply>(result.first()).isStreaming)
+        assertTrue(assertIs<StudioMessage.Reply>(result.last()).isStreaming)
+    }
+
+    @Test
+    fun `feedback after the latest native answer preserves that answer streaming status`() {
+        val result = listOf(message("answer", 0, MessageRole.Assistant, "Working"))
+            .toStudioMessages(now, true, listOf(feedback("answer")))
+        assertTrue(assertIs<StudioMessage.Reply>(result.first()).isStreaming)
+        assertFalse(assertIs<StudioMessage.Reply>(result.last()).isStreaming)
+    }
+
+    @Test
+    fun `late native tool results still update the invocation before feedback`() {
+        val call = ToolCallId("call")
+        val items = listOf(
+            SessionItem.ToolCall(info("invocation", 0, "turn"), call, "Command", "", ToolCallStatus.Running),
+            SessionItem.ToolResult(info("result", 1, "turn"), call, listOf(ContentPart.Text("done"))),
+        )
+        val result = items.toStudioMessages(now, false, listOf(feedback("invocation")))
+        assertEquals(2, result.size)
+        assertEquals("done", assertIs<StudioMessage.Reply>(result[0]).tools.single().output)
+        assertEquals(ToolRunStatus.Done, assertIs<StudioMessage.Reply>(result[0]).tools.single().status)
+    }
+
+    @Test
+    fun `a full history rewrite retains feedback with a missing anchor`() {
+        val completed = feedback(
+            "removed",
+            outcome = FeedbackOutcome.Applied(SessionConfiguration(ModelId("model"), "high")),
+        )
+        val result = listOf(message("replacement", 0, MessageRole.Assistant, "New history"))
+            .toStudioMessages(now, true, listOf(completed))
+        assertEquals(listOf("replacement", "feedback:operation"), result.map { it.id })
+        assertFalse(assertIs<StudioMessage.Reply>(result.last()).isStreaming)
+        assertEquals(ToolRunStatus.Done, assertIs<StudioMessage.Reply>(result.last()).tools.single().status)
+        assertEquals(1, emptyList<SessionItem>().toStudioMessages(now, false, listOf(completed)).size)
+    }
 
     @Test
     fun `protocol-only reasoning items do not create agent replies`() {

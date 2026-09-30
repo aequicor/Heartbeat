@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
 import io.aequicor.heartbeat.feature.aistudio.api.StudioRuntimeState
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import kotlinx.coroutines.flow.StateFlow
 
 /** Profile service: accepted work and history observation outlive any individual screen. */
@@ -27,4 +28,9 @@ interface StudioRuntime {
 
     /** Sends an exact currently pending permission option with the structured [answer] of its input. */
     suspend fun respond(sessionId: String, requestId: String, optionId: String, answer: StudioPermissionAnswer? = null)
+
+    /** Applies a parameter in profile-owned work; a screen waiter may detach without cancelling the change. */
+    suspend fun configure(sessionId: String, change: StudioSettingChange) {
+        error("Session configuration is unavailable")
+    }
 }

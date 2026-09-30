@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.api
 
+import kotlinx.serialization.Serializable
+
 /** Reasoning budget the agent may spend on a run. */
 public enum class ReasoningEffort { Low, Medium, High, VeryHigh }
 
 /** How the agent treats actions with side effects, such as editing files. */
+@Serializable
 public enum class ApprovalMode {
     /** Only read-only actions run without an explicit confirmation. */
     Ask,

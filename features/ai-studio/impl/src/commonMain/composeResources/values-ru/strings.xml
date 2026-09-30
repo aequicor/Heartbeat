@@ -145,4 +145,26 @@
     <string name="usage_window_hours">Лимит на %1$d ч</string>
     <string name="usage_window_minutes">Лимит на %1$d мин</string>
     <string name="usage_all_models">Все модели</string>
+    <string name="feedback_model">Модель</string>
+    <string name="feedback_effort">Уровень рассуждений</string>
+    <string name="feedback_trust">Подтверждение команд</string>
+    <string name="feedback_default">По умолчанию движка</string>
+    <string name="feedback_pending">Изменение параметра «%1$s»: %2$s…</string>
+    <string name="feedback_applied_tool">Сессия продолжает работу. Со следующего вызова инструмента: «%1$s» — %2$s.</string>
+    <string name="feedback_applied_request">Сессия продолжает работу. Со следующего запроса к модели: «%1$s» — %2$s.</string>
+    <string name="feedback_failed">Не удалось изменить параметр «%1$s»: %2$s.</string>
+    <string name="feedback_unknown">Изменение параметра «%1$s» не подтверждено.</string>
+    <string name="feedback_pending_detail">Ожидаем подтверждения изменения от движка. Сессия продолжает работать.</string>
+    <string name="feedback_next_tool">Сессия продолжает работать с этим параметром со следующего вызова инструмента. Уже выполняемая команда сохраняет прежнее подтверждение.</string>
+    <string name="feedback_next_request">Сессия продолжает работать с этим параметром со следующего запроса к модели. Уже выполняемый запрос сохраняет прежние параметры.</string>
+    <string name="feedback_kept">Текущие подтверждённые параметры показаны в поле ввода.</string>
+    <string name="feedback_unknown_detail">Результат изменения не удалось подтвердить. Проверьте текущие параметры сессии.</string>
+    <string name="feedback_failure_unsupported">движок не поддерживает это изменение</string>
+    <string name="feedback_failure_busy">движок не может изменить этот параметр во время работы</string>
+    <string name="feedback_failure_connection">нельзя сменить движок или подключение в существующей сессии</string>
+    <string name="feedback_failure_invalid">движок отклонил выбранное значение</string>
+    <string name="feedback_failure_access">доступ к движку запрещён</string>
+    <string name="feedback_failure_transport">не удалось связаться с движком</string>
+    <string name="feedback_failure_lifecycle">сессия больше недоступна</string>
+    <string name="feedback_failure_unknown">движок не подтвердил изменение</string>
 </resources>

@@ -82,14 +82,18 @@ class AiStudioEffects(
 
             is AiStudioEffect.Run -> machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, run(effect)))
 
-            is AiStudioEffect.Cancel -> {
-                val isActive = effect.sessionId in activeRuns.value
-                if (isActive) stopRequests.update { it + effect.sessionId }
-                log.i { "stop requested active=$isActive" }
-            }
+            is AiStudioEffect.Cancel -> cancel(effect.sessionId)
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+
+            is AiStudioEffect.ChangeSessionSetting -> error("Live configuration requires an engine session")
         }
+    }
+
+    private fun cancel(sessionId: String) {
+        val isActive = sessionId in activeRuns.value
+        if (isActive) stopRequests.update { it + sessionId }
+        log.i { "stop requested active=$isActive" }
     }
 
     /** Registers the run before its first suspension, so a stop sent right after the submit finds it. */

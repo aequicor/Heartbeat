@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
@@ -11,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -28,6 +28,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -70,7 +72,7 @@ internal data class PiTranscript(val ref: SessionRef, val file: String)
  * [released] lets the owning runtime forget this session.
  */
 internal class PiSession(
-    private val request: CreateSessionRequest,
+    request: CreateSessionRequest,
     override val route: ExecutionRoute,
     private val environment: PiSessionEnvironment,
     private val validate: suspend () -> Unit,
@@ -81,7 +83,8 @@ internal class PiSession(
     SwitchesModels,
     ReconcilesSession,
     RequestsPermissions,
-    AppliesTrustLevels {
+    AppliesTrustLevels,
+    ChangesSessionConfiguration {
     private val log = Log.tag("PiSession")
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
@@ -104,15 +107,19 @@ internal class PiSession(
     private var isCommandPending = false
     private var pendingEffect: ActiveSessionEffect? = null
     private var isEffectStarted = false
-    private var target = request.target
-
-    // Thinking level Pi started with, restored when a prompt asks for the native default; confined to main.
-    private var nativeThinking: String? = null
-    private var appliedThinking: String? = null
     private var turn: Turn? = null
 
-    // Trust of the current turn; approvals it covers are answered without the user. Confined to main.
+    // Policy for future tool approvals; pending requests keep their original decision. Confined to main.
     private var trust: TrustLevel = DefaultTrust
+    private val sessionConfiguration = PiSessionConfiguration(
+        request.target,
+        { nativeRef?.nativeId },
+        ::rpc,
+        { trust },
+        usage::model,
+    )
+    private val target get() = sessionConfiguration.target
+    override val configuration = sessionConfiguration.configuration
     private var terminal: TurnOutcome = TurnOutcome.Completed
     private var acceptance: CompletableDeferred<TurnId>? = null
     private var cancellationAck: CompletableDeferred<Unit>? = null
@@ -150,6 +157,7 @@ internal class PiSession(
             ReconcilesSession to this,
             RequestsPermissions to this,
             AppliesTrustLevels to this,
+            ChangesSessionConfiguration to this,
             SessionHistory to journal,
             SessionContextUsage to usage,
         ),
@@ -166,7 +174,7 @@ internal class PiSession(
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
             val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
-            rpc().command("set_model", modelFields(target.model))
+            rpc().command("set_model", sessionConfiguration.modelFields(target.model))
             val snapshot = rpc().command("get_state")
             usage.model(snapshot["model"] as? JsonObject)
             val nativeId = snapshot.string("sessionId")
@@ -179,8 +187,7 @@ internal class PiSession(
             stored?.let(journal::restore)
             nativeRef = SessionRef(route.engine, PiSessionSource, nativeId)
             sessionFile = snapshot.string("sessionFile")
-            nativeThinking = snapshot.string("thinkingLevel")
-            appliedThinking = nativeThinking
+            sessionConfiguration.start(snapshot)
             isStarted = true
         } finally {
             if (!isStarted) withContext(NonCancellable) { shutdown() }
@@ -214,6 +221,7 @@ internal class PiSession(
                     trust = previousTrust
                     piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
                 }
+                sessionConfiguration.publishTrust()
                 handoff(ActiveSessionEffect.Submit(request, next))
                 result
             }
@@ -259,17 +267,31 @@ internal class PiSession(
             if (isCommandPending || state.value !is ActiveSessionState.Ready) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Busy))
             }
-            try {
-                val selected = rpc().command("set_model", modelFields(model))
-                usage.model((selected["model"] as? JsonObject) ?: selected)
-            } catch (e: EngineException) {
-                // A rejected model leaves the session usable; only transport or process loss needs recovery.
-                if (e.failure !is EngineFailure.Request && e.failure !is EngineFailure.Access) failed(e.failure)
-                throw e
+            changeConfiguration(SessionConfigurationChange.Model(model))
+        }
+    }
+
+    override suspend fun apply(operationId: String, change: SessionConfigurationChange): SessionConfiguration =
+        withContext(NonCancellable + dispatchers.main) {
+            mutex.withLock {
+                validate()
+                ensureOpen()
+                if (isCommandPending) piFailure(EngineFailure.Session(SessionFailureReason.Busy))
+                state.value.ensureConfigurationAllowed()
+                log.i { "Applying live Pi configuration: ${change::class.simpleName.orEmpty()}" }
+                changeConfiguration(change)
             }
-            target = target.copy(model = model)
-            // Pi clamps the thinking level to the new model; resend it with the next prompt.
-            appliedThinking = null
+        }
+
+    /** Native setters update the next model request; outstanding tool approvals keep their original decision. */
+    private suspend fun changeConfiguration(change: SessionConfigurationChange): SessionConfiguration {
+        try {
+            return sessionConfiguration.apply(change) { trust = it }
+        } catch (e: EngineException) {
+            log.w(e) { "Pi configuration change was not acknowledged" }
+            // A definite refusal keeps the turn usable; loss of native confirmation requires reconciliation.
+            if (e.failure !is EngineFailure.Request && e.failure !is EngineFailure.Access) failed(e.failure)
+            throw e
         }
     }
 
@@ -469,19 +491,11 @@ internal class PiSession(
         }
         val accepted = acceptance
         val message = effect.request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        applyThinking(effect.request.reasoningEffort?.let(::piThinkingLevel) ?: nativeThinking)
+        sessionConfiguration.prepareEffort(effect.request.reasoningEffort)
         rpc().command("prompt", JsonObject(mapOf("message" to JsonPrimitive(message))))
         if (turn?.id == effect.turn.id) machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
         started(effect.turn)
         accepted?.complete(effect.turn.id)
-    }
-
-    /** Pi clamps the level to the model; it is session-local and never written to Pi's global defaults. */
-    private suspend fun applyThinking(level: String?) {
-        if (level == null || level == appliedThinking) return
-        rpc().command("set_thinking_level", JsonObject(mapOf("level" to JsonPrimitive(level))))
-        appliedThinking = level
-        log.i { "thinking level set: $level" }
     }
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
@@ -676,17 +690,7 @@ internal class PiSession(
     }
 
     private suspend fun reconcile(snapshot: JsonObject) {
-        if (snapshot.string("sessionId") != nativeRef?.nativeId) {
-            piFailure(EngineFailure.Session(SessionFailureReason.Changed))
-        }
-        val model = snapshot["model"] as? JsonObject
-            ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        val provider = model.string("provider")
-        val id = model.string("id")
-        if (provider != request.target.model.value.substringBefore("/") || id.isNullOrBlank()) {
-            piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
-        }
-        target = target.copy(model = ModelId("$provider/$id"))
+        sessionConfiguration.confirm(snapshot)
         val isBusy = (snapshot["isStreaming"] as? JsonPrimitive)?.booleanOrNull == true ||
             (snapshot["isCompacting"] as? JsonPrimitive)?.booleanOrNull == true
         val remembered = turn
@@ -731,16 +735,6 @@ internal class PiSession(
         }
     }
 
-    private fun modelFields(model: ModelId): JsonObject {
-        val provider = model.value.substringBefore("/")
-        if (provider != request.target.model.value.substringBefore("/") || "/" !in model.value) {
-            piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
-        }
-        return JsonObject(
-            mapOf("provider" to JsonPrimitive(provider), "modelId" to JsonPrimitive(model.value.substringAfter("/"))),
-        )
-    }
-
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
 }
@@ -750,5 +744,20 @@ private suspend fun PiConnection.reattach(file: String): PiConnection = apply {
     val switched = command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
     if ((switched["cancelled"] as? JsonPrimitive)?.booleanOrNull == true) {
         piFailure(EngineFailure.Session(SessionFailureReason.Changed))
+    }
+}
+
+/** Live native settings are available between requests of the current turn, including a pending approval. */
+private fun ActiveSessionState.ensureConfigurationAllowed() {
+    when (this) {
+        is ActiveSessionState.Ready, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction -> Unit
+
+        is ActiveSessionState.Unavailable -> piFailure(failure)
+
+        is ActiveSessionState.Submitting, is ActiveSessionState.Interrupting ->
+            piFailure(EngineFailure.Session(SessionFailureReason.Busy))
+
+        is ActiveSessionState.Closing, ActiveSessionState.Closed ->
+            piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
     }
 }

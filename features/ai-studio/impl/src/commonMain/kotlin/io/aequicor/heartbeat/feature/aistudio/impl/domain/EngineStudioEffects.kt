@@ -43,9 +43,7 @@ class EngineStudioEffects(
                 .distinctUntilChanged()
                 .collect { machine.send(AiStudioIntent.Internal.ModelsChanged(it)) }
 
-            AiStudioEffect.ObserveProjects -> (projects?.availability ?: flowOf(false)).collect {
-                machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(it))
-            }
+            AiStudioEffect.ObserveProjects -> observeProjects(machine)
 
             is AiStudioEffect.Usage -> usage(effect)
 
@@ -78,6 +76,14 @@ class EngineStudioEffects(
             }
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
+
+            is AiStudioEffect.ChangeSessionSetting -> runtime.configure(effect.sessionId, effect.change)
+        }
+    }
+
+    private suspend fun observeProjects(machine: EffectScope<AiStudioIntent>) {
+        (projects?.availability ?: flowOf(false)).collect {
+            machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(it))
         }
     }
 
