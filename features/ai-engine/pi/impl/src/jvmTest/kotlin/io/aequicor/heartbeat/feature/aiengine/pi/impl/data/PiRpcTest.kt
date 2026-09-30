@@ -7,9 +7,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -20,6 +21,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import java.util.concurrent.Executors
 import java.util.stream.Stream
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,17 +31,11 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PiRpcTest {
-    private val dispatchers = object : DispatcherProvider {
-        override val main: CoroutineDispatcher = Dispatchers.Default
-        override val io: CoroutineDispatcher = Dispatchers.IO
-        override val default: CoroutineDispatcher = Dispatchers.Default
-    }
-
     @Test
-    fun `command timeout fails only the command and keeps the process running`() = runTest {
+    fun `command timeout fails only the command and keeps the process running`() = runRpcTest { dispatchers ->
         val process = FakeProcess()
         val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {}, commandTimeoutMillis = 50)
-        val failure = assertFailsWith<EngineException> { withContext(Dispatchers.Default) { rpc.command("get_state") } }
+        val failure = assertFailsWith<EngineException> { withContext(dispatchers.default) { rpc.command("get_state") } }
         assertEquals(EngineFailure.Transport(TransportFailureReason.Timeout), failure.failure)
         assertTrue(rpc.isOpen)
         assertFalse(process.isDestroyed)
@@ -47,7 +43,7 @@ class PiRpcTest {
     }
 
     @Test
-    fun `malformed lines and failing consumers do not stop draining`() = runTest {
+    fun `malformed lines and failing consumers do not stop draining`() = runRpcTest { dispatchers ->
         val process = FakeProcess()
         val settled = CompletableDeferred<JsonObject>()
         val rpc = PiRpc(
@@ -64,34 +60,37 @@ class PiRpcTest {
         process.emit("[1,2]")
         process.emit("""{"type":"agent_start"}""")
         process.emit("""{"type":"agent_settled"}""")
-        assertEquals("agent_settled", awaitReal { settled.await() }.string("type"))
+        assertEquals("agent_settled", awaitReal(dispatchers) { settled.await() }.string("type"))
         assertTrue(rpc.isOpen)
         rpc.close()
     }
 
     @Test
-    fun `end of output destroys the process and reports a crash`() = runTest {
+    fun `end of output destroys the process and reports a crash`() = runRpcTest { dispatchers ->
         val process = FakeProcess()
         val failure = CompletableDeferred<EngineFailure>()
         val rpc = PiRpc(process, backgroundScope, dispatchers, {}, { failure.complete(it) })
         process.finishOutput()
-        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), awaitReal { failure.await() })
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), awaitReal(dispatchers) { failure.await() })
         assertFalse(rpc.isOpen)
         assertTrue(process.isDestroyed)
     }
 
     @Test
-    fun `a crash fails in-flight commands with the crash`() = runTest {
+    fun `a crash fails in-flight commands with the crash`() = runRpcTest { dispatchers ->
         val process = FakeProcess()
         val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {})
-        val failure = async(Dispatchers.Default) { assertFailsWith<EngineException> { rpc.command("get_state") } }
-        awaitReal { while (process.written().isEmpty()) delay(POLL_MILLIS) }
+        val failure = async(dispatchers.default) { assertFailsWith<EngineException> { rpc.command("get_state") } }
+        awaitReal(dispatchers) { while (process.written().isEmpty()) delay(POLL_MILLIS) }
         process.finishOutput()
-        assertEquals(EngineFailure.Engine(EngineFailureReason.Crashed), awaitReal { failure.await() }.failure)
+        assertEquals(
+            EngineFailure.Engine(EngineFailureReason.Crashed),
+            awaitReal(dispatchers) { failure.await() }.failure,
+        )
     }
 
     @Test
-    fun `close fails pending commands and later commands immediately`() = runTest {
+    fun `close fails pending commands and later commands immediately`() = runRpcTest { dispatchers ->
         val process = FakeProcess()
         val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {})
         rpc.close()
@@ -100,13 +99,31 @@ class PiRpcTest {
         assertTrue(process.isDestroyed)
     }
 
-    private suspend fun <T> awaitReal(block: suspend () -> T): T =
-        withContext(Dispatchers.Default) { withTimeout(AWAIT_MILLIS) { block() } }
+    private fun runRpcTest(block: suspend TestScope.(DispatcherProvider) -> Unit) = runTest {
+        RpcTestDispatchers().use { block(it) }
+    }
+
+    private suspend fun <T> awaitReal(dispatchers: DispatcherProvider, block: suspend () -> T): T =
+        withContext(dispatchers.default) { withTimeout(AWAIT_MILLIS) { block() } }
 
     private companion object {
         const val AWAIT_MILLIS = 5_000L
         const val POLL_MILLIS = 10L
     }
+}
+
+/** Blocking pipes and native command deadlines use physical time, with a pool closed after each test. */
+private class RpcTestDispatchers :
+    DispatcherProvider,
+    AutoCloseable {
+    private val dispatcher = Executors.newCachedThreadPool { task ->
+        Thread(task, "pi-rpc-test").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
+    override val main: CoroutineDispatcher = dispatcher
+    override val io: CoroutineDispatcher = dispatcher
+    override val default: CoroutineDispatcher = dispatcher
+
+    override fun close() = dispatcher.close()
 }
 
 private class FakeProcess : Process() {

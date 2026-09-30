@@ -20,6 +20,13 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -32,12 +39,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionChoice
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionInput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -50,6 +59,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -81,7 +92,7 @@ import kotlin.test.assertTrue
 class PiSessionTest {
     @Test
     fun `unknown thinking level is rejected before a native prompt`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val request = prompt("effort").copy(reasoningEffort = "turbo")
         val error = assertFailsWith<EngineException> { fixture.session.send(request) }
         assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
@@ -91,7 +102,7 @@ class PiSessionTest {
 
     @Test
     fun `selected thinking level is applied before the prompt and the native level restored later`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.session.send(prompt("first").copy(reasoningEffort = "high"))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
@@ -100,9 +111,9 @@ class PiSessionTest {
         fixture.session.send(prompt("third"))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         runCurrent()
-        val levels = fixture.connection.commands.zip(fixture.connection.fields)
+        val levels = fixture.connection.commands.asSequence().zip(fixture.connection.fields.asSequence())
             .filter { it.first == "set_thinking_level" }
-            .map { it.second.string("level") }
+            .map { it.second.string("level") }.toList()
         assertEquals(listOf("high", "medium"), levels)
         val first = fixture.connection.commands.indexOf("set_thinking_level")
         assertEquals("prompt", fixture.connection.commands[first + 1])
@@ -135,7 +146,7 @@ class PiSessionTest {
 
     @Test
     fun `caller cancellation keeps the native turn and close releases the process after it settles`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         send.cancel()
@@ -143,25 +154,25 @@ class PiSessionTest {
         assertIs<ActiveSessionState.Running>(fixture.session.state.value)
         fixture.session.close()
         assertEquals(ActiveSessionState.Closed, fixture.session.state.value)
-        assertFalse(fixture.connection.closed)
+        assertFalse(fixture.connection.isClosed)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         runCurrent()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `closing an idle session releases its process`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.session.close()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `synchronize after process loss restarts pi on the same transcript`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         val turn = fixture.session.send(prompt("first"))
         fixture.connection.isOpen = false
@@ -181,7 +192,7 @@ class PiSessionTest {
     @Test
     fun `resumed session starts pi on the stored transcript`() = runTest {
         val ref = SessionRef(PiEngineId, PiSessionSource, "native")
-        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        val fixture = fixture(this, transcript = PiTranscript(ref, "stored.jsonl"))
         assertEquals(listOf("switch_session", "get_entries", "set_model", "get_state"), fixture.connection.commands)
         assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
@@ -206,22 +217,22 @@ class PiSessionTest {
         val opened = mutableListOf<FakeConnection>()
         fun stored(nativeId: String) = PiTranscript(SessionRef(PiEngineId, PiSessionSource, nativeId), "stored.jsonl")
         val changed = assertFailsWith<EngineException> {
-            fixture(transcript = stored("stored")) { _, connection -> opened += connection }
+            fixture(this, transcript = stored("stored")) { _, connection -> opened += connection }
         }
         assertEquals(EngineFailure.Session(SessionFailureReason.Changed), changed.failure)
         val unreadable = assertFailsWith<EngineException> {
-            fixture(transcript = stored("native")) { _, connection ->
+            fixture(this, transcript = stored("native")) { _, connection ->
                 connection.entries = "{}"
                 opened += connection
             }
         }
         assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), unreadable.failure)
-        assertEquals(listOf(true, true), opened.map { it.closed })
+        assertEquals(listOf(true, true), opened.map { it.isClosed })
     }
 
     @Test
     fun `rejected model change keeps the session ready`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val failure = assertFailsWith<EngineException> { fixture.session.switchTo(ModelId("anthropic/missing")) }
         assertIs<EngineFailure.Request>(failure.failure)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
@@ -231,7 +242,7 @@ class PiSessionTest {
     @Test
     fun `validation failure before delivery is reported as a definite send failure`() = runTest {
         var checks = 0
-        val fixture = fixture(validate = {
+        val fixture = fixture(this, validate = {
             checks++
             if (checks > 1) throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         })
@@ -243,7 +254,7 @@ class PiSessionTest {
 
     @Test
     fun overlappingSendIsRejectedAndAgentEndDoesNotPrematurelyFinishRetry() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         fixture.connection.event(record("""{"type":"agent_start"}"""))
@@ -264,7 +275,7 @@ class PiSessionTest {
 
     @Test
     fun quickCompletionBeforeAcceptanceResponseKeepsCompletedOutcome() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
@@ -280,7 +291,7 @@ class PiSessionTest {
 
     @Test
     fun shutdownBeforeNativeAcceptanceReportsUnknownDelivery() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val sending = async { assertFailsWith<EngineException> { fixture.session.send(prompt("unsent")) } }
         runCurrent()
         fixture.session.shutdown()
@@ -291,7 +302,7 @@ class PiSessionTest {
 
     @Test
     fun finishingBeforeAbortResponseDoesNotPermitAbortToReachANewTurn() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         val first = fixture.session.send(prompt("first"))
         val cancelling = async { fixture.session.cancel(first) }
@@ -308,7 +319,7 @@ class PiSessionTest {
 
     @Test
     fun cancellingModelChangeCallerStillRecordsTheNativeModel() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val changing = launch { fixture.session.switchTo(ModelId("anthropic/other")) }
         runCurrent()
         changing.cancel()
@@ -323,7 +334,7 @@ class PiSessionTest {
 
     @Test
     fun `tool approval waits for the user and an allow answer reaches pi`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-1"))
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
@@ -340,7 +351,7 @@ class PiSessionTest {
 
     @Test
     fun `full trust answers every tool approval without the user`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-t1"))
         fixture.connection.event(approval("ui-t2", tool = "write"))
@@ -354,7 +365,7 @@ class PiSessionTest {
 
     @Test
     fun `edit trust allows file edits and still asks before commands`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.AutoEdits)
         val notes = TestWorkspace.resolve("notes.md").toString()
         fixture.connection.event(approval("ui-e1", target = notes, tool = "edit", path = notes))
@@ -367,7 +378,7 @@ class PiSessionTest {
 
     @Test
     fun `edit trust asks before writes outside the workspace or into git metadata`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.AutoEdits)
         val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
         val hook = TestWorkspace.resolve(".git/hooks/pre-commit").toString()
@@ -384,7 +395,7 @@ class PiSessionTest {
 
     @Test
     fun `nothing is trusted while the turn is being interrupted`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn(TrustLevel.Full)
         val cancel = async { fixture.session.cancel(turn) }
         runCurrent()
@@ -398,7 +409,7 @@ class PiSessionTest {
 
     @Test
     fun `an explicit ask level leaves file edits to the user`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Ask)
         fixture.connection.event(approval("ui-a1", target = "notes.md", tool = "edit"))
         assertTrue(fixture.connection.sent.isEmpty())
@@ -433,7 +444,7 @@ class PiSessionTest {
 
     @Test
     fun `denied tool approval is answered negatively`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-2"))
         fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
@@ -444,7 +455,7 @@ class PiSessionTest {
 
     @Test
     fun `dialogs nobody can answer are dismissed so pi blocks the tool`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.event(approval("idle"))
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"other","method":"input","title":"Name?"}"""),
@@ -461,7 +472,7 @@ class PiSessionTest {
 
     @Test
     fun `select dialog becomes a single choice and the chosen value reaches pi`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record(
@@ -485,7 +496,7 @@ class PiSessionTest {
 
     @Test
     fun `text dialogs send the typed value and skipping cancels them`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"t","method":"editor","title":"Notes"}"""),
@@ -512,7 +523,7 @@ class PiSessionTest {
 
     @Test
     fun `an undelivered dialog answer keeps the request pending in the session`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"t","method":"input","title":"Name?"}"""),
@@ -536,7 +547,7 @@ class PiSessionTest {
 
     @Test
     fun `plain confirm dialog is answered with the chosen option`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"c","method":"confirm","title":"Go?","message":"Sure"}"""),
@@ -551,7 +562,7 @@ class PiSessionTest {
 
     @Test
     fun `cancelling a turn dismisses its pending approvals before aborting`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-3"))
         fixture.connection.abortAck.complete(JsonObject(emptyMap()))
@@ -563,19 +574,19 @@ class PiSessionTest {
 
     @Test
     fun `close after a rejected prompt releases the process`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.Invalid)),
         )
         assertFailsWith<EngineException> { fixture.session.send(prompt("rejected")) }
         fixture.session.close()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `failed transcript reattachment never keeps the restarted process`() = runTest {
-        val fixture = fixture { index, connection ->
+        val fixture = fixture(this) { index, connection ->
             if (index == 1) {
                 connection.switchFailure = EngineException(
                     EngineFailure.Request(RequestFailureReason.Invalid),
@@ -585,7 +596,7 @@ class PiSessionTest {
         fixture.connection.isOpen = false
         fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
         assertFailsWith<EngineException> { fixture.session.synchronize() }
-        assertTrue(fixture.connections[1].closed)
+        assertTrue(fixture.connections[1].isClosed)
         fixture.session.synchronize()
         assertEquals(3, fixture.connections.size)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
@@ -594,7 +605,7 @@ class PiSessionTest {
 
     @Test
     fun `a restarted process on another transcript is rejected`() = runTest {
-        val fixture = fixture { index, connection -> if (index == 1) connection.sessionId = "other" }
+        val fixture = fixture(this) { index, connection -> if (index == 1) connection.sessionId = "other" }
         fixture.connection.isOpen = false
         fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
         val failure = assertFailsWith<EngineException> { fixture.session.synchronize() }
@@ -604,7 +615,7 @@ class PiSessionTest {
 
     @Test
     fun `callbacks of a replaced process are ignored`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val stale = fixture.connection
         stale.isOpen = false
         stale.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
@@ -618,19 +629,19 @@ class PiSessionTest {
 
     @Test
     fun `closing while an approval is pending declines it and releases after the turn settles`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-4"))
         fixture.session.close()
         assertEquals(listOf(answer("ui-4", "cancelled", true)), fixture.connection.sent)
-        assertFalse(fixture.connection.closed)
+        assertFalse(fixture.connection.isClosed)
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
     }
 
     @Test
     fun `approval text shows hidden characters and oversized commands are blocked`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-5", "ls\n‮rm -rf"))
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
@@ -638,47 +649,6 @@ class PiSessionTest {
         fixture.connection.event(approval("ui-6", "x".repeat(4_001)))
         assertEquals(listOf(answer("ui-6", "cancelled", true)), fixture.connection.sent)
         fixture.session.shutdown()
-    }
-
-    private suspend fun TestScope.fixture(
-        validate: suspend () -> Unit = {},
-        transcript: PiTranscript? = null,
-        configure: (Int, FakeConnection) -> Unit = { _, _ -> },
-    ): Fixture {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val dispatchers = object : DispatcherProvider {
-            override val main: CoroutineDispatcher = dispatcher
-            override val io: CoroutineDispatcher = dispatcher
-            override val default: CoroutineDispatcher = dispatcher
-        }
-        val scope = FakeScope(backgroundScope)
-        val scopes = object : ScopeFactory {
-            override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope =
-                FakeScope(backgroundScope)
-        }
-        val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
-        val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"))
-        val released = mutableListOf<PiSession>()
-        val session = PiSession(
-            CreateSessionRequest(target),
-            route,
-            PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers, DefaultPiTestToggles()),
-            validate,
-            { released += it },
-        )
-        val connections = mutableListOf<FakeConnection>()
-        session.start(
-            { event, failed ->
-                FakeConnection().also {
-                    it.event = event
-                    it.failed = failed
-                    configure(connections.size, it)
-                    connections += it
-                }
-            },
-            transcript,
-        )
-        return Fixture(session, connections, released)
     }
 
     private suspend fun Fixture.runningTurn(trust: TrustLevel? = null): TurnId {
@@ -730,16 +700,35 @@ class PiSessionTest {
 
     private fun prompt(id: String) = PromptRequest(RequestId(id), listOf(ContentPart.Text("Hello")))
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject
-    private data class Fixture(
-        val session: PiSession,
-        val connections: List<FakeConnection>,
-        val released: List<PiSession>,
-    ) {
-        val connection: FakeConnection get() = connections.first()
-    }
 }
 
 private val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
+
+private object HostedToolDeclarations : ProfileAgentTools {
+    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+        listOf(AgentToolSpec("run_build", "Run a build", JsonObject(emptyMap())))
+    override suspend fun instructions(workspace: WorkspaceRef?): String = "Use run_build"
+    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
+        error("This fixture exercises the session permission callback")
+}
+
+private class HostedBridge : AgentToolBridge {
+    override val isAvailable = true
+    var context: suspend () -> AgentToolContext? = { null }
+    var isClosed = false
+    override suspend fun attach(
+        workspace: WorkspaceRef,
+        context: suspend () -> AgentToolContext?,
+    ): AgentToolBridgeAttachment {
+        this.context = context
+        return object : AgentToolBridgeAttachment {
+            override val endpoint = AgentToolBridgeEndpoint("http://127.0.0.1:1", "fixture")
+            override fun close() {
+                isClosed = true
+            }
+        }
+    }
+}
 
 private class FakeConnection : PiConnection {
     var event: suspend (JsonObject) -> Unit = {}
@@ -750,7 +739,7 @@ private class FakeConnection : PiConnection {
     val commands = mutableListOf<String>()
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
-    var closed = false
+    var isClosed = false
     var sessionId = "native"
     var switchFailure: EngineException? = null
     var entries = """{"leafId":"later","entries":[
@@ -794,7 +783,7 @@ private class FakeConnection : PiConnection {
         sent += record
     }
     override fun close() {
-        closed = true
+        isClosed = true
         isOpen = false
     }
 
@@ -822,7 +811,7 @@ private class ReducerLauncher : MachineLauncher {
                     effects.handle(
                         effect,
                         object : EffectScope<I> {
-                            override suspend fun send(intent: I): SendResult = SendResult.Accepted
+                            override suspend fun send(input: I): SendResult = SendResult.Accepted
                         },
                     )
                 }
@@ -857,4 +846,126 @@ private class DefaultPiTestToggles : io.aequicor.heartbeat.core.featuretoggles.F
         kotlinx.coroutines.flow.flowOf(toggle.default)
     override suspend fun <T : Any> get(toggle: io.aequicor.heartbeat.core.featuretoggles.FeatureToggle<T>) =
         toggle.default
+}
+
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+class PiHostedSessionTest {
+    @Test
+    fun `native process loss revokes a hosted permission and its execution identity`() = runTest {
+        val bridge = HostedBridge()
+        val fixture = fixture(this, tools = HostedToolDeclarations, bridge = bridge)
+        fixture.runningTurn(TrustLevel.Ask)
+        val context = requireNotNull(bridge.context())
+        val pending = CoroutineScope(coroutineContext + requireNotNull(context.lifetime)).async {
+            context.permissions.request(AgentToolApproval("run_build", "Build"))
+        }
+        runCurrent()
+        assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
+        runCurrent()
+        assertTrue(pending.isCancelled)
+        assertEquals(null, bridge.context())
+        fixture.session.shutdown()
+        assertTrue(bridge.isClosed)
+    }
+
+    @Test
+    fun `hosted permission uses the accepted turn and is cancelled when native turn ends`() = runTest {
+        val bridge = HostedBridge()
+        val fixture = fixture(this, tools = HostedToolDeclarations, bridge = bridge)
+        assertEquals(null, bridge.context())
+        val turn = fixture.runningTurn(TrustLevel.AutoEdits)
+        val context = requireNotNull(bridge.context())
+        assertEquals(turn, context.turn)
+        assertEquals(TrustLevel.AutoEdits, context.trust)
+        assertEquals(fixture.session.ref, context.session)
+        val toolScope = CoroutineScope(coroutineContext + requireNotNull(context.lifetime))
+        val answer = toolScope.async {
+            context.permissions.request(AgentToolApproval("run_build", "Build project"))
+        }
+        runCurrent()
+        val request = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value).requests.single()
+        fixture.session.respond(PermissionDecision(turn, request.id, PermissionOptionId("hosted.allow")))
+        assertTrue(answer.await())
+        assertTrue(fixture.connection.sent.isEmpty())
+        val pending = toolScope.async {
+            context.permissions.request(AgentToolApproval("run_build", "Build again"))
+        }
+        runCurrent()
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        runCurrent()
+        assertTrue(pending.isCancelled)
+        assertEquals(null, bridge.context())
+        fixture.session.close()
+        assertTrue(bridge.isClosed)
+    }
+
+    private suspend fun Fixture.runningTurn(trust: TrustLevel): TurnId {
+        connection.promptAck.complete(JsonObject(emptyMap()))
+        val prompt = PromptRequest(RequestId("hosted"), listOf(ContentPart.Text("Build")), trust = trust)
+        val accepted = session.send(prompt)
+        connection.event(record("""{"type":"agent_start"}"""))
+        return accepted
+    }
+    private fun record(json: String): JsonObject = Json.parseToJsonElement(json).jsonObject
+}
+
+private suspend fun fixture(
+    test: TestScope,
+    validate: suspend () -> Unit = {},
+    transcript: PiTranscript? = null,
+    tools: ProfileAgentTools = NoAgentTools,
+    bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    configure: (Int, FakeConnection) -> Unit = { _, _ -> },
+): Fixture {
+    val dispatcher = StandardTestDispatcher(test.testScheduler)
+    val dispatchers = object : DispatcherProvider {
+        override val main: CoroutineDispatcher = dispatcher
+        override val io: CoroutineDispatcher = dispatcher
+        override val default: CoroutineDispatcher = dispatcher
+    }
+    val scope = FakeScope(test.backgroundScope)
+    val scopes = object : ScopeFactory {
+        override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope =
+            FakeScope(test.backgroundScope)
+    }
+    val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
+    val workspace = if (tools === NoAgentTools) null else WorkspaceRef("hosted-workspace")
+    val route = ExecutionRoute(
+        PiEngineId,
+        target.binding,
+        AuthSourceId("source"),
+        AuthRevision.Known("1"),
+        workspace,
+    )
+    val released = mutableListOf<PiSession>()
+    val session = PiSession(
+        CreateSessionRequest(target, workspace),
+        route,
+        PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers, DefaultPiTestToggles(), tools, bridge),
+        validate,
+        { released += it },
+    )
+    val connections = mutableListOf<FakeConnection>()
+    session.prepareHostedTools()
+    session.start(
+        { event, failed ->
+            FakeConnection().also {
+                it.event = event
+                it.failed = failed
+                configure(connections.size, it)
+                connections += it
+            }
+        },
+        transcript,
+    )
+    return Fixture(session, connections, released)
+}
+
+private data class Fixture(
+    val session: PiSession,
+    val connections: List<FakeConnection>,
+    val released: List<PiSession>,
+) {
+    val connection: FakeConnection get() = connections.first()
 }

@@ -8,6 +8,17 @@ import kotlin.test.assertTrue
 
 class PiSearchRegistrationTest {
     @Test
+    fun `hosted registry loads independently of search and skips duplicate native approvals`() {
+        val names = listOf("configure_build", "run_build")
+        assertTrue(piTools(searchTools = false, hosted = names).endsWith(",configure_build,run_build"))
+        assertTrue(Path.of("runtime", "heartbeat-tools.ts") in piExtensions(Path.of("runtime"), false, true))
+        val extension = assertNotNull(javaClass.getResourceAsStream("/pi/heartbeat-tools.ts"))
+        extension.use { assertTrue("Type.Unsafe(spec.inputSchema)" in it.bufferedReader().readText()) }
+        val approvals = assertNotNull(javaClass.getResourceAsStream("/pi/heartbeat-approval.ts"))
+        approvals.use { assertTrue("HOSTED_TOOLS.has(event.toolName)" in it.bufferedReader().readText()) }
+    }
+
+    @Test
     fun `isolated Pi process loads bundled search tools beside approval gate`() {
         val arguments = piCommand(
             Path.of("pi"),
@@ -24,7 +35,7 @@ class PiSearchRegistrationTest {
                 Path.of("runtime", "heartbeat-approval.ts").toString(),
                 Path.of("runtime", "heartbeat-search.ts").toString(),
             ),
-            arguments.windowed(2).filter { it.first() == "-e" }.map { it.last() },
+            arguments.asSequence().windowed(2).filter { it.first() == "-e" }.map { it.last() }.toList(),
         )
         assertEquals(
             listOf(Path.of("runtime", "heartbeat-approval.ts")),
@@ -59,7 +70,7 @@ class PiSearchRegistrationTest {
         assertTrue("--no-themes" in arguments)
         assertEquals(
             listOf(Path.of("runtime", "heartbeat-approval.ts").toString()),
-            arguments.windowed(2).filter { it.first() == "-e" }.map { it.last() },
+            arguments.asSequence().windowed(2).filter { it.first() == "-e" }.map { it.last() }.toList(),
         )
     }
 }

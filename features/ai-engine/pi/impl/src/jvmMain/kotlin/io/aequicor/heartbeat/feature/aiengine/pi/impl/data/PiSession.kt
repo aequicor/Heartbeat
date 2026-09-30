@@ -9,6 +9,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -131,6 +133,13 @@ internal class PiSession(
             if (effect is ActiveSessionEffect.Decide) decide(effect.decision) else handoff(effect)
         },
     )
+    private val hostedTools = PiHostedSessionTools(
+        environment,
+        ::hostedContext,
+        { active -> !isHandleClosed && turn?.id == active.id },
+        permissions,
+        { machine.send(it) },
+    )
     private val profileClose = profile.onClose {
         cancellationAck?.completeExceptionally(
             EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
@@ -158,6 +167,25 @@ internal class PiSession(
     /** Native session of this handle once started; null before [start] succeeds. */
     val attachedRef: SessionRef? get() = nativeRef
 
+    suspend fun prepareHostedTools(): PiHostedTools? = hostedTools.prepare(route.workspace)
+
+    private suspend fun hostedContext(): AgentToolContext? = withContext(dispatchers.main) {
+        val active = turn ?: return@withContext null
+        val session = nativeRef ?: return@withContext null
+        if (isReleased || state.value is ActiveSessionState.Interrupting || hostedTools.lifetime?.isActive != true) {
+            return@withContext null
+        }
+        AgentToolContext(
+            session,
+            route.workspace,
+            active.id,
+            active.request,
+            trust,
+            AgentToolPermissions { hostedTools.approval(active, it) },
+            lifetime = hostedTools.lifetime,
+        )
+    }
+
     /** Starts Pi on a new native session, or on the stored [transcript] when the session is resumed. */
     suspend fun start(factory: PiConnector, transcript: PiTranscript? = null): Unit = withContext(dispatchers.main) {
         var isStarted = false
@@ -166,7 +194,7 @@ internal class PiSession(
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
             val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
-            rpc().command("set_model", modelFields(target.model))
+            rpc().command("set_model", piModelFields(target.model, request.target.model))
             val snapshot = rpc().command("get_state")
             usage.model(snapshot["model"] as? JsonObject)
             val nativeId = snapshot.string("sessionId")
@@ -194,7 +222,7 @@ internal class PiSession(
                 if (isCommandPending || state.value !is ActiveSessionState.Ready) {
                     piFailure(EngineFailure.Session(SessionFailureReason.Busy))
                 }
-                validatePromptRequest(request)
+                piValidatePromptRequest(request)
                 val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 val result = CompletableDeferred<TurnId>()
                 val previous = Triple(turn, acceptance, isTurnStarted)
@@ -202,10 +230,12 @@ internal class PiSession(
                 prepare(ActiveSessionEffect.Submit(request, next))
                 acceptance = result
                 turn = next
+                hostedTools.beginTurn()
                 trust = request.trust ?: DefaultTrust
                 isTurnStarted = false
                 terminal = TurnOutcome.Completed
                 if (machine.send(ActiveSessionIntent.Public.Submit(request, next)) != SendResult.Accepted) {
+                    hostedTools.revoke()
                     isCommandPending = false
                     pendingEffect = null
                     turn = previous.first
@@ -219,16 +249,6 @@ internal class PiSession(
             }
         }
         accepted.await()
-    }
-
-    private fun validatePromptRequest(request: PromptRequest) {
-        if (request.parts.any { it !is ContentPart.Text }) {
-            piFailure(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
-        }
-        val effort = request.reasoningEffort
-        if (effort != null && effort !in PiAcceptedThinkingLevels) {
-            piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
-        }
     }
 
     override suspend fun cancel(turn: TurnId): Unit = withContext(dispatchers.main) {
@@ -260,7 +280,7 @@ internal class PiSession(
                 piFailure(EngineFailure.Session(SessionFailureReason.Busy))
             }
             try {
-                val selected = rpc().command("set_model", modelFields(model))
+                val selected = rpc().command("set_model", piModelFields(model, request.target.model))
                 usage.model((selected["model"] as? JsonObject) ?: selected)
             } catch (e: EngineException) {
                 // A rejected model leaves the session usable; only transport or process loss needs recovery.
@@ -341,6 +361,7 @@ internal class PiSession(
     private fun release() {
         if (isReleased) return
         isReleased = true
+        hostedTools.close()
         connection?.let {
             log.i { "Releasing Pi process of a closed session" }
             it.close()
@@ -403,6 +424,7 @@ internal class PiSession(
                 is ActiveSessionEffect.Submit -> submit(effect)
 
                 is ActiveSessionEffect.Cancel -> {
+                    hostedTools.revoke()
                     dismissApprovals()
                     if (turn?.id == effect.turn) rpc().command("abort")
                     cancellationAck?.complete(Unit)
@@ -456,6 +478,7 @@ internal class PiSession(
             // Pi never accepted this prompt, so no agent_settled will release the turn.
             if (turn?.id == effect.turn.id) {
                 turn = null
+                hostedTools.revoke()
                 isTurnStarted = false
             }
             if (isHandleClosed) release()
@@ -564,15 +587,7 @@ internal class PiSession(
     /** Answers an approval the turn's trust covers; Pi runs the tool as if the user allowed it. */
     private suspend fun allow(id: String, tool: String, level: TrustLevel) {
         try {
-            rpc().send(
-                JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("extension_ui_response"),
-                        "id" to JsonPrimitive(id),
-                        "confirmed" to JsonPrimitive(true),
-                    ),
-                ),
-            )
+            rpc().respondToUi(id, "confirmed" to JsonPrimitive(true))
             log.i { "Pi tool call allowed by trust level $level: $tool" }
         } catch (e: EngineException) {
             log.w(e) { "Pi trusted approval was not delivered" }
@@ -588,19 +603,12 @@ internal class PiSession(
 
     private suspend fun answer(decision: PermissionDecision) {
         val request = permissions.remove(decision.request) ?: return
+        if (hostedTools.answer(decision)) return
         val dialog = dialogs.remove(decision.request)
         try {
             val isAllowed = decision.option == PiApprovalAllow
             val reply = dialog?.reply(decision) ?: ("confirmed" to JsonPrimitive(isAllowed))
-            rpc().send(
-                JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("extension_ui_response"),
-                        "id" to JsonPrimitive(decision.request.value),
-                        reply,
-                    ),
-                ),
-            )
+            rpc().respondToUi(decision.request.value, reply)
             // Pi does not acknowledge dialog answers; handing the answer to the process resolves the request.
             machine.send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
             log.i {
@@ -623,7 +631,8 @@ internal class PiSession(
     }
 
     private suspend fun dismissApprovals() {
-        val pending = permissions.keys.toList()
+        val pending = permissions.keys.filter { !hostedTools.contains(it) }
+        hostedTools.dismiss()
         permissions.clear()
         dialogs.clear()
         pending.forEach { dismiss(it.value) }
@@ -632,15 +641,7 @@ internal class PiSession(
     /** Declines a dialog nobody can answer; for an approval this blocks the tool call. */
     private suspend fun dismiss(id: String) {
         try {
-            connection?.takeIf { it.isOpen }?.send(
-                JsonObject(
-                    mapOf(
-                        "type" to JsonPrimitive("extension_ui_response"),
-                        "id" to JsonPrimitive(id),
-                        "cancelled" to JsonPrimitive(true),
-                    ),
-                ),
-            )
+            connection?.takeIf { it.isOpen }?.respondToUi(id, "cancelled" to JsonPrimitive(true))
         } catch (e: EngineException) {
             log.w(e) { "Pi dialog dismissal was not delivered" }
         }
@@ -654,6 +655,7 @@ internal class PiSession(
     }
     private suspend fun finish(outcome: TurnOutcome) {
         val completed = turn ?: return
+        hostedTools.revoke()
         started(completed)
         acceptance?.complete(completed.id)
         if (state.value != ActiveSessionState.Closed) {
@@ -663,6 +665,7 @@ internal class PiSession(
         }
         journal.finished(completed.id, outcome)
         turn = null
+        hostedTools.dismiss()
         permissions.clear()
         dialogs.clear()
         decisions.clear()
@@ -670,6 +673,7 @@ internal class PiSession(
     }
 
     private suspend fun failed(failure: EngineFailure) = withContext(dispatchers.main) {
+        hostedTools.revoke()
         if (state.value != ActiveSessionState.Closed) {
             machine.send(ActiveSessionIntent.Internal.Failed(turn?.id, failure))
         }
@@ -704,6 +708,7 @@ internal class PiSession(
         )
         if (machine.send(intent) != SendResult.Accepted) return
         if (completed != null) {
+            hostedTools.revoke()
             journal.finished(completed.turn, completed.outcome)
             turn = null
             permissions.clear()
@@ -729,16 +734,6 @@ internal class PiSession(
         if (state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed) {
             piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
         }
-    }
-
-    private fun modelFields(model: ModelId): JsonObject {
-        val provider = model.value.substringBefore("/")
-        if (provider != request.target.model.value.substringBefore("/") || "/" !in model.value) {
-            piFailure(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
-        }
-        return JsonObject(
-            mapOf("provider" to JsonPrimitive(provider), "modelId" to JsonPrimitive(model.value.substringAfter("/"))),
-        )
     }
 
     private fun rpc(): PiConnection = connection

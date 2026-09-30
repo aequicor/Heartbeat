@@ -16,6 +16,8 @@ import { resolve } from "node:path";
 const APPROVAL_TITLE = "heartbeat.tool-approval";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "web_search", "web_fetch"]);
 const EDIT_TOOLS = new Set(["edit", "write"]);
+const HOSTED_TOOLS = new Set((JSON.parse(process.env.HEARTBEAT_AGENT_TOOL_SPECS ?? "[]") as Array<{ name: string }>)
+	.map(spec => spec.name));
 // Pi's path normalization replaces these spaces and rewrites `@`, `~`, `file:` and, on Windows, `/c/` shell paths.
 const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/;
 const WINDOWS_SHELL_PATH = /^\/(?:mnt\/|cygdrive\/)?[a-z](?:\/|$)/i;
@@ -36,7 +38,7 @@ function pinPath(input: any, cwd: string): string | undefined {
 
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
-		if (READ_ONLY_TOOLS.has(event.toolName)) return undefined;
+		if (READ_ONLY_TOOLS.has(event.toolName) || HOSTED_TOOLS.has(event.toolName)) return undefined;
 		const input = event.input ?? {};
 		let target: string;
 		let path: string | undefined;

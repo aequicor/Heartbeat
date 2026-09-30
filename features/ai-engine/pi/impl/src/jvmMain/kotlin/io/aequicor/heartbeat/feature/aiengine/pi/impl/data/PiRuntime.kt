@@ -101,9 +101,15 @@ internal class PiRuntime(
     private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): ActiveSession {
         if (transcript != null && mutex.withLock { isServed(transcript.ref) }) busy()
         val session = prepare(request)
+        var isPrepared = false
+        val hosted = try {
+            session.first.prepareHostedTools().also { isPrepared = true }
+        } finally {
+            if (!isPrepared) withContext(NonCancellable) { session.first.shutdown() }
+        }
         // Process startup runs outside the lock so close() and other creations are not blocked by it.
         session.first.start(
-            { event, failed -> processes.start(source, session.second, event, failed) },
+            { event, failed -> processes.start(source, session.second, event, failed, hosted) },
             transcript,
         )
         // A started process must be registered or shut down even if the caller is cancelled meanwhile.
