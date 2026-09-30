@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="ru_usage_title">Контекст и лимиты провайдера</string>
+    <string name="ru_usage_limits">Лимиты</string>
+    <string name="ru_usage_context">Окно контекста</string>
+    <string name="ru_usage_weekly">За неделю · все модели</string>
+    <string name="ru_usage_reset_example">Сброс в четверг в 16:00</string>
     <string name="ru_icons">Иконки</string>
     <string name="ru_icons_description">Тонкие контуры, мягкие углы и залитый дом для активного состояния. Навигация: 18 dp. Метаданные: 14 dp.</string>
     <string name="ru_app_name">Heartbeat</string>

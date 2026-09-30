@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -38,6 +40,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 
 /** Session commands are serialized across leases; generation belongs to the runtime's supervisor. */
@@ -55,6 +58,7 @@ internal class ClaudeSession(
     private val commands = Mutex()
     private val lock = Any()
     private val history = ClaudeHistory()
+    val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
     private var current: ActiveSessionState = ActiveSessionState.Ready()
 
@@ -112,6 +116,7 @@ internal class ClaudeSession(
 
     /** [failure] explains why the owning runtime stopped: profile closed, or its account was replaced. */
     fun shutdown(failure: EngineFailure) = synchronized(lock) {
+        contextUsage.clear()
         val unfinished = when (val state = current) {
             is ActiveSessionState.Submitting -> state.turn
             is ActiveSessionState.Running -> state.turn
@@ -187,7 +192,12 @@ internal class ClaudeSession(
                 submission.text,
                 route.workspace,
             ) {
-                observer.receive(parseClaudeObject(it))
+                val message = parseClaudeObject(it)
+                observer.receive(message)
+                if (toggles.get(EngineUsageEnabled)) {
+                    contextUsage.receive(message)
+                    environment.onUsage(message)
+                }
                 false
             }
             log.i { "Claude prompt process ended exit=$exit" }
@@ -344,6 +354,7 @@ internal class ClaudeSession(
             SendsPrompts to this,
             SessionHistory to history,
             ReconcilesSession to this,
+            SessionContextUsage to contextUsage,
         )
         override suspend fun send(request: PromptRequest): TurnId {
             log.i { "Sending Claude prompt" }
@@ -418,4 +429,6 @@ internal data class ClaudeSessionEnvironment(
     val closeFailure: () -> EngineFailure,
     /** Called outside session locks when a session may have become released (last handle closed or turn ended). */
     val onReleased: (ClaudeSession) -> Unit = {},
+    /** Native account-level quota events are shared across sessions of this runtime. */
+    val onUsage: (JsonObject) -> Unit = {},
 )

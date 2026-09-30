@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionDiscoveryReport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
@@ -42,6 +44,12 @@ internal class FakeEngineFacade(
     engineFeatures: Map<EngineId, EngineFeatures> = emptyMap(),
     storedSessions: Map<SessionRef, EngineFeatures> = emptyMap(),
 ) : EngineFacade {
+    override val providerUsage = object : ProviderUsageCatalog {
+        private val snapshot = MutableStateFlow(ProviderUsageSnapshot())
+        override fun observe(engine: EngineId, binding: EngineBindingId) = snapshot
+        override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = snapshot.value
+    }
+
     override val engines: EngineCatalog = object : EngineCatalog {
         override val state: StateFlow<List<EngineInfo>> = MutableStateFlow(emptyList())
 

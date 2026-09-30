@@ -93,6 +93,12 @@ data class HbDimensions(
     val composerMenuMaxWidth: Dp = 360.dp,
     val composerMenuGutter: Dp = 16.dp,
     val composerMenuOffset: Dp = 8.dp,
+    /** Minimum width of the context meter; leaves room for three-digit percentages. */
+    val composerUsageMinWidth: Dp = 44.dp,
+    /** Stroke of the determinate context meter in the composer. */
+    val usageRingStrokeWidth: Dp = 2.dp,
+    /** Height of determinate usage bars in detail panels. */
+    val usageBarHeight: Dp = 4.dp,
     /** Blur and vertical offset of [HbColors.popupShadow]. */
     val popupShadowRadius: Dp = 12.dp,
     val popupShadowOffset: Dp = 4.dp,

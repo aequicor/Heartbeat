@@ -42,6 +42,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,6 +87,24 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `usage targets detach after unsubscribe and resume when the screen returns`() = runTest {
+        val fixture = Fixture(this, ready)
+        val subscription = backgroundScope.launch { fixture.model.store.collect { awaitCancellation() } }
+        runCurrent()
+        val targets = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.ObserveUsageTargets>().last()
+        assertTrue(targets.modelIds.isNotEmpty())
+
+        subscription.cancelAndJoin()
+        // FlowMVI keeps whileSubscribed work alive for its one-second stop delay.
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(AiStudioIntent.Public.ObserveUsageTargets(emptySet()), fixture.machine.sent.last())
+
+        fixture.subscribe()
+        assertEquals(targets, fixture.machine.sent.last())
+    }
+
+    @Test
     fun `submit forwards the draft and clears it only after the machine accepts it`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
@@ -124,7 +143,7 @@ class AiStudioModelTest {
                 AiStudioIntent.Public.UpdateSettings(DefaultRunSettings.copy(effort = ReasoningEffort.Low)),
                 AiStudioIntent.Public.Edit("s-adr", SessionEdit.SetPinned(true)),
             ),
-            fixture.machine.sent.drop(1),
+            fixture.machine.sent.filterNot { it is AiStudioIntent.Public.ObserveUsageTargets }.drop(1),
         )
     }
 
@@ -161,7 +180,7 @@ class AiStudioModelTest {
         runCurrent()
         assertEquals(
             listOf<AiStudioIntent>(AiStudioIntent.Public.Edit("s-adr", SessionEdit.Rename("ADR review"))),
-            fixture.machine.sent.drop(1),
+            fixture.machine.sent.filterNot { it is AiStudioIntent.Public.ObserveUsageTargets }.drop(1),
         )
         assertEquals(null, screen.states.value.sidebar.renaming)
     }

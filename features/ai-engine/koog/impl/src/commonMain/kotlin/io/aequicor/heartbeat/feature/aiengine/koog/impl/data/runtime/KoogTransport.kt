@@ -25,6 +25,7 @@ internal interface KoogTransport {
 internal class KoogClient(
     val executor: PromptExecutor,
     val reasoning: suspend (models: List<String>) -> Map<String, List<String>>? = { null },
+    val usage: KoogUsageCapture = KoogUsageCapture(),
     val models: suspend () -> List<LLModel>,
 ) : AutoCloseable {
     override fun close() = executor.close()

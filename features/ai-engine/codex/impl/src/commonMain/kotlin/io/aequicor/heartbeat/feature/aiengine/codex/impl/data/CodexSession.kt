@@ -50,6 +50,7 @@ internal class CodexSession(
     val runtime: CodexRuntime,
     private val rpc: CodexRpc,
 ) {
+    val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
@@ -336,19 +337,19 @@ internal class CodexSession(
     suspend fun event(message: JsonObject) {
         val params = message.obj("params")
         val method = message.text("method")
+        if (usageEvent(method, params)) return
         val turn = currentTurn()
         val turnId = correlate(params, turn)
         when (method) {
-            "turn/started" -> if (turn != null && turn.id == turnId) accept(turn)
+            "turn/started" -> acceptStarted(turn, turnId)
 
             // Any completion on the thread may be what an Unavailable session waits for.
             "turn/completed" -> if (turnId != null) complete(turnId, params.obj("turn")) else recheck()
 
-            "item/started", "item/completed" -> history.nativeItem(
-                params.obj("item"),
-                turnId,
-                isStarted = method == "item/started",
-            )
+            "item/started", "item/completed" -> {
+                val item = params.obj("item")
+                history.nativeItem(item, turnId, isStarted = method == "item/started")
+            }
 
             "item/agentMessage/delta" -> history.delta(params, turnId)
 
@@ -362,6 +363,27 @@ internal class CodexSession(
 
             else -> if (message["id"] != null) rpc.reject(checkNotNull(message["id"]))
         }
+    }
+
+    private suspend fun acceptStarted(turn: Turn?, turnId: TurnId?) {
+        if (turn != null && turn.id == turnId) accept(turn)
+    }
+
+    private suspend fun usageEvent(method: String?, params: JsonObject): Boolean {
+        when (method) {
+            "thread/tokenUsage/updated" -> if (runtime.usageEnabled()) contextUsage.receive(params)
+
+            "thread/compacted" -> contextUsage.clear()
+
+            else -> {
+                if (method == "item/started" || method == "item/completed") {
+                    val item = params["item"] as? JsonObject
+                    if (item?.text("type") == "contextCompaction") contextUsage.clear()
+                }
+                return false
+            }
+        }
+        return true
     }
 
     /**
@@ -521,6 +543,7 @@ internal class CodexSession(
     }
 
     fun shutdown(failure: EngineFailure) {
+        contextUsage.clear()
         failPending(failure)
         history.invalidate()
         val last = when (val state = machine.state.value) {

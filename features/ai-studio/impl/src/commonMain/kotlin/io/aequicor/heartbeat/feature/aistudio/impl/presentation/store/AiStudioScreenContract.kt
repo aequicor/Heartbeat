@@ -73,6 +73,8 @@ data class AiStudioScreenState(
     val panes: ImmutableList<PaneUi> = persistentListOf(),
     val focusedPaneId: Int = 0,
     val running: ImmutableSet<String> = persistentSetOf(),
+    val contexts: ImmutableMap<String, ContextUsageUi> = persistentMapOf(),
+    val providerUsage: ImmutableMap<String, ProviderUsageUi> = persistentMapOf(),
     val runStartedAt: ImmutableMap<String, Instant> = persistentMapOf(),
     val stopping: ImmutableSet<String> = persistentSetOf(),
     val stopFailures: ImmutableSet<String> = persistentSetOf(),
@@ -148,6 +150,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Stops the running agent of a session. */
     data class Stop(val sessionId: String) : Composer
+
+    /** Requests provider telemetry when the details panel opens. */
+    data class RefreshUsage(val modelId: String) : Composer
 
     /** Chooses the model of the next runs. */
     data class SelectModel(val modelId: String) : Composer

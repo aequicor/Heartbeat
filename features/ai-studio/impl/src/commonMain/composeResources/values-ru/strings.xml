@@ -128,4 +128,21 @@
     <string name="date_yesterday">Вчера</string>
     <string name="shortcut_command">⌘%1$s</string>
     <string name="shortcut_control">Ctrl+%1$s</string>
+    <string name="usage_title">Контекст и лимиты</string>
+    <string name="usage_limits">Лимиты</string>
+    <string name="usage_context">Контекстное окно</string>
+    <string name="usage_percent">Использовано %1$d%%</string>
+    <string name="usage_tokens">%1$s / %2$s токенов</string>
+    <string name="usage_resets">Сброс %1$s</string>
+    <string name="usage_credits">Кредиты</string>
+    <string name="usage_remaining">Осталось %1$s</string>
+    <string name="usage_remaining_total">Осталось %1$s из %2$s</string>
+    <string name="usage_unlimited">Без ограничений</string>
+    <string name="usage_expires">Действуют до %1$s</string>
+    <string name="usage_stale">Обновлено %1$s · данные могли устареть</string>
+    <string name="usage_last_measurement">Последнее подтверждённое измерение; без неотправленного черновика</string>
+    <string name="usage_window_week">За неделю</string>
+    <string name="usage_window_hours">Лимит на %1$d ч</string>
+    <string name="usage_window_minutes">Лимит на %1$d мин</string>
+    <string name="usage_all_models">Все модели</string>
 </resources>

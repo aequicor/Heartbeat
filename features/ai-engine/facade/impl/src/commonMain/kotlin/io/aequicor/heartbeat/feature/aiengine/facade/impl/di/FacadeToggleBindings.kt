@@ -7,6 +7,7 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 
 /** Registers the engine catalog gate owned by the facade. */
 @BindingContainer
@@ -16,4 +17,9 @@ public object FacadeToggleBindings {
     @Provides
     @IntoSet
     public fun catalogToggle(): FeatureToggle<*> = AiEngines
+
+    /** Shared native usage telemetry and Studio presentation gate. */
+    @Provides
+    @IntoSet
+    public fun usageToggle(): FeatureToggle<*> = EngineUsageEnabled
 }

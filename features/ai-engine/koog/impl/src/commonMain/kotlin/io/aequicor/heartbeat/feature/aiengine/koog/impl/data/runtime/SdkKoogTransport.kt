@@ -35,7 +35,12 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
         log.d { "Creating ${provider.name} transport" }
         // Derived clients retain core network logging. Redirects cannot forward provider credentials.
         val base = httpClient.config { followRedirects = false }
-        val factory = KtorKoogHttpClient.Factory(baseClient = base)
+        val usage = KoogUsageCapture()
+        val factory = if (provider.llmProvider == LLMProvider.Anthropic) {
+            UsageKoogHttpFactory(KtorKoogHttpClient.Factory(baseClient = base), usage)
+        } else {
+            KtorKoogHttpClient.Factory(baseClient = base)
+        }
         // The origin is passed explicitly, so credentials follow the source scope rather than SDK defaults.
         require(if (provider.isOriginEditable) isCompatibleOriginAllowed(origin) else origin == provider.origin) {
             "Origin ${origin.value} is not allowed for ${provider.name}"
@@ -81,7 +86,7 @@ internal class SdkKoogTransport(private val httpClient: HttpClient) : KoogTransp
         val reasoning: suspend (List<String>) -> Map<String, List<String>>? = { models ->
             probeReasoning(httpClient, provider, key, models)
         }
-        return KoogClient(executor, reasoning) {
+        return KoogClient(executor, reasoning, usage) {
             if (client is OllamaClient) client.getModels().map { it.toLLModel() } else client.models()
         }
     }

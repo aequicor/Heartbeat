@@ -21,8 +21,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
@@ -65,6 +67,8 @@ public object CodexBindings {
                     ),
                 ),
                 declaredFeatures = setOf(
+                    ReportsProviderUsage.id,
+                    SessionContextUsage.id,
                     CreatesSessions.id,
                     AttachesSessions.id,
                     SendsPrompts.id,

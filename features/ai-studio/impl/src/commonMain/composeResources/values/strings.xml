@@ -128,4 +128,21 @@
     <string name="date_yesterday">Yesterday</string>
     <string name="shortcut_command">⌘%1$s</string>
     <string name="shortcut_control">Ctrl+%1$s</string>
+    <string name="usage_title">Usage and limits</string>
+    <string name="usage_limits">Limits</string>
+    <string name="usage_context">Context window</string>
+    <string name="usage_percent">%1$d%% used</string>
+    <string name="usage_tokens">%1$s / %2$s tokens</string>
+    <string name="usage_resets">Resets %1$s</string>
+    <string name="usage_credits">Credits</string>
+    <string name="usage_remaining">%1$s remaining</string>
+    <string name="usage_remaining_total">%1$s of %2$s remaining</string>
+    <string name="usage_unlimited">Unlimited</string>
+    <string name="usage_expires">Expires %1$s</string>
+    <string name="usage_stale">Last update %1$s · may be out of date</string>
+    <string name="usage_last_measurement">Last confirmed measurement; excludes the unsent draft</string>
+    <string name="usage_window_week">Weekly</string>
+    <string name="usage_window_hours">%1$d-hour limit</string>
+    <string name="usage_window_minutes">%1$d-minute limit</string>
+    <string name="usage_all_models">All models</string>
 </resources>

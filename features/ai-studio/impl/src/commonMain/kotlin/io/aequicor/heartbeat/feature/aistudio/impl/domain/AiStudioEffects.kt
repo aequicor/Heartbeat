@@ -43,6 +43,8 @@ class AiStudioEffects(
 
     override suspend fun handle(effect: AiStudioEffect, machine: EffectScope<AiStudioIntent>) {
         when (effect) {
+            is AiStudioEffect.Usage -> Unit
+
             AiStudioEffect.ObserveRuntime -> activeRuns.collect {
                 machine.send(
                     AiStudioIntent.Internal.RuntimeChanged(StudioRuntimeState(running = it.keys, runStartedAt = it)),
