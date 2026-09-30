@@ -19,6 +19,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -30,8 +31,11 @@ import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.test.withKeyDown
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -105,6 +109,37 @@ class AiStudioDesktopAuditUiTest {
             }
         }
     }
+
+    @Test
+    fun `new chat shortcut preserves editor focus and subsequent typing`() =
+        runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+            var state by mutableStateOf(desktopAuditWorkspace(isEmpty = false))
+            val events = mutableListOf<AiStudioScreenIntent>()
+            setContent {
+                HbTheme(darkTheme = false) {
+                    AiStudioContent(state, { intent ->
+                        events += intent
+                        when (intent) {
+                            is AiStudioScreenIntent.NewSession ->
+                                state = state.copy(panes = persistentListOf(PaneUi(0)))
+
+                            is AiStudioScreenIntent.DraftChanged -> state = state.withDraft(intent.paneId, intent.text)
+
+                            else -> Unit
+                        }
+                    }, auditExits)
+                }
+            }
+            val editor = onNode(hasAnyAncestor(hasTestTag("composer-0")) and hasSetTextAction())
+            editor.performClick().performKeyInput {
+                withKeyDown(if (isStudioMetaShortcut()) Key.MetaLeft else Key.CtrlLeft) { pressKey(Key.N) }
+            }
+            settleAudit()
+            assertEquals(1, events.filterIsInstance<AiStudioScreenIntent.NewSession>().size)
+            onNodeWithTag("new-session-hero").assertIsDisplayed()
+            editor.assertIsFocused().performTextInput("a")
+            editor.assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("a")))
+        }
 
     @Test
     fun `desktop audit records selected hover tab and search focus states`() =

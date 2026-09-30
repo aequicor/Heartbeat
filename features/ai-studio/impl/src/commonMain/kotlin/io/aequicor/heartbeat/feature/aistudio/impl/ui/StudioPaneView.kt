@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -115,30 +116,18 @@ internal fun StudioPaneView(
         val sessionId = pane.sessionId
         val transcript = content.transcript
         val isCenteredComposer = sessionId == null && HbTheme.dimensions.isDesktop
-        if (sessionId == null) {
+        if (sessionId == null && !isCenteredComposer) {
             Box(
-                Modifier.fillMaxSize().padding(
-                    top = topInset,
-                    bottom = if (isCenteredComposer) HbTheme.spacing.none else bottomInset,
-                ),
+                Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset),
             ) {
                 NewSessionHero(
                     content.project,
                     onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
-                    composer = if (isCenteredComposer) {
-                        {
-                            Box(Modifier.testTag("pane-footer-${pane.id}")) {
-                                PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
-                            }
-                        }
-                    } else {
-                        null
-                    },
                 )
             }
-        } else if (transcript != null) {
+        } else if (sessionId != null && transcript != null) {
             key(sessionId) {
                 SessionTranscript(
                     sessionId = sessionId,
@@ -165,18 +154,70 @@ internal fun StudioPaneView(
         ) {
             PaneHeader(content, layout, onIntent, isAtWindowLeadingEdge)
         }
-        if (!isCenteredComposer) {
-            Box(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .onSizeChanged { footerHeight = it.height }
-                    .testTag("pane-footer-${pane.id}"),
-            ) {
+        // The composer keeps the same parents; changing its placement must not detach its focus target.
+        Box(Modifier.fillMaxSize().padding(top = topInset)) {
+            PaneComposerRegion(
+                content,
+                onIntent,
+                questions,
+                layout.isCompact,
+                onOpenResearch,
+                isCenteredComposer,
+                Modifier.align(
+                    composerRegionAlignment(isCenteredComposer),
+                ).onSizeChanged { footerHeight = it.height },
+            )
+        }
+    }
+}
+
+@Composable
+@ReadOnlyComposable
+private fun composerRegionAlignment(isCentered: Boolean): Alignment =
+    if (isCentered) BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias) else Alignment.BottomCenter
+
+@Composable
+private fun PaneComposerRegion(
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    questions: ImmutableMap<String, ComposableComponent>,
+    isCompact: Boolean,
+    onOpenResearch: ((String) -> Unit)?,
+    isCentered: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val heroScroll = rememberScrollState()
+    val regionInset = if (isCentered) {
+        Modifier.padding(HbTheme.spacing.xl)
+            .widthIn(max = HbTheme.dimensions.composerMaxWidth + HbTheme.spacing.xl * 2)
+    } else {
+        Modifier
+    }
+    val heroModifier = if (isCentered) {
+        Modifier.hbVerticalScroll(heroScroll).padding(vertical = HbTheme.spacing.xxl).testTag("new-session-hero")
+    } else {
+        Modifier
+    }
+    val headingGap = if (isCentered) HbTheme.spacing.xxl + HbTheme.spacing.l else HbTheme.spacing.none
+    Box(modifier.then(regionInset).fillMaxWidth()) {
+        HbColumn(
+            Modifier.fillMaxWidth().then(heroModifier),
+            gap = HbTheme.spacing.none,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (isCentered) NewSessionHeading(content.project)
+            Box(Modifier.fillMaxWidth().padding(top = headingGap)) {
                 HbColumn(
-                    Modifier.fillMaxWidth(),
+                    Modifier.fillMaxWidth().testTag("pane-footer-${content.pane.id}"),
                     gap = HbTheme.spacing.none,
                 ) {
                     PaneNotices(content, onIntent, questions)
-                    PaneFooter(content, onIntent, layout.isCompact, onOpenResearch)
+                    PaneFooter(content, onIntent, isCompact, onOpenResearch)
+                }
+            }
+            if (isCentered) {
+                Box(Modifier.padding(top = HbTheme.spacing.l)) {
+                    NewSessionStarters { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) }
                 }
             }
         }
@@ -377,18 +418,21 @@ private fun PaneLayoutActions(
 }
 
 @Composable
-private fun NewSessionHero(
-    project: ProjectUi?,
-    onDraft: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    composer: (@Composable () -> Unit)? = null,
-) {
+private fun NewSessionHero(project: ProjectUi?, onDraft: (String) -> Unit, modifier: Modifier = Modifier) {
     HbColumn(
         modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth + HbTheme.spacing.xl * 2)
             .fillMaxWidth().hbVerticalScroll(rememberScrollState()).padding(vertical = HbTheme.spacing.xxl)
             .testTag("new-session-hero"),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        NewSessionHeading(project)
+        NewSessionStarters(onDraft)
+    }
+}
+
+@Composable
+private fun NewSessionHeading(project: ProjectUi?) {
+    HbColumn(horizontalAlignment = Alignment.CenterHorizontally) {
         HbText(
             text = if (project == null) {
                 stringResource(Res.string.new_heading_general)
@@ -402,19 +446,20 @@ private fun NewSessionHero(
             style = HbTheme.typography.body.copy(textAlign = TextAlign.Center),
             color = HbTheme.colors.textSecondary,
         )
-        composer?.let { editor ->
-            Box(Modifier.fillMaxWidth().padding(top = HbTheme.spacing.xxl)) { editor() }
-        }
-        val starters = listOf(
-            Triple(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan),
-            Triple(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
-            Triple(Res.string.template_tests, Res.string.template_tests_prompt, HbIcons.Check),
-        )
-        HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
-            starters.forEach { (label, promptResource, icon) ->
-                val prompt = stringResource(promptResource)
-                HbChip(label = stringResource(label), icon = icon, onClick = { onDraft(prompt) }, trailingIcon = null)
-            }
+    }
+}
+
+@Composable
+private fun NewSessionStarters(onDraft: (String) -> Unit) {
+    val starters = listOf(
+        Triple(Res.string.template_plan, Res.string.template_plan_prompt, HbIcons.Plan),
+        Triple(Res.string.template_review, Res.string.template_review_prompt, HbIcons.Search),
+        Triple(Res.string.template_tests, Res.string.template_tests_prompt, HbIcons.Check),
+    )
+    HbFlowRow(Modifier.padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.m) {
+        starters.forEach { (label, promptResource, icon) ->
+            val prompt = stringResource(promptResource)
+            HbChip(label = stringResource(label), icon = icon, onClick = { onDraft(prompt) }, trailingIcon = null)
         }
     }
 }

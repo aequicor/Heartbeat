@@ -7,13 +7,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.Measurable
+import androidx.compose.ui.layout.MeasureResult
+import androidx.compose.ui.layout.MeasureScope
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -46,28 +52,47 @@ internal fun ComposerPanelLayout(
             } else {
                 HbTheme.dimensions.compactBreakpoint
             }
-            if (maxWidth < toolbarBreakpoint) {
-                HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+            val isNarrow = maxWidth < toolbarBreakpoint
+            val gap = HbTheme.spacing.xs
+            // Both groups keep the same parents and composition when their placement changes.
+            Layout(
+                content = {
                     HbRow(
-                        Modifier.fillMaxWidth().hbHorizontalScroll(rememberScrollState()),
-                        gap = HbTheme.spacing.xs,
+                        Modifier.hbHorizontalScroll(rememberScrollState()),
+                        gap = gap,
                         content = leadingContent,
                     )
                     ComposerActionRow(trailingContent, action)
-                }
-            } else {
-                // Context controls keep their natural width (scrolling past 60%); model and send take the rest.
-                val leadingMaxWidth = maxWidth * LEADING_MAX_FRACTION
-                HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
-                    HbRow(
-                        Modifier.widthIn(max = leadingMaxWidth).hbHorizontalScroll(rememberScrollState()),
-                        gap = HbTheme.spacing.xs,
-                        content = leadingContent,
-                    )
-                    ComposerActionRow(trailingContent, action, Modifier.weight(1f))
-                }
-            }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { measurables, constraints -> measurePanelToolbar(measurables, constraints, isNarrow, gap) }
         }
+    }
+}
+
+private fun MeasureScope.measurePanelToolbar(
+    measurables: List<Measurable>,
+    constraints: Constraints,
+    isNarrow: Boolean,
+    gap: Dp,
+): MeasureResult {
+    val gapPx = gap.roundToPx()
+    val width = constraints.maxWidth
+    val leadingWidth = if (isNarrow) width else (width * LEADING_MAX_FRACTION).toInt()
+    val leading = measurables[0].measure(
+        constraints.copy(minWidth = if (isNarrow) width else 0, maxWidth = leadingWidth, minHeight = 0),
+    )
+    val trailingWidth = if (isNarrow) width else (width - leading.width - gapPx).coerceAtLeast(0)
+    val trailing = measurables[1].measure(
+        constraints.copy(minWidth = trailingWidth, maxWidth = trailingWidth, minHeight = 0),
+    )
+    val height = if (isNarrow) leading.height + gapPx + trailing.height else maxOf(leading.height, trailing.height)
+    val leadingY = if (isNarrow) 0 else (height - leading.height) / 2
+    val trailingX = if (isNarrow) 0 else leading.width + gapPx
+    val trailingY = if (isNarrow) leading.height + gapPx else (height - trailing.height) / 2
+    return layout(width, constraints.constrainHeight(height)) {
+        leading.placeRelative(0, leadingY)
+        trailing.placeRelative(trailingX, trailingY)
     }
 }
 
