@@ -42,7 +42,7 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
             directory.toString(),
             common.toString(),
             sourceBranch,
-            "codex/worktree-$identity",
+            "$BRANCH_PREFIX$identity",
             base,
             pullRequestBase = sourceBranch ?: remoteDefaultBranch(root.toString()),
         )
@@ -417,6 +417,8 @@ internal class DesktopWorktreeGit(private val dispatchers: DispatcherProvider) :
     }
 
     private companion object {
+        /** Task branches stay in the application namespace and never reuse an agent or user prefix. */
+        const val BRANCH_PREFIX = "heartbeat/worktree-"
         const val MAX_NAME = 256
         const val MAX_COMMANDS = 64
         const val MAX_ARGUMENTS = 256

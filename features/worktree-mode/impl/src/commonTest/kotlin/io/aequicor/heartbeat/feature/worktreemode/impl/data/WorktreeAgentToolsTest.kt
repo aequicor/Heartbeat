@@ -209,7 +209,7 @@ private class PreviewRegistry : MachineRegistry {
 private class PreviewGit : WorktreeGit {
     override val isAvailable = true
     override suspend fun plan(source: String, identity: String) =
-        WorktreeProvision("/source", "/checkout", "/common", "master", "codex/test", "sha")
+        WorktreeProvision("/source", "/checkout", "/common", "master", "heartbeat/test", "sha")
     override suspend fun trackMain(source: String) = plan(source, "main")
     override suspend fun materialize(record: WorktreeRecord) = Unit
     override suspend fun exists(record: WorktreeRecord) = true
