@@ -1,11 +1,13 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
@@ -23,6 +25,22 @@ import kotlin.test.assertNull
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiSessionConfigurationTest {
+    @Test
+    fun `rejected submit restores trust before the next configuration publication`() = runTest {
+        val fixture = fixture(acceptIntent = { it !is ActiveSessionIntent.Public.Submit })
+        fixture.session.apply("trust", SessionConfigurationChange.Trust(TrustLevel.Full))
+
+        val failure = assertFailsWith<EngineException> {
+            fixture.session.send(prompt("rejected").copy(trust = TrustLevel.Ask))
+        }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), failure.failure)
+        assertFalse("prompt" in fixture.connection.commands)
+        assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
+        val configuration = fixture.session.apply("publish", SessionConfigurationChange.Effort("high"))
+        assertEquals(TrustLevel.Full, configuration.trust)
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `live trust changes later tool calls and leaves outstanding permissions untouched`() = runTest {
         val fixture = fixture()

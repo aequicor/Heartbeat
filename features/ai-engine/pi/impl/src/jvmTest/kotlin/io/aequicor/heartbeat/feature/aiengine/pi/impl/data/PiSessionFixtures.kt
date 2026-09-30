@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -34,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -57,26 +59,16 @@ internal suspend fun TestScope.fixture(
     validate: suspend () -> Unit = {},
     transcript: PiTranscript? = null,
     usageEnabled: Boolean = false,
+    acceptIntent: (MachineIntent) -> Boolean = { true },
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
-    val dispatcher = StandardTestDispatcher(testScheduler)
-    val dispatchers = object : DispatcherProvider {
-        override val main: CoroutineDispatcher = dispatcher
-        override val io: CoroutineDispatcher = dispatcher
-        override val default: CoroutineDispatcher = dispatcher
-    }
-    val scope = FakeScope(backgroundScope)
-    val scopes = object : ScopeFactory {
-        override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope =
-            FakeScope(backgroundScope)
-    }
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
     val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"))
     val released = mutableListOf<PiSession>()
     val session = PiSession(
         CreateSessionRequest(target),
         route,
-        PiSessionEnvironment(ReducerLauncher(), scopes, scope, dispatchers, DefaultPiTestToggles(usageEnabled)),
+        piTestEnvironment(usageEnabled = usageEnabled, acceptIntent = acceptIntent),
         validate,
         { released += it },
     )
@@ -95,15 +87,43 @@ internal suspend fun TestScope.fixture(
     return Fixture(session, connections, released)
 }
 
-private class DefaultPiTestToggles(private val usageEnabled: Boolean) : FeatureToggles {
+internal fun TestScope.piTestEnvironment(
+    usageEnabled: Boolean = false,
+    enginesEnabled: Boolean = false,
+    acceptIntent: (MachineIntent) -> Boolean = { true },
+): PiSessionEnvironment {
+    val dispatcher = StandardTestDispatcher(testScheduler)
+    val dispatchers = object : DispatcherProvider {
+        override val main: CoroutineDispatcher = dispatcher
+        override val io: CoroutineDispatcher = dispatcher
+        override val default: CoroutineDispatcher = dispatcher
+    }
+    val scopes = object : ScopeFactory {
+        override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope =
+            FakeScope(backgroundScope)
+    }
+    return PiSessionEnvironment(
+        ReducerLauncher(acceptIntent),
+        scopes,
+        FakeScope(backgroundScope),
+        dispatchers,
+        DefaultPiTestToggles(usageEnabled, enginesEnabled),
+    )
+}
+
+private class DefaultPiTestToggles(private val usageEnabled: Boolean, private val enginesEnabled: Boolean) :
+    FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(value(toggle))
 
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>) = value(toggle)
 
     // The usage flag is Boolean; this generic test facade preserves the declaration's value type.
     @Suppress("UNCHECKED_CAST")
-    private fun <T : Any> value(toggle: FeatureToggle<T>): T =
-        if (toggle == EngineUsageEnabled) usageEnabled as T else toggle.default
+    private fun <T : Any> value(toggle: FeatureToggle<T>): T = when (toggle) {
+        EngineUsageEnabled -> usageEnabled as T
+        AiEngines, PiEnabled -> enginesEnabled as T
+        else -> toggle.default
+    }
 }
 
 internal suspend fun Fixture.runningTurn(trust: TrustLevel? = null): TurnId {
@@ -257,7 +277,7 @@ internal class FakeConnection : PiConnection {
     }
 }
 
-private class ReducerLauncher : MachineLauncher {
+private class ReducerLauncher(private val acceptIntent: (MachineIntent) -> Boolean) : MachineLauncher {
     override fun <S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput> launch(
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
@@ -268,6 +288,7 @@ private class ReducerLauncher : MachineLauncher {
         override val outputs = MutableSharedFlow<O>()
         override suspend fun send(intent: I): SendResult {
             if (scope.isClosed) return SendResult.NotRunning
+            if (!acceptIntent(intent)) return SendResult.Ignored
             val resolved = spec.resolve(state.value, intent) ?: return SendResult.Ignored
             state.value = resolved.to
             resolved.effects.forEach { effect ->
