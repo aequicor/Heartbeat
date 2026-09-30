@@ -8,7 +8,8 @@ import androidx.compose.ui.graphics.luminance
 /**
  * The single palette of the application: quiet lavender accents on cool neutral surfaces.
  * [Light] and [Dark] serve touch hosts; [DesktopLight] and [DesktopDark] are the neutral, opaque desktop presets
- * of the studio that leave the accent to selection and deliberate actions. The theme picks one by host.
+ * of the studio that leave the accent to selection and deliberate actions. The theme picks one by host;
+ * [forQuestionnaire] scopes a warm attention surface to a pending questionnaire within that palette.
  */
 @Immutable
 data class HbColors(
@@ -24,6 +25,8 @@ data class HbColors(
     val dataViolet: Color = Color(0xFFD9D1F6),
     val dataCyan: Color = Color(0xFFBDDFEA),
     val isDark: Boolean = false,
+    /** Semantic keyboard focus accent; scoped surfaces may match their attention accent. */
+    val focusAccent: Color = if (isDark) Color(0xFFC2B4EE) else Color(0xFF6947A3),
 ) {
     val textSecondary: Color = textPrimary.copy(alpha = 0.72f).compositeOver(surface)
     val syntaxKeyword: Color = if (isDark) Color(0xFFDDD2F4) else Color(0xFF654D92)
@@ -68,8 +71,7 @@ data class HbColors(
     /** Neutral selection remains distinct from hover without adding an outline. */
     val selectedContainer: Color = onSurface.copy(alpha = 0.10f).compositeOver(surface)
 
-    /** Saturated semantic accent keeps keyboard focus legible against light and dark surfaces. */
-    val focusAccent: Color = if (isDark) Color(0xFFC2B4EE) else Color(0xFF6947A3)
+    /** Translucent keyboard focus ring built from the semantic accent. */
     val focusRing: Color = focusAccent.copy(alpha = 0.80f)
     val focusOuter: Color = Color.Black
     val focusInner: Color = Color.White
@@ -87,6 +89,22 @@ data class HbColors(
      * style: they overlap arbitrary content, so a hairline alone would not separate them.
      */
     val popupShadow: Color = Color.Black.copy(alpha = if (isDark) 0.40f else 0.12f)
+
+    /**
+     * Opaque dark oak attention surface with warm ivory text and amber actions for a pending questionnaire.
+     * This is a semantic scoped variant of the host palette, not a separate application palette: inherited
+     * status roles remain available and all derived control, input and text colors follow these base values.
+     */
+    fun forQuestionnaire(): HbColors = copy(
+        brand = Color(0xFFE9BA72),
+        primary = Color(0xFFE9BA72),
+        secondary = Color(0xFFCEAB83),
+        background = Color(0xFF30251D),
+        surface = Color(0xFF30251D),
+        textPrimary = Color(0xFFFFF1DC),
+        isDark = true,
+        focusAccent = Color(0xFFE9BA72),
+    )
 
     /** Host presets: touch ([Light], [Dark]) and dense desktop ([DesktopLight], [DesktopDark]). */
     companion object {
