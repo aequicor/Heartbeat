@@ -134,7 +134,7 @@ class AiStudioModelTest {
     @Test
     fun `preferences are replaced as a whole and session actions become edits`() = runTest {
         val fixture = Fixture(this, ready)
-        val screen = fixture.subscribe()
+        fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.SelectEffort(EffortUi.Low))
         fixture.model.store.intent(AiStudioScreenIntent.SetPinned("s-adr", true))
         runCurrent()
@@ -216,13 +216,13 @@ class AiStudioModelTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
         assertEquals(false, screen.states.value.isResearchEnabled)
-        fixture.isResearchEnabled.value = true
+        fixture.researchEnabled.value = true
         runCurrent()
         assertTrue(screen.states.value.isResearchEnabled)
         fixture.machine.state.value = ready.copy(panes = listOf(StudioPane(1)), focusedPaneId = 1)
         runCurrent()
         assertTrue(screen.states.value.isResearchEnabled)
-        fixture.isResearchEnabled.value = false
+        fixture.researchEnabled.value = false
         runCurrent()
         assertEquals(false, screen.states.value.isResearchEnabled)
     }
@@ -243,7 +243,7 @@ class AiStudioModelTest {
     private class Fixture(private val scope: TestScope, initial: AiStudioState) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
-        val isResearchEnabled = MutableStateFlow(false)
+        val researchEnabled = MutableStateFlow(false)
         val model = AiStudioModel(
             machine = machine,
             backend = object : StudioBackend {
@@ -257,7 +257,7 @@ class AiStudioModelTest {
             scope = TestScopeHandle(scope.backgroundScope),
             factory = HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             entries = object : StudioEntries {
-                override val showsResearch = isResearchEnabled
+                override val showsResearch = researchEnabled
                 override val showsConnections = flowOf(false)
                 override val showsProfileSettings = flowOf(false)
             },

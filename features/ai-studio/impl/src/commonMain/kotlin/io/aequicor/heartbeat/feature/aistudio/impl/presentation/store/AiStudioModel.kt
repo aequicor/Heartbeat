@@ -25,6 +25,9 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
+import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
@@ -95,6 +98,7 @@ class AiStudioModel(
                 launch { observeWorkspace(pipeline) }
                 launch { observeResearch(pipeline) }
                 launch { observeEfforts(pipeline) }
+                launch { observeWorktrees(pipeline) }
                 launch { observeUsageTargets() }
                 // Display only: the machine picks a default model from the same offer.
                 launch {
@@ -149,6 +153,25 @@ class AiStudioModel(
 
     private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
         entries.showsResearch.collect { updateState { copy(isResearchEnabled = it) } }
+    }
+
+    private suspend fun observeWorktrees(pipeline: StudioPipeline) = with(pipeline) {
+        machines.observe(WorktreeMachineKey).flatMapLatest { ref ->
+            ref?.state ?: flowOf(WorktreeState.Idle)
+        }.collect { snapshot ->
+            updateState {
+                when (snapshot) {
+                    is WorktreeState.Ready -> copy(
+                        worktreeJournal = WorktreeJournalUi.Ready,
+                        worktrees = snapshot.tasks.mapValues { it.value.toUi() }.toImmutableMap(),
+                    )
+
+                    WorktreeState.LoadError -> copy(worktreeJournal = WorktreeJournalUi.Error)
+
+                    WorktreeState.Idle, WorktreeState.Loading -> copy(worktreeJournal = WorktreeJournalUi.Loading)
+                }
+            }
+        }
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
@@ -233,6 +256,8 @@ class AiStudioModel(
 
     private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
         when (intent) {
+            is AiStudioScreenIntent.Worktree -> composeWorktree(pipeline, intent)
+
             is AiStudioScreenIntent.RefreshUsage -> sendTo(machine, AiStudioIntent.Public.RefreshUsage(intent.modelId))
 
             is AiStudioScreenIntent.RespondPermission -> sendTo(
@@ -262,6 +287,37 @@ class AiStudioModel(
                 log.i { "select approval: ${intent.approval}" }
                 updateSettings(pipeline) { copy(approval = intent.approval.toDomain()) }
             }
+        }
+    }
+
+    private suspend fun composeWorktree(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Worktree) = with(
+        pipeline,
+    ) {
+        when (intent) {
+            is AiStudioScreenIntent.SelectWorktree -> sendTo(
+                machine,
+                AiStudioIntent.Public.SelectWorktree(intent.paneId, intent.isEnabled),
+            )
+
+            is AiStudioScreenIntent.DecideWorktree -> machines.send(
+                WorktreeMachineKey,
+                WorktreeIntent.Public.ChooseAction(intent.sessionId, intent.action.toDomain()),
+            )
+
+            is AiStudioScreenIntent.RecheckWorktree -> machines.send(
+                WorktreeMachineKey,
+                WorktreeIntent.Public.Recheck(intent.sessionId),
+            )
+
+            AiStudioScreenIntent.RetryWorktreeJournal -> machines.send(
+                WorktreeMachineKey,
+                WorktreeIntent.Public.RetryLoad,
+            )
+
+            is AiStudioScreenIntent.CancelWorktreeBuild -> machines.send(
+                WorktreeMachineKey,
+                WorktreeIntent.Public.CancelBuild(intent.sessionId, intent.operation),
+            )
         }
     }
 

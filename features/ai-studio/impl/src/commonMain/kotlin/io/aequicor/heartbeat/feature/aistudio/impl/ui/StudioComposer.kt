@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbChatComposer
 import io.aequicor.heartbeat.ds.components.HbComposerAction
@@ -13,7 +16,10 @@ import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
+import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
@@ -23,6 +29,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -52,6 +60,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prompt
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
@@ -71,6 +81,14 @@ internal fun StudioComposer(
     val draft = content.draft
     val settings = content.settings
     val hasRunPreferences = content.supportsRunPreferences()
+    val focus = remember { FocusRequester() }
+    var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
+    SideEffect {
+        if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {
+            focus.requestFocus()
+        }
+        previousPhase = content.worktree?.phase
+    }
     HbChatComposer(
         value = draft,
         onValueChange = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
@@ -88,31 +106,10 @@ internal fun StudioComposer(
         placeholder = stringResource(Res.string.composer_placeholder),
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
+        inputModifier = Modifier.focusRequester(focus),
+        contextContent = { StudioComposerContext(content, onIntent) },
         leadingContent = {
-            TemplatesMenu(
-                draft = draft,
-                approval = settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
-                onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
-                onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it)) },
-            )
-            if (pane.sessionId == null) {
-                ContextTray(
-                    pane,
-                    content.project,
-                    content.projects,
-                    onIntent,
-                    isProjectAddingAvailable = content.isProjectAddingAvailable,
-                )
-            }
-            if (content.isResearchAvailable && onOpenResearch != null) {
-                HbComposerToggle(
-                    label = stringResource(Res.string.research_mode),
-                    isChecked = false,
-                    onCheckedChange = { if (it) onOpenResearch(settings.modelId) },
-                    modifier = Modifier.testTag("research-mode"),
-                    icon = HbIcons.Library,
-                )
-            }
+            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch)
         },
         trailingContent = {
             ComposerEffort(content, hasRunPreferences, onIntent)
@@ -125,6 +122,77 @@ internal fun StudioComposer(
             )
         },
     )
+}
+
+@Composable
+private fun StudioComposerLeading(
+    content: PaneContent,
+    hasRunPreferences: Boolean,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+    onOpenResearch: ((String) -> Unit)?,
+) {
+    TemplatesMenu(
+        draft = content.draft,
+        approval = content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
+        onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
+        onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it)) },
+    )
+    if (content.isResearchAvailable && onOpenResearch != null) {
+        HbComposerToggle(
+            label = stringResource(Res.string.research_mode),
+            isChecked = false,
+            onCheckedChange = { if (it) onOpenResearch(content.settings.modelId) },
+            modifier = Modifier.testTag("research-mode"),
+            icon = HbIcons.Library,
+        )
+    }
+}
+
+@Composable
+private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
+    val pane = content.pane
+    if (pane.sessionId == null) {
+        ContextTray(
+            pane,
+            content.project,
+            content.projects,
+            onIntent,
+            isProjectAddingAvailable = content.isProjectAddingAvailable,
+        )
+    } else {
+        content.project?.let { HbText(it.name, maxLines = 1, style = HbTheme.typography.caption) }
+    }
+    if (content.project != null) {
+        HbIcon(HbIcons.Laptop, contentDescription = null)
+        HbText(stringResource(Res.string.worktree_this_computer), style = HbTheme.typography.caption)
+    }
+    if (content.worktree != null || content.session?.isWorktree == true) {
+        HbComposerToggle(
+            label = stringResource(Res.string.worktree_mode),
+            isChecked = true,
+            onCheckedChange = {},
+            enabled = false,
+            icon = HbIcons.Branch,
+            modifier = Modifier.testTag("worktree-pinned-${pane.id}"),
+        )
+        val branch = content.worktree?.branch ?: stringResource(Res.string.worktree_mode)
+        HbTooltip(branch) {
+            HbText(
+                branch,
+                Modifier.testTag("worktree-branch-${pane.id}"),
+                maxLines = 1,
+                style = HbTheme.typography.caption,
+            )
+        }
+    } else if (pane.sessionId == null && content.isWorktreeAvailable && content.project != null) {
+        HbComposerToggle(
+            label = stringResource(Res.string.worktree_mode),
+            isChecked = pane.isWorktree,
+            onCheckedChange = { onIntent(AiStudioScreenIntent.SelectWorktree(pane.id, it)) },
+            modifier = Modifier.testTag("worktree-mode-${pane.id}"),
+            icon = HbIcons.Branch,
+        )
+    }
 }
 
 @Composable
@@ -153,6 +221,8 @@ private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == sett
 /** Running requests retain cancellation; pending permissions block another prompt. */
 private fun PaneContent.isComposerEnabled(): Boolean =
     !pane.isCreating && !isPickingProject && !isStopping && session?.isContinuable != false &&
+        (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
+        (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
         (session?.isRunning != true || isStoppable) &&
         (session?.isRunning == true || (permissions.isEmpty() && models.any { it.id == settings.modelId }))
 

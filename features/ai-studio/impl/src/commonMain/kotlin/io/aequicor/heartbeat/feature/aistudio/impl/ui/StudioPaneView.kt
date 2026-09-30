@@ -453,6 +453,7 @@ private fun PaneFooter(
         if (content.isProjectFailed) {
             HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
         }
+        StudioWorktree(content, onIntent, column)
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
 }

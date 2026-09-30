@@ -223,9 +223,15 @@ private fun SkikoComposeUiTest.focusedAuditNodes(): List<String> =
 /** Only presentation reducers are exercised; navigation in this fixture has no runtime side effects. */
 private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStudioScreenState = when (intent) {
     is AiStudioScreenIntent.Sidebar -> copy(sidebar = sidebar.reduce(intent))
+
     is AiStudioScreenIntent.DraftChanged -> withDraft(intent.paneId, intent.text)
+
     is AiStudioScreenIntent.OpenSession -> copy(panes = persistentListOf(PaneUi(0, sessionId = intent.sessionId)))
-    else -> this
+
+    is AiStudioScreenIntent.Navigation,
+    is AiStudioScreenIntent.Composer,
+    is AiStudioScreenIntent.SessionAction,
+    -> this
 }
 
 internal fun desktopAuditDirectory(): File {
