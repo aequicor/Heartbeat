@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsMachineKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -384,6 +385,37 @@ class StudioEngineIntegrationTest {
         assertEquals(RunOutcome.Completed, second.await())
         assertEquals(1, TestAdapter.runtimes.single().natives.size)
         assertEquals(4, repository.observeMessages(chat.id).first().size)
+    }
+
+    @Test
+    fun `a conversation whose runtime was retired resumes its native session on the next run`() = runTest {
+        val services = configured()
+        val repository = services.studioRepository
+        val runtime = services.studioRuntime
+        val earlier = repository.createSession(null, "Before key rotation")
+        val first = async { runtime.run(earlier.id, "First turn", runtime.defaults()) }
+        repository.observeMessages(earlier.id).first { it.isNotEmpty() }
+        val native = TestAdapter.runtimes.single().natives.single()
+        native.finish()
+        assertEquals(RunOutcome.Completed, first.await())
+
+        // A rotated key retires the idle runtime, which closes the earlier conversation's handle under the studio.
+        val source = services.engineFacade.bindings.state.first { it.isNotEmpty() }.single().authSource
+        services.engineAuthSources.replaceManagedKey(source, Secret("rotated-key".toCharArray()))
+        val later = repository.createSession(null, "After key rotation")
+        val other = async { runtime.run(later.id, "Start with the new key", runtime.defaults()) }
+        repository.observeMessages(later.id).first { it.isNotEmpty() }
+        native.state.first { it == ActiveSessionState.Closed }
+        TestAdapter.runtimes.last().natives.single().finish()
+        assertEquals(RunOutcome.Completed, other.await())
+
+        val resumed = async { runtime.run(earlier.id, "Continue after the rotation", runtime.defaults()) }
+        repository.observeMessages(earlier.id).first { it.size == 3 }
+        native.finish()
+        assertEquals(RunOutcome.Completed, resumed.await())
+        assertEquals(2, TestAdapter.runtimes.size)
+        assertEquals(2, native.sent.size)
+        assertEquals(4, repository.observeMessages(earlier.id).first().size)
     }
 
     @Test

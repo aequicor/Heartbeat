@@ -97,6 +97,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assume.assumeTrue
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.safeCast
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -137,6 +138,7 @@ object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
     val runtimes = mutableListOf<TestRuntime>()
+    private val nativeIds = AtomicInteger()
     var reasoningEfforts: List<String> = emptyList()
     var isTrustSupported = false
     var isConfigurationFailureEnabled = false
@@ -185,6 +187,9 @@ object TestAdapter {
             },
         ),
     )
+
+    /** Native ids stay unique across runtimes, so a replacement runtime can attach an earlier native session. */
+    fun nextNativeId(): String = "n${nativeIds.getAndIncrement()}"
 }
 
 class TestRuntime(
@@ -200,7 +205,7 @@ class TestRuntime(
     override val features: EngineFeatures = features(
         CreatesSessions to object : CreatesSessions {
             override suspend fun create(request: CreateSessionRequest): ActiveSession = TestNative(
-                SessionRef(identity.engine, SessionSourceId("local"), "n${natives.size}"),
+                SessionRef(identity.engine, SessionSourceId("local"), TestAdapter.nextNativeId()),
                 isTrustSupported,
                 isConfigurationFailureEnabled,
             ).also {
@@ -209,7 +214,7 @@ class TestRuntime(
         },
         AttachesSessions to object : AttachesSessions {
             override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession =
-                natives.single {
+                TestAdapter.runtimes.flatMap { it.natives }.single {
                     it.ref == ref
                 }.also { it.native.value = ActiveSessionState.Ready() }
         },

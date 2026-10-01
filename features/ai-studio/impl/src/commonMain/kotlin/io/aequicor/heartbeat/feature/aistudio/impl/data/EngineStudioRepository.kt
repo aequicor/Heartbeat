@@ -613,7 +613,7 @@ internal class EngineStudioRepository(
             checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
             ref
         }
-        val current = handlesLock.withLock { handles[id] }
+        val current = handlesLock.withLock { handles.live(id) }
         if (current != null) {
             check(
                 current.route.engine == target.engine && current.route.binding == target.binding,

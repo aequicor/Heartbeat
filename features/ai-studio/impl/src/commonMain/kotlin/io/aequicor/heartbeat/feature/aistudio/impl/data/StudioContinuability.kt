@@ -12,7 +12,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Stored-ref probes cached per enabled engine set; a history write never reopens every other conversation. */
+/**
+ * Stored-ref probes cached per enabled engine set; a history write never reopens every other conversation.
+ * A live handle makes its conversation continuable; a released one (its runtime was retired or restarted) does not
+ * end the conversation: the next send resumes the stored session, so the stored reference decides.
+ */
 internal class StudioContinuability(
     private val facade: EngineFacade,
     private val active: suspend (String) -> ActiveSession?,
@@ -24,11 +28,7 @@ internal class StudioContinuability(
 
     suspend fun isContinuable(id: String, ref: SessionRef?): Boolean {
         if (ref == null) return true
-        val current = active(id)
-        if (current != null) {
-            return current.state.value !is ActiveSessionState.Closing &&
-                current.state.value != ActiveSessionState.Closed
-        }
+        if (active(id)?.isReleased() == false) return true
         val enabled = facade.engines.state.value.mapTo(mutableSetOf()) { it.descriptor.id }
         lock.withLock {
             if (engines != enabled) {
@@ -49,3 +49,21 @@ internal class StudioContinuability(
         }
     }
 }
+
+/** A closing or closed handle runs no more turns; its conversation continues through a resumed handle. */
+internal fun ActiveSession.isReleased(): Boolean =
+    state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed
+
+/**
+ * The open handle of conversation [id]. A runtime retired under an idle conversation (rotated key, engine restart)
+ * closes its handle: the released handle is dropped, so the caller resumes the stored session instead of reusing it.
+ */
+internal fun MutableMap<String, ActiveSession>.live(id: String): ActiveSession? {
+    val handle = get(id) ?: return null
+    if (!handle.isReleased()) return handle
+    remove(id)
+    releasedLog.i { "Released native handle dropped; the conversation resumes its stored session" }
+    return null
+}
+
+private val releasedLog = Log.tag("StudioHandles")
