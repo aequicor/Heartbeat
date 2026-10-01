@@ -14,8 +14,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +38,7 @@ internal class FakeClaudeTransport : ClaudeTransport {
     var loggedIn = true
     var method = "claude.ai"
     val calls = mutableListOf<List<String>>()
+    val inputs = mutableListOf<String>()
     var beforeRun: suspend (List<String>) -> Unit = {}
     var generation: suspend (List<String>, suspend (String) -> Boolean) -> Int = { args, line ->
         val id = args.first { it.startsWith("--session-id=") || it.startsWith("--resume=") }.substringAfter('=')
@@ -52,6 +55,7 @@ internal class FakeClaudeTransport : ClaudeTransport {
         line: suspend (String) -> Boolean,
     ): Int {
         calls += arguments
+        inputs += input
         beforeRun(arguments)
         return if (arguments == listOf("auth", "status")) {
             line("""{"loggedIn":$loggedIn,"authMethod":"$method","email":"$account","orgId":"organization"}""")
@@ -91,6 +95,8 @@ internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : 
 }
 
 internal class ClaudeFixture(val scope: CoroutineScope) {
+    var resources: ResourceResolver = ResourceResolver { null }
+    var inputSupport = PromptInputSupport.TextDocuments
     val transport = FakeClaudeTransport()
     val toggles = TestClaudeToggles()
     val account = ClaudeAccount(
@@ -107,6 +113,8 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             account,
             toggles,
             scope,
+            resources = ResourceResolver { resources.resolve(it) },
+            inputSupport = { inputSupport },
         )
     }
 }

@@ -16,7 +16,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -40,6 +44,15 @@ internal class ClaudeRuntime(
     private val account: ClaudeAccount,
     private val toggles: FeatureToggles,
     parent: CoroutineScope,
+    resources: ResourceResolver = ResourceResolver { null },
+    resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
+    inputSupport: (ModelId) -> PromptInputSupport = { model ->
+        claudeInputSupport(
+            kotlinx.serialization.json.JsonObject(
+                mapOf("value" to kotlinx.serialization.json.JsonPrimitive(model.value)),
+            ),
+        )
+    },
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -64,6 +77,9 @@ internal class ClaudeRuntime(
         closeFailure = { closeFailure },
         onReleased = ::released,
         onUsage = providerUsage::receive,
+        resources = resources,
+        resourceHistory = resourceHistory,
+        inputSupport = inputSupport,
     )
     private val mutex = Mutex()
     private val sessions = ConcurrentHashMap<SessionRef, ClaudeSession>()

@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -13,9 +15,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -147,7 +153,25 @@ internal class ClaudeSession(
             ensureOpen()
             if (synchronized(lock) { current !is ActiveSessionState.Ready }) busy()
             awaitSettled()
-            val text = promptText(request)
+            val isEffortKnown = request.reasoningEffort?.let { it in ClaudeEffortLevels } ?: true
+            if (!isEffortKnown) throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
+            val prepared = claudePromptInputs(request, environment.inputSupport(target.model), environment.resources)
+            val text = if (request.parts.all { it is ContentPart.Text }) {
+                promptText(request)
+            } else {
+                kotlinx.serialization.json.buildJsonObject {
+                    put("type", kotlinx.serialization.json.JsonPrimitive("user"))
+                    put(
+                        "message",
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("role", kotlinx.serialization.json.JsonPrimitive("user"))
+                            put("content", kotlinx.serialization.json.JsonArray(prepared.blocks))
+                        },
+                    )
+                    put("parent_tool_use_id", kotlinx.serialization.json.JsonNull)
+                }.toString() + "\n"
+            }
+            environment.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
             requireClaudeEnabled(toggles)
             account.validate(route.revision)
             synchronized(lock) {
@@ -179,21 +203,17 @@ internal class ClaudeSession(
     private suspend fun execute(submission: Submission, accepted: CompletableDeferred<TurnId>) {
         val request = submission.request
         val observer = ClaudeTurnObserver(ref, submission.turn, request, history, accepted, ::update)
+        var hasRemembered = false
         try {
             log.i { "Submitting Claude prompt effort=${request.reasoningEffort ?: "default"}" }
             val exit = transport.run(
-                claudeArguments(
-                    target.model,
-                    ref.nativeId,
-                    hasNativeSession,
-                    search = toggles.get(SearchEngineTools),
-                    effort = request.reasoningEffort,
-                ),
+                promptArguments(request),
                 submission.text,
                 route.workspace,
             ) {
                 val message = parseClaudeObject(it)
                 observer.receive(message)
+                hasRemembered = rememberSources(submission, observer, hasRemembered)
                 if (toggles.get(EngineUsageEnabled)) {
                     contextUsage.receive(message)
                     environment.onUsage(message)
@@ -228,6 +248,31 @@ internal class ClaudeSession(
                     ),
                 )
             }
+        }
+    }
+
+    private suspend fun rememberSources(
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        hasRemembered: Boolean,
+    ): Boolean {
+        if (hasRemembered || !observer.hasMatchingSession) return hasRemembered
+        environment.resourceHistory.remember(ref, submission.turn.id.value, submission.request.parts)
+        return true
+    }
+
+    private suspend fun promptArguments(request: PromptRequest): List<String> {
+        val arguments = claudeArguments(
+            target.model,
+            ref.nativeId,
+            hasNativeSession,
+            search = toggles.get(SearchEngineTools),
+            effort = request.reasoningEffort,
+        )
+        return if (request.parts.any { it !is ContentPart.Text }) {
+            arguments + listOf("--input-format", "stream-json")
+        } else {
+            arguments
         }
     }
 
@@ -351,6 +396,12 @@ internal class ClaudeSession(
         override val route get() = this@ClaudeSession.route
         override val state = mutableState.asStateFlow()
         override val features = ClaudeFeatures(
+            AcceptsImages to object : AcceptsImages {
+                override val mediaTypes: Set<String> get() = environment.inputSupport(target.model).imageMediaTypes
+            },
+            AcceptsResources to object : AcceptsResources {
+                override val mediaTypes: Set<String> get() = environment.inputSupport(target.model).resourceMediaTypes
+            },
             SendsPrompts to this,
             SessionHistory to history,
             ReconcilesSession to this,
@@ -431,4 +482,7 @@ internal data class ClaudeSessionEnvironment(
     val onReleased: (ClaudeSession) -> Unit = {},
     /** Native account-level quota events are shared across sessions of this runtime. */
     val onUsage: (JsonObject) -> Unit = {},
+    val resources: ResourceResolver = ResourceResolver { null },
+    val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
+    val inputSupport: (ModelId) -> PromptInputSupport = { PromptInputSupport.TextDocuments },
 )

@@ -4,13 +4,19 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -26,6 +32,10 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -33,6 +43,31 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class ClaudeRuntimeTest {
+    @Test
+    fun `image-only stream input is accepted without an empty text block`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.inputSupport = fixture.inputSupport.copy(imageMediaTypes = setOf("image/png"))
+        fixture.resources = ResourceResolver { ResolvedResource("image.png", "image/png", byteArrayOf(1)) }
+        val runtime = fixture.runtime()
+        val session = runtime.create(CreateSessionRequest(testTarget))
+        session.features.available(SendsPrompts).send(
+            PromptRequest(
+                RequestId("image-only"),
+                listOf(
+                    ContentPart.Image(ResourceRef("attachment:image", "image/png")),
+                ),
+            ),
+        )
+        runCurrent()
+        val content = Json.parseToJsonElement(fixture.transport.inputs.last()).jsonObject["message"]!!
+            .jsonObject["content"]!!.jsonArray
+        assertEquals(1, content.size)
+        assertEquals("image", content.single().jsonObject["type"]?.jsonPrimitive?.content)
+        assertTrue("--input-format" in fixture.transport.calls.last())
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        runtime.close()
+    }
+
     @Test
     fun `selected effort is passed to the claude process`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)

@@ -28,6 +28,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
@@ -50,11 +53,14 @@ internal class JvmClaudeBackend(
     private val account: ClaudeAccount,
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val resources: ResourceResolver = ResourceResolver { null },
+    private val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
 ) : ClaudeBackend {
     /** Sources of configured bindings; the CLI resolves the login itself, so only ids are kept. */
     private val routes = mutableMapOf<EngineBindingId, AuthSourceId>()
 
     private val log = Log.tag("ClaudeBackend")
+    private val inputSupports = mutableMapOf<Pair<AuthRevision, ModelId>, PromptInputSupport>()
     private val mutex = Mutex()
     private var runtime: ClaudeRuntime? = null
 
@@ -145,20 +151,30 @@ internal class JvmClaudeBackend(
                     }
                     val body = response["response"] as? JsonObject ?: protocolFailure()
                     val list = body["models"] as? JsonArray ?: protocolFailure()
-                    models = list.map { entry ->
-                        val model = entry as? JsonObject ?: protocolFailure()
-                        val id = model.text("value")?.takeIf(String::isNotBlank) ?: protocolFailure()
-                        ModelInfo(
-                            EngineTarget(ClaudeEngine.Id, context.binding, ModelId(id)),
-                            model.text("displayName") ?: id,
-                            reasoningEfforts = model.effortLevels(),
-                        )
-                    }
+                    models = list.map { modelInfo(it, context, source.info.revision) }
                 }
                 models != null
             }
             (models ?: protocolFailure()).also { log.i { "Discovered Claude models count=${it.size}" } }
         }
+    }
+
+    private fun modelInfo(
+        entry: kotlinx.serialization.json.JsonElement,
+        context: EngineContext,
+        revision: AuthRevision,
+    ): ModelInfo {
+        val model = entry as? JsonObject ?: protocolFailure()
+        val id = model.text("value")?.takeIf(String::isNotBlank) ?: protocolFailure()
+        return ModelInfo(
+            EngineTarget(ClaudeEngine.Id, context.binding, ModelId(id)),
+            model.text("displayName") ?: id,
+            reasoningEfforts = model.effortLevels(),
+            inputSupport = claudeInputSupport(
+                model,
+                isVendorOriginConfirmed = true,
+            ).also { inputSupports[revision to ModelId(id)] = it },
+        )
     }
 
     override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime = mutex.withLock {
@@ -178,7 +194,21 @@ internal class JvmClaudeBackend(
             else -> current.close()
         }
         log.i { "Creating Claude profile runtime" }
-        ClaudeRuntime(identity, transport, account, toggles, profile.coroutineScope).also { runtime = it }
+        ClaudeRuntime(
+            identity,
+            transport,
+            account,
+            toggles,
+            profile.coroutineScope,
+            resources = resources,
+            resourceHistory = resourceHistory,
+            inputSupport = { model ->
+                inputSupports[identity.revision to model] ?: claudeInputSupport(
+                    JsonObject(mapOf("value" to JsonPrimitive(model.value))),
+                    isVendorOriginConfirmed = true,
+                )
+            },
+        ).also { runtime = it }
     }
 
     override suspend fun session(ref: SessionRef): EngineSession = mutex.withLock {
