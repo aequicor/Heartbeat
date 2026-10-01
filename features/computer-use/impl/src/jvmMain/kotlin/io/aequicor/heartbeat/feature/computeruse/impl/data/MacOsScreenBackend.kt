@@ -10,6 +10,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
 import java.awt.image.BufferedImage
 import java.nio.file.Files
 import java.nio.file.Path
@@ -66,7 +70,7 @@ internal object MacOsScreenBackend {
     fun isFrontmost(id: WindowId): Boolean = windows().firstOrNull()?.id == id
 
     /** Renders one window into pixels with the system capture tool; `null` on refusal or timeout. */
-    fun capture(id: WindowId): PixelGrid? {
+    suspend fun capture(id: WindowId): PixelGrid? {
         val identifier = id.value.toLongOrNull() ?: return null
         if (identifier == 0L) return null
         val file = try {
@@ -96,7 +100,7 @@ internal object MacOsScreenBackend {
         }
     }
 
-    private fun runCapture(identifier: Long, file: Path): Boolean {
+    private suspend fun runCapture(identifier: Long, file: Path): Boolean {
         val command = listOf(
             SCREEN_CAPTURE_TOOL,
             SILENT_FLAG,
@@ -105,29 +109,7 @@ internal object MacOsScreenBackend {
             identifier.toString(),
             file.toString(),
         )
-        return try {
-            val process = ProcessBuilder(command).redirectErrorStream(true).start()
-            val finished = process.waitFor(CAPTURE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            when {
-                !finished -> {
-                    process.destroyForcibly()
-                    log.w { "window capture timed out" }
-                    false
-                }
-
-                process.exitValue() != 0 -> {
-                    log.w { "window capture exited with ${process.exitValue()}" }
-                    false
-                }
-
-                else -> true
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "window capture failed" }
-            false
-        }
+        return runDesktopProcess(command, CAPTURE_TIMEOUT_SECONDS * MILLIS_PER_SECOND)
     }
 
     private fun decode(file: Path): PixelGrid? {
@@ -242,7 +224,7 @@ internal object MacOsScreenBackend {
         val reference = value(dictionary, key) ?: return 0.0
         val library = foundation ?: return 0.0
         val storage = Memory(DOUBLE_BYTES)
-        val read = try {
+        val isRead = try {
             library.CFNumberGetValue(reference, FLOAT64_TYPE, storage)
         } catch (e: CancellationException) {
             throw e
@@ -250,7 +232,7 @@ internal object MacOsScreenBackend {
             log.w(e) { "window number read failed" }
             false
         }
-        return if (read) storage.getDouble(0) else 0.0
+        return if (isRead) storage.getDouble(0) else 0.0
     }
 
     private fun string(dictionary: Pointer, key: Pointer?): String? {
@@ -267,7 +249,7 @@ internal object MacOsScreenBackend {
         if (length <= 0 || length > MAX_TEXT_LENGTH) return null
         val capacity = length * UTF8_MAX_BYTES + 1
         val buffer = ByteArray(capacity.toInt())
-        val copied = try {
+        val isCopied = try {
             library.CFStringGetCString(reference, buffer, capacity, UTF8_ENCODING)
         } catch (e: CancellationException) {
             throw e
@@ -275,7 +257,7 @@ internal object MacOsScreenBackend {
             log.w(e) { "window string read failed" }
             false
         }
-        if (!copied) return null
+        if (!isCopied) return null
         val end = buffer.indexOf(0)
         return if (end < 0) buffer.decodeToString() else buffer.decodeToString(0, end)
     }
@@ -316,6 +298,7 @@ internal object MacOsScreenBackend {
     private const val UTF8_MAX_BYTES = 4L
     private const val DOUBLE_BYTES = 8L
     private const val CAPTURE_TIMEOUT_SECONDS = 10L
+    private const val MILLIS_PER_SECOND = 1000L
     private const val MAX_WINDOWS = 4096L
     private const val MAX_TEXT_LENGTH = 4096L
     private const val SCREEN_CAPTURE_TOOL = "/usr/sbin/screencapture"
@@ -419,3 +402,85 @@ internal class WindowKeys(foundation: CoreFoundationLib) {
         const val BOUNDS_HEIGHT_KEY = "Height"
     }
 }
+
+/**
+ * Runs a short native desktop command with a cancellable wait and a cleanup barrier. The output is discarded
+ * to avoid filling a pipe, and cancellation/timeout terminate the child before its capture file is removed.
+ * Callers run this backend on their injected IO dispatcher.
+ */
+internal suspend fun runDesktopProcess(
+    command: List<String>,
+    timeoutMillis: Long,
+    start: (List<String>) -> Process = { arguments ->
+        ProcessBuilder(arguments).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start()
+    },
+): Boolean {
+    val log = Log.tag("DesktopProcess")
+    currentCoroutineContext().ensureActive()
+    val process = try {
+        start(command)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "desktop command could not start" }
+        return false
+    }
+    return try {
+        val finished = withTimeoutOrNull(timeoutMillis) {
+            while (process.isAlive) delay(PROCESS_POLL_MILLIS)
+            currentCoroutineContext().ensureActive()
+            process.exitValue()
+        }
+        when {
+            finished == null -> {
+                log.w { "desktop command timed out" }
+                false
+            }
+
+            finished != 0 -> {
+                log.w { "desktop command exited with $finished" }
+                false
+            }
+
+            else -> true
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "desktop command failed" }
+        false
+    } finally {
+        disposeDesktopProcess(process)
+    }
+}
+
+private fun disposeDesktopProcess(process: Process) {
+    val log = Log.tag("DesktopProcess")
+    try {
+        if (process.isAlive) {
+            process.destroyForcibly()
+            if (!process.waitFor(PROCESS_SHUTDOWN_MILLIS, TimeUnit.MILLISECONDS)) {
+                log.w { "desktop command termination timed out" }
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "desktop command termination failed" }
+    } finally {
+        listOf(process.outputStream, process.inputStream, process.errorStream).forEach(::closeProcessStream)
+    }
+}
+
+private fun closeProcessStream(stream: java.io.Closeable) {
+    try {
+        stream.close()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        Log.tag("DesktopProcess").w(e) { "desktop command stream close failed" }
+    }
+}
+
+private const val PROCESS_POLL_MILLIS = 25L
+private const val PROCESS_SHUTDOWN_MILLIS = 1000L

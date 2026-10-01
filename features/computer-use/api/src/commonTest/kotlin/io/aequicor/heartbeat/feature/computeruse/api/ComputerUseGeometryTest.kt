@@ -133,4 +133,12 @@ class ComputerUseGeometryTest {
         assertFalse(reference.toString().contains("tmp"))
         assertTrue(reference.toString().contains("CaptureRef"))
     }
+
+    @Test
+    fun `small masters still have one tile and rectangular tiles use separate strides`() {
+        assertEquals(1, TileGrid.forMaster(1, 1).columns)
+        assertEquals(1, TileGrid.forMaster(1, 1).rows)
+        val grid = TileGrid.forMaster(2000, 1200, 1024, 512, 64)
+        assertEquals(CaptureRegion(960, 448, 1024, 512), grid.region(1, 1, 2000, 1200))
+    }
 }

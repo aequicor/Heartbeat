@@ -64,7 +64,7 @@ internal class FakeScreenCapturer(private val widthPx: Int = 200, private val he
     var captures: Int = 0
         private set
 
-    override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?): RawFrame? {
+    override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean): RawFrame? {
         val current = bounds ?: return null
         captures++
         return RawFrame(solidGrid(widthPx, heightPx, 0xFF336699.toInt()), current, 0L)

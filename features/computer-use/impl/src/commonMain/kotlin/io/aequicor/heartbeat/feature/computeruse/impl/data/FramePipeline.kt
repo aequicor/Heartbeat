@@ -35,6 +35,9 @@ internal class FramePipeline(
 ) {
     private val log = Log.tag("FramePipeline")
 
+    /** Decodes an engine-provided master through the platform codec. */
+    suspend fun decode(content: ByteArray): PixelGrid? = withContext(dispatchers.io) { encoder.decode(content) }
+
     /** Stores [source] losslessly as the master frame of [session]; crops are served from it later. */
     suspend fun storeMaster(
         session: CaptureSessionId,
@@ -56,6 +59,8 @@ internal class FramePipeline(
     )
 
     /** Stores one reduced frame derived from a master frame. */
+    // A stored derivative carries its session identity, both geometries and encoding atomically.
+    @Suppress("LongParameterList")
     suspend fun derive(
         session: CaptureSessionId,
         id: CaptureId,
@@ -78,6 +83,8 @@ internal class FramePipeline(
         applyBudget = true,
     )
 
+    // Common implementation of master and derivative persistence needs their complete artifact metadata.
+    @Suppress("LongParameterList")
     private suspend fun produce(
         session: CaptureSessionId,
         id: CaptureId,
@@ -116,12 +123,14 @@ internal class FramePipeline(
 
     /** `true` when the encoded frame respects the byte limit; an oversized attempt is logged, not thrown. */
     private fun fitsLimit(encoded: EncodedFrame, candidate: CaptureEncoding): Boolean {
-        val fits = candidate.maxBytes <= 0 || encoded.content.size <= candidate.maxBytes
-        if (!fits) log.d { "frame over budget format=${encoded.format} bytes=${encoded.content.size}" }
-        return fits
+        val isWithinLimit = candidate.maxBytes <= 0 || encoded.content.size <= candidate.maxBytes
+        if (!isWithinLimit) log.d { "frame over budget format=${encoded.format} bytes=${encoded.content.size}" }
+        return isWithinLimit
     }
 
     /** Writes one encoded frame and describes it with a reference that never carries pixel data. */
+    // The reference is constructed from the complete encoded artifact metadata.
+    @Suppress("LongParameterList")
     private suspend fun persisted(
         session: CaptureSessionId,
         id: CaptureId,

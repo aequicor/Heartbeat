@@ -21,7 +21,8 @@ public value class CaptureId(public val value: String)
 public value class CaptureSessionId(public val value: String)
 
 /**
- * Rectangle in physical screen pixels of the virtual desktop.
+ * Rectangle in the operating system coordinate space of the virtual desktop.
+ * Master frames use physical pixels; input maps them proportionally into these host coordinates.
  *
  * @property x left edge, in virtual-desktop pixels; negative on monitors left of the primary one.
  * @property y top edge, in virtual-desktop pixels.
@@ -109,7 +110,7 @@ public enum class FrameSpace {
     /** Fractions of the captured area, `0.0..1.0`. */
     Normalized,
 
-    /** Physical pixels of the virtual desktop. */
+    /** Operating system coordinates of the virtual desktop (points on macOS). */
     Screen,
 }
 
@@ -140,20 +141,20 @@ public sealed interface ComputerUseMode {
      * The whole virtual desktop, or one [monitor] when it is set.
      *
      * @property monitor the captured monitor; `null` captures every monitor.
-     * @property includeCursor draw the mouse pointer into the frame.
+     * @property isCursorIncluded draw the mouse pointer into the frame.
      */
-    public data class Desktop(public val monitor: MonitorId? = null, public val includeCursor: Boolean = true) :
+    public data class Desktop(public val monitor: MonitorId? = null, public val isCursorIncluded: Boolean = true) :
         ComputerUseMode
 
     /**
      * A single window.
      *
      * @property target the window to capture; its identity is re-resolved before every frame and input action.
-     * @property clientAreaOnly capture the client area without the title bar and frame.
+     * @property isClientAreaOnly capture the client area without the title bar and frame.
      */
-    public data class Window(public val target: WindowTarget, public val clientAreaOnly: Boolean = false) :
+    public data class Window(public val target: WindowTarget, public val isClientAreaOnly: Boolean = false) :
         ComputerUseMode {
-        override fun toString(): String = "Window(id=${target.id}, clientAreaOnly=$clientAreaOnly)"
+        override fun toString(): String = "Window(id=${target.id}, clientAreaOnly=$isClientAreaOnly)"
     }
 }
 
@@ -247,7 +248,7 @@ public data class CaptureRef(
 
     /** Scale of this frame relative to the master frame it was derived from. */
     public val previewScale: Double
-        get() = if (masterWidthPx <= 0) 1.0 else widthPx.toDouble() / masterWidthPx.toDouble()
+        get() = if (masterWidthPx <= 0) 1.0 else widthPx.toDouble() / region.widthPx.toDouble()
 }
 
 /** A tile grid over one master frame; agents request a tile instead of inventing coordinates. */
@@ -266,9 +267,8 @@ public data class TileGrid(
     /** The master-frame region of tile `column:row`, or `null` when the tile does not exist. */
     public fun region(column: Int, row: Int, masterWidthPx: Int, masterHeightPx: Int): CaptureRegion? {
         if (column !in 0 until columns || row !in 0 until rows) return null
-        val stride = tileWidthPx - overlapPx
-        val x = column * stride
-        val y = row * stride
+        val x = column * (tileWidthPx - overlapPx)
+        val y = row * (tileHeightPx - overlapPx)
         return CaptureRegion(
             x = minOf(x, (masterWidthPx - 1).coerceAtLeast(0)),
             y = minOf(y, (masterHeightPx - 1).coerceAtLeast(0)),
@@ -299,7 +299,7 @@ public data class TileGrid(
 
         private fun tiles(sizePx: Int, tilePx: Int, overlapPx: Int): Int {
             val stride = tilePx - overlapPx
-            return ((sizePx - overlapPx) + stride - 1) / stride
+            return (((sizePx - overlapPx) + stride - 1) / stride).coerceAtLeast(1)
         }
     }
 }
@@ -322,7 +322,7 @@ public data class ComputerUseStatus(
     public val lastPreview: CaptureRef? = null,
 ) {
     override fun toString(): String =
-        "ComputerUseStatus(mode=${mode?.let { it::class.simpleName }}, armed=$isInputArmed)"
+        "ComputerUseStatus(mode=${mode?.let { it::class.simpleName }.orEmpty()}, armed=$isInputArmed)"
 }
 
 /** Why the operating system or the platform refuses capture or input. */

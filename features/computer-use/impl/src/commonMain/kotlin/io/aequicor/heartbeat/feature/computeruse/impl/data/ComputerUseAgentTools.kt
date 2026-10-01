@@ -222,7 +222,7 @@ internal class ComputerUseAgentTools(
             region = region(arguments),
             tile = arguments.text("tile")?.let { TileRef.parse(it) },
             encoding = encoding(arguments, CapturePresets.AgentOverview),
-            includeCursor = arguments.flag("includeCursor") ?: true,
+            isCursorIncluded = arguments.flag("includeCursor") ?: true,
             isFresh = arguments.flag("fresh") ?: true,
         )
         return frame(machine, ComputerUseIntent.Public.Capture(request), request.encoding)
@@ -354,7 +354,7 @@ internal class ComputerUseAgentTools(
     private suspend fun mode(arguments: JsonObject): ComputerUseMode? {
         val name = arguments.text("mode")?.lowercase() ?: return null
         return when (name) {
-            "desktop" -> ComputerUseMode.Desktop(includeCursor = arguments.flag("includeCursor") ?: true)
+            "desktop" -> ComputerUseMode.Desktop(isCursorIncluded = arguments.flag("includeCursor") ?: true)
             "window" -> windowMode(arguments)
             else -> null
         }
@@ -364,7 +364,7 @@ internal class ComputerUseAgentTools(
     private suspend fun windowMode(arguments: JsonObject): ComputerUseMode? {
         val identifier = arguments.text("windowId")?.let { WindowId(it) }
         val target = identifier?.let { id -> control.windows().firstOrNull { it.id == id } }
-        return target?.let { ComputerUseMode.Window(it, clientAreaOnly = arguments.flag("clientAreaOnly") ?: false) }
+        return target?.let { ComputerUseMode.Window(it, isClientAreaOnly = arguments.flag("clientAreaOnly") ?: false) }
     }
 
     private fun click(arguments: JsonObject): InputAction? {

@@ -124,6 +124,8 @@ internal class PixelGrid(val widthPx: Int, val heightPx: Int, val argb: IntArray
         return PixelGrid(widthPx, heightPx, target)
     }
 
+    // Four sample coordinates and two independent interpolation weights define one bilinear sample.
+    @Suppress("LongParameterList")
     private fun bilinear(x0: Int, y0: Int, x1: Int, y1: Int, weightX: Double, weightY: Double): Int {
         val top = blend(pixel(x0, y0), pixel(x1, y0), weightX)
         val bottom = blend(pixel(x0, y1), pixel(x1, y1), weightX)

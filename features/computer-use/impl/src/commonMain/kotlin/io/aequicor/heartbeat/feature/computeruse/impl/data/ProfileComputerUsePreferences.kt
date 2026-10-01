@@ -26,8 +26,8 @@ internal class ProfileComputerUsePreferences(
 
     override suspend fun read(): ComputerUseSettings {
         val preset = store.get(PresetKey) ?: ComputerUseSettings.DEFAULT_PRESET
-        val cursor = store.get(CursorKey) ?: true
-        return ComputerUseSettings(preset, cursor)
+        val isCursorIncluded = store.get(CursorKey) ?: true
+        return ComputerUseSettings(preset, isCursorIncluded)
     }
 
     override fun observe(): Flow<ComputerUseSettings> = store.observe(PresetKey).map { preset ->

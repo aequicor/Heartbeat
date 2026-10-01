@@ -28,7 +28,7 @@ internal data class ScreenPoint(val x: Int, val y: Int)
  */
 internal interface ScreenCapturer {
     /** Captures [region] of [mode] in physical pixels; `null` when the target is gone or refused. */
-    suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?): RawFrame?
+    suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean = true): RawFrame?
 
     /** The current on-screen rectangle of [mode]; `null` when the target no longer exists. */
     suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds?
@@ -113,6 +113,8 @@ internal object CaptureRegionPolicy {
      * @return `null` when the point leaves the captured area: input outside the frame is refused instead of
      * being silently clamped, because a clamped click would hit an unrelated control.
      */
+    // Geometry needs both frame dimensions and the host origin as one indivisible transform.
+    @Suppress("LongParameterList")
     fun toScreen(
         point: FramePoint,
         space: FrameSpace,
@@ -128,6 +130,8 @@ internal object CaptureRegionPolicy {
     }
 
     /** Maps a caller-supplied point into master-frame pixels; `null` when it leaves the frame. */
+    // Both axes of preview/master dimensions are required to validate the transform.
+    @Suppress("LongParameterList")
     fun toMaster(
         point: FramePoint,
         space: FrameSpace,
@@ -136,6 +140,9 @@ internal object CaptureRegionPolicy {
         masterWidthPx: Int,
         masterHeightPx: Int,
     ): ScreenPoint? {
+        val isHorizontalValid = point.x.isFinite() && point.x >= 0
+        val isVerticalValid = point.y.isFinite() && point.y >= 0
+        if (!isHorizontalValid || !isVerticalValid) return null
         val scaled = when (space) {
             FrameSpace.Preview -> {
                 if (previewWidthPx <= 0 || previewHeightPx <= 0) return null
@@ -158,9 +165,9 @@ internal object CaptureRegionPolicy {
 
     /** `true` when a master-frame point lies inside the frame. */
     fun isInside(x: Int, y: Int, widthPx: Int, heightPx: Int): Boolean {
-        val horizontal = x in 0 until widthPx
-        val vertical = y in 0 until heightPx
-        return horizontal && vertical
+        val isHorizontal = x in 0 until widthPx
+        val isVertical = y in 0 until heightPx
+        return isHorizontal && isVertical
     }
 
     /** Maps master-frame pixels into physical screen pixels. */

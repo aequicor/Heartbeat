@@ -286,7 +286,7 @@ internal class ComputerUseModel(
         sendTo(
             machine,
             ComputerUseIntent.Public.Capture(
-                CaptureRequest(encoding = encoding, includeCursor = settings.isCursorIncluded),
+                CaptureRequest(encoding = encoding, isCursorIncluded = settings.isCursorIncluded),
             ),
         )
     }

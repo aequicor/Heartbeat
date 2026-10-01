@@ -35,7 +35,7 @@ private const val REASON = "Computer use requires Desktop"
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class UnsupportedScreenCapturer : ScreenCapturer {
-    override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?): RawFrame? =
+    override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean): RawFrame? =
         throw UnsupportedOperationException(REASON)
 
     override suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds? =

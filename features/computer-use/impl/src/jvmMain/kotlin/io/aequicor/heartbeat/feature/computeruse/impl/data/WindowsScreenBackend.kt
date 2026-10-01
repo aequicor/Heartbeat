@@ -78,85 +78,12 @@ internal object WindowsScreenBackend {
         }
     }
 
-    /** Renders a window into pixels; `null` when it is minimized, closed or refuses to be printed. */
+    /** Renders a window into pixels; null when the target cannot be rendered. */
     fun capture(id: WindowId): PixelGrid? {
         val users = user32 ?: return null
         val gdi = gdi32 ?: return null
         val handle = handle(id) ?: return null
-        val rect = NativeRect()
-        if (!users.GetWindowRect(handle, rect)) return null
-        val width = rect.right - rect.left
-        val height = rect.bottom - rect.top
-        if (width <= 0 || height <= 0) {
-            log.w { "window capture skipped: empty rectangle" }
-            return null
-        }
-        val screen = gdi.CreateCompatibleDC(null)
-        if (screen == null) {
-            log.w { "screen device context unavailable" }
-            return null
-        }
-        val memory = gdi.CreateCompatibleDC(screen)
-        if (memory == null) {
-            gdi.DeleteDC(screen)
-            return null
-        }
-        val bitmap = gdi.CreateCompatibleBitmap(screen, width, height)
-        if (bitmap == null) {
-            gdi.DeleteDC(memory)
-            gdi.DeleteDC(screen)
-            return null
-        }
-        val previous = gdi.SelectObject(memory, bitmap)
-        var pixels: IntArray? = null
-        try {
-            if (renderWindow(users, handle, memory)) pixels = readBits(gdi, memory, bitmap, width, height)
-        } finally {
-            if (previous != null) gdi.SelectObject(memory, previous)
-            gdi.DeleteObject(bitmap)
-            gdi.DeleteDC(memory)
-            gdi.DeleteDC(screen)
-        }
-        if (pixels == null) {
-            log.w { "window capture produced no pixels" }
-            return null
-        }
-        return PixelGrid(width, height, pixels)
-    }
-
-    private fun renderWindow(users: User32Lib, handle: Pointer, memory: Pointer): Boolean = try {
-        users.PrintWindow(handle, memory, PRINT_FULL_CONTENT)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.w(e) { "PrintWindow refused" }
-        false
-    }
-
-    private fun readBits(gdi: Gdi32Lib, memory: Pointer, bitmap: Pointer, width: Int, height: Int): IntArray? {
-        val header = BitmapInfoHeader()
-        header.biWidth = width
-        // A negative height asks for a top-down bitmap, matching the row order of PixelGrid.
-        header.biHeight = -height
-        val bytes = ByteArray(width * height * BYTES_PER_PIXEL)
-        val read = try {
-            gdi.GetDIBits(memory, bitmap, 0, height, bytes, header, DIB_RGB_COLORS)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "GetDIBits failed" }
-            0
-        }
-        if (read == 0) return null
-        val pixels = IntArray(width * height)
-        for (index in pixels.indices) {
-            val offset = index * BYTES_PER_PIXEL
-            val blue = bytes[offset].toInt() and BYTE_MASK
-            val green = bytes[offset + 1].toInt() and BYTE_MASK
-            val red = bytes[offset + 2].toInt() and BYTE_MASK
-            pixels[index] = (OPAQUE shl ALPHA_SHIFT) or (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
-        }
-        return pixels
+        return captureWindowsBitmap(users, gdi, handle)
     }
 
     private fun describe(library: User32Lib, hwnd: Pointer): WindowTarget? {
@@ -210,8 +137,8 @@ internal object WindowsScreenBackend {
     private fun processName(kernel: Kernel32Lib, process: Pointer): String? = try {
         val buffer = CharArray(PATH_BUFFER_CHARS)
         val size = IntByReference(buffer.size)
-        val read = kernel.QueryFullProcessImageNameW(process, 0, buffer, size)
-        if (read && size.value > 0) String(buffer, 0, size.value).substringAfterLast('\\') else null
+        val isRead = kernel.QueryFullProcessImageNameW(process, 0, buffer, size)
+        if (isRead && size.value > 0) String(buffer, 0, size.value).substringAfterLast('\\') else null
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
@@ -245,14 +172,6 @@ internal object WindowsScreenBackend {
         null
     }
 
-    private const val PRINT_FULL_CONTENT = 2
-    private const val DIB_RGB_COLORS = 0
-    private const val BYTES_PER_PIXEL = 4
-    private const val BYTE_MASK = 0xFF
-    private const val OPAQUE = 255
-    private const val ALPHA_SHIFT = 24
-    private const val RED_SHIFT = 16
-    private const val GREEN_SHIFT = 8
     private const val DEFAULT_DPI = 96
     private const val PROCESS_QUERY_LIMITED = 0x1000
     private const val TITLE_BUFFER_CHARS = 1024
@@ -270,6 +189,8 @@ internal interface User32Lib : StdCallLibrary {
     fun GetWindowThreadProcessId(hwnd: Pointer, processId: IntByReference): Int
     fun SetForegroundWindow(hwnd: Pointer): Boolean
     fun PrintWindow(hwnd: Pointer, hdc: Pointer, flags: Int): Boolean
+    fun GetDC(hwnd: Pointer?): Pointer?
+    fun ReleaseDC(hwnd: Pointer?, hdc: Pointer): Int
     fun GetDpiForWindow(hwnd: Pointer): Int
 }
 
@@ -284,6 +205,8 @@ internal interface Gdi32Lib : StdCallLibrary {
     fun CreateCompatibleDC(hdc: Pointer?): Pointer?
     fun CreateCompatibleBitmap(hdc: Pointer, width: Int, height: Int): Pointer?
     fun SelectObject(hdc: Pointer, obj: Pointer): Pointer?
+
+    @Suppress("LongParameterList") // GetDIBits has seven positional arguments in the Win32 ABI.
     fun GetDIBits(
         hdc: Pointer,
         bitmap: Pointer,
@@ -365,3 +288,73 @@ internal class BitmapInfoHeader : Structure() {
         const val HEADER_BYTES = 40
     }
 }
+
+/** Native capture call sequence, injectable in tests without loading Windows libraries. */
+internal fun captureWindowsBitmap(users: User32Lib, gdi: Gdi32Lib, handle: Pointer): PixelGrid? {
+    val log = Log.tag("WindowsScreenBackend")
+    if (users.IsIconic(handle)) return null
+    val rect = NativeRect()
+    if (!users.GetWindowRect(handle, rect)) return null
+    val width = rect.right - rect.left
+    val height = rect.bottom - rect.top
+    if (width <= 0 || height <= 0) return null
+    // CreateCompatibleBitmap must use a real display DC: a new memory DC has a monochrome stock bitmap.
+    val screen = users.GetDC(null) ?: return null
+    try {
+        val memory = gdi.CreateCompatibleDC(screen) ?: return null
+        try {
+            val bitmap = gdi.CreateCompatibleBitmap(screen, width, height) ?: return null
+            try {
+                val previous = gdi.SelectObject(memory, bitmap) ?: return null
+                val isRendered = try {
+                    users.PrintWindow(handle, memory, PRINT_FULL_CONTENT)
+                } finally {
+                    // GetDIBits requires the bitmap to be deselected from every DC before it is read.
+                    gdi.SelectObject(memory, previous)
+                }
+                if (!isRendered) {
+                    log.w { "window capture could not render target" }
+                    return null
+                }
+                val pixels = readWindowsBits(gdi, screen, bitmap, width, height) ?: return null
+                return PixelGrid(width, height, pixels)
+            } finally {
+                gdi.DeleteObject(bitmap)
+            }
+        } finally {
+            gdi.DeleteDC(memory)
+        }
+    } finally {
+        users.ReleaseDC(null, screen)
+    }
+}
+
+private fun readWindowsBits(gdi: Gdi32Lib, screen: Pointer, bitmap: Pointer, width: Int, height: Int): IntArray? {
+    val header = BitmapInfoHeader()
+    header.biWidth = width
+    header.biHeight = -height
+    val bytes = ByteArray(width * height * BYTES_PER_PIXEL)
+    val read = gdi.GetDIBits(screen, bitmap, 0, height, bytes, header, DIB_RGB_COLORS)
+    if (read != height) {
+        Log.tag("WindowsScreenBackend").w { "window capture bitmap read incomplete" }
+        return null
+    }
+    val pixels = IntArray(width * height)
+    for (index in pixels.indices) {
+        val offset = index * BYTES_PER_PIXEL
+        val blue = bytes[offset].toInt() and BYTE_MASK
+        val green = bytes[offset + 1].toInt() and BYTE_MASK
+        val red = bytes[offset + 2].toInt() and BYTE_MASK
+        pixels[index] = (OPAQUE shl ALPHA_SHIFT) or (red shl RED_SHIFT) or (green shl GREEN_SHIFT) or blue
+    }
+    return pixels
+}
+
+private const val PRINT_FULL_CONTENT = 2
+private const val DIB_RGB_COLORS = 0
+private const val BYTES_PER_PIXEL = 4
+private const val BYTE_MASK = 0xFF
+private const val OPAQUE = 255
+private const val ALPHA_SHIFT = 24
+private const val RED_SHIFT = 16
+private const val GREEN_SHIFT = 8

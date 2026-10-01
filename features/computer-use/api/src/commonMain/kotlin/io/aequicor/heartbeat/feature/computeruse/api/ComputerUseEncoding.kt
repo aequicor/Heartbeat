@@ -139,7 +139,7 @@ public data class CaptureRequest(
     public val region: CaptureRegion? = null,
     public val tile: TileRef? = null,
     public val encoding: CaptureEncoding = CapturePresets.AgentOverview,
-    public val includeCursor: Boolean = true,
+    public val isCursorIncluded: Boolean = true,
     public val isFresh: Boolean = true,
 ) {
     init {

@@ -77,10 +77,13 @@ public data class CaptureResult(
     /** `true` when the capture produced a usable frame. */
     public val isUsable: Boolean get() = failure == null && reference != null
 
-    override fun toString(): String = "CaptureResult(reference=$reference, tiles=$tiles, failure=$failure)"
+    override fun toString(): String =
+        "CaptureResult(reference=${reference?.id?.value.orEmpty()}, tiles=${tiles?.columns ?: 0}, failure=${failure?.name.orEmpty()})"
 }
 
 /** Encoded pixels of one frame; content is user data and must never be logged. */
+// ByteArray content needs structural equality and a redacted toString rather than generated data methods.
+@Suppress("UseDataClass")
 public class EncodedFrame(
     public val format: CaptureFormat,
     public val widthPx: Int,
@@ -112,6 +115,8 @@ public class EncodedFrame(
 }
 
 /** One frame captured by an engine; the content is encoded, never raw pixels. */
+// Generated data methods would expose frame content; the transport intentionally has identity semantics.
+@Suppress("UseDataClass")
 public class NativeCapture(
     public val format: CaptureFormat,
     public val widthPx: Int,

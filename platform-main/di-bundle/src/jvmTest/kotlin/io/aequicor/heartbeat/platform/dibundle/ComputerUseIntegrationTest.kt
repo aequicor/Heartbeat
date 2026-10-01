@@ -100,13 +100,13 @@ class ComputerUseIntegrationTest {
     private suspend fun <T : Any> bounded(checkpoint: String, action: suspend () -> T?): T =
         withContext(app.dispatchers.default) {
             try {
-                withTimeout(TimeoutMillis) { action() } ?: throw AssertionError("Timed out at $checkpoint")
+                withTimeout(TIMEOUT_MILLIS) { action() } ?: throw AssertionError("Timed out at $checkpoint")
             } catch (e: TimeoutCancellationException) {
                 throw AssertionError("Timed out at $checkpoint", e)
             }
         }
 
     private companion object {
-        const val TimeoutMillis = 15_000L
+        const val TIMEOUT_MILLIS = 15_000L
     }
 }
