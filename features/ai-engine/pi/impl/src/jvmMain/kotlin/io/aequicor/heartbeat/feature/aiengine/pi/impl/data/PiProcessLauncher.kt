@@ -139,7 +139,7 @@ internal class PiProcessLauncher(
         val tools = piTools(areSearchToolsEnabled, hosted?.specifications.orEmpty().map { it.name })
         val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
-        val command = piCommand(executable, provider.id, sessionDir, extensions, tools, isProject = workspace != null)
+        val command = piCommand(executable, sessionDir, extensions, tools, isProject = workspace != null)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
         retainPiEnvironment(environment)
@@ -266,6 +266,10 @@ private const val TOOLS_EXTENSION = "heartbeat-tools.ts"
  * Pi's command line. Extensions stay limited to the explicitly bundled ones (`--no-extensions` keeps
  * discovered, project and package extensions out), and templates and themes never load.
  *
+ * The command never names a provider or model: a session selects its model over RPC (`set_model`) right after
+ * the start, and discovery needs none. Pi rejects `--provider` without `--model`, and a `--model` pattern would
+ * read a `:` inside a model id (`qwen3:8b`) as a thinking suffix.
+ *
  * A session bound to a project runs project-aware: the folder the user opened in Heartbeat grants project
  * trust (`--approve`), so Pi reads the project's context files (`AGENTS.md`/`CLAUDE.md`, which load
  * regardless of trust) and its skills (`.agents/skills/`, `.pi/skills`), as content only. A session
@@ -273,7 +277,6 @@ private const val TOOLS_EXTENSION = "heartbeat-tools.ts"
  */
 internal fun piCommand(
     executable: Path,
-    provider: String,
     sessionDir: Path,
     extensions: List<Path>,
     tools: String,
@@ -282,8 +285,6 @@ internal fun piCommand(
     executable.toString(),
     "--mode",
     "rpc",
-    "--provider",
-    provider,
     "--session-dir",
     sessionDir.toString(),
     "--no-extensions",
