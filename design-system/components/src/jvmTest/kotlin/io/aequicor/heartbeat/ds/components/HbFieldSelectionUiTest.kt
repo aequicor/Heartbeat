@@ -18,7 +18,9 @@ import androidx.compose.ui.test.performTextInputSelection
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
+import io.aequicor.heartbeat.ds.theme.HbQuestionnaireTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.contrastRatio
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -52,6 +54,37 @@ class HbFieldSelectionUiTest {
                 val painted = (bounds.left.toInt() until bounds.right.toInt())
                     .count { x -> image.getRGB(x, y) == highlight }
                 assertTrue(painted > 4, "Selected text must show the palette highlight, found $painted pixels")
+            }
+        }
+    }
+
+    @Test
+    fun `selected questionnaire answer uses its scoped palette under both host themes`() {
+        listOf(false, true).forEach { dark ->
+            runSkikoComposeUiTest(size = Size(420f, 120f)) {
+                var highlight = 0
+                setContent {
+                    HbTheme(darkTheme = dark) {
+                        HbQuestionnaireTheme {
+                            val colors = HbTheme.colors
+                            highlight = colors.selectionHighlight.toArgb()
+                            assertTrue(contrastRatio(colors.textPrimary, colors.selectionHighlight) >= 4.5f)
+                            Box(
+                                Modifier.fillMaxSize().background(colors.background),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                HbTextField("Questionnaire answer", {}, Modifier.width(240.dp).testTag("field"))
+                            }
+                        }
+                    }
+                }
+                val field = onNodeWithTag("field")
+                field.performClick().performTextInputSelection(TextRange(0, "Questionnaire answer".length))
+                val bounds = field.fetchSemanticsNode().boundsInRoot
+                val image = captureToImage().toAwtImage()
+                val painted = (bounds.left.toInt() until bounds.right.toInt())
+                    .count { x -> image.getRGB(x, bounds.center.y.toInt()) == highlight }
+                assertTrue(painted > 4, "Scoped selection must stay readable, found $painted palette pixels")
             }
         }
     }

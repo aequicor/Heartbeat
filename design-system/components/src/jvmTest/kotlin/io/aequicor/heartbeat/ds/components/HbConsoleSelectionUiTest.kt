@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithText
@@ -18,6 +19,7 @@ import androidx.compose.ui.test.performMouseInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.dp
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbColors
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -49,6 +51,12 @@ class HbConsoleSelectionUiTest {
                 }
                 mainClock.advanceTimeBy(1000)
                 val selected = captureToImage().toAwtImage()
+                val editorHighlight = HbColors.DesktopLight.selectionHighlight.toArgb()
+                val pixels = selected.getRGB(0, 0, selected.width, selected.height, null, 0, selected.width)
+                assertFalse(
+                    pixels.any { it == editorHighlight },
+                    "A dark console must not inherit the opaque light editor selection",
+                )
                 assertFalse(consolePixelsEqual(idle, selected), "Selection must persist after the pointer is released")
                 saveConsoleSelectionPreview(if (transcript) "transcript" else "standalone", selected)
                 node.performMouseInput {

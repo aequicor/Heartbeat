@@ -18,7 +18,10 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
@@ -50,6 +53,7 @@ private const val REJECTION_GRACE_FRAMES = 2
  * Controlled text with a hoisted editor scroll state, shared by fields and the composer.
  * Owners may answer asynchronously (for example a store on the main dispatcher): an edit is only
  * treated as rejected when [value] is still unchanged a few frames later, and late answers keep the caret.
+ * Selection uses the current scoped palette without replacing selection of surrounding read-only text.
  *
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
@@ -90,33 +94,39 @@ internal fun HbEditableText(
         contentPadding,
         EditorAdornments(leadingContent, trailingContent),
     )
-    if (isSecret) {
-        val hiddenText = AnnotatedString("•".repeat(editingText.length))
-        BasicSecureTextField(
-            state = state,
-            modifier = modifier.semantics {
-                editableText = hiddenText
-                inputText = hiddenText
-            },
-            enabled = enabled,
-            inputTransformation = inputTransformation,
-            textStyle = editorTextStyle(),
-            keyboardOptions = SecretKeyboard,
-            interactionSource = interactionSource,
-            cursorBrush = editorCursor(),
-            decorator = decorator,
-            textObfuscationMode = TextObfuscationMode.Hidden,
-        )
-    } else {
-        PlainEditor(
-            state,
-            enabled,
-            singleLine,
-            inputTransformation,
-            interactionSource,
-            decorator,
-            modifier,
-        )
+    val colors = HbTheme.colors
+    val selectionColors = remember(colors) {
+        TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
+    }
+    CompositionLocalProvider(LocalTextSelectionColors provides selectionColors) {
+        if (isSecret) {
+            val hiddenText = AnnotatedString("•".repeat(editingText.length))
+            BasicSecureTextField(
+                state = state,
+                modifier = modifier.semantics {
+                    editableText = hiddenText
+                    inputText = hiddenText
+                },
+                enabled = enabled,
+                inputTransformation = inputTransformation,
+                textStyle = editorTextStyle(),
+                keyboardOptions = SecretKeyboard,
+                interactionSource = interactionSource,
+                cursorBrush = editorCursor(),
+                decorator = decorator,
+                textObfuscationMode = TextObfuscationMode.Hidden,
+            )
+        } else {
+            PlainEditor(
+                state,
+                enabled,
+                singleLine,
+                inputTransformation,
+                interactionSource,
+                decorator,
+                modifier,
+            )
+        }
     }
 }
 
