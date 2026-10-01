@@ -31,6 +31,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 
+/** 1: a discovered model reports the image and document formats it accepts. */
+private const val CODEX_MODEL_CATALOG_REVISION = 1
+
 /** Registers metadata without starting a CLI process or inspecting credentials. */
 @BindingContainer
 @ContributesTo(ProfileScope::class)
@@ -81,6 +84,7 @@ public object CodexBindings {
             ),
             authOwner = CodexEngine.AuthOwner,
             factory = lazy { factory.value },
+            modelCatalogRevision = CODEX_MODEL_CATALOG_REVISION,
         )
 }
 

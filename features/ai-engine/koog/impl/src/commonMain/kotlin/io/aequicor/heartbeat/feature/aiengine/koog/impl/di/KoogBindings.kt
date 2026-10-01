@@ -41,6 +41,9 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogReasoningCatalogEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogSessionSource
 
+/** 1: a discovered model reports the image and document formats it accepts. */
+private const val KOOG_MODEL_CATALOG_REVISION = 1
+
 /** App-wide toggle declaration; registrations themselves are owned by profiles. */
 @BindingContainer
 @ContributesTo(AppScope::class)
@@ -121,6 +124,7 @@ public object KoogBindings {
         ),
         authOwner = KoogAuthOwner,
         factory = lazy { engine.value },
+        modelCatalogRevision = KOOG_MODEL_CATALOG_REVISION,
         sessionSources = listOf(object : EngineSessionSource {
             override val source = KoogSessionSource
             override val discovery = object : ListsSessions {
