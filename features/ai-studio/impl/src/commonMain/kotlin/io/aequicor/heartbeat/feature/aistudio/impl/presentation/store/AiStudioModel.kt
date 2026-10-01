@@ -87,7 +87,10 @@ class AiStudioModel(
                 is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output, machine.state.value) }
 
                 // Delivery results of engine questions are handled by the question bridge.
-                is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
+                is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded,
+                is AiStudioOutput.SubmitPrepared, is AiStudioOutput.SubmitAccepted,
+                is AiStudioOutput.SubmitRejected,
+                -> Unit
             }
         }) { reflectMachine(it) }
         whileSubscribed(name = "workspace") {

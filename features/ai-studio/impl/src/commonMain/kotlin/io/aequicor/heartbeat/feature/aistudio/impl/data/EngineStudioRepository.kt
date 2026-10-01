@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -32,20 +31,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
-import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -330,6 +326,17 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
+        log.d { "Run text-only profile request" }
+        return run(sessionId, prompt, settings, emptyList()) { }
+    }
+
+    override suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome {
         log.i { "Start profile-owned execution" }
         val job = lock.withLock {
             check(!profile.isClosed) { "Profile is closed" }
@@ -338,16 +345,18 @@ internal class EngineStudioRepository(
             mutableState.update {
                 it.copy(running = it.running + sessionId, runStartedAt = it.runStartedAt + (sessionId to startedAt))
             }
-            profile.coroutineScope.async(start = CoroutineStart.LAZY) { execute(sessionId, prompt, settings) }.also {
+            profile.coroutineScope.async(
+                start = CoroutineStart.LAZY,
+            ) { execute(sessionId, StudioTurnSubmission(prompt, settings, attachments, onAccepted)) }.also {
                 it.start()
             }
         }
         return job.await()
     }
 
-    private suspend fun execute(id: String, prompt: String, settings: RunSettings): RunOutcome {
+    private suspend fun execute(id: String, submission: StudioTurnSubmission): RunOutcome {
         try {
-            val result = executeTurn(id, prompt, settings)
+            val result = executeTurn(id, submission)
             // Profile shutdown owns native cleanup; never wait for its cancelled machine uninterruptibly.
             releaseArchived(id)
             return result
@@ -371,9 +380,9 @@ internal class EngineStudioRepository(
         }
     }
 
-    private suspend fun executeTurn(id: String, prompt: String, settings: RunSettings): RunOutcome {
+    private suspend fun executeTurn(id: String, submission: StudioTurnSubmission): RunOutcome {
         try {
-            val target = target(id, settings)
+            val target = target(id, submission.settings)
             val active = open(id, target)
             update(id) { copy(updatedAt = clock.now(), hasFailed = false, failureKind = RunFailureKind.Unknown) }
             val history = active.features.requireFeature(SessionHistory)
@@ -383,7 +392,7 @@ internal class EngineStudioRepository(
                 }
                 val permissions = launch { active.state.collect { updatePermissions(id, it) } }
                 try {
-                    val turn = submitConfigured(id, active, target, prompt, settings)
+                    val turn = submitConfigured(id, active, target, submission)
                     if (handlesLock.withLock { id in stopRequests }) requestStop(id, active, turn)
                     val terminal = active.state.first {
                         (it is ActiveSessionState.Ready && it.lastTurn?.id == turn) ||
@@ -415,18 +424,18 @@ internal class EngineStudioRepository(
         id: String,
         active: ActiveSession,
         target: EngineTarget,
-        prompt: String,
-        settings: RunSettings,
+        submission: StudioTurnSubmission,
     ): TurnId {
         val stored = state.value.configurations[id]?.applied ?: record(id).configuration
-        val trust = (stored?.approval ?: settings.approval).trustFor(offeredModels.value, target)
+        val trust = (stored?.approval ?: submission.settings.approval).trustFor(offeredModels.value, target)
         val effort = if (stored != null) {
             stored.reasoningEffort
         } else {
             efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target))
         }
-        log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
-        val turn = submit(active, prompt, effort, trust)
+        log.i { "Submitting prompt length=${submission.prompt.length} trust=${trust ?: "default"}" }
+        val turn = active.submitStudioPrompt(submission.prompt, effort, trust, submission.attachments)
+        submission.onAccepted()
         val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
         val confirmed = capability?.feature?.configuration?.value ?: SessionConfiguration(target.model, effort, trust)
         configurationState(id, StudioSessionConfiguration(confirmed.studio(target)))
@@ -514,27 +523,6 @@ internal class EngineStudioRepository(
             val kind = (outcome as? TurnOutcome.Failed)?.failure.toRunFailureKind()
             update(id) { copy(hasFailed = true, failureKind = kind) }
             RunOutcome.Failed
-        }
-    }
-
-    private suspend fun submit(
-        active: ActiveSession,
-        prompt: String,
-        reasoningEffort: String?,
-        trust: TrustLevel?,
-    ): TurnId {
-        val request = PromptRequest(
-            RequestId(Uuid.random().toString()),
-            listOf(ContentPart.Text(prompt)),
-            reasoningEffort = reasoningEffort,
-            trust = trust,
-        )
-        return try {
-            active.features.requireFeature(SendsPrompts).send(request)
-        } catch (e: EngineException) {
-            log.e(e) { "Submission failed; inspect native acceptance before changing run status" }
-            val accepted = active.state.value.activeTurn()?.takeIf { it.request == request.id }
-            if (accepted != null) accepted.id else throw e
         }
     }
 
@@ -831,15 +819,6 @@ internal fun <F : EngineFeature> EngineFeatures.requireFeature(key: EngineFeatur
 internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
     (features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature?.configuration?.value?.model
         ?: fallback
-
-private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
-    is ActiveSessionState.Submitting -> turn
-    is ActiveSessionState.Running -> turn
-    is ActiveSessionState.AwaitingUserAction -> turn
-    is ActiveSessionState.Interrupting -> turn
-    is ActiveSessionState.Unavailable -> activeTurn
-    is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
-}
 
 /** Trust level of a turn on [target]: only engines applying trust levels receive one. */
 internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =

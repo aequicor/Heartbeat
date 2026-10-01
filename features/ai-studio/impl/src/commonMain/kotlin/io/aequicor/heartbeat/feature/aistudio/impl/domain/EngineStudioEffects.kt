@@ -67,16 +67,13 @@ class EngineStudioEffects(
                         effect.prompt,
                         effect.settings,
                         effect.requestId,
+                        effect.attachments,
+                        effect.submissionId,
                     ),
                 )
             }
 
-            is AiStudioEffect.Run -> machine.send(
-                AiStudioIntent.Internal.RunFinished(
-                    effect.sessionId,
-                    runtime.run(effect.sessionId, effect.prompt, effect.settings),
-                ),
-            )
+            is AiStudioEffect.Run -> runEffect(effect, machine)
 
             is AiStudioEffect.Cancel -> {
                 log.i { "User requested stop" }
@@ -90,6 +87,24 @@ class EngineStudioEffects(
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
         }
+    }
+
+    private suspend fun runEffect(effect: AiStudioEffect.Run, machine: EffectScope<AiStudioIntent>) {
+        var isAccepted = false
+        val outcome = runtime.run(effect.sessionId, effect.prompt, effect.settings, effect.attachments) {
+            isAccepted = true
+            if (effect.submissionId.isNotEmpty()) {
+                machine.send(
+                    AiStudioIntent.Internal.RunAccepted(effect.paneId, effect.submissionId, effect.sessionId),
+                )
+            }
+        }
+        if (!isAccepted && effect.submissionId.isNotEmpty()) {
+            machine.send(
+                AiStudioIntent.Internal.RunRejected(effect.paneId, effect.submissionId, effect.sessionId),
+            )
+        }
+        machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, outcome))
     }
 
     private suspend fun configure(effect: AiStudioEffect.Configuration) {

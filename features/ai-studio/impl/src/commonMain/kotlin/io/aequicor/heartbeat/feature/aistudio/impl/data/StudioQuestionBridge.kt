@@ -194,6 +194,11 @@ internal class StudioQuestionBridge(
                 is AiStudioOutput.RunEnded ->
                     followUps.remove(output.sessionId)?.takeIf { output.outcome == RunOutcome.Failed }
 
+                is AiStudioOutput.SubmitAccepted,
+                is AiStudioOutput.SubmitRejected,
+                is AiStudioOutput.SubmitPrepared,
+                -> null
+
                 is AiStudioOutput.SubmitFailed -> null
             }?.also { if (it.id in delivering) reopenedEarly += it.id }
         }

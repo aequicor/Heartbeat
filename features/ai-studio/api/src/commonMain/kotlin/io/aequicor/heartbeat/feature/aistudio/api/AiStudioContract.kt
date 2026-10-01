@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlin.time.Instant
@@ -134,7 +135,12 @@ public sealed interface AiStudioIntent : MachineIntent {
         public data class ChangeSessionSetting(val sessionId: String, val change: StudioSettingChange) : Public
 
         /** Sends [prompt] from the composer of [paneId]: creates a session if needed and starts a run. */
-        public data class Submit(val paneId: Int, val prompt: String) : Public
+        public data class Submit(
+            val paneId: Int,
+            val prompt: String,
+            val attachments: List<ResourceRef> = emptyList(),
+            val submissionId: String = "",
+        ) : Public
 
         /** Asks the running agent of [sessionId] to stop. */
         public data class Stop(val sessionId: String) : Public
@@ -184,10 +190,24 @@ public sealed interface AiStudioIntent : MachineIntent {
             val prompt: String,
             val settings: RunSettings,
             val requestId: Long,
+            val attachments: List<ResourceRef> = emptyList(),
+            val submissionId: String = "",
         ) : Internal
 
         /** [requestId] failed; only its still-owning pane may restore [prompt]. */
-        public data class CreateFailed(val paneId: Int, val prompt: String, val requestId: Long) : Internal
+        public data class CreateFailed(
+            val paneId: Int,
+            val prompt: String,
+            val requestId: Long,
+            val attachments: List<ResourceRef> = emptyList(),
+            val submissionId: String = "",
+        ) : Internal
+
+        /** The native runtime accepted the submitted turn; the matching composer may clear. */
+        public data class RunAccepted(val paneId: Int?, val submissionId: String, val sessionId: String) : Internal
+
+        /** Native validation or submission rejected the turn; the matching composer stays editable. */
+        public data class RunRejected(val paneId: Int?, val submissionId: String, val sessionId: String = "") : Internal
 
         /** Explicit stop failed; keep observing the native turn and permit another stop attempt. */
         public data class CancelFailed(val sessionId: String) : Internal
@@ -265,10 +285,19 @@ public sealed interface AiStudioEffect : MachineEffect {
         val prompt: String,
         val settings: RunSettings,
         val requestId: Long,
+        val attachments: List<ResourceRef> = emptyList(),
+        val submissionId: String = "",
     ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
-    public data class Run(val sessionId: String, val prompt: String, val settings: RunSettings) : AiStudioEffect
+    public data class Run(
+        val sessionId: String,
+        val prompt: String,
+        val settings: RunSettings,
+        val attachments: List<ResourceRef> = emptyList(),
+        val paneId: Int? = null,
+        val submissionId: String = "",
+    ) : AiStudioEffect
 
     /** Signals the run of [sessionId] to stop; the run itself reports its end. */
     public data class Cancel(val sessionId: String) : AiStudioEffect
@@ -283,7 +312,23 @@ public sealed interface AiStudioEffect : MachineEffect {
 /** One-shot events of the studio. */
 public sealed interface AiStudioOutput : MachineOutput {
     /** Restore [prompt] only while [paneId] still owns [requestId], without replacing newer input. */
-    public data class SubmitFailed(val paneId: Int, val prompt: String, val requestId: Long) : AiStudioOutput
+    public data class SubmitFailed(
+        val paneId: Int,
+        val prompt: String,
+        val requestId: Long,
+        val attachments: List<ResourceRef> = emptyList(),
+        val submissionId: String = "",
+    ) : AiStudioOutput
+
+    /** Confirmed native acceptance of one composer submission. */
+    public data class SubmitAccepted(val paneId: Int?, val submissionId: String, val sessionId: String) : AiStudioOutput
+
+    /** A new native session owns this pending composer independently of subsequent pane navigation. */
+    public data class SubmitPrepared(val submissionId: String, val sessionId: String) : AiStudioOutput
+
+    /** Native rejection of one composer submission. */
+    public data class SubmitRejected(val paneId: Int?, val submissionId: String, val sessionId: String = "") :
+        AiStudioOutput
 
     /** An accepted answer to permission [requestId] of [sessionId] did not reach the engine. */
     public data class PermissionAnswerFailed(val sessionId: String, val requestId: String) : AiStudioOutput

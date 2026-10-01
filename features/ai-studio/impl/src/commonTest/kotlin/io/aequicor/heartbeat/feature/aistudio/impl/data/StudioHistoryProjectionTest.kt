@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
@@ -37,6 +38,24 @@ class StudioHistoryProjectionTest {
             FeedbackChange.Effort(null, "high"),
             outcome,
         )
+
+    @Test
+    fun `user attachment cards retain original references without MIME labels in the visible prompt`() {
+        val image = ResourceRef("attachment:image", "image/png")
+        val document = ResourceRef("attachment:document", "text/markdown")
+        val item = SessionItem.Message(
+            info("prompt", 0),
+            MessageRole.User,
+            listOf(ContentPart.Text("Compare these files"), ContentPart.Image(image), ContentPart.Resource(document)),
+        )
+        val prompt = assertIs<StudioMessage.Prompt>(listOf(item).toStudioMessages(now, false).single())
+        assertEquals("Compare these files", prompt.text)
+        assertEquals(listOf(image, document), prompt.attachments)
+        val attachmentOnly = item.copy(parts = listOf(ContentPart.Image(image)))
+        val projected = assertIs<StudioMessage.Prompt>(listOf(attachmentOnly).toStudioMessages(now, false).single())
+        assertEquals("", projected.text)
+        assertEquals(listOf(image), projected.attachments)
+    }
 
     @Test
     fun `feedback separates native answers and never claims to stream`() {
