@@ -22,7 +22,9 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.withContext
 import okio.FileSystem
 import okio.IOException
@@ -154,12 +156,19 @@ internal class ProfileAttachmentStorage(
         dao.get(id.value)?.descriptor()
     }
 
+    /**
+     * Routine projection a caller re-creates on every transcript revision: an empty request is served without
+     * storage, and a real one is traced per collection instead of per construction, so a streamed turn does not
+     * fill the console with identical reads.
+     */
     override fun observe(ids: List<AttachmentId>): Flow<List<AttachmentDescriptor>> {
-        log.d { "Observe attachment metadata count=${ids.size}" }
-        return dao.observe(ids.map { it.value }).map { rows ->
-            val byId = rows.associateBy { it.id }
-            ids.mapNotNull { byId[it.value]?.descriptor() }
-        }
+        if (ids.isEmpty()) return flowOf(emptyList())
+        return dao.observe(ids.map { it.value })
+            .onStart { log.v { "Observe attachment metadata count=${ids.size}" } }
+            .map { rows ->
+                val byId = rows.associateBy { it.id }
+                ids.mapNotNull { byId[it.value]?.descriptor() }
+            }
     }
 
     private fun prepareInput(

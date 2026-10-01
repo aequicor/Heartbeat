@@ -36,7 +36,12 @@ public interface AttachmentsCatalog {
     /** Gets metadata for a registered attachment of this profile. */
     public suspend fun get(id: AttachmentId): AttachmentDescriptor?
 
-    /** Observes registered metadata in requested order, omitting missing identifiers. */
+    /**
+     * Observes registered metadata in requested order, omitting missing identifiers.
+     *
+     * Callers re-create the observation whenever the conversation they project changes, so an empty request is
+     * served immediately and never reaches storage.
+     */
     public fun observe(ids: List<AttachmentId>): Flow<List<AttachmentDescriptor>>
 }
 
