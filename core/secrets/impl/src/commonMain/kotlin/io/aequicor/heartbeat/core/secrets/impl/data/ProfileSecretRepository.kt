@@ -11,7 +11,7 @@ internal class ProfileSecretRepository(
     private val checkOpen: () -> Unit,
 ) : SecretRepository {
     override suspend fun <T> transaction(hasChanges: Boolean, action: (SecretSnapshot) -> T): T {
-        Log.tag("SEC").d { "vault transaction requested" }
+        Log.tag("SEC").v { "vault transaction requested" }
         return registry.access(profile, if (hasChanges) "update" else "read", hasChanges, checkOpen, action)
     }
 }

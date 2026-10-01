@@ -28,7 +28,7 @@ internal class VaultRegistry(private val backend: ProtectedVault, private val di
             val delivered = withContext(dispatchers.io) {
                 mutex.withLock {
                     checkOpen()
-                    log.d { "vault operation=$operation" }
+                    log.v { "vault operation=$operation" }
                     guarded {
                         backend.transaction(namespace(profile)) { bytes ->
                             val state = codec.decode(bytes)

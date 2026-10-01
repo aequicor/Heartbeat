@@ -53,7 +53,8 @@ import kotlin.reflect.KClass
  * abstraction, so processing never leaves the caller's coroutine and cannot interleave.
  *
  * Everything is logged under `SM/<name>`: incoming intents, transitions, `stay` updates, ignored intents, effects
- * (start / completion / cancellation / failure), outputs, start, restore and stop.
+ * (start / completion / cancellation / failure), outputs, start, restore and stop. Routine intent/effect and
+ * data-update diagnostics are VERBOSE; state transitions are INFO, and output delivery is DEBUG.
  */
 internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput>(
     private val spec: MachineSpec<S, I, E, O>,
@@ -135,7 +136,7 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
             log.w { "← ${intent.label()} ($source) dropped: effect state is no longer active" }
             return SendResult.Ignored
         }
-        log.d { "← ${intent.label()} ($source)" }
+        log.v { "← ${intent.label()} ($source)" }
         val from = mutableState.value
         val resolution = try {
             spec.resolve(from, intent)
@@ -169,9 +170,9 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
                 log.i { "${from.label()} --${intent.label()}--> ${to.label()}" }
             }
 
-            from != to -> log.d { "${from.label()} ~${intent.label()}~> ${to.label()} (data updated)" }
+            from != to -> log.v { "${from.label()} ~${intent.label()}~> ${to.label()} (data updated)" }
 
-            else -> log.d { "${from.label()} --${intent.label()}--> (no change)" }
+            else -> log.v { "${from.label()} --${intent.label()}--> (no change)" }
         }
         mutableState.value = to
         resolution.outputs.forEach(::emitOutput)
@@ -180,11 +181,11 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
 
     private fun emitOutput(output: O) {
         val subscribers = mutableOutputs.subscriptionCount.value
-        val isDelivered = mutableOutputs.tryEmit(output) && subscribers > 0
-        if (isDelivered) {
-            log.d { "→ output ${output.label()} (subscribers: $subscribers)" }
-        } else {
-            log.w { "→ output ${output.label()} dropped (subscribers: $subscribers)" }
+        val isEmitted = mutableOutputs.tryEmit(output)
+        when {
+            !isEmitted -> log.w { "→ output ${output.label()} dropped (subscribers: $subscribers)" }
+            subscribers == 0 -> log.d { "→ output ${output.label()} unobserved (subscribers: 0)" }
+            else -> log.d { "→ output ${output.label()} (subscribers: $subscribers)" }
         }
     }
 
@@ -198,11 +199,11 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
         // An effect whose own result leaves the state is cancelled after it has finished: not a cancellation.
         var isFinished = false
         val job = effectScope.launch {
-            log.d { "effect $label started" }
+            log.v { "effect $label started" }
             try {
                 effects.handle(effect, feedback)
                 isFinished = true
-                log.d { "effect $label completed" }
+                log.v { "effect $label completed" }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -223,7 +224,7 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
                     effectScope.launch { reportFailure(effect, label, cause, effectScope) }
                 }
 
-                else -> log.d { "effect $label cancelled" }
+                else -> log.v { "effect $label cancelled" }
             }
         }
     }

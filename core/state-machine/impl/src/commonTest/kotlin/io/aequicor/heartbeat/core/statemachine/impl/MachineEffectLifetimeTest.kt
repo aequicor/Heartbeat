@@ -110,7 +110,7 @@ class MachineEffectLifetimeTest {
                 assertNull(queuedResult)
             }
         }
-        Log.init(isDebug = true, sinks = listOf(sink))
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
 
         machine.send(ChatIntent.Public.Open("c2"))
         runCurrent()
