@@ -38,7 +38,7 @@ internal class ComputerUseComponent(
 
     private class RetainedModel(val model: ComputerUseModel) : InstanceKeeper.Instance
 
-    /** Metro factory for a lifecycle-owned panel instance. */
+    /** Metro factory for a lifecycle-owned settings screen instance. */
     @AssistedFactory
     fun interface Factory {
         /** Creates an instance owned by the supplied component and screen scope. */

@@ -1,13 +1,15 @@
 <resources>
     <string name="computer_use_title">Computer use</string>
     <string name="computer_use_back">Back</string>
+    <string name="computer_use_section_access">Agent access</string>
     <string name="computer_use_enabled">Enable computer use</string>
-    <string name="computer_use_enabled_hint">Let the agent see the screen and use the mouse and keyboard. The agent chooses the capture mode. Turning this off stops its work on your computer.</string>
+    <string name="computer_use_enabled_hint">Once enabled, the agent picks which screen or window to view and can control the mouse and keyboard. Turning this off stops its work on your computer.</string>
     <string name="computer_use_save_failed">The setting could not be saved. Try switching it again.</string>
+    <string name="computer_use_load_failed">The setting could not be loaded. Reopen settings to try again.</string>
     <string name="computer_use_blocker_platform">Computer use is available on macOS and Windows.</string>
     <string name="computer_use_blocker_screen_recording">Allow screen recording for Heartbeat in system settings.</string>
     <string name="computer_use_blocker_accessibility">Allow accessibility access for Heartbeat in system settings.</string>
-    <string name="computer_use_blocker_elevation">The target requires elevated privileges.</string>
+    <string name="computer_use_blocker_elevation">The window the agent chose requires elevated privileges.</string>
     <string name="computer_use_blocker_session_locked">Unlock the computer to resume capture.</string>
     <string name="computer_use_blocker_headless">Connect an active display to capture frames.</string>
 </resources>

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.presentation
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
@@ -13,7 +14,10 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferen
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
@@ -34,13 +38,22 @@ internal enum class BlockerUi {
     Headless,
 }
 
+/** Why the settings screen cannot show or keep the saved switch value. */
+internal enum class SettingsError {
+    /** The saved preference could not be read; the switch stays locked until its value is known. */
+    LoadFailed,
+
+    /** The last switch change could not be written; the switch keeps its previous value. */
+    SaveFailed,
+}
+
 /** The persisted tool switch and relevant host availability; capture choices belong to the agent. */
 @Immutable
 internal data class ComputerUseScreenState(
     val isEnabled: Boolean = false,
     val isLoaded: Boolean = false,
     val blockers: ImmutableList<BlockerUi> = persistentListOf(),
-    val hasError: Boolean = false,
+    val error: SettingsError? = null,
 ) : MVIState
 
 /** The only control offered by computer use settings. */
@@ -54,7 +67,8 @@ internal sealed interface ComputerUseScreenAction : MVIAction
 
 /**
  * Settings store. It observes the profile preference and the machine's permission blockers, without holding
- * captured frames or choosing a capture target. Disabling revokes input and capture before saving the switch.
+ * captured frames or choosing a capture target. Disabling revokes input and capture before saving the switch,
+ * and both outlive the settings screen. A failed save keeps the previous value; a failed read keeps it locked.
  */
 internal class ComputerUseModel(
     private val machine: Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>,
@@ -62,11 +76,14 @@ internal class ComputerUseModel(
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
 ) {
+    private val log = Log.tag("ComputerUseModel")
+
     /** The settings store, retained for the lifetime of this screen. */
     val store = factory.create<ComputerUseScreenState, ComputerUseScreenIntent, ComputerUseScreenAction>(
         "ComputerUse",
         ComputerUseScreenState().reflectState(machine.state.value),
-        onError = { copy(isLoaded = true, hasError = true) },
+        // Saving handles its own failures, so what reaches here is the preference stream: the value stays unknown.
+        onError = { copy(error = SettingsError.LoadFailed) },
     ) {
         reflect(machine) { reflectState(it) }
         whileSubscribed {
@@ -88,22 +105,48 @@ internal class ComputerUseModel(
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun SettingsPipeline.setEnabled(isEnabled: Boolean) {
-        if (!isEnabled) sendTo(machine, ComputerUseIntent.Public.Revoke)
-        preferences.setEnabled(isEnabled)
-        updateState { copy(isEnabled = isEnabled, isLoaded = true, hasError = false) }
+        try {
+            if (isEnabled) {
+                preferences.setEnabled(true)
+            } else {
+                // Closing settings right after switching off must neither cancel the revoke nor the saved opt out.
+                withContext(NonCancellable) {
+                    sendTo(machine, ComputerUseIntent.Public.Revoke)
+                    preferences.setEnabled(false)
+                }
+            }
+            updateState {
+                copy(
+                    isEnabled = isEnabled,
+                    isLoaded = true,
+                    // A failed read stays visible: the preference stream it stopped is not observed again here.
+                    error = error.takeUnless { it == SettingsError.SaveFailed },
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(e) { "computer use switch was not saved enabled=$isEnabled" }
+            updateState { copy(error = SettingsError.SaveFailed) }
+        }
     }
 }
 
 /** Permission availability is reflected without duplicating capture targets or the active session. */
 private fun ComputerUseScreenState.reflectState(state: ComputerUseState): ComputerUseScreenState = copy(
     blockers = when (state) {
-        is ComputerUseState.Unavailable -> state.blockers.map { it.toUi() }.toImmutableList()
+        is ComputerUseState.Unavailable -> state.blockers.toUi()
 
-        ComputerUseState.Idle, ComputerUseState.Checking, is ComputerUseState.Ready,
-        is ComputerUseState.Capturing, is ComputerUseState.Failed,
-        -> persistentListOf()
+        // Capture may be granted while input is not (macOS Accessibility): the agent's input then keeps failing.
+        is ComputerUseState.Ready -> state.capabilities.blockers.toUi()
+
+        is ComputerUseState.Capturing -> state.capabilities.blockers.toUi()
+
+        ComputerUseState.Idle, ComputerUseState.Checking, is ComputerUseState.Failed -> persistentListOf()
     },
 )
+
+private fun List<ComputerUseBlocker>.toUi(): ImmutableList<BlockerUi> = map { it.toUi() }.toImmutableList()
 
 private fun ComputerUseBlocker.toUi(): BlockerUi = when (this) {
     ComputerUseBlocker.UnsupportedPlatform -> BlockerUi.UnsupportedPlatform

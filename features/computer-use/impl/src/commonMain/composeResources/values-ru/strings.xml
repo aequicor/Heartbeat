@@ -1,13 +1,15 @@
 <resources>
     <string name="computer_use_title">Управление компьютером</string>
     <string name="computer_use_back">Назад</string>
+    <string name="computer_use_section_access">Доступ агента</string>
     <string name="computer_use_enabled">Включить управление компьютером</string>
-    <string name="computer_use_enabled_hint">Агент сможет видеть экран и пользоваться мышью и клавиатурой. Режим захвата он выбирает сам. Выключение остановит его работу с компьютером.</string>
+    <string name="computer_use_enabled_hint">После включения агент сам выбирает, какой экран или окно смотреть, и может управлять мышью и клавиатурой. Выключение остановит его работу с компьютером.</string>
     <string name="computer_use_save_failed">Не удалось сохранить настройку. Попробуйте переключить её ещё раз.</string>
+    <string name="computer_use_load_failed">Не удалось загрузить настройку. Откройте настройки заново, чтобы повторить попытку.</string>
     <string name="computer_use_blocker_platform">Управление компьютером доступно на macOS и Windows.</string>
     <string name="computer_use_blocker_screen_recording">Разрешите запись экрана для Heartbeat в системных настройках.</string>
     <string name="computer_use_blocker_accessibility">Разрешите универсальный доступ для Heartbeat в системных настройках.</string>
-    <string name="computer_use_blocker_elevation">Цель требует повышенных прав.</string>
+    <string name="computer_use_blocker_elevation">Окно, выбранное агентом, требует повышенных прав.</string>
     <string name="computer_use_blocker_session_locked">Разблокируйте компьютер, чтобы продолжить захват.</string>
     <string name="computer_use_blocker_headless">Подключите активный дисплей для захвата кадров.</string>
 </resources>

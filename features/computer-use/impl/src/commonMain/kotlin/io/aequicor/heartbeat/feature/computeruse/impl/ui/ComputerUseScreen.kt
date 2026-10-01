@@ -20,7 +20,7 @@ import io.aequicor.heartbeat.ds.components.HbPaneHeader
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbSettingsSection
 import io.aequicor.heartbeat.ds.components.HbSwitch
-import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.presentation.BlockerUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseModel
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenIntent
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenState
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.SettingsError
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.Res
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_back
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_accessibility
@@ -38,8 +39,11 @@ import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blo
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_session_locked
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_enabled
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_enabled_hint
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_load_failed
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_save_failed
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_section_access
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_title
+import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
@@ -53,7 +57,10 @@ internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, m
     ComputerUseContent(state, model.store::intent, onBack, modifier)
 }
 
-/** One settings row with a persistent tool switch and contextual operating-system permission help. */
+/**
+ * One settings row with a persistent tool switch. Operating-system permission help follows the row as a polite
+ * live-region warning, so a screen reader announces a permission the agent is missing while the tool is on.
+ */
 @Composable
 internal fun ComputerUseContent(
     state: ComputerUseScreenState,
@@ -90,7 +97,7 @@ internal fun ComputerUseContent(
                 contentPadding = PaddingValues(HbTheme.spacing.xl),
             ) {
                 item(key = "tool") {
-                    HbSettingsSection(stringResource(Res.string.computer_use_title)) {
+                    HbSettingsSection(stringResource(Res.string.computer_use_section_access)) {
                         HbSettingsRow(
                             stringResource(Res.string.computer_use_enabled),
                             Modifier.fillMaxWidth().testTag("computer-use-enabled-row"),
@@ -106,22 +113,18 @@ internal fun ComputerUseContent(
                         }
                     }
                 }
-                if (state.hasError) {
-                    item(key = "error") {
+                if (state.isEnabled && state.blockers.isNotEmpty()) {
+                    item(key = "permissions") {
                         HbBanner(
-                            stringResource(Res.string.computer_use_save_failed),
-                            Modifier.testTag("computer-use-error"),
+                            state.blockers.map { stringResource(it.resource()) }.joinToString(separator = "\n"),
+                            Modifier.testTag("computer-use-permissions"),
+                            tone = HbTone.Warning,
                         )
                     }
                 }
-                if (state.isEnabled && state.blockers.isNotEmpty()) {
-                    item(key = "permissions") {
-                        HbText(
-                            state.blockers.map { stringResource(it.resource()) }.joinToString(separator = "\n"),
-                            modifier = Modifier.testTag("computer-use-permissions"),
-                            style = HbTheme.typography.caption,
-                            color = HbTheme.colors.textSecondary,
-                        )
+                state.error?.let { error ->
+                    item(key = "error") {
+                        HbBanner(stringResource(error.resource()), Modifier.testTag("computer-use-error"))
                     }
                 }
             }
@@ -138,6 +141,19 @@ private fun BlockerUi.resource(): StringResource = when (this) {
     BlockerUi.Headless -> Res.string.computer_use_blocker_headless
 }
 
+private fun SettingsError.resource(): StringResource = when (this) {
+    SettingsError.LoadFailed -> Res.string.computer_use_load_failed
+    SettingsError.SaveFailed -> Res.string.computer_use_save_failed
+}
+
+/** Enabled tool with missing operating-system permissions and a failed save, as the screen shows them together. */
+private val attentionPreviewState = ComputerUseScreenState(
+    isEnabled = true,
+    isLoaded = true,
+    blockers = persistentListOf(BlockerUi.ScreenRecordingPermission, BlockerUi.AccessibilityPermission),
+    error = SettingsError.SaveFailed,
+)
+
 @Preview
 @Composable
 private fun ComputerUseLightPreview() {
@@ -151,5 +167,21 @@ private fun ComputerUseLightPreview() {
 private fun ComputerUseDarkPreview() {
     HbTheme(darkTheme = true) {
         ComputerUseContent(ComputerUseScreenState(isEnabled = true, isLoaded = true), {}, {})
+    }
+}
+
+@Preview
+@Composable
+private fun ComputerUseAttentionLightPreview() {
+    HbTheme(darkTheme = false) {
+        ComputerUseContent(attentionPreviewState, {}, null)
+    }
+}
+
+@Preview
+@Composable
+private fun ComputerUseAttentionDarkPreview() {
+    HbTheme(darkTheme = true) {
+        ComputerUseContent(attentionPreviewState, {}, {})
     }
 }

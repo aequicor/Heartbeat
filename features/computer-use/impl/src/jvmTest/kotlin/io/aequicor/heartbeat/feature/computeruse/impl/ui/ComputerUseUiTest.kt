@@ -6,9 +6,11 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -18,6 +20,7 @@ import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
@@ -27,7 +30,12 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.BlockerUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenIntent
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenState
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.SettingsError
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.Res
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_load_failed
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_save_failed
 import kotlinx.collections.immutable.persistentListOf
+import org.jetbrains.compose.resources.stringResource
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
@@ -95,7 +103,9 @@ class ComputerUseUiTest {
                     )
                 }
             }
-            onNodeWithTag("computer-use-permissions").assertIsDisplayed()
+            onNodeWithTag("computer-use-permissions")
+                .assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
             onAllNodes(hasClickAction()).assertCountEquals(1)
             onNodeWithTag("computer-use").performKeyInput { pressKey(Key.Tab) }
             onNodeWithTag("computer-use-enabled").assertIsFocused().performKeyInput { pressKey(Key.Spacebar) }
@@ -103,6 +113,39 @@ class ComputerUseUiTest {
                 assertEquals(listOf<ComputerUseScreenIntent>(ComputerUseScreenIntent.SetEnabled(false)), intents)
             }
         }
+
+    @Test
+    fun `load failure keeps the switch locked and explains the failure`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            var loadFailed = ""
+            var saveFailed = ""
+            setContent {
+                HbTheme {
+                    loadFailed = stringResource(Res.string.computer_use_load_failed)
+                    saveFailed = stringResource(Res.string.computer_use_save_failed)
+                    ComputerUseContent(ComputerUseScreenState(error = SettingsError.LoadFailed), {}, null)
+                }
+            }
+            onNodeWithTag("computer-use-enabled").assertIsNotEnabled()
+            onNodeWithTag("computer-use-error")
+                .assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+            onNodeWithText(loadFailed).assertIsDisplayed()
+            onNodeWithText(saveFailed).assertDoesNotExist()
+        }
+
+    @Test
+    fun `save failure is reported below the switch`() = runSkikoComposeUiTest(size = Size(420f, 800f)) {
+        var saveFailed = ""
+        setContent {
+            HbTheme {
+                saveFailed = stringResource(Res.string.computer_use_save_failed)
+                ComputerUseContent(ComputerUseScreenState(isLoaded = true, error = SettingsError.SaveFailed), {}, null)
+            }
+        }
+        onNodeWithTag("computer-use-enabled").assertIsEnabled()
+        onNodeWithText(saveFailed).assertIsDisplayed()
+    }
 
     @Test
     fun `renders desktop and compact settings in both themes`() {
@@ -113,7 +156,12 @@ class ComputerUseUiTest {
                         CompositionLocalProvider(LocalDensity provides Density(1f)) {
                             HbTheme(darkTheme = isDark) {
                                 ComputerUseContent(
-                                    ComputerUseScreenState(isEnabled = isDark, isLoaded = true),
+                                    ComputerUseScreenState(
+                                        isEnabled = isDark,
+                                        isLoaded = true,
+                                        blockers = persistentListOf(BlockerUi.AccessibilityPermission),
+                                        error = SettingsError.SaveFailed.takeIf { isDark },
+                                    ),
                                     {},
                                     null,
                                 )
