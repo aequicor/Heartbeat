@@ -27,7 +27,9 @@ private val log = Log.tag("DS/ComposerToggle")
 
 /**
  * A composer mode switch such as "Research": a compact labelled pill in the composer toolbar. When [isChecked]
- * the pill takes the studio's selected tint, so the active mode reads at a glance next to the model menu.
+ * the pill takes the composer accent tint with its accent foreground, so an active mode such as worktree
+ * isolation reads as a deliberate state next to the quiet pills; a checked pill keeps that tint while
+ * disabled, because it then only reports a pinned context instead of offering a choice.
  */
 @Composable
 public fun HbComposerToggle(
@@ -46,7 +48,7 @@ public fun HbComposerToggle(
     val studio = HbTheme.surfaces
     val motion = HbTheme.motion
     val shape = HbTheme.shapes.small
-    val base = if (isChecked) studio.selected else studio.composerPill
+    val base = if (isChecked) studio.composerPillAccent else studio.composerPill
     val target = when {
         !enabled -> base
         isPressed -> colors.pressedOverlay.compositeOver(base)
@@ -61,8 +63,8 @@ public fun HbComposerToggle(
         ).value
     }
     val foreground = when {
+        isChecked -> studio.onComposerPillAccent
         !enabled -> colors.textSecondary
-        isChecked -> studio.onSelected
         else -> colors.textPrimary
     }
     HbRow(

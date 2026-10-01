@@ -73,6 +73,9 @@ data class HbColors(
 
     /** Translucent keyboard focus ring built from the semantic accent. */
     val focusRing: Color = focusAccent.copy(alpha = 0.80f)
+
+    /** Opaque text selection inside editors and fields; the caret stays [textPrimary]. */
+    val selectionHighlight: Color = focusAccent.copy(alpha = 0.26f).compositeOver(surface)
     val focusOuter: Color = Color.Black
     val focusInner: Color = Color.White
     val accentMuted: Color = brand.copy(alpha = 0.22f).compositeOver(surface)

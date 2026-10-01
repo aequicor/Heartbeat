@@ -9,7 +9,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -29,7 +28,9 @@ import io.aequicor.heartbeat.ds.tokens.HbDimensions
 /**
  * Focus treatment shared by native adapters and Foundation controls. Place before the focus target
  * and any clipping modifier. Pointer presses suppress a control's ring until a key or new focus;
- * merely moving the pointer preserves keyboard focus. Text inputs always expose their active state.
+ * merely moving the pointer preserves keyboard focus. Text inputs always expose their active state:
+ * outside macOS the field's own rounded edge takes an accent contour, so the highlight follows the
+ * field instead of cutting a straight line across its corners.
  */
 @Composable
 fun Modifier.adaptiveFocusOutline(
@@ -72,13 +73,7 @@ private fun DrawScope.drawFocusTreatment(
     isTextInput: Boolean,
 ) {
     if (isTextInput && platform != PlatformUi.MacOs) {
-        val width = dimensions.fieldFocusWidth.toPx()
-        drawLine(
-            colors.focusAccent,
-            Offset(0f, size.height - width / 2),
-            Offset(size.width, size.height - width / 2),
-            width,
-        )
+        drawFocusContour(shape, colors.focusAccent, dimensions.fieldFocusWidth.toPx(), outset = 0f)
         return
     }
     val outset = dimensions.focusOutset.toPx()
