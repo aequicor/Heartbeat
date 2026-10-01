@@ -77,11 +77,13 @@ public fun HbChatComposer(
     isStreaming: Boolean = false,
     enabled: Boolean = true,
     accessibleLabel: String = placeholder,
+    hasAttachments: Boolean = false,
+    canSend: Boolean = true,
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val isEnterSendingEnabled = HbTheme.dimensions.isDesktop
-    val isSendEnabled = enabled && !isStreaming && value.isNotBlank()
+    val isSendEnabled = enabled && !isStreaming && canSend && (value.isNotBlank() || hasAttachments)
     val actionLabel = if (isStreaming) stopLabel else sendLabel
     val isActionEnabled = if (isStreaming) enabled else isSendEnabled
     val anchor = remember { mutableStateOf<IntRect?>(null) }

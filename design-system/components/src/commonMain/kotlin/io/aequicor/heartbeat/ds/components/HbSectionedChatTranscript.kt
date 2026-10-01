@@ -78,6 +78,7 @@ public fun HbChatTranscript(
     contentPadding: PaddingValues = PaddingValues(HbTheme.spacing.l),
     showSectionHeaders: Boolean = true,
     overlapInsets: PaddingValues = PaddingValues(),
+    messageFooterContent: (@Composable (HbChatMessage) -> Unit)? = null,
 ) {
     val expandedKeys = toolExpansionState.expandedKeys
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
@@ -149,6 +150,7 @@ public fun HbChatTranscript(
                             streamingLabel = streamingLabel,
                             toolLabels = toolLabels,
                             onLinkClick = onLinkClick,
+                            footerContent = messageFooterContent,
                             appearance = messageAppearance?.invoke(message),
                             isLatestMessage = message.id == timeline.latestMessage?.id,
                             isToolExpanded = chunk.key in expandedKeys,
@@ -217,6 +219,7 @@ private fun TimelineMessageChunk(
     streamingLabel: String,
     toolLabels: HbToolLabels,
     onLinkClick: ((String) -> Unit)?,
+    footerContent: (@Composable (HbChatMessage) -> Unit)?,
     modifier: Modifier = Modifier,
     appearance: HbMessageAppearance? = null,
     isLatestMessage: Boolean = false,
@@ -235,23 +238,26 @@ private fun TimelineMessageChunk(
     } else {
         ""
     }
-    HbTranscriptChunkContent(
-        chunk = chunk,
-        modifier = modifier.padding(
-            bottom = if (chunk.isLast && !isLatestMessage) HbTheme.spacing.l else HbTheme.elevation.none,
-        ),
-        message = message.copy(
-            text = copyText,
-            parts = persistentListOf(),
-            toolCalls = persistentListOf(),
-            appearance = appearance ?: message.appearance,
-        ),
-        streamingLabel = streamingLabel,
-        toolLabels = toolLabels,
-        onLinkClick = onLinkClick,
-        isToolExpanded = isToolExpanded,
-        onToolExpandedChange = onToolExpandedChange,
-    )
+    io.aequicor.heartbeat.ds.layouts.HbColumn {
+        HbTranscriptChunkContent(
+            chunk = chunk,
+            modifier = modifier.padding(
+                bottom = if (chunk.isLast && !isLatestMessage) HbTheme.spacing.l else HbTheme.elevation.none,
+            ),
+            message = message.copy(
+                text = copyText,
+                parts = persistentListOf(),
+                toolCalls = persistentListOf(),
+                appearance = appearance ?: message.appearance,
+            ),
+            streamingLabel = streamingLabel,
+            toolLabels = toolLabels,
+            onLinkClick = onLinkClick,
+            isToolExpanded = isToolExpanded,
+            onToolExpandedChange = onToolExpandedChange,
+        )
+        if (chunk.isLast) footerContent?.invoke(message)
+    }
 }
 
 /**

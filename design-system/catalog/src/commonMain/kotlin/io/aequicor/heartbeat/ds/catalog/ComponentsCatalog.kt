@@ -38,6 +38,7 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
         item { SettingsExample() }
         item { UsageCatalog() }
+        item { AttachmentCatalog(state::showActionFeedback) }
         item {
             HbCard(modifier = Modifier.fillMaxWidth()) {
                 HbText(hbString(HbString.Actions), style = HbTheme.typography.title)

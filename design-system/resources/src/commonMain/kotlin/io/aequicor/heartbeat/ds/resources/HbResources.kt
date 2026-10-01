@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_app_name
 import io.aequicor.heartbeat.ds.resources.generated.en_app_subtitle
 import io.aequicor.heartbeat.ds.resources.generated.en_archive
 import io.aequicor.heartbeat.ds.resources.generated.en_ask_mode
+import io.aequicor.heartbeat.ds.resources.generated.en_attachments
 import io.aequicor.heartbeat.ds.resources.generated.en_body_sample
 import io.aequicor.heartbeat.ds.resources.generated.en_brand
 import io.aequicor.heartbeat.ds.resources.generated.en_brand_symbol
@@ -133,6 +134,7 @@ import io.aequicor.heartbeat.ds.resources.generated.en_notice_text
 import io.aequicor.heartbeat.ds.resources.generated.en_open_dialog
 import io.aequicor.heartbeat.ds.resources.generated.en_palette
 import io.aequicor.heartbeat.ds.resources.generated.en_palette_description
+import io.aequicor.heartbeat.ds.resources.generated.en_paste_image
 import io.aequicor.heartbeat.ds.resources.generated.en_pin
 import io.aequicor.heartbeat.ds.resources.generated.en_plan_mode
 import io.aequicor.heartbeat.ds.resources.generated.en_platform
@@ -204,6 +206,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_app_name
 import io.aequicor.heartbeat.ds.resources.generated.ru_app_subtitle
 import io.aequicor.heartbeat.ds.resources.generated.ru_archive
 import io.aequicor.heartbeat.ds.resources.generated.ru_ask_mode
+import io.aequicor.heartbeat.ds.resources.generated.ru_attachments
 import io.aequicor.heartbeat.ds.resources.generated.ru_body_sample
 import io.aequicor.heartbeat.ds.resources.generated.ru_brand
 import io.aequicor.heartbeat.ds.resources.generated.ru_brand_symbol
@@ -323,6 +326,7 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_notice_text
 import io.aequicor.heartbeat.ds.resources.generated.ru_open_dialog
 import io.aequicor.heartbeat.ds.resources.generated.ru_palette
 import io.aequicor.heartbeat.ds.resources.generated.ru_palette_description
+import io.aequicor.heartbeat.ds.resources.generated.ru_paste_image
 import io.aequicor.heartbeat.ds.resources.generated.ru_pin
 import io.aequicor.heartbeat.ds.resources.generated.ru_plan_mode
 import io.aequicor.heartbeat.ds.resources.generated.ru_platform
@@ -511,6 +515,8 @@ public enum class HbString(internal val english: StringResource, internal val ru
     Disabled(Res.string.en_disabled, Res.string.ru_disabled),
     ActionFeedback(Res.string.en_action_feedback, Res.string.ru_action_feedback),
     Inputs(Res.string.en_inputs, Res.string.ru_inputs),
+    Attachments(Res.string.en_attachments, Res.string.ru_attachments),
+    PasteImage(Res.string.en_paste_image, Res.string.ru_paste_image),
     InputPlaceholder(Res.string.en_input_placeholder, Res.string.ru_input_placeholder),
     InputHint(Res.string.en_input_hint, Res.string.ru_input_hint),
     Statuses(Res.string.en_statuses, Res.string.ru_statuses),
