@@ -1,0 +1,10 @@
+<resources>
+    <string name="attachment_title">Вложение</string>
+    <string name="attachment_text_truncated">Показано начало документа. «Сохранить как» экспортирует полный исходный файл.</string>
+    <string name="attachment_close">Закрыть</string>
+    <string name="attachment_error">Не удалось обработать вложение. Попробуйте ещё раз.</string>
+    <string name="attachment_loading">Загрузка вложения…</string>
+    <string name="attachment_open">Открыть в приложении</string>
+    <string name="attachment_picking">Выберите вложения…</string>
+    <string name="attachment_save">Сохранить как</string>
+</resources>
