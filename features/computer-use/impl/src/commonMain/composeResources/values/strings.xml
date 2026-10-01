@@ -41,7 +41,7 @@
     <string name="computer_use_message_unavailable">The host cannot capture or inject input.</string>
     <string name="computer_use_message_other">The request was refused.</string>
     <string name="computer_use_message_blocked">Permissions required: %1$s</string>
-    <string name="computer_use_message_revoked">Capture stopped and its frames deleted.</string>
+    <string name="computer_use_message_revoked">Capture stopped; input is disabled.</string>
     <string name="computer_use_blocker_platform">Desktop capture is supported on macOS and Windows.</string>
     <string name="computer_use_blocker_screen_recording">Allow screen recording for Heartbeat in system settings.</string>
     <string name="computer_use_blocker_accessibility">Allow accessibility access for Heartbeat in system settings.</string>

@@ -134,7 +134,8 @@ internal fun ComputerUseScreen(
  *
  * The status line states what the host may do; the mode section starts or switches a capture; the window list
  * feeds window mode; the frame section shows the last stored frame with its size and token estimate; the input
- * section arms injection. The fixed footer holds the kill switch, which stops capture and deletes its frames.
+ * section arms injection. The fixed footer holds the kill switch, which revokes capture and input immediately;
+ * frame cleanup continues separately.
  */
 @Composable
 internal fun ComputerUseContent(

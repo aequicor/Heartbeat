@@ -72,7 +72,7 @@ internal sealed interface PanelMessage {
     /** The operating system refuses capture or input. */
     data class Blocked(val blockers: ImmutableList<BlockerUi>) : PanelMessage
 
-    /** The kill switch stopped the capture and deleted its frames. */
+    /** The kill switch revoked capture and input; frame cleanup continues separately. */
     data object Revoked : PanelMessage
 }
 

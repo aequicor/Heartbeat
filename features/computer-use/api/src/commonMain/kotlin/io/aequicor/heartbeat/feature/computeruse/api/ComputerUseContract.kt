@@ -221,7 +221,7 @@ public sealed interface ComputerUseOutput : MachineOutput {
     public data class InputApplied(public val action: InputAction, public val requestId: String? = null) :
         ComputerUseOutput
 
-    /** The kill switch stopped the capture and deleted its master frames. */
+    /** The kill switch disarmed capture/input and requested cleanup; [SessionClosed] confirms frame deletion. */
     public data object Revoked : ComputerUseOutput
 }
 
