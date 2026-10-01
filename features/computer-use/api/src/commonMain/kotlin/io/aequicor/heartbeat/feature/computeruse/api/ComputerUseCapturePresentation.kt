@@ -14,7 +14,11 @@ public interface ComputerUseCapturePresentation {
 
     /**
      * Runs one capture or input operation while all registered presentations are excluded. Suppression and
-     * restoration finish on the main thread even if the caller is cancelled; overlapping operations serialize.
+     * restoration finish on the main thread even if the caller is cancelled; overlapping operations serialize
+     * on a non-reentrant lock, so [action] must not call this function again.
+     *
+     * A failure of [action] stays primary and carries restore failures as suppressed exceptions. A restore
+     * failure after a successful [action] fails the operation: the caller must treat input as possibly applied.
      */
     public suspend fun <T> withoutPresentation(action: suspend () -> T): T
 }

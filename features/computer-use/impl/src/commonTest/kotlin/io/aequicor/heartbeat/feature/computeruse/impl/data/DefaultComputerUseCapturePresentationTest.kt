@@ -175,15 +175,108 @@ class DefaultComputerUseCapturePresentationTest {
             assertEquals(1, it.restorations)
         }
     }
+
+    @Test
+    fun `operation failure stays primary and carries the restoration failure`() = runTest {
+        val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
+        val window = PresentationWindow()
+        window.onRestored = { error("restore failed") }
+        presentation.register(window)
+        val failure = assertFailsWith<IllegalArgumentException> {
+            presentation.withoutPresentation { throw IllegalArgumentException("capture failed") }
+        }
+        assertEquals("capture failed", failure.message)
+        assertEquals(listOf("restore failed"), failure.suppressedMessages())
+        assertEquals(1, window.restorations)
+    }
+
+    @Test
+    fun `cancelled operation stays cancelled when restoration fails`() = runTest {
+        val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
+        val window = PresentationWindow()
+        window.onRestored = { error("restore failed") }
+        presentation.register(window)
+        val entered = CompletableDeferred<Unit>()
+        var failure: Throwable? = null
+        val capture = launch {
+            try {
+                presentation.withoutPresentation {
+                    entered.complete(Unit)
+                    awaitCancellation()
+                }
+            } catch (e: CancellationException) {
+                failure = e
+                throw e
+            }
+        }
+        entered.await()
+        capture.cancelAndJoin()
+        assertTrue(failure is CancellationException)
+        assertEquals(listOf("restore failed"), failure?.suppressedMessages())
+        assertTrue(window.isVisible)
+    }
+
+    @Test
+    fun `failed exclusion keeps its cause when rolling back also fails`() = runTest {
+        val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
+        val window = PresentationWindow()
+        window.onRestored = { error("rollback failed") }
+        presentation.register(window)
+        presentation.register { throw IllegalArgumentException("window cannot be excluded") }
+        val failure = assertFailsWith<IllegalArgumentException> { presentation.withoutPresentation { } }
+        assertEquals("window cannot be excluded", failure.message)
+        assertEquals(listOf("rollback failed"), failure.suppressedMessages())
+        assertEquals(1, window.restorations)
+    }
+
+    @Test
+    fun `window that cannot be excluded during capture stays registered for the next capture`() = runTest {
+        val dispatchers = TestDispatchers(StandardTestDispatcher(testScheduler))
+        val presentation = DefaultComputerUseCapturePresentation(dispatchers)
+        val entered = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val capture = launch {
+            presentation.withoutPresentation {
+                entered.complete(Unit)
+                finish.await()
+            }
+        }
+        entered.await()
+        val late = PresentationWindow()
+        late.refusal = "not yet mapped"
+        withContext(dispatchers.main) { presentation.register(late) }
+        finish.complete(Unit)
+        capture.join()
+        late.refusal = null
+        presentation.withoutPresentation { assertFalse(late.isVisible) }
+        assertTrue(late.isVisible)
+    }
+
+    @Test
+    fun `closed registration is not excluded by later captures`() = runTest {
+        val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
+        val window = PresentationWindow()
+        presentation.register(window).close()
+        presentation.withoutPresentation { assertTrue(window.isVisible) }
+        assertEquals(0, window.restorations)
+    }
 }
+
+/** Stack-trace recovery may wrap the thrown instance at a dispatcher boundary, keeping the original as its cause. */
+private fun Throwable.suppressedMessages(): List<String?> =
+    generateSequence(this) { it.cause }.flatMap { it.suppressedExceptions }.map { it.message }.toList()
 
 private class PresentationWindow(var isVisible: Boolean = true) : ComputerUsePresentation {
     var restorations = 0
     var onSuppressed: () -> Unit = {}
     var onRestored: () -> Unit = {}
+
+    /** Refuses exclusion while keeping the original visibility, as the contract requires. */
+    var refusal: String? = null
     private var isDisposed = false
 
     override fun suppress(): AutoCloseable {
+        refusal?.let(::error)
         val wasVisible = isVisible
         isVisible = false
         onSuppressed()

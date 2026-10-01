@@ -16,7 +16,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-/** Serializes native presentation exclusion without duplicating the feature's capture/session flow. */
+/**
+ * Serializes native presentation exclusion without duplicating the feature's capture/session flow.
+ * Every field is confined to [DispatcherProvider.main]: registration happens there, and each operation switches
+ * there to suppress and restore.
+ */
 @ContributesBinding(AppScope::class)
 @SingleIn(AppScope::class)
 @Inject
@@ -29,11 +33,10 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     private var isSuppressed = false
 
     override fun register(presentation: ComputerUsePresentation): AutoCloseable {
-        val restore = if (isSuppressed) presentation.suppress() else null
         val registration = Any()
         presentations[registration] = presentation
-        if (restore != null) restores += restore
         log.d { "native computer-use presentation registered" }
+        if (isSuppressed) suppressLate(presentation)
         return AutoCloseable {
             presentations.remove(registration)
             log.d { "native computer-use presentation unregistered" }
@@ -41,42 +44,76 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     }
 
     override suspend fun <T> withoutPresentation(action: suspend () -> T): T = operations.withLock {
-        try {
+        var failure: Exception? = null
+        var restoreFailure: Throwable? = null
+        val result = try {
             withContext(NonCancellable + dispatchers.main) { suppressPresentations() }
             currentCoroutineContext().ensureActive()
             action()
+        } catch (e: CancellationException) {
+            failure = e
+            throw e
+        } catch (e: Exception) {
+            failure = e
+            throw e
         } finally {
-            withContext(NonCancellable) { restoreOnMain() }
+            restoreFailure = withContext(NonCancellable) { restoreOnMain() }
+            // The operation's own failure stays primary and carries the restore failure.
+            restoreFailure?.let { restore -> failure?.addSuppressed(restore) }
         }
+        // A failed restore still fails a successful operation.
+        restoreFailure?.let { throw it }
+        result
     }
 
-    private suspend fun restoreOnMain() = withContext(dispatchers.main) { restorePresentations() }
+    /** Switches dispatchers inside the caller's NonCancellable block, so returning cannot skip restore handling. */
+    private suspend fun restoreOnMain(): Throwable? = withContext(dispatchers.main) { restorePresentations() }
+
+    /** A late window that cannot be hidden stays registered, so the next operation excludes it again. */
+    private fun suppressLate(presentation: ComputerUsePresentation) {
+        try {
+            restores += presentation.suppress()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "native computer-use presentation registered during capture could not be excluded" }
+        }
+    }
 
     private fun suppressPresentations() {
         isSuppressed = true
-        var isAcquired = false
         try {
             presentations.values.toList().forEach { restores += it.suppress() }
-            isAcquired = true
-            log.d { "native computer-use presentation excluded" }
-        } finally {
-            if (!isAcquired) restorePresentations()
+        } catch (e: CancellationException) {
+            rollBack(e)
+            throw e
+        } catch (e: Exception) {
+            rollBack(e)
+            throw e
         }
+        log.d { "native computer-use presentation excluded count=${restores.size}" }
     }
 
-    private fun restorePresentations() {
+    /** Restores the windows hidden before [failure]; their own restore failures are attached to it. */
+    private fun rollBack(failure: Exception) {
+        restorePresentations()?.let(failure::addSuppressed)
+    }
+
+    /** Drains every lease and returns the first failure, cancellation first, with the others attached to it. */
+    private fun restorePresentations(): Throwable? {
         val leases = restores.toList()
         restores.clear()
         isSuppressed = false
         val failures = leases.asReversed().mapNotNull { restore ->
             runCatching { restore.close() }.exceptionOrNull()?.also { failure ->
-                if (failure !is CancellationException) {
-                    log.w(failure) { "native computer-use presentation restoration failed" }
-                }
+                log.w(failure) { "native computer-use presentation restoration failed" }
             }
         }
-        log.d { "native computer-use presentation restored" }
-        val cancellation = failures.filterIsInstance<CancellationException>().firstOrNull()
-        (cancellation ?: failures.firstOrNull())?.let { throw it }
+        if (leases.isNotEmpty()) {
+            log.d { "native computer-use presentation restored ${leases.size - failures.size}/${leases.size}" }
+        }
+        val primary = failures.firstOrNull { it is CancellationException } ?: failures.firstOrNull()
+        if (primary != null) failures.filter { failure -> failure !== primary }.forEach(primary::addSuppressed)
+        return primary
     }
 }
