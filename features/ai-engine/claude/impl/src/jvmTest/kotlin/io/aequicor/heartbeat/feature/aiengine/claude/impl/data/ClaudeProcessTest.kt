@@ -11,8 +11,8 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -24,7 +24,9 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.attribute.PosixFilePermissions
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -33,12 +35,20 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class ClaudeProcessTest {
+    // Native process pipes and deadlines need a real clock; release the pool after each test.
+    private val nativeDispatcher = Executors.newCachedThreadPool().asCoroutineDispatcher()
+
+    @AfterTest
+    fun closeNativeDispatcher() {
+        nativeDispatcher.close()
+    }
+
     private fun TestScope.transport(executable: String = java): ProcessClaudeTransport {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
             override val main = testDispatcher
             override val default = testDispatcher
-            override val io = Dispatchers.IO
+            override val io = nativeDispatcher
         }
         return ProcessClaudeTransport(
             dispatchers,
@@ -47,6 +57,7 @@ class ClaudeProcessTest {
                 override fun endpoint() = SearchBridgeEndpoint("http://127.0.0.1:1", "test")
                 override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
             },
+            TestLocalWorkspaces(),
         )
     }
 
@@ -86,7 +97,7 @@ class ClaudeProcessTest {
             }
             val pid = helper.await()
             // Real clock: without the tree kill the reader would block until the helper's own sleep ends.
-            withContext(Dispatchers.Default) { withTimeout(HELPER_CANCEL_TIMEOUT_MS) { task.cancelAndJoin() } }
+            withContext(nativeDispatcher) { withTimeout(HELPER_CANCEL_TIMEOUT_MS) { task.cancelAndJoin() } }
             assertExited(pid)
         } finally {
             Files.deleteIfExists(program)
@@ -167,7 +178,7 @@ class ClaudeProcessTest {
                     }
                 }
             }
-            val pids = withContext(Dispatchers.Default) {
+            val pids = withContext(nativeDispatcher) {
                 withTimeout(CONCURRENT_START_TIMEOUT_MS) { first.await() to second.await() }
             }
             assertNotEquals(pids.first, pids.second)

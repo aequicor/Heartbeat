@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeAuthentication
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeLogin
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -28,11 +29,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptResourceHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -53,6 +57,9 @@ internal class JvmClaudeBackend(
     private val account: ClaudeAccount,
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val catalog: ClaudeCatalog,
+    private val tools: ProfileAgentTools = NoAgentTools,
+    private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
     private val resources: ResourceResolver = ResourceResolver { null },
     private val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
 ) : ClaudeBackend {
@@ -200,6 +207,9 @@ internal class JvmClaudeBackend(
             account,
             toggles,
             profile.coroutineScope,
+            catalog = catalog,
+            tools = tools,
+            bridge = bridge,
             resources = resources,
             resourceHistory = resourceHistory,
             inputSupport = { model ->
@@ -211,11 +221,17 @@ internal class JvmClaudeBackend(
         ).also { runtime = it }
     }
 
-    override suspend fun session(ref: SessionRef): EngineSession = mutex.withLock {
-        runtime?.stored(ref) ?: run {
-            log.w { "No Claude runtime holds the requested session" }
+    override suspend fun session(ref: SessionRef): EngineSession {
+        enabled()
+        val record = catalog.find(ref)?.takeIf {
+            ref.engine == ClaudeEngine.Id && ref.source == ClaudeEngine.SessionSource
+        } ?: run {
+            log.w { "Claude catalog has no requested session" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
+        val identity = RuntimeIdentity(record.route.engine, record.route.authSource, record.route.revision)
+        val owner = createRuntime(identity) as ClaudeRuntime
+        return owner.stored(ref)
     }
 
     private suspend fun enabled() {

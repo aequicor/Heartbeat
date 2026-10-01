@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
@@ -29,17 +30,21 @@ internal class ClaudeTurnObserver(
     private val accepted: CompletableDeferred<TurnId>,
     private val update: (ActiveSessionState) -> Unit,
 ) {
+    @Volatile
     var turn: Turn = initial
         private set
     var hasSession: Boolean = false
         private set
     var hasMatchingSession: Boolean = false
         private set
+
+    @Volatile
     var isFinished: Boolean = false
         private set
     private var isAccepted = false
     private var hasText = false
 
+    @Synchronized
     fun receive(message: JsonObject) {
         val session = message.text("session_id")
         // Any session frame proves the CLI started a native turn, so a mismatch is an ambiguous delivery.
@@ -59,6 +64,20 @@ internal class ClaudeTurnObserver(
             "result" -> finish(message)
             // Unknown SDK events are not interpreted as success, authentication errors or permission grants.
         }
+    }
+
+    /** A bearer-authenticated tool call proves delivery even when stdout is still buffered. */
+    @Synchronized
+    fun acceptHostedCall() {
+        if (isFinished) return
+        hasSession = true
+        hasMatchingSession = true
+        accept()
+    }
+
+    @Synchronized
+    fun permissionResolved(id: PermissionRequestId) {
+        turn = turn.copy(resolvedPermissions = turn.resolvedPermissions + id)
     }
 
     private fun assistant(message: JsonObject) {

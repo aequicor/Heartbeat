@@ -19,6 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
@@ -45,7 +46,17 @@ class AcpStdioTest {
     fun `close kills agent blocked on stdin and unblocks receive`() = runTest(timeout = 30.seconds) {
         withAgent { transport ->
             val waiting = backgroundScope.async {
-                assertFailsWith<AcpException.Disconnected> { transport.receive() }
+                // Closing can race the reader's EOF; both outcomes mean disconnection by contract.
+                val result = try {
+                    Result.success(transport.receive())
+                } catch (error: AcpException.Disconnected) {
+                    Result.failure(error)
+                }
+                if (result.isSuccess) {
+                    assertNull(result.getOrThrow())
+                } else {
+                    assertIs<AcpException.Disconnected>(result.exceptionOrNull())
+                }
             }
             testScheduler.runCurrent()
             transport.close()

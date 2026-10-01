@@ -186,7 +186,7 @@ class ClaudeRuntimeTest {
             AuthFailureReason.SourceChanged,
             assertIs<EngineFailure.Authentication>(changed.failure).reason.reason,
         )
-        fixture.toggles.enabled = false
+        fixture.toggles.isEnabled = false
         assertFailsWith<EngineException> { session.features.available(SendsPrompts).send(prompt()) }
         assertTrue(fixture.transport.calls.all { it == listOf("auth", "status") })
         runtime.close()
@@ -506,7 +506,7 @@ class ClaudeRuntimeTest {
     }
 
     @Test
-    fun `released sessions beyond the retention bound are dropped, recent ones stay resumable`() = runTest {
+    fun `released sessions beyond the retention bound restore from catalog`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val runtime = fixture.runtime()
         val refs = List(MAX_RELEASED + 3) {
@@ -515,10 +515,8 @@ class ClaudeRuntimeTest {
             session.ref
         }
         assertEquals(MAX_RELEASED, runtime.retainedSessions)
-        val dropped = assertFailsWith<EngineException> {
-            runtime.attach(refs.first(), ResumeSessionRequest(testTarget))
-        }
-        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), dropped.failure)
+        val restored = runtime.attach(refs.first(), ResumeSessionRequest(testTarget))
+        assertEquals(refs.first(), restored.ref)
         val reopened = runtime.attach(refs.last(), ResumeSessionRequest(testTarget))
         assertEquals(refs.last(), reopened.ref)
         runtime.close()

@@ -8,14 +8,21 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -68,7 +75,7 @@ class CodexHostedToolsTest {
     }
 
     @Test
-    fun `hosted coding works with search off and waits for the matching permission`() = runTest {
+    fun `hosted coding accepts a document with search off and waits for matching permission`() = runTest {
         val tools = HostedFixture()
         val fixture = Fixture(this, searchTools = false, tools = tools)
         fixture.isSearchEnabled = false
@@ -79,7 +86,28 @@ class CodexHostedToolsTest {
             listOf("run_command"),
             (checkNotNull(start["dynamicTools"]) as JsonArray).map { (it as JsonObject).text("name") },
         )
-        val turn = session.feature(SendsPrompts).send(Prompt.copy(trust = TrustLevel.AutoEdits))
+        fixture.resources = ResourceResolver {
+            ResolvedResource("source.md", "text/markdown", "Attached source".encodeToByteArray())
+        }
+        val original = ContentPart.Resource(ResourceRef("attachment:source", "text/markdown"))
+        val prompt = Prompt.copy(parts = Prompt.parts + original, trust = TrustLevel.AutoEdits)
+        val turn = session.feature(SendsPrompts).send(prompt)
+        val native = fixture.wire.written.single { it.text("method") == "turn/start" }.obj("params")
+        assertEquals("never", native.text("approvalPolicy"))
+        assertEquals("readOnly", native.obj("sandboxPolicy").text("type"))
+        fixture.event(
+            "item/completed",
+            "turnId" to "native-turn".json(),
+            "item" to json(
+                "id" to "user-input".json(),
+                "type" to "userMessage".json(),
+                "content" to native.getValue("input"),
+            ),
+        )
+        runCurrent()
+        val history = session.feature(SessionHistory).page()
+        val user = history.items.filterIsInstance<SessionItem.Message>().single { it.role == MessageRole.User }
+        assertEquals(prompt.parts, user.parts)
         fixture.callHosted()
         runCurrent()
         val request = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
