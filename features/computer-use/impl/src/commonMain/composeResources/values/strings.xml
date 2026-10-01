@@ -42,4 +42,19 @@
     <string name="computer_use_message_other">The request was refused.</string>
     <string name="computer_use_message_blocked">Permissions required: %1$s</string>
     <string name="computer_use_message_revoked">Capture stopped and its frames deleted.</string>
+    <string name="computer_use_blocker_platform">Desktop capture is supported on macOS and Windows.</string>
+    <string name="computer_use_blocker_screen_recording">Allow screen recording for Heartbeat in system settings.</string>
+    <string name="computer_use_blocker_accessibility">Allow accessibility access for Heartbeat in system settings.</string>
+    <string name="computer_use_blocker_elevation">The target requires elevated privileges.</string>
+    <string name="computer_use_blocker_session_locked">Unlock the computer to resume capture.</string>
+    <string name="computer_use_blocker_headless">Connect an active display to capture frames.</string>
+    <string name="computer_use_action_move">Pointer moved</string>
+    <string name="computer_use_action_click">Click: %1$s button × %2$d</string>
+    <string name="computer_use_action_drag">Drag: %1$s button</string>
+    <string name="computer_use_action_scroll">Scroll: %1$d, %2$d</string>
+    <string name="computer_use_action_type">Typed %1$d characters</string>
+    <string name="computer_use_action_key">Key combination: %1$d keys</string>
+    <string name="computer_use_button_left">left</string>
+    <string name="computer_use_button_right">right</string>
+    <string name="computer_use_button_middle">middle</string>
 </resources>

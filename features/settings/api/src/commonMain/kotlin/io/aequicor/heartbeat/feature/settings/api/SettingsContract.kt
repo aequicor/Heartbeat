@@ -19,6 +19,10 @@ public enum class SettingsSection {
     @SerialName("search")
     Search,
 
+    /** Desktop capture, frame previews and explicit input permission. */
+    @SerialName("computer_use")
+    ComputerUse,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -58,6 +62,7 @@ public val SettingsSection.deepLinkName: String
     get() = when (this) {
         SettingsSection.Models -> "models"
         SettingsSection.Search -> "search"
+        SettingsSection.ComputerUse -> "computer_use"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

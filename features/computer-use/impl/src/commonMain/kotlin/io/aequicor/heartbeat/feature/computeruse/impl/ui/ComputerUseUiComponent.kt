@@ -6,9 +6,13 @@ import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseComponent
 
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */
-internal class ComputerUseUiComponent(private val component: ComputerUseComponent) : ComposableComponent {
+internal class ComputerUseUiComponent(
+    private val component: ComputerUseComponent,
+    private val decoder: ComputerUseFrameDecoder,
+    private val isEmbedded: Boolean,
+) : ComposableComponent {
     @Composable
     override fun Content(modifier: Modifier) {
-        ComputerUseScreen(component.model, component::close, modifier)
+        ComputerUseScreen(component.model, component::close.takeUnless { isEmbedded }, decoder::decode, modifier)
     }
 }

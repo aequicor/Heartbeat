@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.navigation.routeEntry
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
@@ -138,6 +139,7 @@ class SettingsComponent(
     private companion object {
         val SECTION_ROUTES = setOf(
             EngineConnectionsRoute::class,
+            ComputerUseRoute::class,
             ConnectEngineRoute::class,
             ProfileSettingsRoute::class,
             TogglesPanelRoute::class,
@@ -149,6 +151,7 @@ class SettingsComponent(
 internal fun SettingsSection.route(): Route = when (this) {
     SettingsSection.Models -> EngineConnectionsRoute(isEmbedded = true)
     SettingsSection.Search -> ProfileSettingsRoute(isEmbedded = true)
+    SettingsSection.ComputerUse -> ComputerUseRoute(isEmbedded = true)
     SettingsSection.FeatureFlags -> TogglesPanelRoute(isEmbedded = true)
 }
 

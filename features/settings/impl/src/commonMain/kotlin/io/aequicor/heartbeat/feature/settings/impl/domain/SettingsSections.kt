@@ -16,10 +16,12 @@ internal fun availableSections(
     isModelsEnabled: Boolean,
     isSearchEnabled: Boolean,
     hasProfile: Boolean,
+    isComputerUseEnabled: Boolean = false,
 ): ImmutableList<SettingsSection> = SettingsSection.entries.filter { section ->
     when (section) {
         SettingsSection.Models -> isModelsEnabled && hasProfile
         SettingsSection.Search -> isSearchEnabled && hasProfile
+        SettingsSection.ComputerUse -> isComputerUseEnabled && hasProfile
         SettingsSection.FeatureFlags -> true
     }
 }.toImmutableList()

@@ -8,7 +8,7 @@ import kotlin.test.assertNull
 class SettingsContractTest {
     @Test
     fun `route survives saved state with and without a section`() {
-        for (route in listOf(SettingsRoute(), SettingsRoute(SettingsSection.FeatureFlags))) {
+        for (route in listOf(SettingsRoute()) + SettingsSection.entries.map { SettingsRoute(it) }) {
             val json = Json.encodeToString(SettingsRoute.serializer(), route)
             assertEquals(route.section, Json.decodeFromString(SettingsRoute.serializer(), json).section)
         }

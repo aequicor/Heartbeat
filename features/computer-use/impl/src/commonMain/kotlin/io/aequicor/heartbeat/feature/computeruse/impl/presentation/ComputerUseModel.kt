@@ -8,27 +8,35 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
+import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.MVIState
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
+import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.uuid.Uuid
 
 private typealias PanelPipeline =
@@ -43,13 +51,26 @@ internal enum class ModeUi { Desktop, Window }
 /** Why the panel shows a warning; the screen maps it to a localized string. */
 internal enum class RejectionUi { NotArmed, OutsideCapture, TargetClosed, FrameExpired, TooLarge, Unavailable, Other }
 
+/** Host blockers presented by localized UI messages. */
+internal enum class BlockerUi {
+    UnsupportedPlatform,
+    ScreenRecordingPermission,
+    AccessibilityPermission,
+    ElevationRequired,
+    SessionLocked,
+    Headless,
+}
+
+/** Mouse button name shown in the action journal. */
+internal enum class ButtonUi { Left, Right, Middle }
+
 /** One panel message. */
 internal sealed interface PanelMessage {
     /** A request was refused. */
     data class Rejected(val reason: RejectionUi) : PanelMessage
 
     /** The operating system refuses capture or input. */
-    data class Blocked(val blockers: ImmutableList<String>) : PanelMessage
+    data class Blocked(val blockers: ImmutableList<BlockerUi>) : PanelMessage
 
     /** The kill switch stopped the capture and deleted its frames. */
     data object Revoked : PanelMessage
@@ -67,6 +88,7 @@ internal data class WindowRowUi(
 /** The stored frame the panel previews. Encoded content is user data and is never logged. */
 internal data class FrameUi(
     val id: String,
+    val session: String,
     val widthPx: Int,
     val heightPx: Int,
     val masterWidthPx: Int,
@@ -79,6 +101,18 @@ internal data class FrameUi(
     override fun toString(): String = "FrameUi(id=$id, ${widthPx}x$heightPx, bytes=$bytes)"
 }
 
+/** Content-free input action details; the screen localizes these instead of storing rendered strings. */
+internal data class JournalEntryUi(
+    val kind: JournalKindUi,
+    val button: ButtonUi = ButtonUi.Left,
+    val count: Int = 0,
+    val deltaX: Int = 0,
+    val deltaY: Int = 0,
+)
+
+/** Actions the journal renders. */
+internal enum class JournalKindUi { Move, Click, Drag, Scroll, Type, Key }
+
 /** Immutable presentation state of the panel. */
 @Immutable
 internal data class ComputerUseScreenState(
@@ -88,10 +122,12 @@ internal data class ComputerUseScreenState(
     val selectedWindowId: String? = null,
     val isInputArmed: Boolean = false,
     val isInputAvailable: Boolean = false,
+    val isCaptureOpen: Boolean = false,
     val isWindowModeAvailable: Boolean = false,
     val preset: String = DEFAULT_PRESET,
     val frame: FrameUi? = null,
-    val journal: ImmutableList<String> = persistentListOf(),
+    val captureSession: String? = null,
+    val journal: ImmutableList<JournalEntryUi> = persistentListOf(),
     val message: PanelMessage? = null,
     val frameCount: Long = 0L,
 ) : MVIState
@@ -146,7 +182,7 @@ internal sealed interface ComputerUseScreenAction : MVIAction
  */
 internal class ComputerUseModel(
     private val machine: Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>,
-    private val frames: FrameStore,
+    frames: FrameStore,
     private val preferences: ComputerUsePreferences,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
@@ -160,6 +196,27 @@ internal class ComputerUseModel(
         onError = { copy(message = PanelMessage.Rejected(RejectionUi.Other)) },
     ) {
         reflect(machine, onOutput = { output -> onOutput(output) }) { reflectState(it) }
+        whileSubscribed {
+            machine.state.map { it.preview() }.distinctUntilChanged().collectLatest { capture ->
+                if (capture != null) {
+                    val content = try {
+                        frames.read(capture.path)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        log.w(e) { "frame preview read failed" }
+                        null
+                    }
+                    updateState {
+                        if (machine.state.value.preview() == capture) {
+                            copy(frame = capture.toUi(content))
+                        } else {
+                            this
+                        }
+                    }
+                }
+            }
+        }
         reduce { intent -> onIntent(intent) }
     }
 
@@ -171,39 +228,27 @@ internal class ComputerUseModel(
         }
     }
 
+    // FlowMVI's PipelineContext is the receiver required by store operations and also implements CoroutineScope.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelPipeline.onOutput(output: ComputerUseOutput) {
         when (output) {
             is ComputerUseOutput.FrameReady -> {
-                val content = frames.read(output.capture.path)
-                updateState {
-                    copy(
-                        frame = FrameUi(
-                            id = output.capture.id.value,
-                            widthPx = output.capture.widthPx,
-                            heightPx = output.capture.heightPx,
-                            masterWidthPx = output.capture.masterWidthPx,
-                            masterHeightPx = output.capture.masterHeightPx,
-                            bytes = output.capture.bytes,
-                            estimatedTokens = output.capture.estimatedTokens,
-                            format = output.capture.format.name,
-                            content = content,
-                        ),
-                        message = null,
-                    )
-                }
+                // The current state supplies the frame, including when an output was missed while closed.
+                updateState { copy(message = null) }
             }
 
             is ComputerUseOutput.Rejected ->
                 updateState { copy(message = PanelMessage.Rejected(output.reason.rejection())) }
 
             is ComputerUseOutput.PermissionRequired -> updateState {
-                copy(message = PanelMessage.Blocked(output.blockers.map { it.name }.toImmutableList()))
+                copy(message = PanelMessage.Blocked(output.blockers.map { it.toUi() }.toImmutableList()))
             }
 
             is ComputerUseOutput.InputApplied ->
                 updateState { copy(journal = journal.with(output.action.entry())) }
 
-            is ComputerUseOutput.CaptureChanged -> updateState { copy(message = null) }
+            // State reflection invalidates the previous frame or session.
+            is ComputerUseOutput.CaptureChanged -> Unit
 
             is ComputerUseOutput.SessionClosed -> Unit
 
@@ -217,10 +262,9 @@ internal class ComputerUseModel(
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelPipeline.onIntent(intent: ComputerUseScreenIntent) {
         when (intent) {
-            is ComputerUseScreenIntent.SelectMode -> updateState { copy(mode = intent.mode, message = null) }
+            is ComputerUseScreenIntent.SelectMode -> selectMode(intent.mode)
 
-            is ComputerUseScreenIntent.SelectWindow ->
-                updateState { copy(selectedWindowId = intent.id, message = null) }
+            is ComputerUseScreenIntent.SelectWindow -> selectWindow(intent.id)
 
             ComputerUseScreenIntent.Refresh -> sendTo(machine, ComputerUseIntent.Public.RefreshTargets)
 
@@ -239,12 +283,48 @@ internal class ComputerUseModel(
 
             ComputerUseScreenIntent.Revoke -> sendTo(machine, ComputerUseIntent.Public.Revoke)
 
-            ComputerUseScreenIntent.Retry -> sendTo(machine, ComputerUseIntent.Public.Retry)
+            ComputerUseScreenIntent.Retry -> retry()
 
             ComputerUseScreenIntent.DismissMessage -> updateState { copy(message = null) }
         }
     }
 
+    // Store updates and sendTo extend FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelPipeline.selectMode(mode: ModeUi) {
+        updateState {
+            val selected = selectedWindowId?.takeIf { id -> targets.any { it.id == id } }
+                ?: targets.firstOrNull { !it.isMinimized }?.id
+            copy(mode = mode, selectedWindowId = selected, message = null)
+        }
+        val current = machine.state.value as? ComputerUseState.Capturing ?: return
+        val activeMode = if (current.mode is ComputerUseMode.Window) ModeUi.Window else ModeUi.Desktop
+        if (activeMode != mode) startCapture()
+    }
+
+    // Store updates and sendTo extend FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelPipeline.selectWindow(id: String) {
+        updateState { copy(selectedWindowId = id, message = null) }
+        val current = machine.state.value as? ComputerUseState.Capturing ?: return
+        if ((current.mode as? ComputerUseMode.Window)?.target?.id?.value != id) startCapture()
+    }
+
+    // sendTo extends FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PanelPipeline.retry() {
+        sendTo(
+            machine,
+            if (machine.state.value == ComputerUseState.Idle) {
+                ComputerUseIntent.Public.Start
+            } else {
+                ComputerUseIntent.Public.Retry
+            },
+        )
+    }
+
+    // Store updates and sendTo extend FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelPipeline.startCapture() {
         var isDesktop = true
         var selectedId: String? = null
@@ -259,11 +339,22 @@ internal class ComputerUseModel(
             return
         }
         val session = CaptureSessionId(Uuid.random().toString())
-        val intent = when (machine.state.value) {
-            is ComputerUseState.Capturing -> ComputerUseIntent.Public.SwitchMode(mode, session)
-            else -> ComputerUseIntent.Public.BeginCapture(mode, CaptureOwner.Panel, session)
+        val intent = when (val current = machine.state.value) {
+            is ComputerUseState.Capturing -> ComputerUseIntent.Public.SwitchMode(
+                mode,
+                session,
+                owner = CaptureOwner.Panel,
+                expectedSession = current.session,
+            )
+
+            ComputerUseState.Idle, ComputerUseState.Checking, is ComputerUseState.Ready,
+            is ComputerUseState.Unavailable, is ComputerUseState.Failed,
+            ->
+                ComputerUseIntent.Public.BeginCapture(mode, CaptureOwner.Panel, session)
         }
-        sendTo(machine, intent) { rejected -> log.w { "capture start rejected result=$rejected" } }
+        sendTo(machine, intent) {
+            updateState { copy(message = PanelMessage.Rejected(RejectionUi.Other)) }
+        }
     }
 
     /** The machine mode of a window selection; the real target comes from the machine state. */
@@ -280,6 +371,8 @@ internal class ComputerUseModel(
         return targets.firstOrNull { it.id.value == selectedId }?.let { ComputerUseMode.Window(it) }
     }
 
+    // Store reads and sendTo extend FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelPipeline.captureFrame() {
         var presetName = DEFAULT_PRESET
         withState { presetName = preset }
@@ -293,6 +386,8 @@ internal class ComputerUseModel(
         )
     }
 
+    // updateState extends FlowMVI's coroutine-backed PipelineContext.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
     private suspend fun PanelPipeline.selectPreset(name: String) {
         if (preferences.setPreset(name)) {
             updateState { copy(preset = name) }
@@ -302,39 +397,60 @@ internal class ComputerUseModel(
     }
 }
 
+private fun ComputerUseScreenState.withoutCapture(): ComputerUseScreenState = copy(
+    frame = null,
+    captureSession = null,
+    journal = persistentListOf(),
+    isInputArmed = false,
+    isCaptureOpen = false,
+    frameCount = 0L,
+)
+
 private fun ComputerUseScreenState.reflectState(state: ComputerUseState): ComputerUseScreenState = when (state) {
-    ComputerUseState.Idle -> copy(phase = PhaseUi.Idle, isInputArmed = false)
-
-    ComputerUseState.Checking -> copy(phase = PhaseUi.Checking)
-
-    is ComputerUseState.Unavailable -> copy(
-        phase = PhaseUi.Blocked,
-        message = PanelMessage.Blocked(state.blockers.map { it.name }.toImmutableList()),
+    ComputerUseState.Idle -> withoutCapture().copy(
+        phase = PhaseUi.Idle,
+        isInputAvailable = false,
+        isWindowModeAvailable = false,
     )
 
-    is ComputerUseState.Ready -> copy(
+    ComputerUseState.Checking -> withoutCapture().copy(phase = PhaseUi.Checking, message = null)
+
+    is ComputerUseState.Unavailable -> withoutCapture().copy(
+        phase = PhaseUi.Blocked,
+        message = PanelMessage.Blocked(state.blockers.map { it.toUi() }.toImmutableList()),
+        isInputAvailable = false,
+        isWindowModeAvailable = false,
+    )
+
+    is ComputerUseState.Ready -> withoutCapture().copy(
         phase = PhaseUi.Ready,
         targets = state.targets.toRows(),
         isInputArmed = state.isInputArmed,
         isInputAvailable = state.capabilities.isInputAvailable,
         isWindowModeAvailable = state.capabilities.isWindowCaptureAvailable,
-        frameCount = 0L,
+        frame = state.preview()?.toUi(frame),
+        message = message.takeIf { phase == PhaseUi.Ready },
     )
 
     is ComputerUseState.Capturing -> copy(
         phase = PhaseUi.Capturing,
         mode = if (state.mode is ComputerUseMode.Window) ModeUi.Window else ModeUi.Desktop,
+        selectedWindowId = (state.mode as? ComputerUseMode.Window)?.target?.id?.value ?: selectedWindowId,
         targets = state.targets.toRows(),
         isInputArmed = state.isInputArmed,
         isInputAvailable = state.capabilities.isInputAvailable,
         isWindowModeAvailable = state.capabilities.isWindowCaptureAvailable,
         frameCount = state.frameCount,
+        isCaptureOpen = state.isOpen,
+        frame = state.preview()?.toUi(frame),
+        captureSession = state.session.value,
+        journal = if (captureSession == state.session.value) journal else persistentListOf(),
+        message = message.takeIf { captureSession == state.session.value },
     )
 
-    is ComputerUseState.Failed -> copy(
+    is ComputerUseState.Failed -> withoutCapture().copy(
         phase = PhaseUi.Failed,
         message = PanelMessage.Rejected(state.reason.rejection()),
-        isInputArmed = false,
     )
 }
 
@@ -362,17 +478,62 @@ private fun ComputerUseFailure.rejection(): RejectionUi = when (this) {
     ComputerUseFailure.Timeout -> RejectionUi.Other
 }
 
-private fun InputAction.entry(): String = when (this) {
-    is InputAction.MoveTo -> "move"
-    is InputAction.Click -> "click $button x$count"
-    is InputAction.Drag -> "drag $button"
-    is InputAction.Scroll -> "scroll $deltaX,$deltaY"
-    is InputAction.Type -> "type ${text.length} chars"
-    is InputAction.Key -> "key ${keys.size}"
+private fun InputAction.entry(): JournalEntryUi = when (this) {
+    is InputAction.MoveTo -> JournalEntryUi(JournalKindUi.Move)
+    is InputAction.Click -> JournalEntryUi(JournalKindUi.Click, button = button.toUi(), count = count)
+    is InputAction.Drag -> JournalEntryUi(JournalKindUi.Drag, button = button.toUi())
+    is InputAction.Scroll -> JournalEntryUi(JournalKindUi.Scroll, deltaX = deltaX, deltaY = deltaY)
+    is InputAction.Type -> JournalEntryUi(JournalKindUi.Type, count = text.length)
+    is InputAction.Key -> JournalEntryUi(JournalKindUi.Key, count = keys.size)
 }
 
-private fun ImmutableList<String>.with(entry: String): ImmutableList<String> =
+private fun ComputerUseBlocker.toUi(): BlockerUi = when (this) {
+    ComputerUseBlocker.UnsupportedPlatform -> BlockerUi.UnsupportedPlatform
+    ComputerUseBlocker.ScreenRecordingPermission -> BlockerUi.ScreenRecordingPermission
+    ComputerUseBlocker.AccessibilityPermission -> BlockerUi.AccessibilityPermission
+    ComputerUseBlocker.ElevationRequired -> BlockerUi.ElevationRequired
+    ComputerUseBlocker.SessionLocked -> BlockerUi.SessionLocked
+    ComputerUseBlocker.Headless -> BlockerUi.Headless
+}
+
+private fun MouseButton.toUi(): ButtonUi = when (this) {
+    MouseButton.Left -> ButtonUi.Left
+    MouseButton.Right -> ButtonUi.Right
+    MouseButton.Middle -> ButtonUi.Middle
+}
+
+private fun ImmutableList<JournalEntryUi>.with(entry: JournalEntryUi): ImmutableList<JournalEntryUi> =
     (this + entry).takeLast(JOURNAL_SIZE).toImmutableList()
+
+/** The latest presentation artifact of the active machine state, including crops. */
+private fun ComputerUseState.preview(): CaptureRef? = when (this) {
+    is ComputerUseState.Capturing -> listOfNotNull(lastPreview, lastCrop).maxByOrNull { it.sequence }
+
+    is ComputerUseState.Ready -> lastPreview
+
+    ComputerUseState.Idle,
+    ComputerUseState.Checking,
+    is ComputerUseState.Unavailable,
+    is ComputerUseState.Failed,
+    -> null
+}
+
+private fun CaptureRef.toUi(previous: FrameUi?): FrameUi = toUi(
+    previous?.content?.takeIf { previous.id == id.value && previous.session == session.value },
+)
+
+private fun CaptureRef.toUi(content: ByteArray?): FrameUi = FrameUi(
+    id = id.value,
+    session = session.value,
+    widthPx = widthPx,
+    heightPx = heightPx,
+    masterWidthPx = masterWidthPx,
+    masterHeightPx = masterHeightPx,
+    bytes = bytes,
+    estimatedTokens = estimatedTokens,
+    format = format.name,
+    content = content,
+)
 
 private const val JOURNAL_SIZE = 20
 internal const val DEFAULT_PRESET: String = "overview"

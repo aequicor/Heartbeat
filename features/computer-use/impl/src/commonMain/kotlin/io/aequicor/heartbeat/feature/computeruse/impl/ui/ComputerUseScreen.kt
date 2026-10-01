@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
@@ -21,7 +21,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.tooling.preview.Preview
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
@@ -40,17 +39,36 @@ import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.BlockerUi
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ButtonUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseModel
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenIntent
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseScreenState
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.FrameUi
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.JournalEntryUi
+import io.aequicor.heartbeat.feature.computeruse.impl.presentation.JournalKindUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ModeUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.PanelMessage
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.PhaseUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.RejectionUi
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.WindowRowUi
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.Res
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_click
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_drag
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_key
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_move
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_scroll
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_action_type
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_back
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_accessibility
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_elevation
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_headless
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_platform
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_screen_recording
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_blocker_session_locked
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_button_left
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_button_middle
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_button_right
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_capture_frame
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_dismiss
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_frame
@@ -93,18 +111,22 @@ import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_tit
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_window_minimized
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_windows
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_windows_empty
-import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
 /** The computer use control panel: mode, window picker, frame preview, input arming and the kill switch. */
 @Composable
-internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
+internal fun ComputerUseScreen(
+    model: ComputerUseModel,
+    onBack: (() -> Unit)?,
+    decodeFrame: suspend (ByteArray) -> ImageBitmap?,
+    modifier: Modifier = Modifier,
+) {
     val state by produceState(ComputerUseScreenState(), model) {
         model.store.collect { states.collect { value = it } }
     }
-    ComputerUseContent(state, model.store::intent, onBack, modifier)
+    ComputerUseContent(state, model.store::intent, onBack, modifier, decodeFrame)
 }
 
 /**
@@ -112,7 +134,7 @@ internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, m
  *
  * The status line states what the host may do; the mode section starts or switches a capture; the window list
  * feeds window mode; the frame section shows the last stored frame with its size and token estimate; the input
- * section arms injection and holds the kill switch, which stops the capture and deletes its frames.
+ * section arms injection. The fixed footer holds the kill switch, which stops capture and deletes its frames.
  */
 @Composable
 internal fun ComputerUseContent(
@@ -120,6 +142,7 @@ internal fun ComputerUseContent(
     onIntent: (ComputerUseScreenIntent) -> Unit,
     onBack: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    decodeFrame: suspend (ByteArray) -> ImageBitmap? = { null },
 ) {
     HbColumn(
         modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("computer-use"),
@@ -145,7 +168,7 @@ internal fun ComputerUseContent(
         }
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             HbLazyColumn(
-                Modifier.fillMaxSize().widthIn(max = HbTheme.dimensions.settingsMaxWidth).testTag("computer-use-list"),
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxSize().testTag("computer-use-list"),
                 gap = HbTheme.spacing.l,
                 contentPadding = PaddingValues(HbTheme.spacing.xl),
             ) {
@@ -155,10 +178,23 @@ internal fun ComputerUseContent(
                 if (state.mode == ModeUi.Window) {
                     item(key = "windows") { WindowSection(state, onIntent) }
                 }
-                item(key = "frame") { FrameSection(state, onIntent) }
+                item(key = "frame") { FrameSection(state, onIntent, decodeFrame) }
                 item(key = "input") { InputSection(state, onIntent) }
                 item(key = "journal") { JournalSection(state) }
             }
+        }
+        Box(
+            Modifier.fillMaxWidth().padding(HbTheme.spacing.m),
+            contentAlignment = Alignment.Center,
+        ) {
+            HbButton(
+                stringResource(Res.string.computer_use_revoke),
+                { onIntent(ComputerUseScreenIntent.Revoke) },
+                Modifier.widthIn(max = HbTheme.dimensions.settingsMaxWidth).fillMaxWidth()
+                    .testTag("computer-use-revoke"),
+                HbButtonStyle.Danger,
+                size = HbButtonSize.Small,
+            )
         }
     }
 }
@@ -183,7 +219,7 @@ private fun PanelIntro(
         if (state.phase == PhaseUi.Checking) {
             HbLoadingState(stringResource(Res.string.computer_use_status_checking))
         }
-        if (state.phase == PhaseUi.Blocked || state.phase == PhaseUi.Failed) {
+        if (state.phase == PhaseUi.Idle || state.phase == PhaseUi.Blocked || state.phase == PhaseUi.Failed) {
             HbButton(
                 stringResource(Res.string.computer_use_refresh),
                 { onIntent(ComputerUseScreenIntent.Retry) },
@@ -314,7 +350,7 @@ private fun WindowRow(
         HbButton(
             stringResource(Res.string.computer_use_mode_window),
             { onIntent(ComputerUseScreenIntent.SelectWindow(target.id)) },
-            Modifier.testTag("computer-use-select-${target.id}"),
+            Modifier.testTag("computer-use-select-${target.id}").semantics { selected = isSelected },
             style = if (isSelected) HbButtonStyle.Primary else HbButtonStyle.Ghost,
             size = HbButtonSize.Small,
         )
@@ -325,6 +361,7 @@ private fun WindowRow(
 private fun FrameSection(
     state: ComputerUseScreenState,
     onIntent: (ComputerUseScreenIntent) -> Unit,
+    decodeFrame: suspend (ByteArray) -> ImageBitmap?,
     modifier: Modifier = Modifier,
 ) {
     HbSettingsSection(
@@ -349,11 +386,11 @@ private fun FrameSection(
                 stringResource(Res.string.computer_use_capture_frame),
                 { onIntent(ComputerUseScreenIntent.CaptureFrame) },
                 Modifier.testTag("computer-use-capture"),
-                enabled = state.phase == PhaseUi.Capturing,
+                enabled = state.phase == PhaseUi.Capturing && state.isCaptureOpen,
                 size = HbButtonSize.Small,
             )
         }
-        FramePreview(state.frame)
+        FramePreview(state.frame, decodeFrame)
     }
 }
 
@@ -375,8 +412,18 @@ private fun PresetButton(
 }
 
 @Composable
-private fun FramePreview(frame: FrameUi?, modifier: Modifier = Modifier) {
-    val bitmap = remember(frame?.id, frame?.content) { frame?.content?.decodeFrame() }
+private fun FramePreview(
+    frame: FrameUi?,
+    decodeFrame: suspend (ByteArray) -> ImageBitmap?,
+    modifier: Modifier = Modifier,
+) {
+    val decode by rememberUpdatedState(decodeFrame)
+    val decoded by produceState<DecodedPreview?>(null, frame?.id, frame?.session, frame?.content) {
+        value = null
+        value = frame?.content?.let { DecodedPreview(frame.id, frame.session, decode(it)) }
+    }
+    // A changed key cancels decoding, and hides the previous bitmap before the new producer runs.
+    val bitmap = decoded?.takeIf { frame != null && it.id == frame.id && it.session == frame.session }?.bitmap
     Box(
         modifier.fillMaxWidth().aspectRatio(PREVIEW_ASPECT_RATIO).padding(HbTheme.spacing.m),
         contentAlignment = Alignment.Center,
@@ -415,20 +462,7 @@ private fun InputSection(
                 { onIntent(ComputerUseScreenIntent.ArmInput(it)) },
                 stringResource(Res.string.computer_use_input),
                 Modifier.testTag("computer-use-arm"),
-                enabled = state.isInputAvailable && state.phase == PhaseUi.Capturing,
-            )
-        }
-        HbDivider()
-        HbSettingsRow(
-            stringResource(Res.string.computer_use_revoke),
-            Modifier.testTag("computer-use-revoke-row"),
-        ) {
-            HbButton(
-                stringResource(Res.string.computer_use_revoke),
-                { onIntent(ComputerUseScreenIntent.Revoke) },
-                Modifier.testTag("computer-use-revoke"),
-                HbButtonStyle.Danger,
-                size = HbButtonSize.Small,
+                enabled = state.isInputAvailable && state.phase == PhaseUi.Capturing && state.isCaptureOpen,
             )
         }
     }
@@ -442,7 +476,7 @@ private fun JournalSection(state: ComputerUseScreenState, modifier: Modifier = M
         }
         state.journal.forEach { entry ->
             HbText(
-                entry,
+                entry.text(),
                 style = HbTheme.typography.caption,
                 color = HbTheme.colors.textSecondary,
                 modifier = Modifier.fillMaxWidth().padding(HbTheme.spacing.m),
@@ -477,7 +511,7 @@ private fun PanelMessage.text(): String = when (this) {
 
     is PanelMessage.Blocked -> stringResource(
         Res.string.computer_use_message_blocked,
-        blockers.joinToString(),
+        blockers.map { stringResource(it.resource()) }.joinToString(),
     )
 
     PanelMessage.Revoked -> stringResource(Res.string.computer_use_message_revoked)
@@ -492,17 +526,38 @@ private fun PhaseUi.statusResource() = when (this) {
     PhaseUi.Failed -> Res.string.computer_use_status_failed
 }
 
-private fun ByteArray.decodeFrame(): ImageBitmap? = try {
-    decodeComputerUseFrame(this)
-} catch (e: CancellationException) {
-    throw e
-} catch (e: Exception) {
-    Log.tag("ComputerUseScreen").w(e) { "frame preview decode failed bytes=$size" }
-    null
+private fun BlockerUi.resource(): StringResource = when (this) {
+    BlockerUi.UnsupportedPlatform -> Res.string.computer_use_blocker_platform
+    BlockerUi.ScreenRecordingPermission -> Res.string.computer_use_blocker_screen_recording
+    BlockerUi.AccessibilityPermission -> Res.string.computer_use_blocker_accessibility
+    BlockerUi.ElevationRequired -> Res.string.computer_use_blocker_elevation
+    BlockerUi.SessionLocked -> Res.string.computer_use_blocker_session_locked
+    BlockerUi.Headless -> Res.string.computer_use_blocker_headless
 }
+
+@Composable
+private fun JournalEntryUi.text(): String = when (kind) {
+    JournalKindUi.Move -> stringResource(Res.string.computer_use_action_move)
+    JournalKindUi.Click -> stringResource(Res.string.computer_use_action_click, button.text(), count)
+    JournalKindUi.Drag -> stringResource(Res.string.computer_use_action_drag, button.text())
+    JournalKindUi.Scroll -> stringResource(Res.string.computer_use_action_scroll, deltaX, deltaY)
+    JournalKindUi.Type -> stringResource(Res.string.computer_use_action_type, count)
+    JournalKindUi.Key -> stringResource(Res.string.computer_use_action_key, count)
+}
+
+@Composable
+private fun ButtonUi.text(): String = stringResource(
+    when (this) {
+        ButtonUi.Left -> Res.string.computer_use_button_left
+        ButtonUi.Right -> Res.string.computer_use_button_right
+        ButtonUi.Middle -> Res.string.computer_use_button_middle
+    },
+)
 
 private const val BYTES_PER_KIB = 1024L
 private const val PREVIEW_ASPECT_RATIO = 16f / 9f
+
+private data class DecodedPreview(val id: String, val session: String, val bitmap: ImageBitmap?)
 
 @Preview
 @Composable
