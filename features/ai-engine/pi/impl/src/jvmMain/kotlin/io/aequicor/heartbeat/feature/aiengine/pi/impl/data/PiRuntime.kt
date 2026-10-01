@@ -124,9 +124,10 @@ internal class PiRuntime(
         val session = prepare(request)
         var isRegistered = false
         try {
+            val hosted = session.first.prepareHostedTools()
             // Startup stays outside the lock so close() and unrelated creations can proceed.
             session.first.start(
-                { event, failed -> processes.start(source, session.second, event, failed) },
+                { event, failed -> processes.start(source, session.second, event, failed, hosted) },
                 transcript,
             )
             // A started process must be registered or shut down even when its caller is cancelled.

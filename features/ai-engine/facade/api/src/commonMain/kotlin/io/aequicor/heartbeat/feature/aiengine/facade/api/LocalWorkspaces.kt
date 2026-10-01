@@ -22,8 +22,16 @@ public interface LocalWorkspaces {
     public suspend fun register(directory: String): LocalWorkspace
 
     /**
+     * Registers a checkout owned by another profile feature. It resolves like a project but is excluded from
+     * [observe], so an isolated execution directory never becomes a second user-selected project.
+     * Implementations lacking managed registration fail explicitly instead of exposing it as a normal project.
+     */
+    public suspend fun registerManaged(directory: String): LocalWorkspace =
+        throw UnsupportedOperationException("Managed local workspaces are unavailable")
+
+    /**
      * Resolves a saved identity to its validated local path, or null when unknown or no longer available.
-     * Only engine adapters should use this path as a working directory; UI consumes [observe] instead.
+     * Engine adapters and managed-workspace owners use this path; UI consumes [observe] instead.
      * @throws UnsupportedOperationException when [isAvailable] is false.
      */
     public suspend fun resolve(ref: WorkspaceRef): String?

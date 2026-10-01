@@ -1,6 +1,7 @@
 @file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -9,12 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
@@ -89,7 +87,7 @@ class CodexRuntimeTest {
         )
         val session = fixture.open()
         val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
-        val tools = params["dynamicTools"] as JsonArray
+        val tools = checkNotNull(params["dynamicTools"]) as JsonArray
         assertEquals(setOf("web_search", "web_fetch"), tools.map { (it as JsonObject).text("name") }.toSet())
         assertEquals("live", params.obj("config").text("web_search"))
         session.feature(SendsPrompts).send(Prompt)
@@ -102,7 +100,7 @@ class CodexRuntimeTest {
         )
         runCurrent()
         val response = fixture.wire.written.last { it["id"] == JsonPrimitive(88) }.obj("result")
-        assertEquals("true", response["success"].toString())
+        assertEquals("true", response["success"]?.toString())
         assertTrue(response.toString().contains("https://example.com"))
     }
 
@@ -112,7 +110,7 @@ class CodexRuntimeTest {
         fixture.open()
         val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
         assertFalse("dynamicTools" in params)
-        assertFalse("config" in params)
+        assertFalse("web_search" in params.obj("config"))
     }
 
     @Test
@@ -139,7 +137,7 @@ class CodexRuntimeTest {
         session.feature(CancelsTurns).cancel(turn)
         runCurrent()
         val response = fixture.wire.written.last { it["id"] == JsonPrimitive(89) }.obj("result")
-        assertEquals("false", response["success"].toString())
+        assertEquals("false", response["success"]?.toString())
         assertTrue(response.toString().contains("Cancelled"))
         toolCall(90)
         runCurrent()
@@ -177,7 +175,7 @@ class CodexRuntimeTest {
         )
         runCurrent()
         val response = fixture.wire.written.last { it["id"] == JsonPrimitive(91) }.obj("result")
-        assertEquals("false", response["success"].toString())
+        assertEquals("false", response["success"]?.toString())
         assertTrue(response.toString().contains("Disabled"))
         assertEquals(0, searches)
     }
@@ -190,7 +188,7 @@ class CodexRuntimeTest {
         assertIs<ActiveSessionState.Running>(session.state.value)
         session.close()
         assertEquals(ActiveSessionState.Closed, session.state.value)
-        assertFalse(fixture.wire.closed)
+        assertFalse(fixture.wire.isClosed)
         val second = fixture.runtime.attach(session.ref, ResumeSessionRequest(fixture.target))
         assertEquals(turn, assertIs<ActiveSessionState.Running>(second.state.value).turn.id)
         fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
@@ -214,10 +212,10 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `permission decision stays pending until acknowledgement and cannot be replayed`() = runTest {
+    fun `native mutation approval never escalates the read only sandbox`() = runTest {
         val fixture = Fixture(this)
         val session = fixture.open()
-        val turn = session.feature(SendsPrompts).send(Prompt)
+        session.feature(SendsPrompts).send(Prompt)
         fixture.event(
             "item/commandExecution/requestApproval",
             "turnId" to "native-turn".json(),
@@ -225,16 +223,9 @@ class CodexRuntimeTest {
             id = JsonPrimitive(42),
         )
         runCurrent()
-        val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
-        val decision = PermissionDecision(turn, pending.requests.single().id, PermissionOptionId("decline"))
-        session.feature(RequestsPermissions).respond(decision)
-        runCurrent()
-        assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value)
-        assertFailsWith<EngineException> { session.feature(RequestsPermissions).respond(decision) }
-        fixture.event("serverRequest/resolved", "requestId" to JsonPrimitive(42))
-        runCurrent()
         assertIs<ActiveSessionState.Running>(session.state.value)
-        assertFailsWith<EngineException> { session.feature(RequestsPermissions).respond(decision) }
+        val answer = fixture.wire.written.single { it["id"] == JsonPrimitive(42) }.obj("result")
+        assertEquals("decline", answer.text("decision"))
     }
 
     @Test
@@ -266,7 +257,7 @@ class CodexRuntimeTest {
         val fixture = Fixture(this)
         fixture.open()
         val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
-        assertEquals("untrusted", params.text("approvalPolicy"))
+        assertEquals("never", params.text("approvalPolicy"))
         assertEquals("read-only", params.text("sandbox"))
     }
 

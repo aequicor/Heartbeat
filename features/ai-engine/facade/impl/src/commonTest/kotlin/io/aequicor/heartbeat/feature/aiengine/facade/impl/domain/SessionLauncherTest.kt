@@ -78,7 +78,7 @@ class SessionLauncherTest {
             setOf(CreatesSessions.id, AttachesSessions.id),
         supports: Boolean = true,
     ): Triple<RouteFixture, SessionLauncher, FacadeCapabilities> {
-        val factory = factory.apply { runtime = { FakeRuntime(it, supports).also { r -> runtimes += r } } }
+        factory.runtime = { FakeRuntime(it, supports).also { runtime -> runtimes += runtime } }
         val fixture = RouteFixture(this, factory, registration(factory, sources = listOf(source), features = features))
         val enabled = EnabledEngines(fixture.registry, fixture.toggles, backgroundScope)
         lateinit var capabilities: FacadeCapabilities

@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
@@ -30,11 +31,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import kotlinx.coroutines.CompletableDeferred
@@ -55,24 +61,37 @@ import kotlinx.serialization.json.jsonObject
 import java.nio.file.Files
 import java.nio.file.Path
 
-internal suspend fun TestScope.fixture(
+internal suspend fun fixture(
+    test: TestScope,
     validate: suspend () -> Unit = {},
     transcript: PiTranscript? = null,
-    usageEnabled: Boolean = false,
+    isUsageEnabled: Boolean = false,
     acceptIntent: (MachineIntent) -> Boolean = { true },
+    tools: ProfileAgentTools = NoAgentTools,
+    bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    resources: ResourceResolver = ResourceResolver { null },
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
-    val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"))
+    val workspace = if (tools === NoAgentTools) null else WorkspaceRef("hosted-workspace")
+    val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"), workspace)
     val released = mutableListOf<PiSession>()
     val session = PiSession(
-        CreateSessionRequest(target),
+        CreateSessionRequest(target, workspace),
         route,
-        piTestEnvironment(usageEnabled = usageEnabled, acceptIntent = acceptIntent),
+        piTestEnvironment(
+            test,
+            isUsageEnabled,
+            acceptIntent = acceptIntent,
+            tools = tools,
+            bridge = bridge,
+            resources = resources,
+        ),
         validate,
         { released += it },
     )
     val connections = mutableListOf<FakeConnection>()
+    session.prepareHostedTools()
     session.start(
         { event, failed ->
             FakeConnection().also {
@@ -87,12 +106,16 @@ internal suspend fun TestScope.fixture(
     return Fixture(session, connections, released)
 }
 
-internal fun TestScope.piTestEnvironment(
-    usageEnabled: Boolean = false,
-    enginesEnabled: Boolean = false,
+internal fun piTestEnvironment(
+    test: TestScope,
+    isUsageEnabled: Boolean = false,
+    areEnginesEnabled: Boolean = false,
     acceptIntent: (MachineIntent) -> Boolean = { true },
+    tools: ProfileAgentTools = NoAgentTools,
+    bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    resources: ResourceResolver = ResourceResolver { null },
 ): PiSessionEnvironment {
-    val dispatcher = StandardTestDispatcher(testScheduler)
+    val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
         override val main: CoroutineDispatcher = dispatcher
         override val io: CoroutineDispatcher = dispatcher
@@ -100,18 +123,21 @@ internal fun TestScope.piTestEnvironment(
     }
     val scopes = object : ScopeFactory {
         override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope =
-            FakeScope(backgroundScope)
+            FakeScope(test.backgroundScope)
     }
     return PiSessionEnvironment(
         ReducerLauncher(acceptIntent),
         scopes,
-        FakeScope(backgroundScope),
+        FakeScope(test.backgroundScope),
         dispatchers,
-        DefaultPiTestToggles(usageEnabled, enginesEnabled),
+        DefaultPiTestToggles(isUsageEnabled, areEnginesEnabled),
+        tools = tools,
+        bridge = bridge,
+        resources = resources,
     )
 }
 
-private class DefaultPiTestToggles(private val usageEnabled: Boolean, private val enginesEnabled: Boolean) :
+private class DefaultPiTestToggles(private val isUsageEnabled: Boolean, private val areEnginesEnabled: Boolean) :
     FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>) = flowOf(value(toggle))
 
@@ -120,9 +146,9 @@ private class DefaultPiTestToggles(private val usageEnabled: Boolean, private va
     // The usage flag is Boolean; this generic test facade preserves the declaration's value type.
     @Suppress("UNCHECKED_CAST")
     private fun <T : Any> value(toggle: FeatureToggle<T>): T = when (toggle) {
-        EngineUsageEnabled -> usageEnabled as T
-        AiEngines, PiEnabled -> enginesEnabled as T
-        else -> toggle.default
+        EngineUsageEnabled -> isUsageEnabled as T
+        AiEngines, PiEnabled -> areEnginesEnabled as T
+        is FeatureToggle.Flag, is FeatureToggle.Choice -> toggle.default
     }
 }
 
@@ -189,7 +215,7 @@ internal class FakeConnection : PiConnection {
     val commands = mutableListOf<String>()
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
-    var closed = false
+    var isClosed = false
     var sessionId = "native"
     var model = "test"
     var modelMetadata = JsonObject(emptyMap())
@@ -233,7 +259,7 @@ internal class FakeConnection : PiConnection {
         sent += record
     }
     override fun close() {
-        closed = true
+        isClosed = true
         isOpen = false
     }
 
@@ -296,7 +322,7 @@ private class ReducerLauncher(private val acceptIntent: (MachineIntent) -> Boole
                     effects.handle(
                         effect,
                         object : EffectScope<I> {
-                            override suspend fun send(intent: I): SendResult = SendResult.Accepted
+                            override suspend fun send(input: I): SendResult = SendResult.Accepted
                         },
                     )
                 }

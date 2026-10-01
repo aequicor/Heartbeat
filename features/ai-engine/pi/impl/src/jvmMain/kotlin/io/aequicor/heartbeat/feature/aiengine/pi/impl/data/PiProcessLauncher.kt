@@ -87,10 +87,11 @@ internal class PiProcessLauncher(
         workspace: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
+        hosted: PiHostedTools?,
     ): PiConnection {
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = compatibleModelsJson(source)
-        return launch(source, workspace, modelsJson, event, failed)
+        return launch(source, workspace, modelsJson, event, failed, hosted)
     }
 
     /** `models.json` for a compatible route, or null for vendor routes Pi knows natively. */
@@ -120,6 +121,7 @@ internal class PiProcessLauncher(
         modelsJson: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
+        hosted: PiHostedTools?,
     ): PiConnection = withContext(NonCancellable + dispatchers.io) {
         val executable = executable()?.takeIf { Files.isRegularFile(it) }
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
@@ -134,8 +136,8 @@ internal class PiProcessLauncher(
         val sessionDir = Files.createDirectories(sessionDirectory(root))
         val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
         val areSearchToolsEnabled = toggles.get(SearchEngineTools)
-        val tools = piTools(areSearchToolsEnabled)
-        val extensions = piExtensions(agentDir, areSearchToolsEnabled)
+        val tools = piTools(areSearchToolsEnabled, hosted?.specifications.orEmpty().map { it.name })
+        val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
         val command = piCommand(executable, provider.id, sessionDir, extensions, tools, isProject = workspace != null)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
@@ -143,6 +145,12 @@ internal class PiProcessLauncher(
         retainPiEnvironment(environment)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
+        if (hosted != null) {
+            environment["HEARTBEAT_AGENT_TOOLS_URL"] = hosted.endpoint.url
+            environment["HEARTBEAT_AGENT_TOOLS_TOKEN"] = hosted.endpoint.token
+            environment["HEARTBEAT_AGENT_TOOL_SPECS"] = hosted.schemas()
+            environment["HEARTBEAT_AGENT_TOOL_INSTRUCTIONS"] = hosted.instructions
+        }
         var process: Process? = null
         try {
             if (areSearchToolsEnabled) {
@@ -233,23 +241,26 @@ internal fun fingerprint(value: String): String =
     HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(value.toByteArray()))
 
 /** Pi's `--tools` allowlist: extension tools must be listed explicitly or Pi disables them. */
-internal fun piTools(searchTools: Boolean): String {
+internal fun piTools(searchTools: Boolean, hosted: List<String> = emptyList()): String {
     val base = if (System.getProperty("os.name").startsWith("Windows")) {
         "read,powershell,edit,write"
     } else {
         "read,bash,edit,write"
     }
-    return if (searchTools) "$base,web_search,web_fetch" else base
+    return (listOf(base) + (if (searchTools) listOf("web_search", "web_fetch") else emptyList()) + hosted)
+        .joinToString(",")
 }
 
 /** The approval gate always loads; the search extension only while `search.engine_tools` is on. */
-internal fun piExtensions(agentDir: Path, searchTools: Boolean): List<Path> = buildList {
+internal fun piExtensions(agentDir: Path, searchTools: Boolean, hosted: Boolean = false): List<Path> = buildList {
     add(agentDir.resolve(APPROVAL_EXTENSION))
     if (searchTools) add(agentDir.resolve(SEARCH_EXTENSION))
+    if (hosted) add(agentDir.resolve(TOOLS_EXTENSION))
 }
 
 private const val APPROVAL_EXTENSION = "heartbeat-approval.ts"
 private const val SEARCH_EXTENSION = "heartbeat-search.ts"
+private const val TOOLS_EXTENSION = "heartbeat-tools.ts"
 
 /**
  * Pi's command line. Extensions stay limited to the explicitly bundled ones (`--no-extensions` keeps

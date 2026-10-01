@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -7,6 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -22,6 +26,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -31,15 +37,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.contentOrNull
 import kotlin.uuid.Uuid
 
 internal class CodexSession(
@@ -48,6 +55,7 @@ internal class CodexSession(
     val target: EngineTarget,
     val runtime: CodexRuntime,
     private val rpc: CodexRpc,
+    private val areHostedToolsEnabled: Boolean = true,
 ) {
     val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
@@ -59,7 +67,9 @@ internal class CodexSession(
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
-    private val permissions = mutableMapOf<PermissionRequestId, Pair<JsonElement, PermissionRequest>>()
+    private val hostedRequests = mutableMapOf<PermissionRequestId, PermissionRequest>()
+    private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<Boolean>>()
+    private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
     /** Running dynamic tool calls per turn; cancelled when the turn is interrupted or finishes. */
@@ -80,6 +90,7 @@ internal class CodexSession(
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {
         leases -= lease
+        if (leases.isEmpty()) hostedPermissions.values.forEach { it.complete(false) }
     }
 
     suspend fun send(request: PromptRequest): TurnId {
@@ -221,8 +232,8 @@ internal class CodexSession(
             }
 
             is ActiveSessionEffect.Decide -> {
-                val id = permissions[effect.decision.request]?.first ?: protocolFailure()
-                rpc.respond(id, json("decision" to effect.decision.option.value.json()))
+                val pending = hostedPermissions.remove(effect.decision.request) ?: protocolFailure()
+                pending.complete(effect.decision.option == HOSTED_ALLOW)
             }
 
             is ActiveSessionEffect.Recheck -> reconcile()
@@ -247,6 +258,7 @@ internal class CodexSession(
     }
 
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
+        trust = effect.request.trust ?: TrustLevel.Ask
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
         val response = rpc.request(
@@ -285,7 +297,7 @@ internal class CodexSession(
             remembered?.text("status") == IN_PROGRESS && active != null -> machine.send(
                 ActiveSessionIntent.Internal.Synchronized(
                     active,
-                    permissions.values.map { it.second }
+                    hostedRequests.values
                         .filter { it.turn == active.id && it.id !in active.resolvedPermissions },
                 ),
             )
@@ -343,7 +355,7 @@ internal class CodexSession(
             null
         }
         nativeTurn = null
-        permissions.clear()
+        hostedRequests.clear()
         active?.let { cancelTools(it.id) }
         machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
         completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
@@ -417,7 +429,7 @@ internal class CodexSession(
 
             "item/reasoning/summaryTextDelta" -> history.reasoningDelta(params, turnId)
 
-            "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message, turn)
+            "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message)
 
             "item/tool/call" -> dynamicTool(message, turn)
 
@@ -481,18 +493,23 @@ internal class CodexSession(
             rpc.respond(id, toolFailureResult("TurnUnavailable"))
             return
         }
-        if (!runtime.host.toggles.get(SearchEngineTools)) {
+        val tool = params.text("tool").orEmpty()
+        val isSearch = tool == "web_search" || tool == "web_fetch"
+        if (isSearch && !runtime.host.toggles.get(SearchEngineTools)) {
             log.i { "Codex tool call refused: search tools disabled" }
             rpc.respond(id, toolFailureResult("Disabled"))
             return
         }
         accept(turn)
-        val tool = params.text("tool").orEmpty()
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
         val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
         var isResponseStarted = false
         scope.coroutineScope.launch(parent) {
-            val result = executeSearchTool(runtime.host.search, tool, arguments)
+            val result = if (isSearch) {
+                executeSearchTool(runtime.host.search, tool, arguments)
+            } else {
+                executeHostedTool(turn, params, tool, arguments)
+            }
             // Once delivery starts, cancellation must not send another response for the same request.
             isResponseStarted = true
             respondQuietly(id, result)
@@ -500,6 +517,64 @@ internal class CodexSession(
             // Register outside the body: cancellation can happen before the tool's first dispatch.
             // Provider cancellation is answered too; fatal errors still propagate unanswered.
             if (cause is CancellationException && !isResponseStarted) answerCancelled(id)
+        }
+    }
+
+    private suspend fun executeHostedTool(
+        turn: Turn,
+        params: JsonObject,
+        name: String,
+        arguments: JsonElement,
+    ): JsonObject {
+        val args = arguments as? JsonObject ?: return toolFailureResult("InvalidInput")
+        if (!areHostedToolsEnabled) return toolFailureResult("Unavailable")
+        val context = AgentToolContext(
+            ref,
+            route.workspace,
+            turn.id,
+            turn.request,
+            trust,
+            AgentToolPermissions { hostedApproval(turn, it) },
+            params.text("callId")?.let(::ToolCallId),
+            lifetime = toolJobs[turn.id],
+        )
+        return try {
+            val result = runtime.host.tools.execute(context, name, args)
+            toolResult(!result.isError, result.text)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Hosted Codex tool failed" }
+            toolFailureResult("Unavailable")
+        }
+    }
+
+    private suspend fun hostedApproval(turn: Turn, approval: AgentToolApproval): Boolean {
+        if (currentTurn()?.id != turn.id || turn.id in toolsClosed || leases.isEmpty()) return false
+        val request = PermissionRequest(
+            PermissionRequestId(Uuid.random().toString()),
+            turn.id,
+            approval.title,
+            listOf(PermissionOption(HOSTED_ALLOW, "Разрешить"), PermissionOption(HOSTED_DENY, "Запретить")),
+            description = approval.description,
+        )
+        val answer = CompletableDeferred<Boolean>()
+        hostedPermissions[request.id] = answer
+        hostedRequests[request.id] = request
+        if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
+            hostedPermissions.remove(request.id)
+            hostedRequests.remove(request.id)
+            return false
+        }
+        history.publish { SessionEvent.PermissionRequested(it, request) }
+        return try {
+            answer.await()
+        } finally {
+            hostedPermissions.remove(request.id)
+            hostedRequests.remove(request.id)
+            withContext(NonCancellable) {
+                machine.send(ActiveSessionIntent.Internal.PermissionResolved(turn.id, request.id))
+            }
         }
     }
 
@@ -534,10 +609,11 @@ internal class CodexSession(
         toolJobs.remove(turn)?.cancel()
     }
 
-    /** Normal completion: running calls may still answer, but no new call starts for this turn. */
+    /** Normal completion revokes calls and approvals together with the accepted turn's execution identity. */
     private fun completeTools(turn: TurnId) {
         closeTools(turn)
-        toolJobs.remove(turn)?.complete()
+        // Ending the turn revokes execution identity, including pending hosted commands and approvals.
+        toolJobs.remove(turn)?.cancel()
     }
 
     private fun correlate(params: JsonObject, turn: Turn?): TurnId? {
@@ -558,54 +634,20 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))
         history.publish { SessionEvent.TurnFinished(it, id, outcome) }
         nativeTurn = null
-        permissions.clear()
+        hostedRequests.clear()
         // Finished keeps Unavailable; only Synchronized leaves it.
         recheck()
     }
 
-    private suspend fun approval(message: JsonObject, turn: Turn?) {
+    private suspend fun approval(message: JsonObject) {
         val id = message["id"] ?: protocolFailure()
-        if (turn == null || message.obj("params").text("turnId") != nativeTurn) {
-            rpc.respond(id, json("decision" to "decline".json()))
-            return
-        }
-        val params = message.obj("params")
-        val requestId = PermissionRequestId(id.toString())
-        val offered = (params["availableDecisions"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            ?: listOf("accept", "decline", "cancel")
-        val options = offered.filter {
-            it in setOf(
-                "accept",
-                "decline",
-                "cancel",
-            )
-        }.map { PermissionOption(PermissionOptionId(it), it) }
-        if (options.isEmpty()) {
-            rpc.reject(id)
-            return
-        }
-        val request = PermissionRequest(
-            requestId,
-            turn.id,
-            params.text("command") ?: params.text("reason") ?: "Codex file change",
-            options,
-        )
-        permissions[requestId] = id to request
-        accept(turn)
-        if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
-            // Interrupting or Unavailable cannot surface the request; an unanswered one blocks the native turn.
-            permissions.remove(requestId)
-            log.i { "Codex approval declined outside an awaiting state" }
-            rpc.respond(id, json("decision" to "decline".json()))
-            return
-        }
-        history.publish { SessionEvent.PermissionRequested(it, request) }
+        // All mutations go through the hosted trust gate. Never escalate the native read-only sandbox.
+        rpc.respond(id, json("decision" to "decline".json()))
     }
 
     private suspend fun resolved(params: JsonObject, turn: Turn?) {
         if (turn == null) return
         val id = PermissionRequestId((params["requestId"] ?: protocolFailure()).toString())
-        permissions.remove(id)
         machine.send(ActiveSessionIntent.Internal.PermissionResolved(turn.id, id))
     }
 
@@ -673,6 +715,8 @@ internal class CodexSession(
 
     private companion object {
         const val IN_PROGRESS = "inProgress"
+        val HOSTED_ALLOW = PermissionOptionId("hosted.allow")
+        val HOSTED_DENY = PermissionOptionId("hosted.deny")
     }
 }
 

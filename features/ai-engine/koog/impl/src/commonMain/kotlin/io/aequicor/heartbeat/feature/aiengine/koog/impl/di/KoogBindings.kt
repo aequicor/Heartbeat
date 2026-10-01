@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CompatibleProtocol
@@ -79,6 +80,7 @@ public object KoogBindings {
             EngineFamily.MultiProvider,
             EnginePlatform.entries.toSet(),
             KoogEngineEnabled,
+            isLocalWorkspaceSupported = true,
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(
                     ConnectionMethodId("openai"),
@@ -112,6 +114,7 @@ public object KoogBindings {
                 SessionHistory.id,
                 SessionContextUsage.id,
                 RequestsPermissions.id,
+                AppliesTrustLevels.id,
                 ResumesSessions.id,
                 ListsSessions.id,
             ),

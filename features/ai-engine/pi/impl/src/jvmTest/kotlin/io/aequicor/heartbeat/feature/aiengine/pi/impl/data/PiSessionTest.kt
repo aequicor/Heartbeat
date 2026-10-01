@@ -44,8 +44,25 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiSessionTest {
     @Test
+    fun `tool approval waits for the user and an allow answer reaches pi`() = runTest {
+        val fixture = fixture(this)
+        val turn = fixture.runningTurn()
+        fixture.connection.event(approval("ui-1"))
+        val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
+        assertEquals("bash: ls -la", awaiting.requests.single().title)
+        val permissions = assertIs<FeatureAccess.Available<RequestsPermissions>>(
+            fixture.session.features.resolve(RequestsPermissions),
+        ).feature
+        permissions.respond(PermissionDecision(turn, PermissionRequestId("ui-1"), PermissionOptionId("allow")))
+        runCurrent()
+        assertEquals(listOf(answer("ui-1", "confirmed", true)), fixture.connection.sent)
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
+    @Test
     fun `unknown thinking level is rejected before a native prompt`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val request = prompt("effort").copy(reasoningEffort = "turbo")
         val error = assertFailsWith<EngineException> { fixture.session.send(request) }
         assertEquals(EngineFailure.Request(RequestFailureReason.Invalid, request.id), error.failure)
@@ -55,7 +72,7 @@ class PiSessionTest {
 
     @Test
     fun `selected thinking level is applied before the prompt and the native level restored later`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.session.send(prompt("first").copy(reasoningEffort = "high"))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
@@ -64,9 +81,9 @@ class PiSessionTest {
         fixture.session.send(prompt("third"))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         runCurrent()
-        val levels = fixture.connection.commands.zip(fixture.connection.fields)
+        val levels = fixture.connection.commands.asSequence().zip(fixture.connection.fields.asSequence())
             .filter { it.first == "set_thinking_level" }
-            .map { it.second.string("level") }
+            .map { it.second.string("level") }.toList()
         assertEquals(listOf("high", "medium"), levels)
         val first = fixture.connection.commands.indexOf("set_thinking_level")
         assertEquals(listOf("get_state", "prompt"), fixture.connection.commands.drop(first + 1).take(2))
@@ -99,7 +116,7 @@ class PiSessionTest {
 
     @Test
     fun `caller cancellation keeps the native turn and close releases the process after it settles`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         send.cancel()
@@ -107,25 +124,25 @@ class PiSessionTest {
         assertIs<ActiveSessionState.Running>(fixture.session.state.value)
         fixture.session.close()
         assertEquals(ActiveSessionState.Closed, fixture.session.state.value)
-        assertFalse(fixture.connection.closed)
+        assertFalse(fixture.connection.isClosed)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         runCurrent()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `closing an idle session releases its process`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.session.close()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `synchronize after process loss restarts pi on the same transcript`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val ref = fixture.session.ref
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         val turn = fixture.session.send(prompt("first"))
@@ -138,7 +155,7 @@ class PiSessionTest {
         assertEquals(listOf("switch_session", "get_state", "get_state"), restarted.commands)
         assertEquals("native.jsonl", restarted.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
-        assertFalse(restarted.closed)
+        assertFalse(restarted.isClosed)
         val ready = assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
         assertEquals(turn, ready.lastTurn?.id)
         assertEquals(TurnOutcome.Unknown, ready.lastTurn?.outcome)
@@ -151,7 +168,7 @@ class PiSessionTest {
     @Test
     fun `resumed session starts pi on the stored transcript`() = runTest {
         val ref = SessionRef(PiEngineId, PiSessionSource, "native")
-        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl"))
+        val fixture = fixture(this, transcript = PiTranscript(ref, "stored.jsonl"))
         assertEquals(listOf("switch_session", "get_entries", "set_model", "get_state"), fixture.connection.commands)
         assertEquals("stored.jsonl", fixture.connection.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
@@ -174,7 +191,7 @@ class PiSessionTest {
     @Test
     fun `resuming a branch with a missing parent exposes no regenerated partial replay`() = runTest {
         val ref = SessionRef(PiEngineId, PiSessionSource, "native")
-        val fixture = fixture(transcript = PiTranscript(ref, "stored.jsonl")) { _, connection ->
+        val fixture = fixture(this, transcript = PiTranscript(ref, "stored.jsonl")) { _, connection ->
             connection.entries = """{"leafId":"tail","entries":[
                 {"type":"message","id":"tail","parentId":"missing",
                     "message":{"role":"assistant","content":"Already saved"}}]}"""
@@ -194,22 +211,22 @@ class PiSessionTest {
         val opened = mutableListOf<FakeConnection>()
         fun stored(nativeId: String) = PiTranscript(SessionRef(PiEngineId, PiSessionSource, nativeId), "stored.jsonl")
         val changed = assertFailsWith<EngineException> {
-            fixture(transcript = stored("stored")) { _, connection -> opened += connection }
+            fixture(this, transcript = stored("stored")) { _, connection -> opened += connection }
         }
         assertEquals(EngineFailure.Session(SessionFailureReason.Changed), changed.failure)
         val unreadable = assertFailsWith<EngineException> {
-            fixture(transcript = stored("native")) { _, connection ->
+            fixture(this, transcript = stored("native")) { _, connection ->
                 connection.entries = "{}"
                 opened += connection
             }
         }
         assertEquals(EngineFailure.Transport(TransportFailureReason.ProtocolViolation), unreadable.failure)
-        assertEquals(listOf(true, true), opened.map { it.closed })
+        assertEquals(listOf(true, true), opened.map { it.isClosed })
     }
 
     @Test
     fun `rejected model change keeps the session ready`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val failure = assertFailsWith<EngineException> { fixture.session.switchTo(ModelId("anthropic/missing")) }
         assertIs<EngineFailure.Request>(failure.failure)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
@@ -219,7 +236,7 @@ class PiSessionTest {
     @Test
     fun `validation failure before delivery is reported as a definite send failure`() = runTest {
         var checks = 0
-        val fixture = fixture(validate = {
+        val fixture = fixture(this, validate = {
             checks++
             if (checks > 1) throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
         })
@@ -231,7 +248,7 @@ class PiSessionTest {
 
     @Test
     fun overlappingSendIsRejectedAndAgentEndDoesNotPrematurelyFinishRetry() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         fixture.connection.event(record("""{"type":"agent_start"}"""))
@@ -252,7 +269,7 @@ class PiSessionTest {
 
     @Test
     fun quickCompletionBeforeAcceptanceResponseKeepsCompletedOutcome() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val send = async { fixture.session.send(prompt("first")) }
         runCurrent()
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
@@ -268,7 +285,7 @@ class PiSessionTest {
 
     @Test
     fun shutdownBeforeNativeAcceptanceReportsUnknownDelivery() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val sending = async { assertFailsWith<EngineException> { fixture.session.send(prompt("unsent")) } }
         runCurrent()
         fixture.session.shutdown()
@@ -279,7 +296,7 @@ class PiSessionTest {
 
     @Test
     fun finishingBeforeAbortResponseDoesNotPermitAbortToReachANewTurn() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         val first = fixture.session.send(prompt("first"))
         val cancelling = async { fixture.session.cancel(first) }
@@ -296,7 +313,7 @@ class PiSessionTest {
 
     @Test
     fun cancellingModelChangeCallerStillRecordsTheNativeModel() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val changing = launch { fixture.session.switchTo(ModelId("anthropic/other")) }
         runCurrent()
         changing.cancel()
@@ -312,7 +329,7 @@ class PiSessionTest {
     @Test
     fun `host termination waits for explicit allowance at every trust level`() = runTest {
         TrustLevel.entries.forEach { level ->
-            val fixture = fixture()
+            val fixture = fixture(this)
             val turn = fixture.runningTurn(level)
             fixture.connection.event(approval("ui-1", target = "./gradlew --stop"))
             assertTrue(fixture.connection.sent.isEmpty())
@@ -332,7 +349,7 @@ class PiSessionTest {
 
     @Test
     fun `full trust answers ordinary tool approvals without the user`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-t1"))
         fixture.connection.event(approval("ui-t2", tool = "write"))
@@ -346,7 +363,7 @@ class PiSessionTest {
 
     @Test
     fun `edit trust allows file edits and still asks before commands`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.AutoEdits)
         val notes = TestWorkspace.resolve("notes.md").toString()
         fixture.connection.event(approval("ui-e1", target = notes, tool = "edit", path = notes))
@@ -359,7 +376,7 @@ class PiSessionTest {
 
     @Test
     fun `edit trust asks before writes outside the workspace or into git metadata`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.AutoEdits)
         val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
         val hook = TestWorkspace.resolve(".git/hooks/pre-commit").toString()
@@ -376,7 +393,7 @@ class PiSessionTest {
 
     @Test
     fun `nothing is trusted while the turn is being interrupted`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn(TrustLevel.Full)
         val cancel = async { fixture.session.cancel(turn) }
         runCurrent()
@@ -390,7 +407,7 @@ class PiSessionTest {
 
     @Test
     fun `an explicit ask level leaves file edits to the user`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Ask)
         fixture.connection.event(approval("ui-a1", target = "notes.md", tool = "edit"))
         assertTrue(fixture.connection.sent.isEmpty())
@@ -425,7 +442,7 @@ class PiSessionTest {
 
     @Test
     fun `full trust respects denied host termination`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-2", target = "taskkill /F /IM java.exe"))
         fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
@@ -436,7 +453,7 @@ class PiSessionTest {
 
     @Test
     fun `dialogs nobody can answer are dismissed so pi blocks the tool`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.event(approval("idle"))
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"other","method":"input","title":"Name?"}"""),
@@ -453,7 +470,7 @@ class PiSessionTest {
 
     @Test
     fun `select dialog becomes a single choice and the chosen value reaches pi`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record(
@@ -477,7 +494,7 @@ class PiSessionTest {
 
     @Test
     fun `text dialogs send the typed value and skipping cancels them`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"t","method":"editor","title":"Notes"}"""),
@@ -504,7 +521,7 @@ class PiSessionTest {
 
     @Test
     fun `an undelivered dialog answer keeps the request pending in the session`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"t","method":"input","title":"Name?"}"""),
@@ -528,7 +545,7 @@ class PiSessionTest {
 
     @Test
     fun `plain confirm dialog is answered with the chosen option`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"c","method":"confirm","title":"Go?","message":"Sure"}"""),
@@ -543,7 +560,7 @@ class PiSessionTest {
 
     @Test
     fun `cancelling a turn dismisses its pending approvals before aborting`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-3"))
         fixture.connection.abortAck.complete(JsonObject(emptyMap()))
@@ -555,19 +572,19 @@ class PiSessionTest {
 
     @Test
     fun `close after a rejected prompt releases the process`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.connection.promptAck.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.Invalid)),
         )
         assertFailsWith<EngineException> { fixture.session.send(prompt("rejected")) }
         fixture.session.close()
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
         assertEquals(listOf(fixture.session), fixture.released)
     }
 
     @Test
     fun `failed transcript reattachment never keeps the restarted process`() = runTest {
-        val fixture = fixture { index, connection ->
+        val fixture = fixture(this) { index, connection ->
             if (index == 1) {
                 connection.switchFailure = EngineException(
                     EngineFailure.Request(RequestFailureReason.Invalid),
@@ -577,7 +594,7 @@ class PiSessionTest {
         fixture.connection.isOpen = false
         fixture.connection.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
         assertFailsWith<EngineException> { fixture.session.synchronize() }
-        assertTrue(fixture.connections[1].closed)
+        assertTrue(fixture.connections[1].isClosed)
         fixture.session.synchronize()
         assertEquals(3, fixture.connections.size)
         assertIs<ActiveSessionState.Ready>(fixture.session.state.value)
@@ -586,7 +603,7 @@ class PiSessionTest {
 
     @Test
     fun `process loss before the first persisted assistant message never adopts a new session`() = runTest {
-        val fixture = fixture { index, connection ->
+        val fixture = fixture(this) { index, connection ->
             // Pi returns a path immediately, but writes the transcript only after the first assistant message.
             // Switching to the missing file succeeds and silently creates a new native session.
             if (index > 0) connection.sessionIdAfterSwitch = "replacement-$index"
@@ -601,7 +618,7 @@ class PiSessionTest {
             val rejected = fixture.connections[attempt + 1]
             assertEquals(listOf("switch_session", "get_state"), rejected.commands)
             assertEquals("native.jsonl", rejected.fields.first().string("sessionPath"))
-            assertTrue(rejected.closed)
+            assertTrue(rejected.isClosed)
             assertEquals(ref, fixture.session.ref)
             val unavailable = assertIs<ActiveSessionState.Unavailable>(fixture.session.state.value)
             assertEquals(turn, unavailable.activeTurn?.id)
@@ -617,7 +634,7 @@ class PiSessionTest {
 
     @Test
     fun `callbacks of a replaced process are ignored`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         val stale = fixture.connection
         stale.isOpen = false
         stale.failed(EngineFailure.Engine(EngineFailureReason.Crashed))
@@ -631,19 +648,19 @@ class PiSessionTest {
 
     @Test
     fun `closing while an approval is pending declines it and releases after the turn settles`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-4"))
         fixture.session.close()
         assertEquals(listOf(answer("ui-4", "cancelled", true)), fixture.connection.sent)
-        assertFalse(fixture.connection.closed)
+        assertFalse(fixture.connection.isClosed)
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
-        assertTrue(fixture.connection.closed)
+        assertTrue(fixture.connection.isClosed)
     }
 
     @Test
     fun `approval text shows hidden characters and oversized commands are blocked`() = runTest {
-        val fixture = fixture()
+        val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-5", "ls\n‮rm -rf"))
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)

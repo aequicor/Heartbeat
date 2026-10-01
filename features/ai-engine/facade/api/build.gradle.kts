@@ -11,6 +11,7 @@ kotlin {
             api(projects.core.featureToggles.api)
             api(libs.kotlinx.coroutines.core)
             api(libs.kotlinx.serialization.core)
+            api(libs.kotlinx.serialization.json)
         }
         commonTest.dependencies {
             implementation(libs.kotlinx.serialization.json)

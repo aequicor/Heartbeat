@@ -24,6 +24,19 @@ import kotlin.test.assertNull
 
 class StoredLocalWorkspacesTest {
     @Test
+    fun `managed checkout resolves after restart without appearing as a user project`() = runTest {
+        val stores = WorkspaceTestStores()
+        val first = StoredLocalWorkspaces(stores, FakeDirectories())
+        val checkout = first.registerManaged("/projects/demo")
+        assertEquals(emptyList(), first.observe().first())
+        val reopened = StoredLocalWorkspaces(stores, FakeDirectories())
+        assertEquals("/projects/demo", reopened.resolve(checkout.ref))
+        assertEquals(emptyList(), reopened.observe().first())
+        assertEquals(checkout, reopened.register("/projects/demo"))
+        assertEquals(listOf(checkout), reopened.observe().first())
+    }
+
+    @Test
     fun `canonical aliases reuse identity and registration survives registry recreation`() = runTest {
         val stores = WorkspaceTestStores()
         val directories = FakeDirectories()

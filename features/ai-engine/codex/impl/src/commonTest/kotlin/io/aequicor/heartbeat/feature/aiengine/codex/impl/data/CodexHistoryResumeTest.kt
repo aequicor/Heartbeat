@@ -1,6 +1,7 @@
 @file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -15,6 +16,7 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -191,7 +193,14 @@ class CodexHistoryResumeTest {
             val handler = fixture.wire.handler
             fixture.wire.handler = { message ->
                 if (message.text("method") == method) {
-                    fixture.wire.reply(message, json("thread" to json("id" to "thread".json(), "turns" to json())))
+                    fixture.wire.reply(
+                        message,
+                        json(
+                            "thread" to json("id" to "thread".json(), "turns" to json()),
+                            "approvalPolicy" to "never".json(),
+                            "sandbox" to json("type" to "readOnly".json(), "networkAccess" to JsonPrimitive(false)),
+                        ),
+                    )
                 } else {
                     handler(message)
                 }
@@ -219,6 +228,8 @@ class CodexHistoryResumeTest {
                         message,
                         json(
                             cursor to "older".json(),
+                            "approvalPolicy" to "never".json(),
+                            "sandbox" to json("type" to "readOnly".json(), "networkAccess" to JsonPrimitive(false)),
                             "thread" to json(
                                 "id" to "thread".json(),
                                 "historyMode" to "paginated".json(),
