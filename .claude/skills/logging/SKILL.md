@@ -33,16 +33,17 @@ class Log private constructor(private val tag: String) {
         /** Call once from platform-main before building the DI graph.
          *
          *  Debug builds log from DEBUG up so the console stays readable while streaming; `isTrace` adds
-         *  VERBOSE (state diffs, engine internals, lifecycle callbacks) for deep debugging — on desktop it is
+         *  VERBOSE (routine storage IO, streaming revisions, state/effect internals) for deep debugging — on desktop it is
          *  enabled with the `heartbeat.trace` system property or `HEARTBEAT_TRACE`. */
-        fun init(isDebug: Boolean, isTrace: Boolean = false, extra: List<Antilog> = emptyList()) {
+        fun init(isDebug: Boolean, isTrace: Boolean = false, sinks: List<LogSink> = emptyList()) {
+            Napier.takeLogarithm() // repeated initialization replaces destinations
             minLevel = when {
                 isTrace -> LogLevel.VERBOSE
                 isDebug -> LogLevel.DEBUG
                 else -> LogLevel.INFO
             }
-            if (isDebug) Napier.base(DebugAntilog())   // Logcat / NSLog / stdout
-            extra.forEach(Napier::base)                 // file / crash reporter in release
+            if (isDebug) Napier.base(platformDebugAntilog()) // platform console
+            sinks.forEach { Napier.base(SinkAntilog(it)) }    // file / crash reporter in release
         }
     }
 }
@@ -52,6 +53,16 @@ enum class LogLevel { VERBOSE, DEBUG, INFO, WARNING, ERROR }
 ```
 
 `Redactor` вырезает по регулярным выражениям API-ключи (`sk-…`, `Bearer …`, `x-api-key`), e-mail, и значения, помеченные `Secret<T>`.
+
+JVM использует внутренний Antilog с собственным UTF-8 `ConsoleHandler`, без общего JUL-логгера:
+повторная инициализация не накапливает обработчики. Формат — `HH:mm:ss.SSS [LEVEL] Tag - сообщение`;
+переводы строк сообщения экранируются, throwable сохраняет полный стек. Android/iOS используют Napier `DebugAntilog`.
+
+Уровни: `V` — обычные чтения/записи KV и vault, потоковые ревизии транскрипта, проекции usage/configuration/
+permissions, входящие интенты, stay/no-change, регистрация и жизненный цикл эффектов, отражение в стор;
+`D` — полезные решения и одноразовые outputs; `I` — действия пользователя, переходы машин, запросы,
+изменения конфигурации и очистки. Outputs без подписчиков — `D`, переполнение буфера — `W`.
+Некорректные/отклонённые интенты и реальные ошибки сохраняют `W`/`E`.
 
 ## Адаптеры (всё централизованно)
 
@@ -81,7 +92,8 @@ object NapierStoreLogger : StoreLogger {
 
 1. Найди запрещённое: `Grep "println|android.util.Log|NSLog|Napier\\."` вне `core/logging`.
 2. Найди `catch` без лога: `Grep -A3 "catch \\("` и проверь тело.
-3. Для каждого репозитория/эффекта/инструмента агента — есть ли `d` на входе и `e`/`w` на ошибке.
+3. Для каждого репозитория/эффекта/инструмента агента — есть ли лог операции на подходящем уровне
+   (`v` для частого внутреннего IO, `d`/`i` для значимых операций) и `e`/`w` на ошибке.
 4. Для новых источников событий (новая библиотека, платформенный колбэк) — есть ли адаптер в `core`.
 5. Проверь, что секреты и полные промпты не попадают в `message` (особенно в `data class toString()` — переопредели или используй `Secret<T>`).
 

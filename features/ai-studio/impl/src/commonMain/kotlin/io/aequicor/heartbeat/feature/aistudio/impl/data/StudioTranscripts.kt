@@ -34,7 +34,7 @@ internal class StudioTranscripts(
 
     /** Items of [chatId] in display order, moved out of the chat record when they are still there. */
     suspend fun read(chatId: String): List<SessionItem> {
-        log.d { "Read stored transcript" }
+        log.v { "Read stored transcript" }
         val rows = dao.items(chatId)
         val stored = rows.mapNotNull { it.item() }
         if (chatId in checkedLegacy) return stored
@@ -55,7 +55,7 @@ internal class StudioTranscripts(
 
     /** Items of [chatId] and their changes, in display order; [read] moves a stored transcript here first. */
     fun observe(chatId: String): Flow<List<SessionItem>> = dao.observe(chatId)
-        .onStart { log.d { "Observe stored transcript" } }
+        .onStart { log.v { "Observe stored transcript" } }
         .map { rows -> rows.mapNotNull { it.item() } }
 
     /**
@@ -75,7 +75,7 @@ internal class StudioTranscripts(
         }
         val removed = stored.keys.filterNot { it in kept }
         if (rows.isNotEmpty() || removed.isNotEmpty()) dao.apply(rows, chatId, removed)
-        log.d { "Transcript stored: ${rows.size} of ${items.size} items written, ${removed.size} removed" }
+        log.v { "Transcript stored: ${rows.size} of ${items.size} items written, ${removed.size} removed" }
     }
 
     /** Row of [item] at [ordinal], or null when the stored row already holds this item in this place. */

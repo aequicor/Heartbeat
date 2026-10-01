@@ -32,7 +32,7 @@ internal class PiSessionUsage(private val environment: PiSessionEnvironment, han
     }
 
     fun clear() {
-        log.d { "Clear native context observation" }
+        log.v { "Clear native context observation" }
         mutableState.value = null
     }
 
@@ -48,7 +48,7 @@ internal class PiSessionUsage(private val environment: PiSessionEnvironment, han
             "message_end" -> {
                 val message = record["message"] as? JsonObject
                 if (message?.string("role") == "assistant" && !isClosed) {
-                    log.d { "Native context observation received" }
+                    log.v { "Native context observation received" }
                     mutableState.value = if (environment.toggles.get(EngineUsageEnabled)) {
                         piContextUsage(message, model, Clock.System.now())
                     } else {
