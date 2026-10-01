@@ -166,12 +166,7 @@
     <string name="worktree_build_queued">Queued</string>
     <string name="worktree_build_position">Position in queue: %1$d</string>
     <string name="worktree_build_waiting">Waiting for shared resource</string>
-    <string name="worktree_build_running">Running</string>
-    <string name="worktree_build_completed">Completed</string>
-    <string name="worktree_build_cancelled">Cancelled</string>
-    <string name="worktree_build_failed">Failed</string>
     <string name="worktree_build_unknown">Outcome unknown</string>
-    <string name="worktree_build_output">Last build output</string>
     <string name="worktree_failure_checkout_dirty">The original checkout has uncommitted changes. Save or commit them, then check again before merging.</string>
     <string name="worktree_failure_branch_changed">The original checkout now uses another branch. Switch back to the original branch, then check again.</string>
     <string name="worktree_failure_branch_moved">The original branch has new commits. Check both branches before retrying the merge.</string>

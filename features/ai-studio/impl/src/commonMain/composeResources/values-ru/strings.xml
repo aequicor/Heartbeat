@@ -166,12 +166,7 @@
     <string name="worktree_build_queued">В очереди</string>
     <string name="worktree_build_position">Позиция в очереди: %1$d</string>
     <string name="worktree_build_waiting">Ожидание общего ресурса</string>
-    <string name="worktree_build_running">Выполняется</string>
-    <string name="worktree_build_completed">Завершена</string>
-    <string name="worktree_build_cancelled">Отменена</string>
-    <string name="worktree_build_failed">Ошибка</string>
     <string name="worktree_build_unknown">Результат неизвестен</string>
-    <string name="worktree_build_output">Последний вывод сборки</string>
     <string name="worktree_failure_checkout_dirty">В исходной рабочей папке есть незакоммиченные изменения. Сохраните их или создайте коммит, затем проверьте папку перед слиянием.</string>
     <string name="worktree_failure_branch_changed">В исходной рабочей папке выбрана другая ветка. Вернитесь к исходной ветке, затем повторите проверку.</string>
     <string name="worktree_failure_branch_moved">В исходной ветке появились новые коммиты. Проверьте обе ветки перед повторным слиянием.</string>

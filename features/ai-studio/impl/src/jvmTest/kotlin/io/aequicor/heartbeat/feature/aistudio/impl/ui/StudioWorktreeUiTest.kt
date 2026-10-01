@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -13,28 +14,32 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
-import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildPhaseUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.BuildUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
@@ -47,6 +52,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_checkout_dirty
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_failure_unknown
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_merge_target
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_preparing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_result
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.worktree_this_computer
 import kotlinx.collections.immutable.persistentListOf
@@ -59,37 +66,35 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
+/** Worktree lifecycle renders as cards in the transcript; the composer region keeps only the composer. */
 @OptIn(ExperimentalTestApi::class)
 class StudioWorktreeUiTest {
     @Test
-    fun `recovery explains known failures and unknown diagnostics without exposing raw codes`() =
+    fun `recovery explains known failures in the feed without exposing raw codes`() =
         runSkikoComposeUiTest(size = Size(520f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
             val pane = PaneUi(0, sessionId = "chat")
             var failure by mutableStateOf("OriginalCheckoutDirty")
             var dirtyLabel = ""
             var unknownLabel = ""
             setContent {
-                HbTheme(darkTheme = false) {
-                    dirtyLabel = stringResource(Res.string.worktree_failure_checkout_dirty)
-                    unknownLabel = stringResource(Res.string.worktree_failure_unknown)
-                    val task = WorktreeUi(
-                        WorktreePhaseUi.RecoveryRequired,
-                        "heartbeat/task",
-                        "master",
-                        null,
-                        null,
-                        failure,
-                        persistentListOf(),
-                    )
-                    StudioWorktree(savedWorkspace(pane, task).paneContent(pane), {})
-                }
+                dirtyLabel = stringResource(Res.string.worktree_failure_checkout_dirty)
+                unknownLabel = stringResource(Res.string.worktree_failure_unknown)
+                val task = task(WorktreePhaseUi.RecoveryRequired).copy(failure = failure)
+                PaneHost(savedWorkspace(pane, task), pane, events::add)
             }
+            onNode(hasTestTag("worktree:chat") and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
+            onNode(hasAnyAncestor(hasTestTag("pane-footer-0")) and hasTestTag("worktree:chat")).assertDoesNotExist()
             onNodeWithText(dirtyLabel).assertIsDisplayed()
             onNodeWithText("OriginalCheckoutDirty").assertDoesNotExist()
             runOnIdle { failure = "UnexpectedInternalFailure" }
             onNodeWithText(unknownLabel).assertIsDisplayed()
             onNodeWithText("UnexpectedInternalFailure").assertDoesNotExist()
             onNodeWithTag("worktree-action-Merge").assertDoesNotExist()
+            onNodeWithTag(RECHECK_ID).performClick()
+            runOnIdle {
+                assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RecheckWorktree("chat")), events)
+            }
         }
 
     @Test
@@ -171,44 +176,24 @@ class StudioWorktreeUiTest {
         }
 
     @Test
-    fun `long branch decisions remain visible at compact and desktop widths in both themes`() {
+    fun `long branch decisions remain visible in the feed at compact and desktop widths in both themes`() {
         for (dark in listOf(false, true)) {
             for (width in listOf(520f, 1280f)) {
                 runSkikoComposeUiTest(size = Size(width, 700f)) {
                     val events = mutableListOf<AiStudioScreenIntent>()
                     val pane = PaneUi(0, sessionId = "chat")
                     val task = completedLongBranchTask()
-                    val initial = workspace(pane)
                     var resultLabel = ""
-                    val state = initial.copy(
-                        sessions = persistentListOf(
-                            SessionUi("chat", "Feature", "project", Instant.DISTANT_PAST, isWorktree = true),
-                        ),
-                        worktrees = persistentMapOf("chat" to task),
-                    )
+                    var targetLabel = ""
                     setContent {
-                        HbTheme(darkTheme = dark) {
-                            resultLabel = stringResource(Res.string.worktree_result)
-                            Box(
-                                Modifier.fillMaxSize()
-                                    .background(HbTheme.surfaces.backdrop)
-                                    .padding(HbTheme.spacing.xl),
-                                contentAlignment = Alignment.BottomCenter,
-                            ) {
-                                HbColumn {
-                                    StudioWorktree(state.paneContent(pane), events::add, Modifier)
-                                    StudioComposer(state.paneContent(pane), events::add, isCompact = width < 900f)
-                                }
-                            }
-                        }
+                        resultLabel = stringResource(Res.string.worktree_result)
+                        targetLabel = stringResource(Res.string.worktree_merge_target, checkNotNull(task.sourceBranch))
+                        PaneHost(savedWorkspace(pane, task), pane, events::add, isDark = dark, isCompact = width < 900f)
                     }
-                    onNodeWithTag("worktree-result-chat").assertIsDisplayed()
+                    onNodeWithTag("worktree:chat").assertIsDisplayed()
                     onNodeWithText(resultLabel).assertIsDisplayed()
-                    val target = onNodeWithTag("worktree-merge-target").assertIsDisplayed()
-                    assertTrue(
-                        target.fetchSemanticsNode().config[SemanticsProperties.Text].single().text
-                            .contains(checkNotNull(task.sourceBranch)),
-                    )
+                    onNodeWithText(targetLabel, substring = true).assertIsDisplayed()
+                    onNodeWithText(checkNotNull(task.summary), substring = true).assertIsDisplayed()
                     WorktreeActionUi.entries.forEach {
                         val action = onNodeWithTag("worktree-action-${it.name}")
                         action.assertIsDisplayed()
@@ -219,9 +204,7 @@ class StudioWorktreeUiTest {
                     onNodeWithText(resultLabel).assertIsDisplayed()
                     runOnIdle {
                         assertEquals<List<AiStudioScreenIntent>>(
-                            WorktreeActionUi.entries.map {
-                                AiStudioScreenIntent.DecideWorktree("chat", it)
-                            },
+                            WorktreeActionUi.entries.map { AiStudioScreenIntent.DecideWorktree("chat", it) },
                             events,
                         )
                     }
@@ -236,129 +219,71 @@ class StudioWorktreeUiTest {
         for (dark in listOf(false, true)) {
             runSkikoComposeUiTest(size = Size(520f, 700f)) {
                 val pane = PaneUi(0, sessionId = "chat")
-                val initial = workspace(pane).copy(
-                    sessions = persistentListOf(SessionUi("chat", "Feature", "project", Instant.DISTANT_PAST)),
-                )
-                var task by mutableStateOf(
-                    WorktreeUi(
-                        WorktreePhaseUi.AwaitingDecision,
-                        "heartbeat/task",
-                        null,
-                        "Done",
-                        null,
-                        null,
-                        persistentListOf(),
-                    ),
-                )
-                setContent {
-                    HbTheme(darkTheme = dark) {
-                        Box(
-                            Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).padding(HbTheme.spacing.xl),
-                            contentAlignment = Alignment.BottomCenter,
-                        ) {
-                            StudioWorktree(
-                                initial.copy(worktrees = persistentMapOf("chat" to task)).paneContent(pane),
-                                {},
-                                Modifier,
-                            )
-                        }
-                    }
-                }
+                var task by mutableStateOf(task(WorktreePhaseUi.AwaitingDecision).copy(sourceBranch = null))
+                setContent { PaneHost(savedWorkspace(pane, task), pane, {}, isDark = dark) }
+                onNodeWithTag("worktree-action-CreatePr").assertIsDisplayed()
                 onNodeWithTag("worktree-action-Merge").assertDoesNotExist()
                 saveImage(captureToImage(), "detached-$dark")
                 runOnIdle { task = task.copy(phase = WorktreePhaseUi.Idle) }
                 onNodeWithTag("worktree-action-CreatePr").assertDoesNotExist()
+                onNodeWithTag("worktree:chat").assertDoesNotExist()
             }
         }
     }
 
     @Test
-    fun `journal recovery hides stale decisions and survives removing the pane from composition`() =
+    fun `journal notices replace stale decisions in the feed and survive removing the pane`() =
         runSkikoComposeUiTest(size = Size(520f, 700f)) {
             val events = mutableListOf<AiStudioScreenIntent>()
             val pane = PaneUi(0, sessionId = "chat")
-            val initial = savedWorkspace(
-                pane,
-                WorktreeUi(
-                    WorktreePhaseUi.AwaitingDecision,
-                    "heartbeat/task",
-                    "master",
-                    "Done",
-                    null,
-                    null,
-                    persistentListOf(),
-                ),
-            )
+            val initial = savedWorkspace(pane, task(WorktreePhaseUi.AwaitingDecision))
             var journal by mutableStateOf(WorktreeJournalUi.Loading)
             var isShown by mutableStateOf(true)
             var hasTask by mutableStateOf(false)
             setContent {
-                HbTheme(darkTheme = false) {
-                    if (isShown) {
-                        StudioWorktree(
-                            initial.copy(
-                                worktreeJournal = journal,
-                                worktrees = if (hasTask) initial.worktrees else persistentMapOf(),
-                            ).paneContent(pane),
-                            events::add,
-                            Modifier,
-                        )
-                    }
+                if (isShown) {
+                    val state = initial.copy(
+                        worktreeJournal = journal,
+                        worktrees = if (hasTask) initial.worktrees else persistentMapOf(),
+                    )
+                    PaneHost(state, pane, events::add)
                 }
             }
-            onNodeWithTag("worktree-journal-loading").assertIsDisplayed()
+            onNode(hasTestTag(JOURNAL_LOADING_ID) and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
             WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertDoesNotExist() }
             runOnIdle {
                 hasTask = true
                 journal = WorktreeJournalUi.Error
             }
-            onNodeWithTag("worktree-journal-error").assertIsDisplayed()
+            onNodeWithTag(JOURNAL_ERROR_ID).assertIsDisplayed()
+            onNodeWithTag(JOURNAL_LOADING_ID).assertDoesNotExist()
             WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertDoesNotExist() }
-            onNodeWithTag("worktree-journal-retry").performClick()
+            onNodeWithTag(JOURNAL_RETRY_ID).performClick()
             runOnIdle {
                 assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RetryWorktreeJournal), events)
                 isShown = false
                 journal = WorktreeJournalUi.Ready
             }
-            onNodeWithTag("worktree-result-chat").assertDoesNotExist()
+            onNodeWithTag("worktree:chat").assertDoesNotExist()
             runOnIdle { isShown = true }
             WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertIsDisplayed() }
-            onNodeWithTag("worktree-journal-error").assertDoesNotExist()
+            onNodeWithTag(JOURNAL_ERROR_ID).assertDoesNotExist()
         }
 
     @Test
-    fun `failed build exposes bounded tail diagnostics and queued build can be cancelled`() =
-        runSkikoComposeUiTest(size = Size(520f, 700f)) {
+    fun `failed build reveals its bounded log tail in the feed and queued build can be cancelled`() =
+        runSkikoComposeUiTest(size = Size(520f, 900f)) {
             val events = mutableListOf<AiStudioScreenIntent>()
             val pane = PaneUi(0, sessionId = "chat")
-            val diagnostic = (0..99).joinToString(
-                "\n",
-            ) { "Log line $it: ${"details ".repeat(8)}" } + "\nCompilation failed at Main.kt:42"
+            val diagnostic = (0..99).joinToString("\n") { "Log line $it: ${"details ".repeat(8)}" } +
+                "\nCompilation failed at Main.kt:42"
             val failed = BuildUi("failed", "compile", BuildPhaseUi.Failed, diagnostic, "Exit1")
             val queued = BuildUi("queued", "test", BuildPhaseUi.Queued, "", null, queuePosition = 2)
-            val task = WorktreeUi(
-                WorktreePhaseUi.Idle,
-                "heartbeat/task",
-                "master",
-                null,
-                null,
-                null,
-                persistentListOf(failed, queued),
-            )
-            val initial = savedWorkspace(pane, task)
+            val builds = persistentListOf(failed, queued)
+            val initial = savedWorkspace(pane, task(WorktreePhaseUi.Idle).copy(builds = builds))
             var journal by mutableStateOf(WorktreeJournalUi.Ready)
-            setContent {
-                HbTheme(darkTheme = false) {
-                    StudioWorktree(initial.copy(worktreeJournal = journal).paneContent(pane), events::add, Modifier)
-                }
-            }
-            val shown = onNodeWithTag(
-                "build-output-failed",
-            ).fetchSemanticsNode().config[SemanticsProperties.Text].single().text
-            assertTrue(shown.endsWith("Compilation failed at Main.kt:42"))
-            assertTrue(shown.length <= 4000 && shown.lines().size <= 40)
-            assertTrue(!shown.contains("Log line 0:"))
-            onNodeWithTag("cancel-build-queued").performScrollTo().performClick()
+            setContent { PaneHost(initial.copy(worktreeJournal = journal), pane, events::add) }
+            onNodeWithTag("cancel-build-queued").assertIsDisplayed().performClick()
             runOnIdle {
                 assertEquals(
                     listOf<AiStudioScreenIntent>(AiStudioScreenIntent.CancelWorktreeBuild("chat", "queued")),
@@ -366,13 +291,83 @@ class StudioWorktreeUiTest {
                 )
                 journal = WorktreeJournalUi.Error
             }
+            onNodeWithTag("build:queued").assertIsDisplayed()
             onNodeWithTag("cancel-build-queued").assertDoesNotExist()
-            onNodeWithTag("build-output-failed").assertExists()
+            onNodeWithTag("build-output-failed").assertDoesNotExist()
+            onNodeWithTag("build:failed").performClick()
+            assertTrue(onAllNodesWithTag("build-output-failed").fetchSemanticsNodes().isNotEmpty())
+            val lastLine = hasText("Compilation failed at Main.kt:42", substring = true)
+            onNode(hasScrollToIndexAction()).performScrollToNode(lastLine)
+            onNode(lastLine and hasTestTag("build-output-failed")).assertIsDisplayed()
+            onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("build:failed"))
+            assertTrue(onAllNodesWithText("Log line 0:", substring = true).fetchSemanticsNodes().isEmpty())
+            saveImage(captureToImage(), "builds-journal-error")
         }
+
+    @Test
+    fun `a pane preparing a worktree session shows the preparation in its feed`() {
+        for (dark in listOf(false, true)) {
+            runSkikoComposeUiTest(size = Size(1280f, 700f)) {
+                val pane = PaneUi(7, projectId = "project", isCreating = true, isWorktree = true)
+                var preparingLabel = ""
+                setContent {
+                    preparingLabel = stringResource(Res.string.worktree_preparing)
+                    PaneHost(workspace(pane), pane, {}, isDark = dark)
+                }
+                onNode(hasTestTag("worktree:pane-7") and hasAnyAncestor(hasTestTag("transcript-pane-7")))
+                    .assertIsDisplayed()
+                onNodeWithText(preparingLabel).assertIsDisplayed()
+                onNode(hasAnyAncestor(hasTestTag("pane-footer-7")) and hasTestTag("worktree:pane-7"))
+                    .assertDoesNotExist()
+                saveImage(captureToImage(), "preparing-$dark")
+            }
+        }
+    }
+
+    @Composable
+    private fun PaneHost(
+        state: AiStudioScreenState,
+        pane: PaneUi,
+        onIntent: (AiStudioScreenIntent) -> Unit,
+        isDark: Boolean = false,
+        isCompact: Boolean = true,
+    ) {
+        HbTheme(darkTheme = isDark) {
+            StudioPaneView(
+                state.paneContent(pane),
+                onIntent,
+                PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = isCompact),
+                Modifier.fillMaxSize(),
+            )
+        }
+    }
 
     private fun savedWorkspace(pane: PaneUi, task: WorktreeUi) = workspace(pane).copy(
         sessions = persistentListOf(SessionUi("chat", "Feature", "project", Instant.DISTANT_PAST, isWorktree = true)),
         worktrees = persistentMapOf("chat" to task),
+        transcripts = persistentMapOf(
+            "chat" to persistentListOf(
+                MessageUi.Prompt("prompt", Instant.DISTANT_PAST, "Implement the task", isTimestampKnown = false),
+                MessageUi.Reply(
+                    "reply",
+                    Instant.DISTANT_PAST,
+                    "Done.",
+                    persistentListOf(),
+                    isStreaming = false,
+                    isTimestampKnown = false,
+                ),
+            ),
+        ),
+    )
+
+    private fun task(phase: WorktreePhaseUi) = WorktreeUi(
+        phase,
+        "heartbeat/task",
+        "master",
+        "Done",
+        null,
+        null,
+        persistentListOf(),
     )
 
     private fun completedLongBranchTask() = WorktreeUi(
