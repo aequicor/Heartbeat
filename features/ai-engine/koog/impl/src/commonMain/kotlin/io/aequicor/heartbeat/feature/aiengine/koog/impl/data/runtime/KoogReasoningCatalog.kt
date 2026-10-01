@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.networkResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
@@ -33,6 +34,9 @@ import kotlin.time.Instant
 internal interface KoogReasoningCatalog {
     /** Effort levels of [model]; null when the catalog does not know the model or is unavailable. */
     suspend fun levels(provider: KoogProvider, model: String): List<String>?
+
+    /** Exact vendor model modalities; compatible endpoints are never looked up in the vendor catalog. */
+    suspend fun inputSupport(provider: KoogProvider, model: String): PromptInputSupport? = null
 }
 
 /**
@@ -59,6 +63,9 @@ internal class ModelsDevReasoningCatalog(
         val section = CatalogSections[provider] ?: return null
         return current()?.providers?.get(section)?.get(model)
     }
+
+    override suspend fun inputSupport(provider: KoogProvider, model: String): PromptInputSupport? =
+        InputCatalogSections[provider]?.let { current()?.inputs?.get(it)?.get(model) }
 
     private suspend fun current(): CatalogSnapshot? = mutex.withLock {
         val cached = snapshot ?: store.get(Key).also { snapshot = it }
@@ -105,12 +112,18 @@ internal class ModelsDevReasoningCatalog(
 
 /** Effort levels per catalog section and model id. */
 @Serializable
-internal data class CatalogSnapshot(val fetchedAt: Instant, val providers: Map<String, Map<String, List<String>>>)
+internal data class CatalogSnapshot(
+    val fetchedAt: Instant,
+    val providers: Map<String, Map<String, List<String>>>,
+    val inputs: Map<String, Map<String, PromptInputSupport>> = emptyMap(),
+)
 
 internal val CatalogSections = mapOf(
     KoogProvider.OpenAI to "openai",
     KoogProvider.AlibabaQwen to "alibaba-token-plan",
 )
+
+private val InputCatalogSections = CatalogSections + (KoogProvider.Anthropic to "anthropic")
 
 private val CatalogJson = Json { ignoreUnknownKeys = true }
 
@@ -127,7 +140,25 @@ internal fun parseCatalog(text: String, now: Instant): CatalogSnapshot? {
             id to values
         }.toMap()
     }
-    return CatalogSnapshot(now, providers)
+    val inputs = InputCatalogSections.values.associateWith { section ->
+        val models = (root[section] as? JsonObject)?.get("models") as? JsonObject
+        models.orEmpty().mapValues { (_, element) -> catalogInputs(element as? JsonObject) }
+    }
+    return CatalogSnapshot(now, providers, inputs)
+}
+
+private fun catalogInputs(model: JsonObject?): PromptInputSupport {
+    val modalities = ((model?.get("modalities") as? JsonObject)?.get("input") as? JsonArray)
+        .orEmpty().mapNotNull(::text)
+    return PromptInputSupport.TextDocuments.copy(
+        imageMediaTypes = if ("image" in modalities) {
+            setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+        } else {
+            emptySet()
+        },
+        resourceMediaTypes = PromptInputSupport.TextDocuments.resourceMediaTypes +
+            if ("pdf" in modalities) setOf("application/pdf") else emptySet(),
+    )
 }
 
 private fun text(element: kotlinx.serialization.json.JsonElement): String? = (element as? JsonPrimitive)?.contentOrNull

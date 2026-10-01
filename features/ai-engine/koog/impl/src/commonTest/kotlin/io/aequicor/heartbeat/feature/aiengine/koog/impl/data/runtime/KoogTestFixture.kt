@@ -37,6 +37,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
@@ -82,6 +84,8 @@ internal class KoogTestFixture(test: TestScope) {
     val usageEnabled = MutableStateFlow(false)
     var workspace: KoogWorkspace? = null
     var modelSupportsTools = true
+    var modelSupportsImages = false
+    var resources = emptyMap<String, ResolvedResource>()
     var modelContextLength: Long? = null
     var availableModels = listOf("test-model")
     var toolsByModel = emptyMap<String, Boolean>()
@@ -136,13 +140,19 @@ internal class KoogTestFixture(test: TestScope) {
                         } else {
                             emptyList()
                         }
-                        LLModel(provider.llmProvider, id, capabilities, contextLength = modelContextLength)
+                        LLModel(
+                            provider.llmProvider,
+                            id,
+                            capabilities + if (modelSupportsImages) listOf(LLMCapability.Vision.Image) else emptyList(),
+                            contextLength = modelContextLength,
+                        )
                     }
                 }
             }
         },
         reasoning,
         KoogContextWindows(),
+        ResourceResolver { resources[it.id] },
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null

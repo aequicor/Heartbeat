@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogCodingTools
@@ -41,6 +42,8 @@ internal class KoogAccess(
     /** Effort levels offered per model; shared by discovery and sessions of this profile. */
     val reasoning: KoogReasoningLevels,
     val contextWindows: KoogContextWindows,
+    val resources: ResourceResolver = ResourceResolver { null },
+    val inputs: KoogModelInputs = KoogModelInputs(),
 ) {
     private val log = Log.tag("KoogAccess")
 
