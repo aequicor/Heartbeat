@@ -37,6 +37,7 @@ timeline = timeline.append(today, nextMessage)
 timeline = timeline.replaceLatest(nextMessage.copy(text = streamedText))
 timeline = timeline.prepend(olderSection, olderPage)
 // Карточки хоста после истории: снимок для отрисовки, история хранится отдельно.
+var rendered: HbChatTimeline? = null
 rendered = timeline.appendTail(today, hostCards, previous = rendered)
 ```
 

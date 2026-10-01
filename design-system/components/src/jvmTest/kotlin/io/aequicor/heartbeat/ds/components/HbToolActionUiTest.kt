@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
@@ -10,6 +11,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -73,6 +75,30 @@ class HbToolActionUiTest {
         }
 
     @Test
+    fun `legacy transcript overload reports tool actions`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+        val pressed = mutableListOf<Pair<String, String>>()
+        val entry = HbChatMessage(
+            id = "worktree:chat",
+            author = "Heartbeat",
+            text = "",
+            role = HbChatRole.System,
+            kind = HbMessageKind.Tool,
+            parts = persistentListOf(HbMessagePart.Tool(worktree)),
+        )
+        setContent {
+            HbTheme(darkTheme = false) {
+                HbChatTranscript(
+                    messages = persistentListOf(entry),
+                    modifier = Modifier.fillMaxSize(),
+                    onToolAction = { call, action -> pressed += call.id to action.id },
+                )
+            }
+        }
+        onNodeWithTag("tool-action:worktree:chat:leave").performClick()
+        runOnIdle { assertEquals(listOf("worktree:chat" to "leave"), pressed) }
+    }
+
+    @Test
     fun `worktree card without blocks offers no disclosure`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
         val pressed = mutableListOf<String>()
         val expanded = mutableListOf<Boolean>()
@@ -80,22 +106,34 @@ class HbToolActionUiTest {
         setContent {
             HbTheme(darkTheme = false) {
                 HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.l) {
+                    // A stale expanded key of a card whose output went away must not reopen an empty disclosure.
                     HbToolCallHeader(
                         call,
-                        isExpanded = false,
+                        isExpanded = true,
                         onExpandedChange = { expanded += it },
                         isUnified = true,
                         onAction = { pressed += it.id },
                     )
-                    HbToolCallView(call.copy(id = "worktree:standalone"), onAction = { pressed += it.id })
+                    HbToolCallView(
+                        call.copy(id = "worktree:standalone"),
+                        isExpanded = true,
+                        onAction = { pressed += it.id },
+                    )
                 }
             }
         }
         listOf("tool:worktree:chat", "tool:worktree:standalone").forEach { tag ->
             onNodeWithTag(tag).assertHasNoClickAction()
                 .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+                .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.RequestFocus))
+                .assertTextContains("Task completed")
         }
-        onNodeWithTag("tool-action:worktree:chat:create-pr").performClick()
+        // The unified row reads its title, summary and status as one node; the actions stay separate controls.
+        onNodeWithTag("tool:worktree:chat").assertTextContains("Local merge target: master")
+            .assertTextContains("Complete")
+        onNodeWithTag("tool-action:worktree:chat:create-pr")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsActions.RequestFocus))
+            .performClick()
         onNodeWithTag("tool-action:worktree:standalone:leave").performClick()
         runOnIdle {
             assertEquals(listOf("create-pr", "leave"), pressed)

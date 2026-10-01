@@ -24,7 +24,8 @@ internal val HbToolCall.isExpandable: Boolean get() = !isWorktree || blocks.isNo
 
 /**
  * Click target of a disclosure row of [call]: a button that announces [isExpanded] and calls [onToggle].
- * A call without a disclosure ([isExpandable]) becomes one static node that still reads its copy and status.
+ * Without a disclosure ([isExpandable]) the row becomes one static, unfocusable node that reads the copy and
+ * status it holds; actions below it stay separate controls.
  */
 @Composable
 internal fun Modifier.toolDisclosure(

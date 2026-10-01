@@ -40,7 +40,7 @@ internal fun HbToolPayloadRow(
     }
 }
 
-/** Tags a content row with the id of its [HbToolBlock] so hosts can find a block in a lazy transcript. */
+/** Tags a content row `tool-block:<block id>` so hosts can find a block in a lazy transcript. */
 internal fun Modifier.hbBlockTag(row: HbToolDisplayRow): Modifier =
     if (row.blockId.isBlank()) this else testTag(toolBlockTag(row.blockId))
 
