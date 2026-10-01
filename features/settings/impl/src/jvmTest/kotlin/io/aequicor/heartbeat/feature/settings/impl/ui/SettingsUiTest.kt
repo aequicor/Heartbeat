@@ -26,7 +26,12 @@ import kotlin.test.assertEquals
 @OptIn(ExperimentalTestApi::class)
 class SettingsUiTest {
     private val state = SettingsScreenState(
-        sections = persistentListOf(SettingsSectionUi.Models, SettingsSectionUi.Search, SettingsSectionUi.FeatureFlags),
+        sections = persistentListOf(
+            SettingsSectionUi.Models,
+            SettingsSectionUi.Search,
+            SettingsSectionUi.ComputerUse,
+            SettingsSectionUi.FeatureFlags,
+        ),
         selected = SettingsSectionUi.Models,
     )
 
@@ -76,6 +81,16 @@ class SettingsUiTest {
         onNodeWithTag("settings-section").assertExists()
         onNodeWithTag("settings-back").performClick()
         runOnIdle { assertEquals(listOf(true), backs) }
+    }
+
+    @Test
+    fun `computer use section is selectable in unified settings`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+        val selected = mutableListOf<SettingsSectionUi>()
+        setContent {
+            HbTheme { SettingsContent(state, selected::add, {}, {}) { HbText("section content") } }
+        }
+        onNodeWithTag("settings-section:ComputerUse").performClick()
+        runOnIdle { assertEquals(listOf(SettingsSectionUi.ComputerUse), selected) }
     }
 
     @Test

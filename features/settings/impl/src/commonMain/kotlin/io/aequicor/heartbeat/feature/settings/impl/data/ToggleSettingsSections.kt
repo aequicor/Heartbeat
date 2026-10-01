@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.di.scope.SettingsScope
@@ -27,9 +28,15 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
     override val available: Flow<ImmutableList<SettingsSection>> = combine(
         toggles.observe(EngineConnectionsEnabled),
         toggles.observe(SearchEngineTools),
+        toggles.observe(ComputerUseEnabled),
         sessions.active,
-    ) { connections, search, session ->
-        availableSections(isModelsEnabled = connections, isSearchEnabled = search, hasProfile = session != null)
+    ) { connections, search, computerUse, session ->
+        availableSections(
+            isModelsEnabled = connections,
+            isSearchEnabled = search,
+            hasProfile = session != null,
+            isComputerUseEnabled = computerUse,
+        )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.
         .onStart { emit(availableSections(isModelsEnabled = false, isSearchEnabled = false, hasProfile = false)) }

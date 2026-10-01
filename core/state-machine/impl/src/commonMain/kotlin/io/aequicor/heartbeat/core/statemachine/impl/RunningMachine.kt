@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.core.statemachine.TransitionDescriptor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -198,7 +199,9 @@ internal class RunningMachine<S : MachineState, I : MachineIntent, E : MachineEf
         }
         // An effect whose own result leaves the state is cancelled after it has finished: not a cancellation.
         var isFinished = false
-        val job = effectScope.launch {
+        // Enter the handler before the next intent can cancel its state, so cleanup can establish
+        // its NonCancellable section even when transitions arrive without a dispatcher turn.
+        val job = effectScope.launch(start = CoroutineStart.UNDISPATCHED) {
             log.v { "effect $label started" }
             try {
                 effects.handle(effect, feedback)

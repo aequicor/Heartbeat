@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -29,6 +30,32 @@ class MachineEffectLifetimeTest {
 
     @AfterTest
     fun tearDown() = Log.init(isDebug = false)
+
+    @Test
+    fun `cleanup establishes its cancellation barrier before an immediate state replacement`() = runTest {
+        val release = CompletableDeferred<Unit>()
+        val started = mutableListOf<String>()
+        val completed = mutableListOf<String>()
+        val effects = EffectHandler<ChatEffect, ChatIntent> { effect, _ ->
+            val load = assertIs<ChatEffect.Load>(effect)
+            withContext(NonCancellable) {
+                started += load.chatId
+                release.await()
+                completed += load.chatId
+            }
+        }
+        val machine = runtime.launch(chatSpec(), FakeScope(backgroundScope), effects)
+
+        machine.send(ChatIntent.Public.Open("c1"))
+        machine.send(ChatIntent.Public.Open("c2"))
+        // No dispatcher turn between the two transitions: both handlers must have entered cleanup.
+        assertEquals(listOf("c1", "c2"), started)
+        release.complete(Unit)
+        runCurrent()
+
+        assertEquals(listOf("c1", "c2"), completed)
+        assertEquals(ChatState.Loading("c2"), machine.state.value)
+    }
 
     @Test
     fun `retained feedback from an exited state cannot complete its replacement`() = runTest {

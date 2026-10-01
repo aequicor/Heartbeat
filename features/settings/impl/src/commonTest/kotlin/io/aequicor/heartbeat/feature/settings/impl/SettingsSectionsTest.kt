@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
+import io.aequicor.heartbeat.feature.settings.impl.presentation.component.route
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsScreenState
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsSectionUi
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.resolve
@@ -13,11 +15,19 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SettingsSectionsTest {
-    private val all = listOf(SettingsSection.Models, SettingsSection.Search, SettingsSection.FeatureFlags)
+    private val all = SettingsSection.entries.toList()
 
     @Test
     fun `profile sections need their toggle and a profile, feature flags are always offered`() {
-        assertEquals(all, availableSections(isModelsEnabled = true, isSearchEnabled = true, hasProfile = true))
+        assertEquals(
+            all,
+            availableSections(
+                isModelsEnabled = true,
+                isSearchEnabled = true,
+                hasProfile = true,
+                isComputerUseEnabled = true,
+            ),
+        )
         assertEquals(
             listOf(SettingsSection.FeatureFlags),
             availableSections(isModelsEnabled = true, isSearchEnabled = true, hasProfile = false),
@@ -26,6 +36,17 @@ class SettingsSectionsTest {
             listOf(SettingsSection.Search, SettingsSection.FeatureFlags),
             availableSections(isModelsEnabled = false, isSearchEnabled = true, hasProfile = true),
         )
+    }
+
+    @Test
+    fun `computer use is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isComputerUseEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.ComputerUse in sections)
+            }
+        }
+        assertEquals(ComputerUseRoute(isEmbedded = true), SettingsSection.ComputerUse.route())
     }
 
     private val allUi = all.map { it.toUi() }
