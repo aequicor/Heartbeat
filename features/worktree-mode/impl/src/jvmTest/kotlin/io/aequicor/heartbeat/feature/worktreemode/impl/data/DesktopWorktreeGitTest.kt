@@ -50,6 +50,7 @@ class DesktopWorktreeGitTest {
             assertEquals("committed", Files.readString(Path.of(record.directory).resolve("source.txt")))
             assertEquals("dirty", Files.readString(root.resolve("source.txt")))
             assertEquals("main", plan.sourceBranch)
+            assertEquals("heartbeat/worktree-test-checkout", plan.branch)
             assertEquals(plan.baseCommit, command(root, "git", "rev-parse", "refs/heads/${plan.branch}"))
             git.materialize(record)
             assertEquals(plan.baseCommit, command(root, "git", "rev-parse", "HEAD"))

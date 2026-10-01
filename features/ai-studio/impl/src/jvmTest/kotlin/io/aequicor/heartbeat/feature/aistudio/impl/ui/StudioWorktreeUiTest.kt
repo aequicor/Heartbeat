@@ -74,7 +74,7 @@ class StudioWorktreeUiTest {
                     unknownLabel = stringResource(Res.string.worktree_failure_unknown)
                     val task = WorktreeUi(
                         WorktreePhaseUi.RecoveryRequired,
-                        "codex/task",
+                        "heartbeat/task",
                         "master",
                         null,
                         null,
@@ -122,7 +122,7 @@ class StudioWorktreeUiTest {
                         PaneUi(7, sessionId = "chat"),
                         WorktreeUi(
                             WorktreePhaseUi.Idle,
-                            "codex/branch-with-an-extremely-long-descriptive-name-for-horizontal-scrolling",
+                            "heartbeat/branch-with-an-extremely-long-descriptive-name-for-horizontal-scrolling",
                             "master",
                             null,
                             null,
@@ -242,7 +242,7 @@ class StudioWorktreeUiTest {
                 var task by mutableStateOf(
                     WorktreeUi(
                         WorktreePhaseUi.AwaitingDecision,
-                        "codex/task",
+                        "heartbeat/task",
                         null,
                         "Done",
                         null,
@@ -281,7 +281,7 @@ class StudioWorktreeUiTest {
                 pane,
                 WorktreeUi(
                     WorktreePhaseUi.AwaitingDecision,
-                    "codex/task",
+                    "heartbeat/task",
                     "master",
                     "Done",
                     null,
@@ -338,7 +338,7 @@ class StudioWorktreeUiTest {
             val queued = BuildUi("queued", "test", BuildPhaseUi.Queued, "", null, queuePosition = 2)
             val task = WorktreeUi(
                 WorktreePhaseUi.Idle,
-                "codex/task",
+                "heartbeat/task",
                 "master",
                 null,
                 null,
@@ -377,7 +377,7 @@ class StudioWorktreeUiTest {
 
     private fun completedLongBranchTask() = WorktreeUi(
         WorktreePhaseUi.AwaitingDecision,
-        "codex/task-with-a-long-descriptive-branch-name",
+        "heartbeat/task-with-a-long-descriptive-branch-name",
         "release/master-with-a-long-descriptive-name-and-several-branch-segments",
         "Implementation and verification completed.",
         null,
