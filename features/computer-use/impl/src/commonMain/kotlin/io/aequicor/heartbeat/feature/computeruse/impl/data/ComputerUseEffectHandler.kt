@@ -6,10 +6,15 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 /** Runs machine IO only after revalidating the live feature toggles and operating system permissions. */
 @ContributesBinding(ProfileScope::class)
@@ -18,6 +23,7 @@ internal class ComputerUseEffectHandler(
     private val access: ComputerUseAccess,
     private val coordinator: CaptureCoordinator,
     private val captures: ComputerUseCaptureExecutor,
+    private val runningMachine: Lazy<Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>>,
 ) : EffectHandler<ComputerUseEffect, ComputerUseIntent> {
     private val log = Log.tag("ComputerUseEffects")
 
@@ -26,7 +32,7 @@ internal class ComputerUseEffectHandler(
             ComputerUseEffect.ProbeAvailability -> probe(machine)
             ComputerUseEffect.EnumerateWindows -> enumerate(machine)
             is ComputerUseEffect.OpenCapture -> open(effect, machine)
-            is ComputerUseEffect.CloseCapture -> close(effect, machine)
+            is ComputerUseEffect.CloseCapture -> close(effect)
             is ComputerUseEffect.CaptureFrame -> capture(effect, machine)
             is ComputerUseEffect.ProduceCrop -> crop(effect, machine)
             is ComputerUseEffect.ApplyInput -> input(effect, machine)
@@ -34,9 +40,15 @@ internal class ComputerUseEffectHandler(
         }
     }
 
-    private suspend fun close(effect: ComputerUseEffect.CloseCapture, machine: EffectScope<ComputerUseIntent>) {
-        coordinator.closeSessionAndPurge(effect.session)
-        effect.session?.let { machine.send(ComputerUseIntent.Internal.SessionClosed(it)) }
+    private suspend fun close(effect: ComputerUseEffect.CloseCapture) {
+        withContext(NonCancellable) {
+            coordinator.closeSessionAndPurge(effect.session)
+            effect.session?.let { session ->
+                // A keyed completion only emits an output; it remains valid after the originating state exited.
+                val sent = runningMachine.value.send(ComputerUseIntent.Internal.SessionClosed(session))
+                log.d { "capture cleanup acknowledged session=$session result=$sent" }
+            }
+        }
     }
 
     private suspend fun probe(machine: EffectScope<ComputerUseIntent>) {

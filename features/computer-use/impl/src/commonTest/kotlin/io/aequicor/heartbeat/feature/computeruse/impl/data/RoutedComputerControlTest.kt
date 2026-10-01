@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
@@ -42,6 +43,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -342,6 +344,7 @@ class RoutedComputerControlTest {
             access,
             coordinator,
             ComputerUseCaptureExecutor(coordinator, access, router),
+            lazy { registry.ref.ownMachine },
         )
         val control = RoutedComputerControl(
             coordinator,
@@ -402,6 +405,13 @@ class RoutedComputerControlTest {
         private val effectJobs = mutableListOf<Job>()
         private var generation = 0
 
+        val ownMachine = object : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
+            override val name: String = "computer-use"
+            override val state: StateFlow<ComputerUseState> = states
+            override val outputs = events
+            override suspend fun send(intent: ComputerUseIntent): SendResult = dispatch(intent)
+        }
+
         override val name: String = "computer-use"
         override val state: StateFlow<ComputerUseState> = states
         override val outputs = events
@@ -430,7 +440,9 @@ class RoutedComputerControlTest {
                     if (capturedGeneration == generation) dispatch(intent) else SendResult.Ignored
             }
             resolution.effects.forEach { effect ->
-                effectJobs += checkNotNull(scope).launch { handler.handle(effect, feedback) }
+                effectJobs += checkNotNull(
+                    scope,
+                ).launch(start = CoroutineStart.UNDISPATCHED) { handler.handle(effect, feedback) }
             }
             return SendResult.Accepted
         }

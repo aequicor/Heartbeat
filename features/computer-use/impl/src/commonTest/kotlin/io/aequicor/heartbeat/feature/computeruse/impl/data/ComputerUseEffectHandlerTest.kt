@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.core.statemachine.EffectScope
+import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
@@ -13,7 +14,9 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
@@ -23,9 +26,13 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseBindings
 import io.aequicor.heartbeat.feature.computeruse.impl.di.ComputerUseCoordinatorResources
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -186,7 +193,7 @@ class ComputerUseEffectHandlerTest {
         assertNotNull(fixture.coordinator.currentBounds())
         assertEquals(
             listOf<ComputerUseIntent>(ComputerUseIntent.Internal.SessionClosed(Session)),
-            fixture.feedback.intents,
+            fixture.completions.intents,
         )
     }
 
@@ -199,6 +206,33 @@ class ComputerUseEffectHandlerTest {
         assertTrue(fixture.store.files.isNotEmpty())
         assertNotNull(fixture.coordinator.currentBounds())
         assertTrue(fixture.feedback.intents.isEmpty())
+        assertTrue(fixture.completions.intents.isEmpty())
+    }
+
+    @Test
+    fun `a cancelled old cleanup still acknowledges its session after the machine restarts`() = runTest {
+        val frames = PausedDeleteFrameStore()
+        val fixture = fixture(frames = frames)
+        fixture.coordinator.capture(CaptureRequest())
+        val expiredFeedback = object : EffectScope<ComputerUseIntent> {
+            override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Ignored
+        }
+        val cleanup = launch { fixture.handler.handle(ComputerUseEffect.CloseCapture(Session), expiredFeedback) }
+        frames.entered.await()
+        cleanup.cancel()
+        fixture.completions.states.value = ComputerUseState.Checking
+        frames.proceed.complete(Unit)
+        cleanup.join()
+        assertTrue(frames.files.isEmpty())
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.SessionClosed(Session)),
+            fixture.completions.intents,
+        )
+        assertEquals(ComputerUseState.Checking, fixture.completions.state.value)
+        assertEquals(
+            listOf<ComputerUseOutput>(ComputerUseOutput.SessionClosed(Session)),
+            fixture.completions.emitted,
+        )
     }
 
     @Test
@@ -236,6 +270,38 @@ class ComputerUseEffectHandlerTest {
         }
     }
 
+    private class PausedDeleteFrameStore(private val delegate: FakeFrameStore = FakeFrameStore()) :
+        FrameStore by delegate {
+        val entered = CompletableDeferred<Unit>()
+        val proceed = CompletableDeferred<Unit>()
+        val files: Map<String, ByteArray> get() = delegate.files
+
+        override suspend fun delete(session: CaptureSessionId) {
+            entered.complete(Unit)
+            proceed.await()
+            delegate.delete(session)
+        }
+    }
+
+    /** A whole-feature feedback channel resolves against the new state without an exited-effect fence. */
+    private class CompletionMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
+        val states = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
+        val intents = mutableListOf<ComputerUseIntent>()
+        val emitted = mutableListOf<ComputerUseOutput>()
+        override val name: String = "computer-use"
+        override val state: StateFlow<ComputerUseState> = states
+        override val outputs = MutableSharedFlow<ComputerUseOutput>()
+
+        override suspend fun send(intent: ComputerUseIntent): SendResult {
+            intents += intent
+            val resolution = ComputerUseMachineSpec.resolve(states.value, intent) ?: return SendResult.Ignored
+            states.value = resolution.to
+            emitted += resolution.outputs
+            resolution.outputs.forEach { outputs.emit(it) }
+            return SendResult.Accepted
+        }
+    }
+
     private class Fixture(
         val handler: ComputerUseEffectHandler,
         val coordinator: CaptureCoordinator,
@@ -247,20 +313,21 @@ class ComputerUseEffectHandlerTest {
         val registry: RoutedComputerControlTest.FakeMachineRegistry,
         val profile: TestComputerUseScope,
         val state: ComputerUseState.Capturing,
+        val completions: CompletionMachine,
         val feedback: Feedback = Feedback(),
     ) {
         suspend fun run(effect: ComputerUseEffect) = handler.handle(effect, feedback)
     }
 
-    private suspend fun TestScope.fixture(input: InputInjector? = null): Fixture {
+    private suspend fun TestScope.fixture(input: InputInjector? = null, frames: FrameStore? = null): Fixture {
         val dispatchers = TestDispatchers(StandardTestDispatcher(testScheduler))
         val capturer = FakeScreenCapturer()
         val windows = FakeWindowCatalog(listOf(windowTarget()))
         val injector = FakeInputInjector()
         val encoder = FakeFrameEncoder()
         val store = FakeFrameStore()
-        val pipeline = FramePipeline(encoder, store, VisionBudget(100_000), dispatchers)
-        val cache = MasterFrameCache(encoder, store, 8L * 1024 * 1024)
+        val pipeline = FramePipeline(encoder, frames ?: store, VisionBudget(100_000), dispatchers)
+        val cache = MasterFrameCache(encoder, frames ?: store, 8L * 1024 * 1024)
         val resources = ComputerUseCoordinatorResources(
             capturer = capturer,
             windows = windows,
@@ -291,14 +358,16 @@ class ComputerUseEffectHandlerTest {
         )
         registry.ref!!.states.value = state
         val access = ComputerUseAccess(toggles, permissions, registry, dispatchers)
+        val completions = CompletionMachine()
         return Fixture(
             ComputerUseEffectHandler(
                 access,
                 coordinator,
                 ComputerUseCaptureExecutor(coordinator, access, NoNativeControlRouter()),
+                lazy { completions },
             ),
             coordinator, toggles, permissions,
-            capturer, injector, store, registry, profile, state,
+            capturer, injector, store, registry, profile, state, completions,
         )
     }
 
