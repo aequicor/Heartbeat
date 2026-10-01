@@ -10,6 +10,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiStudio.api)
+            implementation(projects.features.computerUse.api)
             implementation(projects.features.attachments.api)
             implementation(projects.features.worktreeMode.api)
             implementation(projects.features.effortConfiguration.api)

@@ -20,6 +20,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -46,6 +49,17 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
+import io.aequicor.heartbeat.feature.computeruse.api.WindowId
+import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
@@ -356,6 +370,123 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `agent capture focuses its existing pane and closes drawer once for either mode`() = runTest {
+        val modes = listOf(
+            ComputerUseMode.Desktop(),
+            ComputerUseMode.Window(WindowTarget(WindowId("window"), "App", "Window", ScreenBounds(0, 0, 100, 100))),
+        )
+        for (mode in modes) {
+            val initial = ready.copy(panes = ready.panes + StudioPane(1, "other"), focusedPaneId = 1)
+            val fixture = Fixture(this, initial, computerRepository(nativeSession))
+            val screen = fixture.subscribe()
+            fixture.model.store.intent(AiStudioScreenIntent.SetDrawerOpen(true))
+            runCurrent()
+            val capture = agentCapture(mode)
+            fixture.efforts.computerUse.state.value = capture.copy(isOpen = false)
+            runCurrent()
+            assertTrue(screen.states.value.sidebar.isDrawerOpen)
+            fixture.efforts.computerUse.state.value = capture
+            runCurrent()
+            assertEquals(false, screen.states.value.sidebar.isDrawerOpen)
+            assertEquals(
+                listOf<AiStudioIntent>(AiStudioIntent.Public.FocusPane(0)),
+                fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FocusPane>(),
+            )
+            fixture.machine.state.value = initial.copy(focusedPaneId = 0)
+            runCurrent()
+            fixture.machine.state.value = initial
+            fixture.efforts.computerUse.state.value = capture.copy(frameCount = 1)
+            runCurrent()
+            fixture.efforts.computerUse.state.value = ComputerUseState.Idle
+            runCurrent()
+            assertEquals(1, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FocusPane>().size)
+            assertEquals(1, screen.states.value.focusedPaneId)
+        }
+    }
+
+    @Test
+    fun `agent capture opens its mapped conversation without creating a chat`() = runTest {
+        val initial = ready.copy(panes = listOf(StudioPane(0, "other")))
+        val fixture = Fixture(this, initial, computerRepository(nativeSession))
+        fixture.subscribe()
+        fixture.efforts.computerUse.state.value = agentCapture(ComputerUseMode.Desktop())
+        runCurrent()
+        assertEquals(
+            listOf<AiStudioIntent>(AiStudioIntent.Public.OpenSession("s-facade")),
+            fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.OpenSession>(),
+        )
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.NewSession })
+    }
+
+    @Test
+    fun `switching capture mode preserves user pane and drawer until its owner is released`() = runTest {
+        val initial = ready.copy(panes = ready.panes + StudioPane(1, "other"), focusedPaneId = 1)
+        val fixture = Fixture(this, initial, computerRepository(nativeSession))
+        val screen = fixture.subscribe()
+        val capture = agentCapture(ComputerUseMode.Desktop())
+        fixture.efforts.computerUse.state.value = capture
+        runCurrent()
+        fixture.machine.state.value = initial.copy(focusedPaneId = 0)
+        runCurrent()
+        fixture.model.store.intent(AiStudioScreenIntent.FocusPane(1))
+        fixture.model.store.intent(AiStudioScreenIntent.SetDrawerOpen(true))
+        runCurrent()
+        fixture.machine.state.value = initial
+        runCurrent()
+
+        val target = WindowTarget(WindowId("window"), "App", "Window", ScreenBounds(0, 0, 100, 100))
+        val switching = capture.copy(
+            session = CaptureSessionId("replacement"),
+            mode = ComputerUseMode.Window(target),
+            isOpen = false,
+        )
+        fixture.efforts.computerUse.state.value = switching
+        runCurrent()
+        fixture.efforts.computerUse.state.value = switching.copy(isOpen = true)
+        runCurrent()
+        assertEquals(
+            listOf<AiStudioIntent>(AiStudioIntent.Public.FocusPane(0), AiStudioIntent.Public.FocusPane(1)),
+            fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FocusPane>(),
+        )
+        assertEquals(1, screen.states.value.focusedPaneId)
+        assertTrue(screen.states.value.sidebar.isDrawerOpen)
+
+        fixture.efforts.computerUse.state.value = ComputerUseState.Idle
+        runCurrent()
+        fixture.efforts.computerUse.state.value = capture
+        runCurrent()
+        assertEquals(
+            AiStudioIntent.Public.FocusPane(0),
+            fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.FocusPane>().last(),
+        )
+        assertEquals(false, screen.states.value.sidebar.isDrawerOpen)
+    }
+
+    @Test
+    fun `unmapped capture owner closes drawer without guessing a conversation`() = runTest {
+        val fixture = Fixture(this, ready, computerRepository(null))
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SetDrawerOpen(true))
+        runCurrent()
+        fixture.efforts.computerUse.state.value = agentCapture(ComputerUseMode.Desktop())
+        runCurrent()
+        assertEquals(false, screen.states.value.sidebar.isDrawerOpen)
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.OpenSession })
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.NewSession })
+        assertEquals(ready.panes.map { it.sessionId }, screen.states.value.panes.map { it.sessionId })
+    }
+
+    private fun TestScope.computerRepository(ref: SessionRef?): StudioRepository {
+        val workspace = StudioWorkspace(
+            emptyList(),
+            listOf(StudioSession("s-facade", null, "Capture owner", TestClock(this).now(), nativeSession = ref)),
+        )
+        return object : StudioRepository by InMemoryStudioRepository(TestClock(this)) {
+            override fun observeWorkspace() = flowOf(workspace)
+        }
+    }
+
+    @Test
     fun `usage observation follows confirmed visible model changes before chat metadata is saved`() = runTest {
         val old = "old-model"
         val next = "confirmed-model"
@@ -512,14 +643,21 @@ private class FakeEfforts :
     MachineRegistry {
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
     val sent = mutableListOf<Any>()
+    val computerUse = FakeComputerUseMachine()
 
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
     ): MachineRef<S, P, O>? = null
 
+    @Suppress("UNCHECKED_CAST")
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
-    ): StateFlow<MachineRef<S, P, O>?> = MutableStateFlow(null)
+    ): StateFlow<MachineRef<S, P, O>?> = if (key == ComputerUseMachineKey) {
+        MutableStateFlow<MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>?>(computerUse) as
+            StateFlow<MachineRef<S, P, O>?>
+    } else {
+        MutableStateFlow(null)
+    }
 
     override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
         key: MachineKey<S, I, P, E, O>,
@@ -529,6 +667,24 @@ private class FakeEfforts :
         sent += intent
         return SendResult.Accepted
     }
+}
+
+private val nativeSession = SessionRef(EngineId("engine"), SessionSourceId("source"), "native")
+
+private fun agentCapture(mode: ComputerUseMode) = ComputerUseState.Capturing(
+    CaptureSessionId("capture"),
+    mode,
+    CaptureOwner.Agent(nativeSession, TurnId("turn")),
+    ComputerUseCapabilities(true, true, true, true),
+    isOpen = true,
+)
+
+private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput> {
+    override val name = "computer-use"
+    override val state = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
+    override val outputs = MutableSharedFlow<ComputerUseOutput>()
+
+    override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted
 }
 
 private class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher) : DispatcherProvider {

@@ -71,6 +71,10 @@ data class HbDimensions(
     val statusDotSize: Dp = 8.dp,
     val windowWidth: Dp = 1280.dp,
     val windowHeight: Dp = 900.dp,
+    /** Readable compact session pinned to the screen edge during agent computer use. */
+    val computerUseSessionWidth: Dp = 420.dp,
+    /** Inward shadow marking the perimeter of a desktop controlled by the agent. */
+    val computerUseShadowWidth: Dp = 20.dp,
     val compactBreakpoint: Dp = 720.dp,
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,

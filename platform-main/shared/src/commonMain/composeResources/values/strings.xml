@@ -1,0 +1,4 @@
+<resources>
+    <string name="computer_use_working">Agent is using your computer</string>
+    <string name="computer_use_stop">Stop</string>
+</resources>

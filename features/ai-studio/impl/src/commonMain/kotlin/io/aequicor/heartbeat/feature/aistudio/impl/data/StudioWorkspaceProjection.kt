@@ -69,6 +69,7 @@ internal class StudioWorkspaceProjection(
                         modelId = record.target?.let { Json.encodeToString(EngineTarget.serializer(), it) },
                         isContinuable = available[record.id] ?: true,
                         isWorktree = record.worktreeTaskId != null,
+                        nativeSession = record.ref,
                     )
                 },
             )

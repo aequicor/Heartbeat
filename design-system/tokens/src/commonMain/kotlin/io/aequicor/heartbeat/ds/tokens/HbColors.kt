@@ -93,6 +93,9 @@ data class HbColors(
      */
     val popupShadow: Color = Color.Black.copy(alpha = if (isDark) 0.40f else 0.12f)
 
+    /** Colored perimeter shadow identifying a desktop currently captured by the agent. */
+    val computerUseShadow: Color = brand.copy(alpha = 0.45f)
+
     /**
      * Opaque dark oak attention surface with warm ivory text and amber actions for a pending questionnaire.
      * This is a semantic scoped variant of the host palette, not a separate application palette: inherited

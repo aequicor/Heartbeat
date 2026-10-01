@@ -54,7 +54,7 @@ interface TestAppGraph : HeartbeatGraph {
     val appStores: DataStores
 
     val storageMaintenance: StorageMaintenance
-    val machines: MachineRegistry
+    override val machines: MachineRegistry
     val httpClient: HttpClient
 
     val httpEngine: HttpClientEngine

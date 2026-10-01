@@ -20,6 +20,8 @@ dependencies {
     implementation(libs.kotlinx.coroutinesSwing)
     implementation(libs.compose.uiToolingPreview)
     implementation(libs.jbr.api)
+    implementation(libs.jna.platform)
+    testImplementation(libs.kotlin.testJunit)
 }
 
 // The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.

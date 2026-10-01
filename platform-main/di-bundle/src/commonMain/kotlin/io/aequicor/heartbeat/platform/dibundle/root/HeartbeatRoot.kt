@@ -10,20 +10,33 @@ import com.arkivanov.decompose.value.Value
 import com.arkivanov.essenty.lifecycle.doOnDestroy
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.navigation.DeepLinkResult
+import io.aequicor.heartbeat.core.navigation.LaunchMode
+import io.aequicor.heartbeat.core.navigation.NavOptions
+import io.aequicor.heartbeat.core.navigation.NavTarget
+import io.aequicor.heartbeat.core.navigation.NavTransition
 import io.aequicor.heartbeat.core.navigation.RootHost
 import io.aequicor.heartbeat.core.navigation.Route
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.platform.dibundle.ComputerUseDesktopAccess
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.ProfileNavigation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -59,6 +72,11 @@ class HeartbeatRoot(
     private val navigation = SlotNavigation<RootConfig>()
     private val scope = CoroutineScope(SupervisorJob() + graph.dispatchers.main)
     private var pendingLink: String? = stateKeeper.consume(PENDING_LINK_KEY, String.serializer())
+    private val mutableComputerUse = MutableStateFlow(ComputerUseActivity())
+    private var foregroundCaptureOwner: CaptureOwner.Agent? = null
+
+    /** Active agent capture; desktop presentation ends on release, disable, failure or profile closure. */
+    val computerUse: StateFlow<ComputerUseActivity> = mutableComputerUse.asStateFlow()
 
     /** The shown tree; `child == null` while the persisted profile is being restored. */
     val slot: Value<ChildSlot<RootConfig, RootChild>> = childSlot(
@@ -72,6 +90,60 @@ class HeartbeatRoot(
         stateKeeper.register(PENDING_LINK_KEY, String.serializer()) { pendingLink }
         lifecycle.doOnDestroy { scope.cancel() }
         scope.launch { restoreAndFollowSessions() }
+        scope.launch {
+            graph.machines.observe(ComputerUseMachineKey)
+                .collectLatest { machine ->
+                    foregroundCaptureOwner = null
+                    updateComputerUse(ComputerUseActivity())
+                    machine?.state?.collect { state ->
+                        updateComputerUse(state.computerUseActivity())
+                        showComputerUseSession(state)
+                    }
+                }
+        }
+    }
+
+    private fun updateComputerUse(activity: ComputerUseActivity) {
+        if (mutableComputerUse.value == activity) return
+        log.i { "root: computer use active=${activity.isActive}, screens=${activity.screens.size}" }
+        mutableComputerUse.value = activity
+    }
+
+    private fun showComputerUseSession(state: ComputerUseState) {
+        val owner = (state as? ComputerUseState.Capturing)?.owner as? CaptureOwner.Agent
+        if (owner == null || owner == foregroundCaptureOwner) {
+            foregroundCaptureOwner = owner
+            return
+        }
+        val host = (slot.value.child?.instance as? RootChild.Profile)?.host?.value ?: return
+        // Keep the existing studio and bring it forward once; later user navigation remains theirs.
+        foregroundCaptureOwner = owner
+        host.navigator.navigate(
+            AiStudioRoute,
+            NavOptions(LaunchMode.BringToFront, NavTarget.Root, NavTransition.None),
+        )
+    }
+
+    /** Stops the current computer-use capture from the compact desktop session. */
+    fun stopComputerUse() {
+        val capture = graph.machines.find(ComputerUseMachineKey)?.state?.value as? ComputerUseState.Capturing ?: return
+        val owner = capture.owner as? CaptureOwner.Agent ?: return
+        val tools = (graph.profileSessions.active.value?.graph as? ComputerUseDesktopAccess)?.agentTools
+        log.i { "root: stop computer use" }
+        scope.launch {
+            try {
+                tools?.finishTurn(owner.session, owner.turn)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "root: hosted computer-use turn cleanup failed" }
+            } finally {
+                // A stale stop must never cancel a newer agent turn's capture.
+                withContext(NonCancellable) {
+                    graph.machines.send(ComputerUseMachineKey, ComputerUseIntent.Public.CancelSession(capture.session))
+                }
+            }
+        }
     }
 
     /**
@@ -119,6 +191,7 @@ class HeartbeatRoot(
             // After process death the restored child has no graph yet, so attach without losing its saved state.
             if (session != null) (slot.value.child?.instance as? RootChild.Profile)?.attach(session)
             applyPendingLink()
+            graph.machines.find(ComputerUseMachineKey)?.state?.value?.let(::showComputerUseSession)
         }
     }
 
