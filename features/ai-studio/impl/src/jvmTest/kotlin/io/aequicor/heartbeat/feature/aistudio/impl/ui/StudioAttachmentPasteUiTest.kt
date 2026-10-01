@@ -1,11 +1,20 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.test.withKeyDown
@@ -15,6 +24,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import kotlinx.collections.immutable.persistentListOf
 import java.awt.Toolkit
 import java.awt.datatransfer.Clipboard
@@ -32,6 +42,32 @@ import kotlin.test.assertTrue
  */
 @OptIn(ExperimentalTestApi::class)
 class StudioAttachmentPasteUiTest {
+    @Test
+    fun `a clipboard screenshot follows keyboard focus into another pane without a click`() =
+        runSkikoComposeUiTest(size = Size(1800f, 900f)) {
+            val intents = mutableListOf<AiStudioScreenIntent>()
+            var state by mutableStateOf(attachmentState().copy(panes = persistentListOf(PaneUi(0), PaneUi(1))))
+            withClipboard(clipboardImage()) {
+                setContent {
+                    HbTheme(darkTheme = false) {
+                        AiStudioContent(state, { intent ->
+                            intents.add(intent)
+                            if (intent is AiStudioScreenIntent.FocusPane) {
+                                state = state.copy(focusedPaneId = intent.paneId)
+                            }
+                        }, exits)
+                    }
+                }
+                settleAudit()
+                val editor = onNode(hasAnyAncestor(hasTestTag("composer-1")) and hasSetTextAction())
+                editor.performSemanticsAction(SemanticsActions.RequestFocus)
+                settleAudit()
+                editor.assertIsFocused().performPasteShortcut()
+                settleAudit()
+                assertEquals(listOf(1), intents.imports().map { it.paneId }, "The paste follows keyboard focus")
+            }
+        }
+
     @Test
     fun `a clipboard screenshot reaches the focused pane while focus rests on the workspace`() =
         runSkikoComposeUiTest(size = Size(1280f, 800f)) {

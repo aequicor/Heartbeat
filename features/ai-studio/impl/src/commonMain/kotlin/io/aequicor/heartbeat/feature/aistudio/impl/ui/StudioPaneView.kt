@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -94,6 +96,7 @@ import kotlin.time.Duration
 /**
  * One workspace column: a session transcript or the new-session page, with its composer.
  * [content] holds only this pane's data, so streaming into another pane does not recompose it.
+ * Keyboard focus anywhere inside the pane selects it, keeping screen-level screenshot paste on the same draft.
  */
 @Composable
 internal fun StudioPaneView(
@@ -112,7 +115,9 @@ internal fun StudioPaneView(
     val topInset = with(density) { headerHeight.toDp() }
     val bottomInset = with(density) { footerHeight.toDp() }
     Box(
-        modifier.focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
+        modifier.onFocusChanged {
+            if (it.hasFocus && !content.isFocused) onIntent(AiStudioScreenIntent.FocusPane(pane.id))
+        }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val sessionId = pane.sessionId
