@@ -51,10 +51,12 @@ import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
@@ -134,6 +136,8 @@ internal fun StudioPaneView(
                     messages = transcript,
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
+                    attachmentPreviews = content.attachmentPreviews,
+                    onIntent = onIntent,
                     contentPadding = PaddingValues(
                         start = HbTheme.spacing.xl,
                         end = HbTheme.spacing.xl,
@@ -472,6 +476,8 @@ private fun SessionTranscript(
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
     calendar: StudioCalendar,
+    attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi>,
+    onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val timeline = rememberStudioTimeline(sessionId, messages, timelineLabels(section, calendar))
@@ -484,6 +490,12 @@ private fun SessionTranscript(
         contentPadding = contentPadding,
         overlapInsets = overlapInsets,
         showSectionHeaders = true,
+        messageFooterContent = { rendered ->
+            val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
+            if (prompt != null && prompt.attachments.isNotEmpty()) {
+                StudioAttachments(prompt.attachments, onIntent, previews = attachmentPreviews)
+            }
+        },
     )
 }
 
@@ -510,6 +522,23 @@ private fun PaneFooter(
         }
         if (content.isProjectFailed) {
             HbBadge(stringResource(Res.string.project_add_failed), column, tone = HbTone.Danger)
+        }
+        if (content.isAttachmentFailed) {
+            HbBadge(
+                stringResource(Res.string.attachments_failed),
+                column,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.attachments.isNotEmpty()) {
+            StudioAttachments(
+                content.attachments,
+                onIntent,
+                column,
+                paneId = content.pane.id,
+                support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport,
+                previews = content.attachmentPreviews,
+            )
         }
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }

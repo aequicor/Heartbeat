@@ -31,11 +31,19 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioAttachmentNavigation
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPickRoute
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPicked
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsRoute
 import io.aequicor.heartbeat.feature.togglespanel.api.TogglesPanelRoute
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -71,6 +79,16 @@ class AiStudioComponent(
         global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
     )
 
+    /** Attachment dialogs retain the workspace and sidebar underneath their native modal surface. */
+    val dialogs: StackHost = hosts.stack(
+        context = this,
+        parent = navigator,
+        name = "attachment-dialogs",
+        initial = listOf(StudioNoDialogRoute),
+        local = listOf(routeEntry<StudioNoDialogRoute> { _, _, _ -> StudioNoDialog }),
+        global = GlobalRoutes.Only(setOf(AttachmentsPickRoute::class, AttachmentPreviewRoute::class)),
+    )
+
     private val questionNavigation = ItemsNavigation<String>()
 
     // One child per session with open questions; a session without questions destroys its child and host.
@@ -90,6 +108,33 @@ class AiStudioComponent(
     val questions: StateFlow<Map<String, StackHost>> = questionHosts.asStateFlow()
 
     init {
+        val attachments = scope.coroutineScope.launch {
+            model.attachmentNavigation.collect { event ->
+                when (event) {
+                    is StudioAttachmentNavigation.Pick -> dialogs.navigator.navigateForResult(
+                        AttachmentsPickRoute(event.requestId, event.support),
+                        AttachmentsPicked,
+                        NavOptions(transition = NavTransition.None),
+                    )
+
+                    is StudioAttachmentNavigation.Preview -> dialogs.navigator.navigate(
+                        AttachmentPreviewRoute(AttachmentId(event.id), event.isExportRequested),
+                        NavOptions(transition = NavTransition.None),
+                    )
+                }
+            }
+        }
+        val attachmentResults = scope.coroutineScope.launch {
+            dialogs.navigator.results(AttachmentsPicked).collect { result ->
+                model.store.intent(
+                    AiStudioScreenIntent.AttachmentsSelected(
+                        result.requestId,
+                        result.attachments.map { it.toUi() }.toImmutableList(),
+                    ),
+                )
+            }
+        }
+
         val hostsWatch = questionItems.subscribe { children ->
             val next = children.activeItems.mapValues { (_, child) -> child.first }
             log.d { "questionHosts: ${questionHosts.value.size} -> ${next.size}" }
@@ -105,6 +150,8 @@ class AiStudioComponent(
         }
         lifecycle.doOnDestroy {
             watching.cancel()
+            attachments.cancel()
+            attachmentResults.cancel()
             hostsWatch.cancel()
         }
     }
@@ -188,3 +235,10 @@ internal data object StudioChatRoute : Route
 
 /** Marker component of [StudioChatRoute]; the studio screen draws the panes itself. */
 internal data object StudioChat : NavComponent
+
+/** Empty base route; rendering it never replaces the studio content. */
+@Serializable
+@SerialName("aistudio_no_dialog")
+internal data object StudioNoDialogRoute : Route
+
+internal data object StudioNoDialog : NavComponent

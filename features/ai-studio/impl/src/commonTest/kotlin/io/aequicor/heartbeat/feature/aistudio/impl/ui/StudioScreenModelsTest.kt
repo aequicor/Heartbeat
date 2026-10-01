@@ -175,7 +175,7 @@ class StudioScreenModelsTest {
     }
 
     @Test
-    fun `new sessions use the project of the focused pane, then of its session, then the first one`() {
+    fun `new sessions use the project of the focused pane then of its session then the first one`() {
         assertEquals("s", state.sidebarInput().selectedId)
         assertEquals("q", state.sidebarInput().newSessionProjectId)
         val page = state.copy(panes = persistentListOf(PaneUi(0, projectId = "p")))

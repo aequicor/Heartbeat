@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -32,6 +33,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.data.InMemoryStudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreview
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
@@ -39,6 +42,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
@@ -111,7 +117,7 @@ class AiStudioModelTest {
     }
 
     @Test
-    fun `submit forwards the draft and clears it only after the machine accepts it`() = runTest {
+    fun `submit preserves the draft until native acceptance`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Next step"))
@@ -123,8 +129,12 @@ class AiStudioModelTest {
         fixture.machine.result = SendResult.Accepted
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
+        assertEquals("Next step", screen.states.value.draft(0))
+        val submitted = fixture.machine.sent.last() as AiStudioIntent.Public.Submit
+        assertEquals("Next step", submitted.prompt)
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitAccepted(0, submitted.submissionId, "s-facade"))
+        runCurrent()
         assertEquals("", screen.states.value.draft(0))
-        assertEquals(AiStudioIntent.Public.Submit(0, "Next step"), fixture.machine.sent.last())
     }
 
     @Test
@@ -403,6 +413,14 @@ class AiStudioModelTest {
             },
             efforts = efforts,
             machines = efforts,
+            attachmentsCatalog = object : AttachmentsCatalog {
+                override suspend fun get(id: AttachmentId): AttachmentDescriptor? = null
+                override fun observe(ids: List<AttachmentId>) = flowOf(emptyList<AttachmentDescriptor>())
+            },
+            previews = object : StudioAttachmentPreviews {
+                override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
+            },
+
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {

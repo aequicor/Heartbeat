@@ -56,6 +56,7 @@ data class ModelUi(
     val defaultReasoningEffort: String? = null,
     val connectionKey: String? = null,
     val isTrustSupported: Boolean = false,
+    val inputSupport: InputSupportUi = InputSupportUi(),
 )
 
 /** Composer preferences mirrored from the machine. */
@@ -102,6 +103,7 @@ internal fun StudioModel.toUi(): ModelUi = ModelUi(
     defaultReasoningEffort,
     studioModelTarget(id)?.takeIf { isModelSwitchSupported }?.let { "${it.engine.value}/${it.binding.value}" },
     isTrustSupported,
+    inputSupport.toUi(),
 )
 
 /** Progress of an agent tool call. */
@@ -157,6 +159,7 @@ sealed interface MessageUi {
         override val createdAt: Instant,
         val text: String,
         override val isTimestampKnown: Boolean = true,
+        val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     ) : MessageUi
 
     /** An agent answer, streamed while [isStreaming]. */
@@ -223,7 +226,15 @@ internal fun ApprovalUi.toDomain(): ApprovalMode = when (this) {
 }
 
 internal fun StudioMessage.toUi(): MessageUi = when (this) {
-    is StudioMessage.Prompt -> MessageUi.Prompt(id, createdAt, text, isTimestampKnown)
+    is StudioMessage.Prompt -> MessageUi.Prompt(
+        id,
+        createdAt,
+        text,
+        isTimestampKnown,
+        attachments.filter { it.id.startsWith("attachment:") }.map {
+            AttachmentUi(it.id.removePrefix("attachment:"), "", it.mediaType, 0)
+        }.toImmutableList(),
+    )
 
     is StudioMessage.Reply -> MessageUi.Reply(
         id,

@@ -75,20 +75,37 @@ internal fun AiStudioScreenState.restoreDraft(
 }
 
 /** Local follow-up of an accepted navigation: the drawer closes, closed panes forget their drafts. */
-internal fun AiStudioScreenState.afterNavigation(intent: AiStudioScreenIntent.Navigation): AiStudioScreenState =
-    when (intent) {
-        is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession, is AiStudioScreenIntent.OpenBeside ->
-            copy(sidebar = sidebar.copy(isDrawerOpen = false))
+internal fun AiStudioScreenState.afterNavigation(
+    intent: AiStudioScreenIntent.Navigation,
+    replacedPanes: Set<Int> = when (intent) {
+        is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession -> setOf(focusedPaneId)
 
-        is AiStudioScreenIntent.ClosePane -> copy(
-            drafts = (drafts - "pane:${intent.paneId}").toImmutableMap(),
-            failedPanes = (failedPanes - intent.paneId).toImmutableSet(),
+        is AiStudioScreenIntent.OpenBeside, is AiStudioScreenIntent.ClosePane, is AiStudioScreenIntent.FocusPane,
+        is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.AddProject, AiStudioScreenIntent.Retry,
+        -> emptySet()
+    },
+): AiStudioScreenState = when (intent) {
+    is AiStudioScreenIntent.NewSession, is AiStudioScreenIntent.OpenSession, is AiStudioScreenIntent.OpenBeside ->
+        copy(
+            sidebar = sidebar.copy(isDrawerOpen = false),
+            submissions = submissions.mapValues { (_, pending) ->
+                if (pending.paneId in replacedPanes) pending.copy(isDisplayed = false) else pending
+            }.toImmutableMap(),
         )
 
-        AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane,
-        is AiStudioScreenIntent.AddProject,
-        -> this
-    }
+    is AiStudioScreenIntent.ClosePane -> copy(
+        drafts = (drafts - "pane:${intent.paneId}").toImmutableMap(),
+        draftAttachments = (draftAttachments - "pane:${intent.paneId}").toImmutableMap(),
+        submissions = submissions.mapValues { (_, pending) ->
+            if (pending.paneId == intent.paneId) pending.copy(isDisplayed = false) else pending
+        }.toImmutableMap(),
+        failedPanes = (failedPanes - intent.paneId).toImmutableSet(),
+    )
+
+    AiStudioScreenIntent.Retry, is AiStudioScreenIntent.SelectProject, is AiStudioScreenIntent.FocusPane,
+    is AiStudioScreenIntent.AddProject,
+    -> this
+}
 
 internal fun AiStudioScreenState.startRename(sessionId: String, origin: String): AiStudioScreenState {
     val title = session(sessionId)?.title ?: return this

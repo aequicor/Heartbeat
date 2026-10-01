@@ -13,13 +13,17 @@ import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
+import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbPasteImageButton
+import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
@@ -28,6 +32,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
@@ -71,6 +77,13 @@ internal fun StudioComposer(
     val draft = content.draft
     val settings = content.settings
     val hasRunPreferences = content.supportsRunPreferences()
+    val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
+    val isAddingEnabled = content.canAddAttachments()
+    val inputCapture = hbAttachmentInput(
+        isAddingEnabled,
+        onFiles = { onIntent(AiStudioScreenIntent.ImportAttachments(pane.id, it.map(NativeAttachmentUi::File))) },
+        onImage = { onIntent(AiStudioScreenIntent.ImportAttachments(pane.id, listOf(NativeAttachmentUi.Image(it)))) },
+    )
     HbChatComposer(
         value = draft,
         onValueChange = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
@@ -78,7 +91,9 @@ internal fun StudioComposer(
         onStop = { session?.let { onIntent(AiStudioScreenIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
         stopLabel = stringResource(Res.string.composer_stop),
-        modifier = modifier.testTag("composer-${pane.id}"),
+        modifier = modifier.then(inputCapture).testTag("composer-${pane.id}"),
+        hasAttachments = content.attachments.isNotEmpty(),
+        canSend = support?.accepts(content.attachments) ?: content.attachments.isEmpty(),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMaxHeight
@@ -89,6 +104,7 @@ internal fun StudioComposer(
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
         leadingContent = {
+            AttachmentActions(isAddingEnabled, content, onIntent)
             TemplatesMenu(
                 draft = draft,
                 approval = settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
@@ -127,6 +143,37 @@ internal fun StudioComposer(
             )
         },
     )
+}
+
+@Composable
+private fun AttachmentActions(
+    isAddingEnabled: Boolean,
+    content: PaneContent,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+) {
+    val pane = content.pane
+    val support = content.models.firstOrNull { it.id == content.settings.modelId }?.inputSupport
+    if (isAddingEnabled) {
+        HbIconButton(
+            HbIcons.FilePlus,
+            stringResource(Res.string.attachments_add),
+            onClick = { onIntent(AiStudioScreenIntent.PickAttachments(pane.id)) },
+            modifier = Modifier.testTag("attachment-add-${pane.id}"),
+        )
+        if (!support?.imageMediaTypes.isNullOrEmpty()) {
+            HbPasteImageButton(
+                stringResource(Res.string.attachments_paste),
+                onImage = {
+                    onIntent(
+                        AiStudioScreenIntent.ImportAttachments(
+                            pane.id,
+                            listOf(NativeAttachmentUi.Image(it)),
+                        ),
+                    )
+                },
+            )
+        }
+    }
 }
 
 @Composable
@@ -336,3 +383,9 @@ private data class Template(val id: String, val label: StringResource, val promp
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
 private const val APPROVAL_PREFIX = "approval:"
+
+private fun PaneContent.canAddAttachments(): Boolean {
+    val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
+    return isAttachmentsEnabled && !pane.isCreating && session?.isRunning != true &&
+        !support?.mediaTypes.isNullOrEmpty()
+}
