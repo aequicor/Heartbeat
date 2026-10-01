@@ -164,6 +164,7 @@ private class PreferenceProfile(parent: CoroutineScope) : ScopeHandle {
 }
 
 private class PreferenceStores(id: String = "profile") : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     val values = PreferenceValues()
     override val owner = StorageOwner.Profile(ProfileId(id))
     override fun keyValue(spec: KeyValueSpec): KeyValueStore {

@@ -17,6 +17,50 @@ import kotlin.test.assertTrue
 class StorageBoundaryTest {
 
     @Test
+    fun `feature files survive reopening and are removed only with their profile`() = runTest {
+        val env = StorageTestEnv(this)
+        try {
+            val registry = env.registry()
+            val alice = StorageOwner.Profile(ProfileId("alice"))
+            val bob = StorageOwner.Profile(ProfileId("bob"))
+            val aliceScope = env.newScope("alice", env.app)
+            val aliceStores = registry.attach(alice, aliceScope)
+            val directory = aliceStores.filesDirectory("attachments")
+            val file = env.layout.filesDirectory(alice, "attachments") / "image"
+            FileSystem.SYSTEM.createDirectories(file.parent!!)
+            FileSystem.SYSTEM.write(file) { writeUtf8("original bytes") }
+            val bobScope = env.newScope("bob", env.app)
+            val bobStores = registry.attach(bob, bobScope)
+            val bobDirectory = bobStores.filesDirectory("attachments")
+            assertTrue(directory != bobDirectory)
+            aliceScope.close()
+            assertFailsWith<IllegalStateException> { aliceStores.filesDirectory("attachments") }
+            val reopenedScope = env.newScope("alice again", env.app)
+            assertEquals(directory, registry.attach(alice, reopenedScope).filesDirectory("attachments"))
+            assertEquals("original bytes", FileSystem.SYSTEM.read(file) { readUtf8() })
+            reopenedScope.close()
+            registry.wipeProfile(alice.id)
+            assertTrue(!FileSystem.SYSTEM.exists(file))
+            assertEquals(bobDirectory, bobStores.filesDirectory("attachments"))
+        } finally {
+            withContext(NonCancellable) { env.dispose() }
+        }
+    }
+
+    @Test
+    fun `file directory names cannot escape their owner`() = runTest {
+        val env = StorageTestEnv(this)
+        try {
+            val stores = env.registry().attach(StorageOwner.App, env.newScope("files", env.app))
+            listOf("", "../alice", "/tmp", "attachments/files", "MixedCase").forEach { name ->
+                assertFailsWith<IllegalArgumentException> { stores.filesDirectory(name) }
+            }
+        } finally {
+            withContext(NonCancellable) { env.dispose() }
+        }
+    }
+
+    @Test
     fun `an empty profile id is rejected before resolving the storage root`() {
         val layout = StorageLayout { error("the storage root must not be resolved") }
 

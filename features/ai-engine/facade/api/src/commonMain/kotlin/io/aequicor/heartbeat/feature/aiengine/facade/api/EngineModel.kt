@@ -101,6 +101,8 @@ public data class ModelInfo(
     val reasoningEfforts: List<String> = emptyList(),
     /** Native default, when the catalog advertises it. Null leaves the runtime's configured default unchanged. */
     val defaultReasoningEffort: String? = null,
+    /** Formats confirmed for this exact model and connection; unknown binary support stays absent. */
+    val inputSupport: PromptInputSupport = PromptInputSupport(),
 )
 
 /** Fixed credential/workspace route. The model actually used is recorded separately for each turn. */

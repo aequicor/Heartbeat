@@ -18,6 +18,7 @@ kotlin {
             implementation(projects.core.common)
             implementation(projects.core.logging)
             implementation(libs.kotlinx.serialization.json)
+            implementation(libs.okio)
         }
         jvmTest.dependencies {
             implementation(libs.androidx.sqlite.bundled)

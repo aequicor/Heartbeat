@@ -220,7 +220,7 @@ class SessionLauncherTest {
     }
 
     @Test
-    fun `a runtime created for a cancelled request is closed, not leaked`() = runTest {
+    fun `a runtime created for a cancelled request is closed not leaked`() = runTest {
         val (fixture, launcher, _) = launcher()
         val gate = CompletableDeferred<Unit>().also { factory.createGate = it }
         val request = launch { launcher.create(CreateSessionRequest(fixture.target)) }

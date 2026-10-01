@@ -82,6 +82,7 @@ class StoredLocalWorkspacesTest {
 }
 
 private class WorkspaceTestStores : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     private val stores = mutableMapOf<String, KeyValueStore>()
     override val owner: StorageOwner = StorageOwner.App
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = stores.getOrPut(spec.name) { WorkspaceTestStore(spec) }

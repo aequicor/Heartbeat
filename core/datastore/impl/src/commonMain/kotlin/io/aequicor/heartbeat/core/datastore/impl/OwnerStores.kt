@@ -20,6 +20,11 @@ internal class OwnerStores(
     private val keyValues = ConcurrentCache<String, LoggingKeyValueStore>()
     private val databases = ConcurrentCache<String, OpenDatabase>()
 
+    override fun filesDirectory(name: String): String {
+        checkOpen()
+        return registry.filesDirectory(owner, name)
+    }
+
     override fun keyValue(spec: KeyValueSpec): KeyValueStore {
         checkOpen()
         val store = keyValues.getOrPut(spec.name) { registry.openKeyValue(owner, spec, scope) }
