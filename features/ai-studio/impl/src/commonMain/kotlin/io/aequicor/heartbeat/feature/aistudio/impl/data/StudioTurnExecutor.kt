@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -42,7 +43,12 @@ internal data class StudioTurnRequest(
     val settings: RunSettings,
     val kind: WorktreeRunKind,
     val request: RequestId,
-)
+    val attachments: List<ResourceRef> = emptyList(),
+    /** Delivered only after native acceptance; not persisted or used as worktree identity. */
+    val onAccepted: suspend () -> Unit = {},
+) {
+    override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
+}
 
 /** Confirms terminal native state and revokes tools before any worktree action lease is released. */
 @Inject
@@ -95,6 +101,7 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             val turn = host.submitTurn(active, request)
             progress.active = active
             progress.turn = turn
+            notifyAccepted(request)
             if (progress.isIsolated) worktrees.accepted(request.id, request.request, active.ref, turn)
             if (host.shouldStop(request.id)) host.requestStop(request.id, active, turn)
             val terminal = active.state.first { it.isTerminalFor(turn) }
@@ -108,6 +115,17 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
         } finally {
             observation.cancel()
             permissions.cancel()
+        }
+    }
+
+    /** Notification failure cannot abandon native ownership or unlock a prepared worktree. */
+    private suspend fun notifyAccepted(request: StudioTurnRequest) {
+        try {
+            request.onAccepted()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.e(error) { "Native turn accepted; composer acknowledgement could not be delivered" }
         }
     }
 

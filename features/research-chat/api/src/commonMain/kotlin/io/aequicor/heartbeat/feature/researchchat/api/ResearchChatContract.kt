@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineKey
 import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -100,6 +101,16 @@ public sealed interface ResearchChatIntent : MachineIntent {
             override fun toString(): String = "AddResource(kind=$kind, scope=$scope)"
         }
 
+        /** Adds durable files to the question that opened the picker, even after a selection change. */
+        public data class AddAttachments(
+            val sessionId: String,
+            val questionId: String,
+            val attachments: List<AttachmentDescriptor>,
+            val scope: ResearchResourceScope,
+        ) : Public {
+            override fun toString(): String = "AddAttachments(count=${attachments.size}, scope=$scope)"
+        }
+
         /** Selects or deselects a source for the current question only. */
         public data class SetResourceSelected(val resourceId: String, val isSelected: Boolean) : Public
 
@@ -165,6 +176,9 @@ public sealed interface ResearchChatEffect : MachineEffect {
         val questionId: String,
         val input: ResearchChatIntent.Public.AddResource,
     ) : ResearchChatEffect
+
+    /** Registers a batch of durable files in the captured research question. */
+    public data class AddAttachments(val input: ResearchChatIntent.Public.AddAttachments) : ResearchChatEffect
 
     /** Updates a question's source selection. */
     public data class SelectResource(

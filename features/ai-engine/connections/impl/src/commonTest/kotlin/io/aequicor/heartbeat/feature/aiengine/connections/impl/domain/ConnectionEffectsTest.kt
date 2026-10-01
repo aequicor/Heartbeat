@@ -164,7 +164,7 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `rollback removes the binding, the source and the selection`() = runTest {
+    fun `rollback removes the binding the source and the selection`() = runTest {
         val credential = CredentialInput.Existing("Local", OllamaMethod.origin)
         wizard.handle(ConnectWizardEffect.Connect(KoogId, OllamaMethod, credential), wizardScope)
         val connection = (wizardScope.intents.single() as ConnectWizardIntent.Internal.Connected).connection
@@ -177,7 +177,7 @@ class ConnectionEffectsTest {
     }
 
     @Test
-    fun `settings snapshot follows engines, sources, cached models and selection`() = runTest {
+    fun `settings snapshot follows engines sources cached models and selection`() = runTest {
         val observer = backgroundScope.launch { settings.handle(EngineConnectionsEffect.Observe, settingsScope) }
         runCurrent()
         val credential = CredentialInput.Existing("Local", OllamaMethod.origin)

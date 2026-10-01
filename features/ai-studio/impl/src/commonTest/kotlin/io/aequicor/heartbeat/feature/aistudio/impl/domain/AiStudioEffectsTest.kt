@@ -63,7 +63,7 @@ class AiStudioEffectsTest {
     }
 
     @Test
-    fun `a completed run records the prompt, the streamed tools and the branch`() = runTest {
+    fun `a completed run records the prompt the streamed tools and the branch`() = runTest {
         val fixture = Fixture(this, agent = {
             flowOf(
                 AgentEvent.Text("Plan "),

@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
@@ -77,6 +79,10 @@ internal data class PaneContent(
     val worktree: WorktreeUi? = null,
     val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val configuration: SessionConfigurationUi? = null,
+    val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
+    val isAttachmentsEnabled: Boolean = false,
+    val isAttachmentFailed: Boolean = false,
+    val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
 ) {
     /** Only the settings of this pane wait while its session configuration is being confirmed. */
     val isSettingPending: Boolean get() = configuration?.pendingOperation != null
@@ -111,6 +117,10 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isStopping = session != null && session.id in stopping,
         elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,
         draft = draft(pane.id),
+        attachments = attachments(pane.id),
+        isAttachmentsEnabled = isAttachmentsEnabled,
+        isAttachmentFailed = pane.id in attachmentErrorPanes,
+        attachmentPreviews = attachmentPreviews,
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,

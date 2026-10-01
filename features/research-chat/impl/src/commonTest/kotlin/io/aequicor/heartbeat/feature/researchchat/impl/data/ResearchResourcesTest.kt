@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
@@ -106,6 +107,28 @@ class ResearchResourcesTest {
         assertTrue(parts.contains(ContentPart.Resource(ResourceRef(pdf.value, pdf.mediaType))))
         assertTrue(
             parts.filterIsInstance<ContentPart.Resource>().any { it.resource.id.startsWith("data:text/plain;base64,") },
+        )
+    }
+
+    @Test
+    fun `saved text attachments retain original references and excluded sources never enter followups`() {
+        val text = source.copy(
+            id = "text",
+            kind = ResearchResourceKind.Document,
+            value = "attachment:document",
+            mediaType = "text/markdown",
+            text = "",
+            attachmentId = AttachmentId("document"),
+        )
+        val state = session.attach(first.id, text, ResearchResourceScope.Session)
+        val parts = state.promptParts(first, "")
+        assertTrue(parts.contains(ContentPart.Resource(ResourceRef("attachment:document", "text/markdown"))))
+        assertTrue(parts.filterIsInstance<ContentPart.Text>().isEmpty())
+        val excluded = second.copy(excludedResourceIds = setOf(text.id))
+        assertFalse(
+            state.promptParts(excluded, "Next").any {
+                it is ContentPart.Resource && it.resource.id == text.value
+            },
         )
     }
 

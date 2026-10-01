@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -91,6 +93,7 @@ sealed interface StudioMessage {
         override val createdAt: Instant,
         val text: String,
         override val isTimestampKnown: Boolean = true,
+        val attachments: List<ResourceRef> = emptyList(),
     ) : StudioMessage
 
     /** An agent answer; streamed while [isStreaming]. [tools] keep their order of appearance. */
@@ -131,6 +134,7 @@ data class StudioModel(
     val isTrustSupported: Boolean = false,
     /** Whether a running session of the engine changes its model in place. */
     val isModelSwitchSupported: Boolean = false,
+    val inputSupport: PromptInputSupport = PromptInputSupport(),
 )
 
 /** Models the demo agent can impersonate, from the most capable to the fastest. */

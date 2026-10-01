@@ -71,7 +71,7 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `missing or blocked history is a failure, never an empty transcript`() = runTest {
+    fun `missing or blocked history is a failure never an empty transcript`() = runTest {
         val unsupported = assertFailsWith<EngineException> {
             FacadeSessionTranscripts(historyFacade(FeatureAccess.Unsupported)).read(SourceRef, 100)
         }
@@ -122,7 +122,7 @@ class FacadeAdaptersTest {
     }
 
     @Test
-    fun `created sessions that cannot accept prompts are released, not orphaned`() = runTest {
+    fun `created sessions that cannot accept prompts are released not orphaned`() = runTest {
         val active = FakeActiveSession(TargetRef, FakeFeatures(emptyMap()))
         val creates = object : CreatesSessions {
             override suspend fun create(request: CreateSessionRequest) = active

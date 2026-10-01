@@ -10,6 +10,8 @@ import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
@@ -135,6 +137,12 @@ internal class KoogNativeSession(
             override val route = this@KoogNativeSession.route
             override val state = state.asStateFlow()
             override val features = KoogFeatures(
+                AcceptsImages to object : AcceptsImages {
+                    override val mediaTypes: Set<String> get() = inputSupport().imageMediaTypes
+                },
+                AcceptsResources to object : AcceptsResources {
+                    override val mediaTypes: Set<String> get() = inputSupport().resourceMediaTypes
+                },
                 AppliesTrustLevels to object : AppliesTrustLevels {},
                 SessionContextUsage to contextUsage,
                 ChangesSessionConfiguration to object : ChangesSessionConfiguration {
@@ -228,8 +236,15 @@ internal class KoogNativeSession(
         if (effort != null && effort !in access.reasoning.levels(provider, model.value)) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
-        request.parts.koogUserParts(provider, request.id)
-        val client = koogCall { access.open(connection, model.value) }
+        val client = access.preparePromptClient(
+            connection,
+            model.value,
+            request,
+            record.items.filterIsInstance<SessionItem.Message>().map { item ->
+                if (item.role == MessageRole.User) item.parts else item.parts.filterIsInstance<ContentPart.Text>()
+            },
+            ::closeClient,
+        )
         val turn = Turn(TurnId(Uuid.random().toString()), request.id, EngineTarget(route.engine, route.binding, model))
         val user = SessionItem.Message(
             ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
@@ -301,7 +316,7 @@ internal class KoogNativeSession(
                     tools = !tools.isEmpty(),
                     attachments = record.items.hasResourceInputs(),
                 )
-                val prompt = input ?: initialPrompt(provider.llmProvider, LLMParams(), workspace?.instructions)
+                val prompt = input ?: initialPrompt(provider, workspace?.instructions)
                 val round = streamWithEffort(turn, client, provider, textModel, tools, prompt, requestSelection)
                 if (round.calls.isEmpty()) {
                     isComplete = true
@@ -473,42 +488,11 @@ internal class KoogNativeSession(
         update?.let { updates.emit(it) }
     }
 
-    private fun initialPrompt(
-        provider: ai.koog.prompt.llm.LLMProvider,
-        params: LLMParams,
-        instructions: String?,
-    ): Prompt = prompt("heartbeat", params) {
-        val koogProvider = KoogProvider.entries.first { it.llmProvider == provider }
-        instructions?.let { system(it) }
-        if (record.items.hasSourceMaterial()) system(KOOG_RESOURCE_BOUNDARY)
-        val calls = record.items.filterIsInstance<SessionItem.ToolCall>().associateBy { it.call }
-        record.items.forEach { item ->
-            when (item) {
-                is SessionItem.Message -> {
-                    val text = item.parts.filterIsInstance<ContentPart.Text>()
-                        .joinToString("") { it.text }
-                    when (item.role) {
-                        MessageRole.User -> user(item.parts.koogUserParts(koogProvider))
-                        MessageRole.Assistant -> assistant(text)
-                        MessageRole.System -> system(text)
-                    }
-                }
+    private suspend fun initialPrompt(provider: KoogProvider, instructions: String?): Prompt =
+        koogHistoryPrompt(record.items, provider, inputSupport(), access.resources, instructions)
 
-                is SessionItem.ToolCall -> if (item.status == ToolCallStatus.Succeeded ||
-                    item.status == ToolCallStatus.Failed
-                ) {
-                    toolCall(tool = item.name, args = item.arguments, id = item.call.value)
-                }
-
-                is SessionItem.ToolResult -> calls[item.call]?.let { call ->
-                    val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-                    toolResult(tool = call.name, output = text, id = item.call.value, isError = item.failure != null)
-                }
-
-                is SessionItem.Plan, is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
-            }
-        }
-    }
+    private fun inputSupport(): io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport =
+        access.inputs.cached(route.binding, model.value)
 
     private suspend fun streamRound(
         turn: Turn,

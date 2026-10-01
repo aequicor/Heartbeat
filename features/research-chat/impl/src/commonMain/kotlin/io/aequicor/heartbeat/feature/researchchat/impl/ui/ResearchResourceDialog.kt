@@ -86,7 +86,8 @@ private fun RowScope.ResourceFormActions(state: ResearchScreenState, onIntent: (
         stringResource(Res.string.research_add),
         { onIntent(ResearchScreenIntent.AddResource) },
         Modifier.testTag("research-confirm-source"),
-        enabled = state.isEditable && state.resourceValue.isNotBlank(),
+        enabled = state.isEditable && state.resourceValue.isNotBlank() &&
+            (state.resourceKind == ResourceKindUi.Website || state.isFileImportAvailable),
     )
 }
 

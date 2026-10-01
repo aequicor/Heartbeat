@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
@@ -32,20 +31,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
-import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -181,16 +178,12 @@ internal class EngineStudioRepository(
         update = { id, change -> write(id, change) },
     )
 
-    /** Guards [handles], [stopRequests] and [opening]; never held across native or storage calls. */
+    /** Guards handles, stop requests and per-chat lock entries; never held across native or storage calls. */
     private val handlesLock = Mutex()
     private val handles = mutableMapOf<String, ActiveSession>()
     private val stopRequests = mutableSetOf<String>()
 
-    /**
-     * One lock per conversation so a native session is created, resumed or released at most once at a time.
-     * An entry lives only while someone holds or awaits it.
-     */
-    private val opening = mutableMapOf<String, ChatLock>()
+    private val conversationLocks = StudioConversationLocks(handlesLock)
     private val mutableState = MutableStateFlow(StudioRuntimeState())
     override val state: StateFlow<StudioRuntimeState> = mutableState.asStateFlow()
 
@@ -377,7 +370,26 @@ internal class EngineStudioRepository(
 
     override suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome {
         log.i { "Run studio conversation" }
-        return launchRun(sessionId, prompt, settings, WorktreeRunKind.Coding, RequestId(Uuid.random().toString()))
+        return run(sessionId, prompt, settings, emptyList()) { }
+    }
+
+    override suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome {
+        log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
+        return launchRun(
+            sessionId,
+            prompt,
+            settings,
+            WorktreeRunKind.Coding,
+            RequestId(Uuid.random().toString()),
+            attachments = attachments,
+            onAccepted = onAccepted,
+        )
     }
 
     private suspend fun launchRun(
@@ -387,10 +399,12 @@ internal class EngineStudioRepository(
         kind: WorktreeRunKind,
         request: RequestId,
         waitForIdle: Boolean = false,
+        attachments: List<ResourceRef> = emptyList(),
+        onAccepted: suspend () -> Unit = {},
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
-        StudioTurnRequest(sessionId, prompt, settings, kind, request),
+        StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted),
         waitForIdle,
         beforeExecute,
     )
@@ -444,7 +458,7 @@ internal class EngineStudioRepository(
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         log.i { "Submit the reserved native request" }
         val target = checkNotNull(record(request.id).target)
-        return submitConfigured(request.id, active, target, request.prompt, request.settings, request.request)
+        return submitConfigured(request.id, active, target, request)
     }
 
     override suspend fun shouldStop(id: String): Boolean {
@@ -464,19 +478,17 @@ internal class EngineStudioRepository(
         id: String,
         active: ActiveSession,
         target: EngineTarget,
-        prompt: String,
-        settings: RunSettings,
-        requestId: RequestId,
+        request: StudioTurnRequest,
     ): TurnId {
         val stored = state.value.configurations[id]?.applied ?: record(id).configuration
-        val trust = (stored?.approval ?: settings.approval).trustFor(offeredModels.value, target)
+        val trust = (stored?.approval ?: request.settings.approval).trustFor(offeredModels.value, target)
         val effort = if (stored != null) {
             stored.reasoningEffort
         } else {
             efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target))
         }
-        log.i { "Submitting prompt length=${prompt.length} trust=${trust ?: "default"}" }
-        val turn = nativeSession.submit(active, prompt, effort, trust, requestId)
+        log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
+        val turn = nativeSession.submit(active, request, effort, trust)
         nativeSession.confirmConfiguration(
             this,
             id,
@@ -583,7 +595,7 @@ internal class EngineStudioRepository(
         nativeSession.mirrorHistory(historyMirror, id, history, isFinal = false)
     }
 
-    private suspend fun open(id: String, target: EngineTarget): ActiveSession = withChatLock(id) {
+    private suspend fun open(id: String, target: EngineTarget): ActiveSession = conversationLocks.withLock(id) {
         val record = record(id)
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
@@ -611,7 +623,7 @@ internal class EngineStudioRepository(
                 current.features.requireFeature(SwitchesModels).switchTo(target.model)
             }
             update(id) { copy(target = target) }
-            return@withChatLock current
+            return@withLock current
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
@@ -648,26 +660,6 @@ internal class EngineStudioRepository(
                 }
             }
         }
-    }
-
-    /** Runs [block] under the lock of conversation [id]; the lock entry is dropped once nobody uses it. */
-    private suspend fun <T> withChatLock(id: String, block: suspend () -> T): T {
-        val entry = handlesLock.withLock { opening.getOrPut(id) { ChatLock() }.also { it.users++ } }
-        try {
-            return entry.mutex.withLock { block() }
-        } finally {
-            withContext(NonCancellable) {
-                handlesLock.withLock {
-                    entry.users--
-                    if (entry.users == 0 && opening[id] === entry) opening.remove(id)
-                }
-            }
-        }
-    }
-
-    private class ChatLock {
-        val mutex = Mutex()
-        var users = 0
     }
 
     override suspend fun cancel(sessionId: String) {
@@ -748,8 +740,8 @@ internal class EngineStudioRepository(
     }
 
     /** Closes under the conversation lock, so a concurrent open never receives a closing handle. */
-    private suspend fun release(id: String) = withChatLock(id) {
-        val handle = handlesLock.withLock { handles[id] } ?: return@withChatLock
+    private suspend fun release(id: String) = conversationLocks.withLock(id) {
+        val handle = handlesLock.withLock { handles[id] } ?: return@withLock
         handle.close()
         handlesLock.withLock { if (handles[id] === handle) handles.remove(id) }
         log.i { "Released native session of an archived conversation" }
@@ -842,25 +834,12 @@ private class StudioNativeSessionOperations(private val controller: StudioConfig
 
     suspend fun submit(
         active: ActiveSession,
-        prompt: String,
+        request: StudioTurnRequest,
         reasoningEffort: String?,
         trust: TrustLevel?,
-        requestId: RequestId,
     ): TurnId {
-        log.i { "Send the native request" }
-        val request = PromptRequest(
-            requestId,
-            listOf(ContentPart.Text(prompt)),
-            reasoningEffort = reasoningEffort,
-            trust = trust,
-        )
-        return try {
-            active.features.requireFeature(SendsPrompts).send(request)
-        } catch (e: EngineException) {
-            log.e(e) { "Submission failed; inspect native acceptance before changing run status" }
-            val accepted = active.state.value.activeTurn()?.takeIf { it.request == request.id }
-            if (accepted != null) accepted.id else throw e
-        }
+        log.i { "Send the reserved native request" }
+        return active.submitStudioPrompt(request.prompt, reasoningEffort, trust, request.attachments, request.request)
     }
 
     suspend fun mirrorHistory(mirror: StudioHistoryMirror, id: String, history: SessionHistory, isFinal: Boolean) {
@@ -926,15 +905,6 @@ internal fun <F : EngineFeature> EngineFeatures.requireFeature(key: EngineFeatur
 internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
     (features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available)?.feature?.configuration?.value?.model
         ?: fallback
-
-private fun ActiveSessionState.activeTurn(): Turn? = when (this) {
-    is ActiveSessionState.Submitting -> turn
-    is ActiveSessionState.Running -> turn
-    is ActiveSessionState.AwaitingUserAction -> turn
-    is ActiveSessionState.Interrupting -> turn
-    is ActiveSessionState.Unavailable -> activeTurn
-    is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
-}
 
 /** Trust level of a turn on [target]: only engines applying trust levels receive one. */
 internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =

@@ -78,6 +78,7 @@ internal fun studioModel(
         defaultReasoningEffort = info?.defaultReasoningEffort,
         isTrustSupported = isTrustSupported,
         isModelSwitchSupported = isModelSwitchSupported,
+        inputSupport = info?.inputSupport ?: io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport(),
     )
 }
 

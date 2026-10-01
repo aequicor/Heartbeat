@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPermissionAnswer
@@ -28,6 +29,19 @@ interface StudioRuntime {
 
     /** Starts profile-owned work and awaits its outcome; cancelling this waiter only detaches it. */
     suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome
+
+    /** Starts a turn with durable references and reports native acceptance before awaiting completion. */
+    suspend fun run(
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+        attachments: List<ResourceRef>,
+        onAccepted: suspend () -> Unit,
+    ): RunOutcome {
+        require(attachments.isEmpty()) { "Attachments are unavailable for this runtime" }
+        onAccepted()
+        return run(sessionId, prompt, settings)
+    }
 
     /** Requests native interruption; only native terminal state completes the run. */
     suspend fun cancel(sessionId: String)

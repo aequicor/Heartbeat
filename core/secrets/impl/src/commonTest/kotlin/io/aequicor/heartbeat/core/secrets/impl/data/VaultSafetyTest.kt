@@ -63,7 +63,9 @@ class VaultSafetyTest {
         val lines = mutableListOf<String>()
         Log.init(
             true,
-            listOf(LogSink { _, _, error, message -> lines += message + error?.stackTraceToString().orEmpty() }),
+            sinks = listOf(
+                LogSink { _, _, error, message -> lines += message + error?.stackTraceToString().orEmpty() },
+            ),
         )
         try {
             val env = VaultTestEnv(this)

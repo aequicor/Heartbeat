@@ -188,7 +188,7 @@ class SearchEngineTest {
         )
     }
 
-    @Test fun `fetch rejects local, private and non-http addresses before any request`() = runTest {
+    @Test fun `fetch rejects local and private and non-http addresses before any request`() = runTest {
         val router = RoutedSearchEngine(
             options,
             api {

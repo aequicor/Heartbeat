@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatState
@@ -77,6 +78,38 @@ class ResearchPresentationTest {
         val streamed = screen(preparing.copy(items = listOf(previous, prompt, partial))).messages
         assertFalse(streamed.first().isStreaming)
         assertTrue(streamed.last().isStreaming)
+    }
+
+    @Test
+    fun `only selected sources count toward message attachment limits`() {
+        val files = (1..11).map { shared.copy(id = "file-$it", attachmentSizeBytes = 1L) }
+        val saved = session.copy(resources = files, sharedResourceIds = files.map { it.id }.toSet())
+        fun screen(excluded: Set<String> = emptySet()): ResearchScreenState = ResearchScreenState().reflectResearch(
+            ready.copy(
+                workspace = ResearchWorkspace(
+                    listOf(saved.copy(questions = listOf(question.copy(excludedResourceIds = excluded)))),
+                ),
+            ),
+        )
+        assertFalse(screen().areSourcesWithinLimits)
+        assertTrue(screen(setOf("file-11")).areSourcesWithinLimits)
+        assertEquals(10, screen(setOf("file-11")).resources.count { it.isSelected })
+    }
+
+    @Test
+    fun `source size and failed migration block sending while safe sources stay available`() {
+        val file = local.copy(attachmentSizeBytes = 9L)
+        val state = ready.copy(workspace = ResearchWorkspace(listOf(session.copy(resources = listOf(file)))))
+        val support = PromptInputSupport.TextDocuments.copy(maxFileBytes = 8L)
+        assertFalse(ResearchScreenState(attachmentSupport = support).reflectResearch(state).areSourcesWithinLimits)
+        val failed = state.copy(
+            workspace = ResearchWorkspace(
+                listOf(session.copy(resources = listOf(file.copy(hasAttachmentError = true)))),
+            ),
+        )
+        val source = ResearchScreenState().reflectResearch(failed).resources.single()
+        assertFalse(source.isCompatible)
+        assertTrue(source.hasImportError)
     }
 
     @Test

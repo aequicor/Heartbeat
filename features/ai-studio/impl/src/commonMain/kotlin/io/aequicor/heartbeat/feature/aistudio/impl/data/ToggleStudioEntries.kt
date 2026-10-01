@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.settings.api.UnifiedSettings
@@ -30,6 +31,8 @@ internal class ToggleStudioEntries(
     sessions: ProfileSessions,
     questions: Lazy<StudioQuestionBridge>,
 ) : StudioEntries {
+    override val showsAttachments: Flow<Boolean> = toggles.observe(AttachmentsEnabled)
+
     override val showsResearch: Flow<Boolean> = combine(
         toggles.observe(ResearchChatEnabled),
         toggles.observe(StudioEngineRuntime),

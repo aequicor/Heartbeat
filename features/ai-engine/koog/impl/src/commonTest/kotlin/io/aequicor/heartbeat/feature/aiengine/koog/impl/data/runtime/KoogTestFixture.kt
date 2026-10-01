@@ -39,6 +39,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -84,8 +86,10 @@ internal class KoogTestFixture(test: TestScope) {
     var isAutoApprove = true
     val usageEnabled = MutableStateFlow(false)
     var workspace: KoogWorkspace? = null
+    var modelSupportsTools = true
+    var modelSupportsImages = false
+    var resources = emptyMap<String, ResolvedResource>()
     var hostedTools: ProfileAgentTools? = null
-    var isModelSupportingTools = true
     var modelContextLength: Long? = null
     var availableModels = listOf("test-model")
     var toolsByModel = emptyMap<String, Boolean>()
@@ -139,18 +143,24 @@ internal class KoogTestFixture(test: TestScope) {
                 return KoogClient(executor) {
                     beforeModels()
                     availableModels.map { id ->
-                        val capabilities = if (toolsByModel[id] ?: isModelSupportingTools) {
+                        val capabilities = if (toolsByModel[id] ?: modelSupportsTools) {
                             listOf(LLMCapability.Tools)
                         } else {
                             emptyList()
                         }
-                        LLModel(provider.llmProvider, id, capabilities, contextLength = modelContextLength)
+                        LLModel(
+                            provider.llmProvider,
+                            id,
+                            capabilities + if (modelSupportsImages) listOf(LLMCapability.Vision.Image) else emptyList(),
+                            contextLength = modelContextLength,
+                        )
                     }
                 }
             }
         },
         reasoning,
         KoogContextWindows(),
+        ResourceResolver { resources[it.id] },
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null

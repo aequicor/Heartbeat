@@ -9,18 +9,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -45,6 +53,45 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ClaudeHostedTest {
     private val workspace = WorkspaceRef("local-project")
+
+    @Test
+    fun `hosted acceptance persists image originals and restart resumes without reading the file`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        fixture.inputSupport = fixture.inputSupport.copy(imageMediaTypes = setOf("image/png"))
+        fixture.resources = ResourceResolver { ResolvedResource("image.png", "image/png", byteArrayOf(1)) }
+        val bridge = TestAgentBridge()
+        val finish = CompletableDeferred<Unit>()
+        fixture.transport.generation = { args, line ->
+            assertNotNull(bridge.context())
+            finish.await()
+            val id = args.first { it.startsWith("--session-id=") }.substringAfter('=')
+            line(resultFrame(id))
+            0
+        }
+        val first = fixture.runtime(TestAgentTools(), bridge)
+        val session = first.create(CreateSessionRequest(testTarget, workspace))
+        val parts = listOf(ContentPart.Image(ResourceRef("attachment:image", "image/png")))
+        val send = async { session.features.available(SendsPrompts).send(PromptRequest(RequestId("image"), parts)) }
+        runCurrent()
+        val turn = send.await()
+        val saved = assertNotNull(fixture.catalog.find(session.ref))
+        val original = saved.history.items.filterIsInstance<SessionItem.Message>().single()
+        assertEquals(parts, original.parts)
+        assertEquals(turn, original.info.turn)
+        assertTrue("--input-format" in fixture.transport.calls.last())
+        session.close()
+        finish.complete(Unit)
+        runCurrent()
+        first.close()
+        fixture.resources = ResourceResolver { error("Restoring history must not load original bytes") }
+        val second = fixture.runtime(TestAgentTools(), TestAgentBridge())
+        val restored = second.attach(session.ref, ResumeSessionRequest(testTarget, workspace))
+        val user = restored.features.available(SessionHistory).page().items
+            .filterIsInstance<SessionItem.Message>().single { it.role == MessageRole.User }
+        assertEquals(parts, user.parts)
+        assertEquals(session.ref, restored.ref)
+        second.close()
+    }
 
     @Test
     fun `MCP call proves acceptance before buffered stdout and permissions belong to that turn`() = runTest {

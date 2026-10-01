@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
 import io.aequicor.heartbeat.core.statemachine.assertTransition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import kotlin.test.Test
 
 class AiStudioWorktreeTest {
@@ -12,6 +13,46 @@ class AiStudioWorktreeTest {
         settings = settings,
         isWorktreeAvailable = true,
     )
+
+    @Test
+    fun `attachment-only isolated creation carries stable files and native acknowledgement identity`() {
+        val files = listOf(ResourceRef("attachment:image", "image/png"))
+        val selected = ready.copy(panes = listOf(ready.panes[0].copy(isWorktree = true)))
+        val creating = selected.copy(
+            panes = listOf(selected.panes.single().copy(isCreating = true, createRequestId = 0)),
+            nextCreateRequestId = 1,
+        )
+        AiStudioMachineSpec.assertTransition(
+            selected,
+            AiStudioIntent.Public.Submit(0, "", files, "submission"),
+            creating,
+            effects = listOf(
+                AiStudioEffect.CreateSession(
+                    0,
+                    "project",
+                    "",
+                    settings,
+                    requestId = 0,
+                    attachments = files,
+                    submissionId = "submission",
+                    isWorktree = true,
+                ),
+            ),
+        )
+        AiStudioMachineSpec.assertTransition(
+            creating,
+            AiStudioIntent.Internal.SessionCreated(0, "isolated-chat", "", settings, 0, files, "submission"),
+            creating.copy(panes = listOf(StudioPane(0, sessionId = "isolated-chat")), running = setOf("isolated-chat")),
+            effects = listOf(AiStudioEffect.Run("isolated-chat", "", settings, files, 0, "submission")),
+            outputs = listOf(AiStudioOutput.SubmitPrepared("submission", "isolated-chat")),
+        )
+        AiStudioMachineSpec.assertTransition(
+            creating,
+            AiStudioIntent.Internal.CreateFailed(0, "", 0, files, "submission"),
+            selected.copy(panes = listOf(selected.panes.single().copy(createRequestId = 0)), nextCreateRequestId = 1),
+            outputs = listOf(AiStudioOutput.SubmitFailed(0, "", 0, files, "submission")),
+        )
+    }
 
     @Test
     fun `mode is independently chosen per new pane and passed to creation`() {

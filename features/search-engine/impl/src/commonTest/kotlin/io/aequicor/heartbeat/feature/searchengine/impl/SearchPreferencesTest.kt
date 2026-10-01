@@ -81,6 +81,7 @@ class SearchPreferencesTest {
 }
 
 private class MemoryStores(id: String) : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     override val owner = StorageOwner.Profile(ProfileId(id))
     private val stores = mutableMapOf<String, MemoryValues>()
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = stores.getOrPut(spec.name) { MemoryValues(spec) }

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.researchchat.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
 import kotlinx.coroutines.Deferred
@@ -14,6 +15,28 @@ internal interface ResearchRepository {
     suspend fun createSession(target: EngineTarget): ResearchSession
     suspend fun createQuestion(sessionId: String): String
     suspend fun addResource(sessionId: String, questionId: String, input: ResearchChatIntent.Public.AddResource)
+    suspend fun addAttachments(input: ResearchChatIntent.Public.AddAttachments) {
+        input.attachments.forEach { file ->
+            addResource(
+                input.sessionId,
+                input.questionId,
+                ResearchChatIntent.Public.AddResource(
+                    if (file.mediaType.startsWith(
+                            "image/",
+                        )
+                    ) {
+                        ResearchResourceKind.Image
+                    } else {
+                        ResearchResourceKind.Document
+                    },
+                    file.name,
+                    file.resource.id,
+                    input.scope,
+                    file.mediaType,
+                ),
+            )
+        }
+    }
     suspend fun setResourceSelected(sessionId: String, questionId: String, resourceId: String, isSelected: Boolean)
     suspend fun shareResource(sessionId: String, resourceId: String)
     suspend fun removeResource(sessionId: String, resourceId: String)

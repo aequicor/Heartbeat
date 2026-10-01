@@ -5,6 +5,9 @@ import kotlinx.coroutines.flow.flowOf
 
 /** Optional entry points offered by the studio. */
 interface StudioEntries {
+    /** Whether new attachment input is available in this profile. */
+    val showsAttachments: Flow<Boolean> get() = flowOf(false)
+
     /** Whether projectless Koog research entry points may be offered. */
     val showsResearch: Flow<Boolean> get() = flowOf(false)
 

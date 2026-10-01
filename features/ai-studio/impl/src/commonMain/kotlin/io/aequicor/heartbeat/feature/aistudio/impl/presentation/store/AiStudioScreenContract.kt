@@ -89,6 +89,13 @@ data class AiStudioScreenState(
     val sessions: ImmutableList<SessionUi> = persistentListOf(),
     val transcripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
     val drafts: ImmutableMap<String, String> = persistentMapOf(),
+    val draftAttachments: ImmutableMap<String, ImmutableList<AttachmentUi>> = persistentMapOf(),
+    val submissions: ImmutableMap<String, SubmissionUi> = persistentMapOf(),
+    val attachmentRequests: ImmutableMap<String, String> = persistentMapOf(),
+    val visibleAttachmentPreviews: ImmutableMap<String, PreviewVisibilityUi> = persistentMapOf(),
+    val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
+    val isAttachmentsEnabled: Boolean = false,
+    val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),
     val now: Instant = Instant.DISTANT_PAST,
@@ -103,7 +110,15 @@ data class AiStudioScreenState(
     /** Composer text of [paneId]: a draft follows the session shown in the pane; a new-session page keeps its own. */
     fun draft(paneId: Int): String = drafts[draftKey(paneId)].orEmpty()
 
-    internal fun draftKey(paneId: Int): String = panes.firstOrNull { it.id == paneId }?.sessionId ?: "pane:$paneId"
+    internal fun draftKey(paneId: Int): String {
+        val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
+        return submissions.values.firstOrNull {
+            it.paneId == paneId && it.isDisplayed
+        }?.draftKey ?: (sessionId ?: "pane:$paneId")
+    }
+
+    /** Durable metadata of files in the transient composer draft. */
+    fun attachments(paneId: Int): ImmutableList<AttachmentUi> = draftAttachments[draftKey(paneId)] ?: persistentListOf()
 }
 
 /** User events of the studio screen. */
@@ -116,6 +131,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
+
+    /** Local attachment input and saved-file actions. */
+    sealed interface Attachment : Composer
 
     /** Worktree execution mode and the persisted task's completion/build controls. */
     sealed interface Worktree : Composer
@@ -152,6 +170,29 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** The composer text of a pane changed. */
     data class DraftChanged(val paneId: Int, val text: String) : Composer
+
+    /** Adds files using a lifecycle-owned native picker. */
+    data class PickAttachments(val paneId: Int) : Attachment
+
+    /** Removes a file from the transient draft without deleting its durable copy. */
+    data class RemoveAttachment(val paneId: Int, val id: String) : Attachment
+
+    /** Opens a saved file for preview and export, including with adding switched off. */
+    data class OpenAttachment(val id: String) : Attachment
+
+    /** Saves original bytes through the saved attachment's native export route. */
+    data class ExportAttachment(val id: String) : Attachment
+
+    /** Imports explicitly captured clipboard/drop inputs. */
+    data class ImportAttachments(val paneId: Int, val inputs: List<NativeAttachmentUi>) : Attachment {
+        override fun toString(): String = "ImportAttachments(paneId=$paneId, count=${inputs.size})"
+    }
+
+    /** Correlated picker result delivered by the navigation component. */
+    data class AttachmentsSelected(val requestId: String, val files: ImmutableList<AttachmentUi>) : Attachment
+
+    /** Composed attachment rows request their small preview and release it on disposal. */
+    data class AttachmentPreviewVisible(val id: String, val mediaType: String, val isVisible: Boolean) : Attachment
 
     /** Fixes the execution mode of a new pane before its first submission. */
     data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Worktree

@@ -4,13 +4,18 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
@@ -39,6 +44,36 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class CodexRuntimeTest {
+    @Test
+    fun `image-only prompt is accepted using a single native localImage part`() = runTest {
+        val fixture = Fixture(this)
+        fixture.modelList = listOf(
+            json(
+                "model" to "model".json(),
+                "inputModalities" to JsonArray(listOf("image".json())),
+            ),
+        )
+        fixture.resources = ResourceResolver {
+            ResolvedResource("image.png", "image/png", byteArrayOf(1), "/private/app/image.png")
+        }
+        val session = fixture.open()
+        val request = PromptRequest(
+            RequestId("image-only"),
+            listOf(
+                ContentPart.Image(ResourceRef("attachment:image", "image/png")),
+            ),
+        )
+        session.feature(SendsPrompts).send(request)
+        val native = fixture.wire.written.single {
+            it.text(
+                "method",
+            ) == "turn/start"
+        }.obj("params")["input"] as JsonArray
+        assertEquals(1, native.size)
+        assertEquals("localImage", (native.single() as JsonObject).text("type"))
+        assertIs<ActiveSessionState.Running>(session.state.value)
+    }
+
     @Test
     fun `new threads register search tools and answer dynamic calls`() = runTest {
         val fixture = Fixture(
@@ -79,7 +114,7 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `slow tool call does not block events, is cancelled with its turn and late calls are refused`() = runTest {
+    fun `slow tool call does not block events and is cancelled with its turn while late calls are refused`() = runTest {
         val fixture = Fixture(
             this,
             object : SearchEngine {

@@ -20,7 +20,9 @@ import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbPasteImageButton
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -28,12 +30,14 @@ import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.Resear
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenState
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.Res
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_add_source
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_attachment_limits
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_composer_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_chat
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_empty_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_question
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_new_session
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_paste_image
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_previous_run_failed
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_send
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_stop
@@ -83,6 +87,13 @@ internal fun ResearchConversation(
                     color = HbTheme.colors.error,
                 )
             }
+            if (!state.areSourcesWithinLimits) {
+                HbText(
+                    stringResource(Res.string.research_attachment_limits),
+                    style = HbTheme.typography.caption,
+                    color = HbTheme.colors.error,
+                )
+            }
             ResearchComposer(state, onIntent, onClose, panelToggle, column)
         }
     }
@@ -120,12 +131,20 @@ private fun ResearchComposer(
         onStop = { onIntent(ResearchScreenIntent.Stop) },
         sendLabel = stringResource(Res.string.research_send),
         stopLabel = stringResource(Res.string.research_stop),
-        modifier = modifier.testTag("research-composer"),
+        modifier = modifier.testTag("research-composer").then(
+            hbAttachmentInput(
+                enabled = state.isEditable && state.isFileImportAvailable,
+                onFiles = { onIntent(ResearchScreenIntent.DroppedFiles(it)) },
+                onImage = { onIntent(ResearchScreenIntent.PastedImage(it)) },
+            ),
+        ),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
         placeholder = stringResource(Res.string.research_composer_hint),
         isStreaming = state.isRunning,
         enabled = state.isEditable || state.isRunning,
+        hasAttachments = state.resources.any { it.isSelected },
+        canSend = state.areSourcesWithinLimits && state.resources.none { it.isSelected && !it.isCompatible },
         leadingContent = {
             HbComposerIconButton(
                 icon = HbIcons.Paperclip,
@@ -134,6 +153,13 @@ private fun ResearchComposer(
                 modifier = Modifier.testTag("research-attach-source"),
                 enabled = state.isEditable,
             )
+            if (state.isFileImportAvailable) {
+                HbPasteImageButton(
+                    stringResource(Res.string.research_paste_image),
+                    { onIntent(ResearchScreenIntent.PastedImage(it)) },
+                    enabled = state.isEditable,
+                )
+            }
             HbComposerToggle(
                 label = stringResource(Res.string.research_mode),
                 isChecked = true,

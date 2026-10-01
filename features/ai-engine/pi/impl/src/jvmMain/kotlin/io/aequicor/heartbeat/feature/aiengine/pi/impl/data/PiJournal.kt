@@ -35,7 +35,7 @@ import java.util.UUID
  * Items are never dropped, so the history is complete for a new session and after restoring a whole stored branch.
  * An incomplete branch is omitted: its regenerated item IDs cannot safely overlap a consumer's saved transcript.
  */
-internal class PiJournal : SessionHistory {
+internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart>? = { null }) : SessionHistory {
     private val log = Log.tag("PiJournal")
     private val lock = Any()
     private val generation = UUID.randomUUID().toString()
@@ -76,7 +76,7 @@ internal class PiJournal : SessionHistory {
         val messages = branch.messages
         val statuses = settled(messages)
         messages.forEachIndexed { index, message ->
-            publish(PiMessages.message(message, info(items.size, null)))
+            publish(message(message, info(items.size, null)))
             PiMessages.tools(message).forEachIndexed { call, tool ->
                 publish(toolCall(tool, null, statuses[index to call] ?: ToolCallStatus.Cancelled))
             }
@@ -166,11 +166,21 @@ internal class PiJournal : SessionHistory {
 
     private fun expiredCursor(): Nothing = piFailure(EngineFailure.History(HistoryFailureReason.CursorExpired))
 
+    private fun message(native: JsonObject, info: ItemInfo): SessionItem {
+        val item = PiMessages.message(native, info)
+        val parts = originals(native)
+        return if (item is SessionItem.Message && item.role == MessageRole.User && parts != null) {
+            item.copy(parts = parts)
+        } else {
+            item
+        }
+    }
+
     private fun startMessage(record: JsonObject, turn: TurnId?) {
         val message = record["message"] as? JsonObject ?: return
         blocks.clear()
         currentMessage = items.size
-        publish(PiMessages.message(message, info(items.size, turn)))
+        publish(message(message, info(items.size, turn)))
     }
 
     private fun updateMessage(record: JsonObject) {
@@ -201,7 +211,7 @@ internal class PiJournal : SessionHistory {
         val index = currentMessage ?: items.size
         val message = record["message"] as? JsonObject ?: return
         val metadata = items.getOrNull(index)?.info?.let { it.copy(revision = it.revision + 1) } ?: info(index, turn)
-        publish(PiMessages.message(message, metadata))
+        publish(message(message, metadata))
         PiMessages.tools(message).forEach { tool -> publish(toolCall(tool, turn, ToolCallStatus.Pending)) }
         currentMessage = null
         blocks.clear()

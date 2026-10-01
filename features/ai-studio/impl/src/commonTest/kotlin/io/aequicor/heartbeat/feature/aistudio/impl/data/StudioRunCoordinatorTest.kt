@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
@@ -25,6 +26,37 @@ import kotlin.time.Instant
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
+    @Test
+    fun `closing the attachment waiter preserves reserved files and native acknowledgement in the profile`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val terminal = CompletableDeferred<RunOutcome>()
+        var acknowledgements = 0
+        val request = runRequest("with-files").copy(
+            attachments = listOf(ResourceRef("attachment:image", "image/png")),
+            onAccepted = { acknowledgements++ },
+        )
+        var submitted: StudioTurnRequest? = null
+        host.execute = { actual ->
+            submitted = actual
+            actual.onAccepted()
+            terminal.await()
+        }
+        val caller = async { coordinator.run(host, request) }
+        runCurrent()
+        assertEquals(request, submitted)
+        assertEquals(1, acknowledgements)
+        caller.cancelAndJoin()
+        assertFalse(terminal.isCancelled)
+        assertEquals(listOf("started", "execute"), events)
+        terminal.complete(RunOutcome.Completed)
+        runCurrent()
+        assertEquals(listOf("started", "execute", "finished"), events)
+        assertEquals(1, acknowledgements)
+        assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("next")))
+    }
+
     @Test
     fun `action handoff reserves the chat before invoking its durable callback`() = runTest {
         val events = mutableListOf<String>()
@@ -93,14 +125,14 @@ class StudioRunCoordinatorTest {
 }
 
 private class RunHost(private val events: MutableList<String>) : StudioRunHost {
-    var execute: suspend () -> RunOutcome = { RunOutcome.Completed }
+    var execute: suspend (StudioTurnRequest) -> RunOutcome = { RunOutcome.Completed }
     var cleanup: suspend () -> Unit = {}
     override suspend fun startedRun(id: String, at: Instant) {
         events += "started"
     }
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         events += "execute"
-        return execute()
+        return execute(request)
     }
     override suspend fun finishedRun(id: String) {
         events += "finished"

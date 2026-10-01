@@ -40,6 +40,8 @@ internal class StorageLayout(private val root: StorageRoot) {
 
     fun journalFile(owner: StorageOwner): Path = ownerDir(owner) / JOURNAL_FILE
 
+    fun filesDirectory(owner: StorageOwner, name: String): Path = ownerDir(owner) / FILES_DIR / name
+
     private companion object {
         const val STORAGE_DIR = "storage"
         const val APP_DIR = "app"
@@ -47,6 +49,7 @@ internal class StorageLayout(private val root: StorageRoot) {
         const val KV_DIR = "kv"
         const val DB_DIR = "db"
         const val JOURNAL_FILE = "events.json"
+        const val FILES_DIR = "files"
     }
 }
 

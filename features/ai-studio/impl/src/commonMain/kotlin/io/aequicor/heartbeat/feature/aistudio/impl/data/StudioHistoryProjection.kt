@@ -91,7 +91,19 @@ private class NativeHistoryProjection(private val time: Instant) {
             MessageRole.User -> {
                 flush()
                 streamingAnswer = null
-                messages += StudioMessage.Prompt(item.info.id.value, time, item.parts.text(), isTimestampKnown = false)
+                messages += StudioMessage.Prompt(
+                    item.info.id.value,
+                    time,
+                    item.parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning }.text(),
+                    isTimestampKnown = false,
+                    attachments = item.parts.mapNotNull {
+                        when (it) {
+                            is ContentPart.Image -> it.resource
+                            is ContentPart.Resource -> it.resource
+                            is ContentPart.Text, is ContentPart.Reasoning -> null
+                        }
+                    },
+                )
             }
 
             MessageRole.System -> appendNotice(item.info.id.value, item.parts.text())

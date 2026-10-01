@@ -7,7 +7,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.arkivanov.decompose.extensions.compose.subscribeAsState
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
+import io.aequicor.heartbeat.core.navigation.compose.NavStack
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.AiStudioComponent
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.component.StudioNoDialog
 import kotlinx.collections.immutable.toImmutableMap
 
 /** Rendering adapter assembled by the route entry; presentation never imports Compose screens. */
@@ -39,5 +41,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
         // Any entry above the studio's own chat (research) takes over the chat area; the sidebar stays.
         val chatArea = workspace.active.instance as? ComposableComponent
         AiStudioScreen(component.model, exits, modifier, chatArea = chatArea)
+        val dialogs by component.dialogs.stack.subscribeAsState()
+        if (dialogs.active.instance !== StudioNoDialog) NavStack(component.dialogs)
     }
 }

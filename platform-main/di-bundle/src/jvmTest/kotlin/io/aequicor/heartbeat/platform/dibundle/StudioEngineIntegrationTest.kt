@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
+import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectEngineRoute
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ConnectWizardIntent
@@ -43,6 +44,7 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
@@ -81,8 +83,10 @@ class StudioEngineIntegrationTest {
     }
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        // close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
@@ -229,13 +233,24 @@ class StudioEngineIntegrationTest {
     ) {
         val lifecycle = LifecycleRegistry().apply { resume() }
         (services as ProfileNavigation).navigation.create(DefaultComponentContext(lifecycle), listOf(AiStudioRoute))
-        requireNotNull(app.machines.find(AiStudioMachineKey)).state.first { it is AiStudioState.Ready }
+        requireNotNull(app.machines.find(AiStudioMachineKey)).state.first {
+            it is AiStudioState.Ready && it.settings.modelId.isNotBlank()
+        }
         app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.UpdateSettings(settings))
         val stores = (services as TestStorageAccessors).stores
         stores.keyValue(KeyValueSpec("ai_studio_preferences"))
             .observe(jsonKey("new_session", JsonObject.serializer()))
             .first { it?.get("approval") == JsonPrimitive(settings.approval.name) }
-        app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
+        // Profile startup loads effort choices independently of the studio catalog and preferences.
+        // Selecting while that machine is Loading is intentionally ignored by its public contract.
+        requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.first {
+            it is EffortConfigurationState.Ready
+        }
+        assertEquals(
+            SendResult.Accepted,
+            app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high")),
+            "Effort selection must be accepted before waiting for its durable value",
+        )
         stores.keyValue(KeyValueSpec("effort_configuration"))
             .observe(jsonKey("choices", ListSerializer(EffortChoice.serializer())))
             .first { it == listOf(EffortChoice(target, "high")) }
@@ -299,7 +314,10 @@ class StudioEngineIntegrationTest {
             listOf(AiStudioRoute),
         )
         val machine = checkNotNull(app.machines.find(AiStudioMachineKey))
-        val ready = machine.state.first { it is AiStudioState.Ready } as AiStudioState.Ready
+        // The UI enables sending only after a model is offered; Ready can precede the initial catalog result.
+        val ready = machine.state.first {
+            it is AiStudioState.Ready && it.settings.modelId.isNotBlank()
+        } as AiStudioState.Ready
         app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.Submit(ready.focusedPaneId, "From the studio"))
         val running = machine.state.first { it is AiStudioState.Ready && it.running.isNotEmpty() }
             as AiStudioState.Ready

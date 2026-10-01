@@ -7,11 +7,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import io.aequicor.heartbeat.ds.components.HbAttachmentThumbnail
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbDivider
@@ -28,18 +32,24 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchResourceUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenIntent
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchScreenState
+import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResearchThumbnailUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResourceKindUi
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResourceScopeUi
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.Res
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_add_source
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_document
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_file_size
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_image
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_incompatible_source
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_no_sources
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_open_file
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_question_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_remove_source
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_save_file
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_selected_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_session_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_share_source
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_source_import_error
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_sources_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_use_source
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_website
@@ -89,7 +99,7 @@ internal fun ResearchSources(
                     }
                 }
                 items(resources, key = { it.id }) { resource ->
-                    ResearchSourceRow(resource, state.isEditable, onIntent)
+                    ResearchSourceRow(resource, state.isEditable, onIntent, state.thumbnails[resource.id])
                     HbDivider()
                 }
             }
@@ -115,6 +125,7 @@ private fun ResearchSourceRow(
     resource: ResearchResourceUi,
     isEditable: Boolean,
     onIntent: (ResearchScreenIntent) -> Unit,
+    thumbnail: ResearchThumbnailUi?,
     modifier: Modifier = Modifier,
 ) {
     HbColumn(modifier.fillMaxWidth().testTag("research-source-${resource.id}"), gap = HbTheme.spacing.xxs) {
@@ -126,6 +137,9 @@ private fun ResearchSourceRow(
                 modifier = Modifier.testTag("research-source-selected-${resource.id}"),
                 enabled = isEditable,
             )
+            if (resource.kind != ResourceKindUi.Website) {
+                ResearchSourceThumbnail(resource, thumbnail, onIntent)
+            }
             HbColumn(Modifier.weight(1f).padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.xxs) {
                 HbText(resource.title, style = HbTheme.typography.label, maxLines = 2)
                 HbText(
@@ -134,11 +148,43 @@ private fun ResearchSourceRow(
                     color = HbTheme.colors.textSecondary,
                     maxLines = 2,
                 )
+                resource.sizeBytes?.let { size ->
+                    HbText(
+                        stringResource(Res.string.research_file_size, size),
+                        style = HbTheme.typography.caption,
+                        color = HbTheme.colors.textSecondary,
+                    )
+                }
             }
+        }
+        if (resource.hasImportError) {
+            HbText(
+                stringResource(Res.string.research_source_import_error),
+                color = HbTheme.colors.error,
+                style = HbTheme.typography.caption,
+            )
+        } else if (!resource.isCompatible) {
+            HbText(
+                stringResource(Res.string.research_incompatible_source),
+                color = HbTheme.colors.error,
+                style = HbTheme.typography.caption,
+            )
         }
         HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
             HbIcon(resource.kind.icon(), null, tint = HbTheme.colors.textSecondary)
             HbText(resource.kind.label(), Modifier.weight(1f), style = HbTheme.typography.caption)
+            resource.attachmentId?.let { id ->
+                HbIconButton(
+                    HbIcons.Eye,
+                    stringResource(Res.string.research_open_file),
+                    { onIntent(ResearchScreenIntent.OpenAttachment(id)) },
+                )
+                HbIconButton(
+                    HbIcons.Download,
+                    stringResource(Res.string.research_save_file),
+                    { onIntent(ResearchScreenIntent.SaveAttachment(id)) },
+                )
+            }
             if (!resource.isShared) {
                 HbIconButton(
                     icon = HbIcons.Share,
@@ -157,6 +203,33 @@ private fun ResearchSourceRow(
             )
         }
     }
+}
+
+@Composable
+private fun ResearchSourceThumbnail(
+    resource: ResearchResourceUi,
+    thumbnail: ResearchThumbnailUi?,
+    onIntent: (ResearchScreenIntent) -> Unit,
+) {
+    val send by rememberUpdatedState(onIntent)
+    DisposableEffect(resource.id, resource.attachmentId, resource.mediaType) {
+        val id = resource.attachmentId
+        val mime = resource.mediaType
+        val isPreviewable = mime?.let { it.startsWith("image/") || it.startsWith("text/") } == true
+        if (id != null && mime != null && isPreviewable) {
+            send(ResearchScreenIntent.LoadThumbnail(resource.id, id, mime))
+        }
+        onDispose {
+            if (id != null && mime != null && isPreviewable) send(ResearchScreenIntent.ReleaseThumbnail(resource.id))
+        }
+    }
+    HbAttachmentThumbnail(
+        thumbnail?.imageBytes,
+        thumbnail?.documentSnippet,
+        isImage = resource.kind == ResourceKindUi.Image,
+        isUnavailable = thumbnail?.isUnavailable == true,
+        contentDescription = resource.title,
+    )
 }
 
 @Composable

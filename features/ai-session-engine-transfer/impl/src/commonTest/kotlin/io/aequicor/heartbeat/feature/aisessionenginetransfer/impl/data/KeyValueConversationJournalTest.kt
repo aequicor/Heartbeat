@@ -43,6 +43,7 @@ class KeyValueConversationJournalTest {
     }
 
     private class FakeDataStores : DataStores {
+        override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
         val store = FakeKeyValueStore()
         override val owner: StorageOwner = StorageOwner.Profile(ProfileId("profile"))
 

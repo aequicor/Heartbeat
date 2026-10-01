@@ -190,4 +190,6 @@
     <string name="en_empty_title">Nothing found</string>
     <string name="en_empty_hint">Change the search query</string>
     <string name="en_loading_label">Loading…</string>
+    <string name="en_attachments">Attachments</string>
+    <string name="en_paste_image">Paste image</string>
 </resources>

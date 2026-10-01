@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -30,8 +31,10 @@ class StateMachineIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         processes.forEach { (it.appScope as OwnedScope).close() }
+        // close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
+        processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
         Dispatchers.resetMain()
     }
 

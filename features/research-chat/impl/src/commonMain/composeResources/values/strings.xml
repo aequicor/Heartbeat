@@ -60,4 +60,11 @@
     <string name="research_tool_cancelled">Cancelled</string>
     <string name="research_copy_answer">Copy answer</string>
     <string name="research_copied_answer">Answer copied</string>
+    <string name="research_open_file">View attachment</string>
+    <string name="research_save_file">Save as…</string>
+    <string name="research_paste_image">Paste image</string>
+    <string name="research_incompatible_source">This model does not support this source. Deselect it to send.</string>
+    <string name="research_file_size">%1$d B</string>
+    <string name="research_source_import_error">The saved source could not be moved to attachment storage. Deselect or remove it.</string>
+    <string name="research_attachment_limits">Selected files exceed the message limits. Deselect some sources.</string>
 </resources>

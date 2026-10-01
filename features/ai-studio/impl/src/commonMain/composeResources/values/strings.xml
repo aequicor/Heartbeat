@@ -205,4 +205,13 @@
     <string name="feedback_failure_transport">the engine could not be reached</string>
     <string name="feedback_failure_lifecycle">the session is no longer available</string>
     <string name="feedback_failure_unknown">the engine did not confirm the change</string>
+    <string name="attachments_add">Attach files</string>
+    <string name="attachments_paste">Paste image</string>
+    <string name="attachments_remove">Remove attachment</string>
+    <string name="attachments_file">Attachment</string>
+    <string name="attachments_incompatible">This file is too large or unsupported by the selected model.</string>
+    <string name="attachments_limits">Up to %1$d files, %2$s each, %3$s total</string>
+    <string name="attachments_limit_exceeded">The message exceeds its file count or total size limit. Remove some files before sending.</string>
+    <string name="attachments_save">Save as</string>
+    <string name="attachments_failed">Could not attach these files. Check their formats and size, then try again.</string>
 </resources>

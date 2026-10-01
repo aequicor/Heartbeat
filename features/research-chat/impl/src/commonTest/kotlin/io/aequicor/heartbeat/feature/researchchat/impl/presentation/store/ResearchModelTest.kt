@@ -1,16 +1,31 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
+import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.decompose.DefaultComponentContext
+import com.arkivanov.essenty.lifecycle.LifecycleRegistry
+import com.arkivanov.essenty.lifecycle.destroy
+import com.arkivanov.essenty.lifecycle.resume
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.SavedBundle
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
+import io.aequicor.heartbeat.core.navigation.GlobalRoutes
+import io.aequicor.heartbeat.core.navigation.NavHostFactory
+import io.aequicor.heartbeat.core.navigation.NavOptions
+import io.aequicor.heartbeat.core.navigation.Navigator
+import io.aequicor.heartbeat.core.navigation.PanelsHost
+import io.aequicor.heartbeat.core.navigation.ResultContract
+import io.aequicor.heartbeat.core.navigation.Route
+import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.core.navigation.StackHost
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentSelection
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatOutput
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
@@ -20,13 +35,13 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
-import io.aequicor.heartbeat.feature.researchchat.impl.domain.ImportedResearchFile
-import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchFileImporter
+import io.aequicor.heartbeat.feature.researchchat.impl.presentation.component.ResearchComponent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -43,6 +58,36 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ResearchModelTest {
+    @Test
+    fun `recreating the component replaces its result collector while the retained scope stays alive`() = runTest {
+        val fixture = Fixture(this)
+        val results = ResearchResultNavigator()
+        val featureScope = ResearchTestScope(backgroundScope)
+        fun create(lifecycle: LifecycleRegistry) = ResearchComponent(
+            DefaultComponentContext(lifecycle),
+            results,
+            fixture.model,
+            ResearchTestHosts(results),
+            featureScope,
+        )
+        val first = LifecycleRegistry().apply { resume() }
+        create(first)
+        runCurrent()
+        assertEquals(1, results.selections.subscriptionCount.value)
+        first.destroy()
+        runCurrent()
+        assertEquals(0, results.selections.subscriptionCount.value)
+        assertFalse(featureScope.isClosed)
+
+        val recreated = LifecycleRegistry().apply { resume() }
+        create(recreated)
+        runCurrent()
+        assertEquals(1, results.selections.subscriptionCount.value)
+        recreated.destroy()
+        runCurrent()
+        assertEquals(0, results.selections.subscriptionCount.value)
+    }
+
     @Test
     fun `accepted submit keeps draft until durable acceptance acknowledgement`() = runTest {
         val fixture = Fixture(this)
@@ -176,10 +221,6 @@ class ResearchModelTest {
         val machine = ResearchTestMachine(researchReady())
         val model = ResearchModel(
             machine = machine,
-            importer = object : ResearchFileImporter {
-                override val isAvailable = false
-                override suspend fun pick(): ImportedResearchFile? = null
-            },
             route = ResearchChatRoute(researchReady().target),
             scope = ResearchTestScope(scope.backgroundScope),
             factory = HeartbeatStoreFactory(ResearchTestDispatchers(StandardTestDispatcher(scope.testScheduler))),
@@ -198,6 +239,43 @@ class ResearchModelTest {
             return provider.await()
         }
     }
+}
+
+private class ResearchResultNavigator : Navigator {
+    val selections = MutableSharedFlow<AttachmentSelection>()
+    override fun navigate(route: Route, options: NavOptions) = error("Not used")
+    override fun <R : Any> navigateForResult(route: Route, contract: ResultContract<R>, options: NavOptions) =
+        error("Not used")
+
+    @Suppress("UNCHECKED_CAST") // The component requests only AttachmentsPicked in this fixture.
+    override fun <R : Any> results(contract: ResultContract<R>): Flow<R> = selections as Flow<R>
+    override fun <R : Any> finishWithResult(contract: ResultContract<R>, result: R) = error("Not used")
+    override fun close() = error("Not used")
+}
+
+private class ResearchTestHosts(private val results: Navigator) : NavHostFactory {
+    override fun stack(
+        context: ComponentContext,
+        parent: Navigator,
+        name: String,
+        initial: List<Route>,
+        local: List<RouteEntry<*>>,
+        global: GlobalRoutes,
+    ): StackHost = object : StackHost {
+        override val navigator = results
+        override val backHandler = context.backHandler
+        override val stack get() = error("Not used")
+        override fun onBack() = error("Not used")
+    }
+
+    override fun panels(
+        context: ComponentContext,
+        parent: Navigator,
+        name: String,
+        main: Route,
+        details: Route?,
+        local: List<RouteEntry<*>>,
+    ): PanelsHost = error("Not used")
 }
 
 private fun researchReady(): ResearchChatState.Ready {
