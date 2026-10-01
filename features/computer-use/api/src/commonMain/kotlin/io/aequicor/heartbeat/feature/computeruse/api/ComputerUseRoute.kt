@@ -5,8 +5,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * The computer use control panel: mode selection, window picker, frame preview, input arming and the kill
- * switch. [isEmbedded] marks the route drawn as a section of another window, where only the content is shown.
+ * Computer-use settings with one profile tool switch. The agent chooses the capture mode and target.
+ * [isEmbedded] marks the route drawn as a section of another window, where only the content is shown.
  */
 @Serializable
 @SerialName("computer-use")
