@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
+import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
@@ -12,32 +14,48 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
+import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.NativeCapture
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -62,10 +80,17 @@ class RoutedComputerControlTest {
         val result = fixture.control.capture(CaptureRequest())
         assertEquals(1, fixture.native.calls)
         assertNotNull(result.reference)
-        assertEquals(CaptureFormat.Png, result.reference?.format)
+        assertEquals(CaptureFormat.Jpeg, result.reference?.format)
         assertEquals(64, result.reference?.widthPx)
         assertEquals(32, result.reference?.heightPx)
-        assertEquals(1, fixture.store.files.size)
+        assertEquals(2, fixture.store.files.size)
+        val master = assertNotNull(result.master)
+        assertEquals(CaptureFormat.Png, master.format)
+        val crop = fixture.control.crop(CropRequest(master.id, region = CaptureRegion(0, 0, 10, 10)))
+        assertEquals(10, crop.reference?.widthPx)
+        assertEquals(master, crop.master)
+        assertEquals(crop.reference, fixture.control.status().lastPreview)
+        assertEquals(InputOutcome.Applied, fixture.control.input(InputAction.Click(FramePoint(5.0, 5.0))))
     }
 
     @Test
@@ -82,8 +107,10 @@ class RoutedComputerControlTest {
     fun `crops are always served by the host`() = runTest {
         val fixture = fixture(isRoutingEnabled = true)
         fixture.coordinator.open(fixture.session, ComputerUseMode.Desktop())
-        val captured = fixture.coordinator.capture(CaptureRequest())
-        val master = assertNotNull(assertIs<CaptureOutcome.Produced>(captured).result.master)
+        fixture.toggles.set(ComputerUseNativeRouting.key, false)
+        val captured = fixture.control.capture(CaptureRequest())
+        val master = assertNotNull(captured.master)
+        fixture.toggles.set(ComputerUseNativeRouting.key, true)
         val crop = fixture.control.crop(CropRequest(master.id, region = CaptureRegion(0, 0, 10, 10)))
         assertEquals(0, fixture.native.calls)
         assertEquals(10, crop.reference?.widthPx)
@@ -98,6 +125,70 @@ class RoutedComputerControlTest {
     }
 
     @Test
+    fun `public captures and crops update the machine before subsequent input`() = runTest {
+        val fixture = fixture()
+        val first = fixture.control.capture(CaptureRequest())
+        assertEquals(first.reference, fixture.control.status().lastPreview)
+        val second = fixture.control.capture(CaptureRequest())
+        assertEquals(second.reference, fixture.control.status().lastPreview)
+        val crop = fixture.control.crop(
+            CropRequest(assertNotNull(first.master).id, region = CaptureRegion(0, 0, 10, 10)),
+        )
+        assertEquals(first.master, crop.master)
+        assertEquals(crop.reference, fixture.control.status().lastPreview)
+        assertEquals(InputOutcome.Applied, fixture.control.input(InputAction.Click(FramePoint(5.0, 5.0))))
+        val input = assertIs<ComputerUseIntent.Public.Input>(fixture.registry.ref!!.sent.last())
+        assertEquals(crop.reference?.id, input.expectedCapture)
+        assertEquals(1, fixture.injector.applied.size)
+    }
+
+    @Test
+    fun `revoke returns after the old session artifacts are purged`() = runTest {
+        val fixture = fixture()
+        fixture.control.capture(CaptureRequest())
+        assertTrue(fixture.store.files.isNotEmpty())
+        fixture.control.revoke()
+        assertTrue(fixture.store.files.isEmpty())
+        assertEquals(null, fixture.coordinator.currentBounds())
+    }
+
+    @Test
+    fun `revoke reports an explicit failure when cleanup is never acknowledged`() = runTest {
+        val fixture = fixture()
+        fixture.registry.ref!!.effectHandler = null
+        val failure = assertFailsWith<IllegalStateException> { fixture.control.revoke() }
+        assertEquals("CleanupTimedOut", failure.message)
+    }
+
+    @Test
+    fun `a timed out native capture cancels only its owning machine session`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        fixture.native.awaitCapture = CompletableDeferred()
+        val result = fixture.control.capture(CaptureRequest())
+        assertEquals(ComputerUseFailure.Timeout, result.failure)
+        assertEquals(ComputerUseState.Idle, fixture.registry.ref!!.state.value)
+        assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref.sent.last())
+        runCurrent()
+        assertTrue(fixture.store.files.isEmpty())
+        assertEquals(null, fixture.coordinator.currentBounds())
+    }
+
+    @Test
+    fun `cancelling a public capture stops the machine operation`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        fixture.native.awaitCapture = CompletableDeferred()
+        val capture = launch { fixture.control.capture(CaptureRequest()) }
+        runCurrent()
+        assertEquals(1, fixture.native.calls)
+        capture.cancelAndJoin()
+        runCurrent()
+        assertEquals(ComputerUseState.Idle, fixture.registry.ref!!.state.value)
+        val cancelled = assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref.sent.last())
+        assertEquals(fixture.session, cancelled.session)
+        assertEquals(null, fixture.coordinator.currentBounds())
+    }
+
+    @Test
     fun `the status mirrors the machine state`() = runTest {
         val fixture = fixture()
         fixture.registry.ref?.states?.value = ComputerUseState.Capturing(
@@ -106,6 +197,7 @@ class RoutedComputerControlTest {
             owner = CaptureOwner.Panel,
             capabilities = ComputerUseCapabilities(true, true, true, true),
             isInputArmed = true,
+            isOpen = true,
         )
         val status = fixture.control.status()
         assertEquals(ComputerUseMode.Desktop(), status.mode)
@@ -114,9 +206,66 @@ class RoutedComputerControlTest {
     }
 
     @Test
+    fun `disabling the master toggle refuses capture crop windows and input`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        fixture.toggles.set(ComputerUseEnabled.key, false)
+        assertFalse(fixture.control.status().capabilities.isCaptureAvailable)
+        assertTrue(fixture.control.windows().isEmpty())
+        assertNotNull(fixture.control.capture(CaptureRequest()).failure)
+        assertIs<InputOutcome.Rejected>(fixture.control.input(InputAction.Type("secret")))
+        assertEquals(0, fixture.native.calls)
+        assertTrue(fixture.injector.applied.isEmpty())
+        assertTrue(fixture.store.files.isEmpty())
+    }
+
+    @Test
+    fun `public input is correlated through the machine and does not bypass its effects`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        assertEquals(InputOutcome.Applied, fixture.control.input(InputAction.Type("hello")))
+        val input = assertIs<ComputerUseIntent.Public.Input>(fixture.registry.ref!!.sent.single())
+        assertNotNull(input.requestId)
+        assertEquals(0, fixture.native.calls)
+        assertEquals(listOf<InputAction>(InputAction.Type("hello")), fixture.injector.applied)
+    }
+
+    @Test
+    fun `public input refuses unarmed captures before calling the machine`() = runTest {
+        val fixture = fixture()
+        val state = assertIs<ComputerUseState.Capturing>(fixture.registry.ref!!.states.value)
+        fixture.registry.ref.states.value = state.copy(isInputArmed = false)
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.NotArmed),
+            fixture.control.input(InputAction.Type("hello")),
+        )
+        assertTrue(fixture.registry.ref.sent.isEmpty())
+    }
+
+    @Test
+    fun `revoked accessibility and desktop allowance are checked on every input`() = runTest {
+        val fixture = fixture()
+        fixture.permissions.capabilities = fixture.permissions.capabilities.copy(isInputAvailable = false)
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.PermissionLost),
+            fixture.control.input(InputAction.Type("hello")),
+        )
+        fixture.permissions.capabilities = fixture.permissions.capabilities.copy(isInputAvailable = true)
+        fixture.toggles.set(ComputerUseDesktopInput.key, false)
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.ModeNotAllowed),
+            fixture.control.input(InputAction.Type("hello")),
+        )
+        assertTrue(fixture.registry.ref!!.sent.isEmpty())
+    }
+
+    @Test
     fun `the tools are published only behind both toggles`() = runTest {
         val fixture = fixture()
-        val tools = ComputerUseAgentTools(fixture.registry, fixture.toggles, fixture.control)
+        val tools = ComputerUseAgentTools(
+            fixture.registry,
+            fixture.toggles,
+            fixture.control,
+            TestComputerUseScope(backgroundScope),
+        )
         assertTrue(tools.specifications(null).isNotEmpty())
         fixture.toggles.set(AgentToolsToggle.key, false)
         assertTrue(tools.specifications(null).isEmpty())
@@ -127,7 +276,12 @@ class RoutedComputerControlTest {
     @Test
     fun `a tool call without a finished probe reports the host as unavailable`() = runTest {
         val fixture = fixture()
-        val tools = ComputerUseAgentTools(fixture.registry, fixture.toggles, fixture.control)
+        val tools = ComputerUseAgentTools(
+            fixture.registry,
+            fixture.toggles,
+            fixture.control,
+            TestComputerUseScope(backgroundScope),
+        )
         val result = tools.execute(
             fixture.context,
             "computer_status",
@@ -145,9 +299,11 @@ class RoutedComputerControlTest {
         val toggles: FakeToggles,
         val session: CaptureSessionId,
         val context: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext,
+        val permissions: FakeOsPermissions,
+        val injector: FakeInputInjector,
     )
 
-    private fun TestScope.fixture(isRoutingEnabled: Boolean = false, isNativeBroken: Boolean = false): Fixture {
+    private suspend fun TestScope.fixture(isRoutingEnabled: Boolean = false, isNativeBroken: Boolean = false): Fixture {
         val capturer = FakeScreenCapturer()
         val windows = FakeWindowCatalog(listOf(windowTarget()))
         val injector = FakeInputInjector()
@@ -162,22 +318,35 @@ class RoutedComputerControlTest {
                 ComputerUseEnabled.key to true,
                 AgentToolsToggle.key to true,
                 ComputerUseNativeRouting.key to isRoutingEnabled,
+                ComputerUseDesktopInput.key to true,
+                ComputerUseWindowMode.key to true,
             ),
         )
-        val native = FakeNativeControl(isNativeBroken)
-        val registry = FakeMachineRegistry(FakeMachineRef())
+        val native = FakeNativeControl(isNativeBroken, encoder)
+        val registry = FakeMachineRegistry(FakeMachineRef(backgroundScope))
+        registry.ref!!.states.value = ComputerUseState.Capturing(
+            Session,
+            ComputerUseMode.Desktop(),
+            CaptureOwner.Panel,
+            ComputerUseCapabilities(true, true, true, true),
+            isInputArmed = true,
+            isOpen = true,
+        )
+        coordinator.open(Session, ComputerUseMode.Desktop())
         val router = object : NativeControlRouter {
             override suspend fun features(): EngineFeatures = FakeEngineFeatures(native, isRoutingEnabled)
         }
+        val permissions = FakeOsPermissions()
+        val access = ComputerUseAccess(toggles, permissions, registry, dispatchers)
+        registry.ref.effectHandler = ComputerUseEffectHandler(
+            access,
+            coordinator,
+            ComputerUseCaptureExecutor(coordinator, access, router),
+        )
         val control = RoutedComputerControl(
             coordinator,
-            FakeOsPermissions(),
-            toggles,
-            router,
+            access,
             registry,
-            store,
-            VisionBudget(maxTokens = 1200),
-            dispatchers,
         )
         val context = io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext(
             session = io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef(
@@ -188,27 +357,27 @@ class RoutedComputerControlTest {
             workspace = null,
             turn = io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId("turn"),
         )
-        return Fixture(control, coordinator, native, store, registry, toggles, Session, context)
+        return Fixture(control, coordinator, native, store, registry, toggles, Session, context, permissions, injector)
     }
 
-    private class FakeNativeControl(private val isBroken: Boolean) : NativeComputerControl {
+    private class FakeNativeControl(private val isBroken: Boolean, private val encoder: FakeFrameEncoder) :
+        NativeComputerControl {
         var calls: Int = 0
             private set
+        var awaitCapture: CompletableDeferred<Unit>? = null
 
         override suspend fun capture(request: CaptureRequest): NativeCapture {
             calls++
+            awaitCapture?.await()
             if (isBroken) throw IllegalStateException("native capture is unavailable")
-            return NativeCapture(CaptureFormat.Png, 64, 32, ByteArray(NATIVE_BYTES) { it.toByte() })
+            val encoded = encoder.encode(solidGrid(64, 32, 0), CaptureEncoding())
+            return NativeCapture(CaptureFormat.Png, 64, 32, encoded.content)
         }
 
         override suspend fun input(action: InputAction): InputOutcome {
             calls++
             if (isBroken) throw IllegalStateException("native input is unavailable")
             return InputOutcome.Applied
-        }
-
-        private companion object {
-            const val NATIVE_BYTES = 12
         }
     }
 
@@ -223,10 +392,15 @@ class RoutedComputerControlTest {
             }
     }
 
-    internal class FakeMachineRef : MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput> {
+    /** Uses the production spec and effects, including state exit cancellation, without an impl dependency. */
+    internal class FakeMachineRef(private val scope: CoroutineScope? = null) :
+        MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput> {
         val states = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
         val events = MutableSharedFlow<ComputerUseOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ComputerUseIntent.Public>()
+        var effectHandler: EffectHandler<ComputerUseEffect, ComputerUseIntent>? = null
+        private val effectJobs = mutableListOf<Job>()
+        private var generation = 0
 
         override val name: String = "computer-use"
         override val state: StateFlow<ComputerUseState> = states
@@ -234,6 +408,30 @@ class RoutedComputerControlTest {
 
         override suspend fun send(intent: ComputerUseIntent.Public): SendResult {
             sent += intent
+            if (intent is ComputerUseIntent.Public.Input) {
+                events.emit(ComputerUseOutput.InputApplied(intent.action, "unrelated"))
+            }
+            return dispatch(intent)
+        }
+
+        private suspend fun dispatch(intent: ComputerUseIntent): SendResult {
+            val resolution = ComputerUseMachineSpec.resolve(states.value, intent) ?: return SendResult.Ignored
+            if (resolution.isStateChange) {
+                effectJobs.forEach { it.cancel() }
+                effectJobs.clear()
+                generation++
+            }
+            states.value = resolution.to
+            resolution.outputs.forEach { events.emit(it) }
+            val handler = effectHandler ?: return SendResult.Accepted
+            val capturedGeneration = generation
+            val feedback = object : EffectScope<ComputerUseIntent> {
+                override suspend fun send(intent: ComputerUseIntent): SendResult =
+                    if (capturedGeneration == generation) dispatch(intent) else SendResult.Ignored
+            }
+            resolution.effects.forEach { effect ->
+                effectJobs += checkNotNull(scope).launch { handler.handle(effect, feedback) }
+            }
             return SendResult.Accepted
         }
     }
@@ -254,8 +452,7 @@ class RoutedComputerControlTest {
             intent: P,
         ): SendResult {
             val machine = find(key) ?: return SendResult.NotRunning
-            machine.send(intent)
-            return SendResult.Accepted
+            return machine.send(intent)
         }
     }
 
