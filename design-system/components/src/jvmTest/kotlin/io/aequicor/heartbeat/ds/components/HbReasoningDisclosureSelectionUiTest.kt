@@ -2,12 +2,19 @@ package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.Clipboard
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.asAwtTransferable
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ComposeUiTest
 import androidx.compose.ui.test.ExperimentalTestApi
@@ -15,12 +22,16 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbMotion
 import kotlinx.collections.immutable.persistentListOf
+import java.awt.datatransfer.DataFlavor
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
@@ -64,13 +75,16 @@ class HbReasoningDisclosureSelectionUiTest {
     fun `reasoning disclosure toggles under a hovered hint while transcript selection stays usable`() =
         runSkikoComposeUiTest(size = Size(560f, 420f)) {
             var timeline by mutableStateOf(transcript())
+            val clipboard = ReasoningSelectionClipboard()
             setContent {
-                HbTheme(darkTheme = false, motion = HbMotion(tooltipDelayMillis = 0)) {
-                    HbChatTranscript(
-                        timeline,
-                        Modifier.fillMaxSize().testTag("transcript"),
-                        toolExpansionState = HbToolExpansionState(),
-                    )
+                CompositionLocalProvider(LocalClipboard provides clipboard) {
+                    HbTheme(darkTheme = false, motion = HbMotion(tooltipDelayMillis = 0)) {
+                        HbChatTranscript(
+                            timeline,
+                            Modifier.fillMaxSize().testTag("transcript"),
+                            toolExpansionState = HbToolExpansionState(),
+                        )
+                    }
                 }
             }
 
@@ -91,14 +105,17 @@ class HbReasoningDisclosureSelectionUiTest {
             onNodeWithText("Inspect the exposed contract").assertDoesNotExist()
             toggleDisclosure()
             onNodeWithText("Inspect the exposed contract").assertIsDisplayed()
-            onNodeWithTag("transcript").performMouseInput {
-                moveTo(Offset(120f, 200f))
+            val intro = onNodeWithText("Before inspection")
+            intro.performMouseInput {
+                moveTo(Offset(1f, center.y))
                 press()
                 advanceEventTime(40)
-                moveTo(Offset(320f, 200f))
+                moveTo(Offset(width - 1f, center.y))
                 advanceEventTime(40)
                 release()
             }
+            intro.performKeyInput { pressKey(Key.Copy) }
+            runOnIdle { assertEquals("Before inspection", clipboard.text(), "Mouse selection must stay usable") }
             toggleDisclosure()
             onNodeWithText("Inspect the exposed contract").assertDoesNotExist()
             runOnIdle { timeline = timeline.replaceLatest(timeline.latestMessage!!.copy(text = "Streamed tail")) }
@@ -132,4 +149,17 @@ class HbReasoningDisclosureSelectionUiTest {
         )
         return HbChatTimeline.from(HbChatSection("today", "Today", isDate = true), persistentListOf(answer))
     }
+}
+
+private class ReasoningSelectionClipboard : Clipboard {
+    private var entry: ClipEntry? = null
+
+    override suspend fun getClipEntry(): ClipEntry? = entry
+
+    override suspend fun setClipEntry(clipEntry: ClipEntry?) {
+        entry = clipEntry
+    }
+
+    @OptIn(ExperimentalComposeUiApi::class)
+    fun text(): String? = entry?.asAwtTransferable?.getTransferData(DataFlavor.stringFlavor) as? String
 }
