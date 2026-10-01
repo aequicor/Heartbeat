@@ -42,7 +42,7 @@ internal fun HbToolPayloadRow(
 
 /** Tags a content row with the id of its [HbToolBlock] so hosts can find a block in a lazy transcript. */
 internal fun Modifier.hbBlockTag(row: HbToolDisplayRow): Modifier =
-    if (row.blockId.isBlank()) this else testTag(row.blockId)
+    if (row.blockId.isBlank()) this else testTag(toolBlockTag(row.blockId))
 
 @Composable
 private fun ToolSectionHeading(label: String, modifier: Modifier = Modifier) {

@@ -4,9 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,10 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -54,7 +50,7 @@ public fun HbToolCallView(
     onAction: (HbToolAction) -> Unit = {},
 ) {
     var isLocallyExpanded by rememberSaveable(toolCall.id) { mutableStateOf(false) }
-    val isOpen = isExpanded ?: isLocallyExpanded
+    val isOpen = (isExpanded ?: isLocallyExpanded) && toolCall.isExpandable
     HbColumn(
         modifier = modifier.fillMaxWidth(),
         gap = HbTheme.spacing.s,
@@ -115,41 +111,28 @@ internal fun HbToolCallHeader(
     }
 }
 
+/** A call without a disclosure ([isExpandable]) keeps the row surface but neither toggles nor shows a chevron. */
 @Composable
 private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: HbToolLabels, onClick: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
-    val isFocused by interactionSource.collectIsFocusedAsState()
     val isHovered by interactionSource.collectIsHoveredAsState()
     val isPressed by interactionSource.collectIsPressedAsState()
     val background = toolHeaderBackground(isHovered, isPressed)
-    val status = when (toolCall.status) {
-        HbToolStatus.Pending -> labels.pending
-        HbToolStatus.Cancelled -> labels.cancelled
-        HbToolStatus.Running -> labels.running
-        HbToolStatus.Complete -> labels.complete
-        HbToolStatus.Error -> labels.error
-    }
     HbRow(
         modifier = Modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget)
-            .hbFocusOutline(isFocused, HbTheme.shapes.small)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Button,
-                onClickLabel = if (isExpanded) labels.collapse else labels.expand,
-                onClick = onClick,
-            )
+            .toolDisclosure(toolCall, isExpanded, labels, interactionSource, HbTheme.shapes.small, onClick)
             .background(background, HbTheme.shapes.small)
-            .semantics { stateDescription = if (isExpanded) labels.collapse else labels.expand }
-            .testTag(toolCall.id)
+            .testTag(toolHeaderTag(toolCall))
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xxs),
         gap = HbTheme.spacing.s,
     ) {
-        HbIcon(
-            icon = if (isExpanded) HbIcons.ChevronDown else HbIcons.ChevronRight,
-            contentDescription = null,
-            modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
-        )
+        if (toolCall.isExpandable) {
+            HbIcon(
+                icon = if (isExpanded) HbIcons.ChevronDown else HbIcons.ChevronRight,
+                contentDescription = null,
+                modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
+            )
+        }
         if (toolCall.isWorktree) {
             HbIcon(
                 icon = HbIcons.Branch,
@@ -179,7 +162,7 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
                 modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
                 tint = HbTheme.colors.textPrimary,
             )
-            HbText(text = status, style = HbTheme.typography.label, maxLines = 1)
+            HbText(text = toolStatusLabel(toolCall.status, labels), style = HbTheme.typography.label, maxLines = 1)
         }
     }
 }

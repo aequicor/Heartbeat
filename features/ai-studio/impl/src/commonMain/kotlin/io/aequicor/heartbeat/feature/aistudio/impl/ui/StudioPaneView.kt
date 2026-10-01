@@ -147,7 +147,7 @@ internal fun StudioPaneView(
         } else if (feedId != null && transcript != null) {
             key(feedId) {
                 SessionTranscript(
-                    sessionId = feedId,
+                    feedId = feedId,
                     messages = transcript,
                     worktree = worktree,
                     section = sectionTitle(content.project, content.session),
@@ -484,10 +484,12 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
     }
 }
 
+/** Feed [feedId]: the open session, or `pane-<id>` while the pane only shows its [worktree] cards. */
 @Composable
 private fun SessionTranscript(
-    sessionId: String,
+    feedId: String,
     messages: ImmutableList<MessageUi>,
+    worktree: WorktreeTimeline,
     section: String,
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
@@ -495,13 +497,12 @@ private fun SessionTranscript(
     attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi>,
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
-    worktree: WorktreeTimeline = WorktreeTimeline(),
 ) {
-    val timeline = rememberStudioTimeline(sessionId, messages, timelineLabels(section, calendar), worktree.messages)
+    val timeline = rememberStudioTimeline(feedId, messages, timelineLabels(section, calendar), worktree.messages)
     val links = LocalUriHandler.current
     HbChatTranscript(
         timeline = timeline,
-        modifier = modifier.fillMaxSize().testTag("transcript-$sessionId"),
+        modifier = modifier.fillMaxSize().testTag("transcript-$feedId"),
         streamingLabel = stringResource(Res.string.streaming),
         jumpToLatestLabel = stringResource(Res.string.jump_latest),
         toolLabels = studioToolLabels(),

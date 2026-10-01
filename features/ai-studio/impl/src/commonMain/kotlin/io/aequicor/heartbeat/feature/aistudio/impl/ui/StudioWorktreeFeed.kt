@@ -62,6 +62,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -141,8 +142,8 @@ internal sealed interface WorktreeCommand {
 }
 
 /**
- * Worktree state of one pane. [key] is the session id, or the pane while its worktree session is prepared;
- * [task] belongs to the open session [sessionId].
+ * Worktree state of one pane. [key] is the session id, or the pane on a new-session page while its worktree
+ * session is prepared or its failed journal awaits a retry; [task] belongs to the open session [sessionId].
  */
 @Immutable
 internal data class WorktreeFeed(
@@ -174,15 +175,19 @@ internal data class WorktreeTimeline(
     }
 }
 
-/** Opens the verified pull request; a device without a browser must not crash the transcript. */
+/**
+ * Opens the verified pull request. A missing or failing browser must not crash the transcript, and platforms
+ * report it differently: Android rejects the intent, while desktop AWT throws I/O, unsupported-action, URI
+ * syntax or security failures. Every one is logged and the card stays usable.
+ */
 internal fun openPullRequest(links: UriHandler, url: String) {
     log.i { "Open worktree pull request" }
     try {
         links.openUri(url)
-    } catch (e: IllegalStateException) {
-        log.w(e) { "No application can open the pull request" }
-    } catch (e: IllegalArgumentException) {
-        log.w(e) { "Pull request link rejected by the platform" }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e) { "Pull request could not be opened" }
     }
 }
 
@@ -334,7 +339,10 @@ private fun WorktreeFeed.taskCard(labels: WorktreeLabels): WorktreeCard? {
     return task.phaseCard(id, session, labels, openPr) ?: linked
 }
 
-/** The card of a restored phase; an idle or retained checkout only links its pull request. */
+/**
+ * The card of a restored phase; an idle or retained checkout only links its pull request. A verified pull request
+ * stays linked in every phase, e.g. while builds started by the action still run.
+ */
 private fun WorktreeUi.phaseCard(
     id: String,
     session: String,
@@ -342,13 +350,15 @@ private fun WorktreeUi.phaseCard(
     openPr: CardCommand?,
 ): WorktreeCard? {
     val branch = branch.orEmpty()
+    val link = listOfNotNull(openPr)
     return when (phase) {
-        WorktreePhaseUi.Preparing -> worktreeCard(id, labels.preparing, HbToolStatus.Running, branch)
+        WorktreePhaseUi.Preparing -> worktreeCard(id, labels.preparing, HbToolStatus.Running, branch, commands = link)
 
         WorktreePhaseUi.Working, WorktreePhaseUi.CompletionSignaled ->
-            worktreeCard(id, labels.worktree, HbToolStatus.Running, branch)
+            worktreeCard(id, labels.worktree, HbToolStatus.Running, branch, commands = link)
 
-        WorktreePhaseUi.ActionWorking -> worktreeCard(id, labels.actionWorking, HbToolStatus.Running, branch)
+        WorktreePhaseUi.ActionWorking ->
+            worktreeCard(id, labels.actionWorking, HbToolStatus.Running, branch, commands = link)
 
         // The agent's summary stays in view: the decision depends on what was done and where it merges.
         WorktreePhaseUi.AwaitingDecision -> worktreeCard(
@@ -359,7 +369,7 @@ private fun WorktreeUi.phaseCard(
                 summary?.trim()?.takeIf { it.isNotEmpty() },
                 sourceBranch?.let { fill(labels.mergeTargetTemplate, it) },
             ).ifEmpty { listOf(branch) }.joinToString("\n"),
-            commands = decisions(session, this, labels) + listOfNotNull(openPr),
+            commands = decisions(session, this, labels) + link,
         )
 
         WorktreePhaseUi.RecoveryRequired, WorktreePhaseUi.Failed -> worktreeCard(

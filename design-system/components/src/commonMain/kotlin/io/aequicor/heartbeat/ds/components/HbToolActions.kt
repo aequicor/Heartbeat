@@ -13,8 +13,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 private val toolActionLog = Log.tag("DS/ToolAction")
 
 /**
- * Commands of [call] in a wrapping row; each button is tagged with its action id. Labels are controls, not
- * transcript prose, so the surrounding selection neither copies them nor starts on a long press.
+ * Commands of [call] in a wrapping row; each button is tagged `tool-action:<call id>:<action id>`. Labels are
+ * controls, not transcript prose, so the surrounding selection neither copies them nor starts on a long press.
  */
 @Composable
 internal fun HbToolActions(call: HbToolCall, onAction: (HbToolAction) -> Unit, modifier: Modifier = Modifier) {
@@ -29,7 +29,7 @@ internal fun HbToolActions(call: HbToolCall, onAction: (HbToolAction) -> Unit, m
                             toolActionLog.i { "tool action requested tool=${call.id} action=${action.id}" }
                             onAction(action)
                         },
-                        modifier = Modifier.testTag(action.id),
+                        modifier = Modifier.testTag(toolActionTag(call, action)),
                         style = action.style,
                         size = HbButtonSize.Small,
                     )

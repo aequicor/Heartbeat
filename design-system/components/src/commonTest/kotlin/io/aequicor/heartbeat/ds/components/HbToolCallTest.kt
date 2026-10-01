@@ -4,6 +4,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -72,6 +73,23 @@ class HbToolCallTest {
             HbToolCall("tool", "Tool", actions = persistentListOf(HbToolAction("a", "One"), HbToolAction("a", "Two")))
         }
         assertFailsWith<IllegalArgumentException> { HbToolAction(" ", "Blank") }
+        assertFailsWith<IllegalArgumentException> { HbToolAction("nameless", " ") }
+    }
+
+    @Test
+    fun `only worktree cards without blocks lose their disclosure`() {
+        val output = persistentListOf<HbToolBlock>(HbToolBlock.Console("log", "BUILD FAILED"))
+        assertTrue(HbToolCall("tool", "Tool").isExpandable)
+        assertFalse(HbToolCall("task", "Task", kind = HbToolKind.Worktree).isExpandable)
+        assertTrue(HbToolCall("build", "Build", blocks = output, kind = HbToolKind.Worktree).isExpandable)
+    }
+
+    @Test
+    fun `test tags are namespaced by element and call`() {
+        val call = HbToolCall("worktree:chat", "Task", actions = persistentListOf(HbToolAction("leave", "Leave")))
+        assertEquals("tool:worktree:chat", toolHeaderTag(call))
+        assertEquals("tool-action:worktree:chat:leave", toolActionTag(call, call.actions.single()))
+        assertEquals("tool-block:log", toolBlockTag("log"))
     }
 
     @Test

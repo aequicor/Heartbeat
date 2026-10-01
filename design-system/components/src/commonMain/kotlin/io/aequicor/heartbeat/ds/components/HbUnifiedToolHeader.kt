@@ -2,9 +2,7 @@ package io.aequicor.heartbeat.ds.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -20,10 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -34,6 +30,7 @@ private val unifiedToolLog = Log.tag("DS/UnifiedTool")
 /**
  * Quiet nested disclosure; reasoning is labelled as content and never presented as a completed tool.
  * Actions sit inside the same outlined surface below the disclosure row, outside its click target.
+ * A call without a disclosure ([isExpandable]) reads as one static row and stays collapsed.
  */
 @Composable
 internal fun HbUnifiedToolHeader(
@@ -45,13 +42,12 @@ internal fun HbUnifiedToolHeader(
     onAction: (HbToolAction) -> Unit = {},
 ) {
     val interactions = remember { MutableInteractionSource() }
-    val isFocused by interactions.collectIsFocusedAsState()
     val isHovered by interactions.collectIsHoveredAsState()
     val isPressed by interactions.collectIsPressedAsState()
     val overlay = toolRowOverlay(isPressed, isHovered)
-    val disclosureLabel = if (isExpanded) labels.collapse else labels.expand
+    val isOpen = isExpanded && call.isExpandable
     val radius = HbTheme.dimensions.toolPadding
-    val bottomRadius = if (isExpanded) HbTheme.spacing.none else radius
+    val bottomRadius = if (isOpen) HbTheme.spacing.none else radius
     val shape = RoundedCornerShape(radius, radius, bottomRadius, bottomRadius)
     val rowBottomRadius = if (call.actions.isEmpty()) bottomRadius else HbTheme.spacing.none
     val rowShape = RoundedCornerShape(radius, radius, rowBottomRadius, rowBottomRadius)
@@ -63,26 +59,21 @@ internal fun HbUnifiedToolHeader(
     ) {
         HbRow(
             Modifier.fillMaxWidth().heightIn(min = HbTheme.dimensions.touchTarget)
-                .hbFocusOutline(isFocused, rowShape)
                 .background(overlay, rowShape)
-                .clickable(
-                    interactions,
-                    indication = null,
-                    role = Role.Button,
-                    onClickLabel = disclosureLabel,
-                ) {
-                    unifiedToolLog.i { "disclosure changed id=${call.id} expanded=${!isExpanded}" }
-                    onExpandedChange(!isExpanded)
+                .toolDisclosure(call, isOpen, labels, interactions, rowShape) {
+                    unifiedToolLog.i { "disclosure changed id=${call.id} expanded=${!isOpen}" }
+                    onExpandedChange(!isOpen)
                 }
-                .semantics { stateDescription = disclosureLabel }
-                .testTag(call.id)
+                .testTag(toolHeaderTag(call))
                 .padding(HbTheme.dimensions.toolPadding),
             gap = HbTheme.spacing.l,
         ) {
             UnifiedToolIcon(call)
             UnifiedToolTitle(call, Modifier.weight(1f))
             UnifiedToolStatus(call, labels)
-            HbIcon(if (isExpanded) HbIcons.ChevronDown else HbIcons.ChevronRight, contentDescription = null)
+            if (call.isExpandable) {
+                HbIcon(if (isOpen) HbIcons.ChevronDown else HbIcons.ChevronRight, contentDescription = null)
+            }
         }
         HbToolActions(
             call,
@@ -157,7 +148,7 @@ private fun toolStatusIcon(status: HbToolStatus) = when (status) {
     HbToolStatus.Cancelled -> HbIcons.Close
 }
 
-private fun toolStatusLabel(status: HbToolStatus, labels: HbToolLabels): String = when (status) {
+internal fun toolStatusLabel(status: HbToolStatus, labels: HbToolLabels): String = when (status) {
     HbToolStatus.Pending -> labels.pending
     HbToolStatus.Running -> labels.running
     HbToolStatus.Complete -> labels.complete

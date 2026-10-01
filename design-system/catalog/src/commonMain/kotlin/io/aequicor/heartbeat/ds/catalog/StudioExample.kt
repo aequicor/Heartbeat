@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -68,7 +69,10 @@ internal fun StudioExample(modifier: Modifier = Modifier) {
     }
 }
 
-/** Cards render as in the studio feed: outlined state accent, wrapped copy and inline actions. */
+/**
+ * Cards render as in the studio feed: outlined state accent, wrapped copy and inline actions. The bounded
+ * window opens at its first card, so the decision card stays in view above the build cards.
+ */
 @Composable
 private fun WorktreeTranscriptExample() {
     val entries = worktreeExamples()
@@ -76,6 +80,7 @@ private fun WorktreeTranscriptExample() {
     HbChatTranscript(
         timeline = timeline,
         modifier = Modifier.fillMaxWidth().height(HbTheme.dimensions.toolPayloadMaxHeight),
+        state = rememberLazyListState(),
         contentPadding = PaddingValues(HbTheme.spacing.none),
         showSectionHeaders = false,
     )

@@ -36,11 +36,16 @@ var timeline = HbChatTimeline.from(today, initialMessages)
 timeline = timeline.append(today, nextMessage)
 timeline = timeline.replaceLatest(nextMessage.copy(text = streamedText))
 timeline = timeline.prepend(olderSection, olderPage)
+// Карточки хоста после истории: снимок для отрисовки, история хранится отдельно.
+rendered = timeline.appendTail(today, hostCards, previous = rendered)
 ```
 
 Timeline использует persistent-коллекции. Подготовка Markdown выполняется при изменении
 сообщения, не при прокрутке. Длинные абзацы/код разбиваются на bounded chunks с ключами,
 основанными на ID сообщения и смещении источника. Неизменённые строки сохраняются.
+`appendTail` добавляет записи хоста (например, карточки worktree) после истории и переиспользует их
+подготовленные чанки из прошлого снимка; `latestMessage` снимка — последняя запись хвоста, поэтому
+стриминг идёт в timeline истории, а хвост добавляется заново на каждом обновлении.
 Legacy overload `messages` оставлен для небольших списков и собственного body slot.
 
 `HbMarkdown` — самостоятельный ограниченный viewport; в длинном transcript используйте

@@ -3,14 +3,19 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHasNoClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
@@ -57,15 +62,46 @@ class HbToolActionUiTest {
             onNodeWithTag("message-footer:worktree:chat").assertDoesNotExist()
             onNodeWithText("Local merge target: master").assertIsDisplayed()
             onNodeWithText("BUILD FAILED").assertDoesNotExist()
-            onNodeWithTag("create-pr").performClick()
-            onNodeWithTag("leave").performClick()
+            onNodeWithTag("tool-action:worktree:chat:create-pr").performClick()
+            onNodeWithTag("tool-action:worktree:chat:leave").performClick()
             runOnIdle { assertEquals(listOf("worktree:chat" to "create-pr", "worktree:chat" to "leave"), pressed) }
 
-            onNodeWithTag("worktree:chat").performClick()
-            onAllNodesWithTag("build-output").assertCountEquals(1)
+            onNodeWithTag("tool:worktree:chat").performClick()
+            onAllNodesWithTag("tool-block:build-output").assertCountEquals(1)
             onNodeWithText("BUILD FAILED").assertIsDisplayed()
-            onNodeWithTag("create-pr").assertIsDisplayed()
+            onNodeWithTag("tool-action:worktree:chat:create-pr").assertIsDisplayed()
         }
+
+    @Test
+    fun `worktree card without blocks offers no disclosure`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+        val pressed = mutableListOf<String>()
+        val expanded = mutableListOf<Boolean>()
+        val call = worktree.copy(blocks = persistentListOf())
+        setContent {
+            HbTheme(darkTheme = false) {
+                HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.l) {
+                    HbToolCallHeader(
+                        call,
+                        isExpanded = false,
+                        onExpandedChange = { expanded += it },
+                        isUnified = true,
+                        onAction = { pressed += it.id },
+                    )
+                    HbToolCallView(call.copy(id = "worktree:standalone"), onAction = { pressed += it.id })
+                }
+            }
+        }
+        listOf("tool:worktree:chat", "tool:worktree:standalone").forEach { tag ->
+            onNodeWithTag(tag).assertHasNoClickAction()
+                .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+        }
+        onNodeWithTag("tool-action:worktree:chat:create-pr").performClick()
+        onNodeWithTag("tool-action:worktree:standalone:leave").performClick()
+        runOnIdle {
+            assertEquals(listOf("create-pr", "leave"), pressed)
+            assertEquals(emptyList(), expanded)
+        }
+    }
 
     @Test
     fun `standalone disclosure offers the same actions`() = runSkikoComposeUiTest {
@@ -75,7 +111,7 @@ class HbToolActionUiTest {
                 HbToolCallView(worktree, onAction = { pressed += it.id })
             }
         }
-        onNodeWithTag("leave").performClick()
+        onNodeWithTag("tool-action:worktree:chat:leave").performClick()
         runOnIdle { assertEquals(listOf("leave"), pressed) }
     }
 }

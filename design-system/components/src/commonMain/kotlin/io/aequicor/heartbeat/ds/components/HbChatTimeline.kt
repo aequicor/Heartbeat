@@ -18,6 +18,7 @@ public data class HbChatSection(val id: String, val title: String, val isDate: B
 
 /**
  * Prepared, immutable transcript. Build history once, then replace only the latest streaming message.
+ * Host-owned entries after the history go through [appendTail] on a copy that is only rendered.
  * Persistent collections share unchanged history; rendering never validates or flattens the full list.
  */
 @Immutable
@@ -42,6 +43,10 @@ public class HbChatTimeline private constructor(
      * Appends host-owned [entries] that follow the history on every update, such as status cards.
      * Chunks of an entry that [previous] already ended with are reused, so unchanged entries are not prepared
      * again while the history before them streams, and changed ones keep their prepared tool rows.
+     *
+     * The result is a render snapshot: its [latestMessage] is the last entry, so keep the history timeline
+     * separately, stream into it with [replaceLatest] or [append], and call this again on each update with the
+     * previous snapshot as [previous]. Entry ids must not repeat ids of the history.
      */
     public fun appendTail(
         section: HbChatSection,

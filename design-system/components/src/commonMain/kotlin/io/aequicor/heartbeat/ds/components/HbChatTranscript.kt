@@ -28,6 +28,7 @@ private val log = Log.tag("DS/ChatTranscript")
  * Virtualized chronological transcript, anchored to the bottom while following new content.
  * User scrolling pauses following; scrolling back to the bottom or the explicit action resumes it.
  * Stable message ids preserve item state during incremental text updates and history insertion.
+ * [onToolAction] receives the pressed action of a tool call together with that call.
  */
 @Composable
 public fun HbChatTranscript(
@@ -37,6 +38,7 @@ public fun HbChatTranscript(
     streamingLabel: String = "",
     jumpToLatestLabel: String = "",
     onJumpToLatest: () -> Unit = {},
+    onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     messageContent: (@Composable (HbChatMessage) -> Unit)? = null,
 ) {
     var followState by remember(state) {
@@ -81,6 +83,7 @@ public fun HbChatTranscript(
                 HbChatMessageBubble(
                     message = message,
                     streamingLabel = streamingLabel,
+                    onToolAction = onToolAction,
                     content = messageContent?.let { render -> { render(message) } },
                 )
             }

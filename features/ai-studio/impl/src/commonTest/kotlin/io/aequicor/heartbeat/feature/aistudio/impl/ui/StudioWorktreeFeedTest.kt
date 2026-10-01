@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.ui.platform.UriHandler
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChatRole
 import io.aequicor.heartbeat.ds.components.HbMessagePart
@@ -74,7 +75,7 @@ class StudioWorktreeFeedTest {
     }
 
     @Test
-    fun `failures explain known codes, never expose raw ones and offer a recheck`() {
+    fun `failures explain known codes without exposing raw ones and offer a recheck`() {
         val dirty = timeline(task(WorktreePhaseUi.RecoveryRequired, failure = "OriginalCheckoutDirty"))
         assertEquals("Checkout is dirty", dirty.card("worktree:chat").summary)
         assertEquals(AiStudioScreenIntent.RecheckWorktree("chat"), dirty.press("worktree:chat", RECHECK_ID))
@@ -171,6 +172,31 @@ class StudioWorktreeFeedTest {
     }
 
     @Test
+    fun `a verified pull request stays linked while the task still runs`() {
+        val running = listOf(
+            WorktreePhaseUi.Preparing,
+            WorktreePhaseUi.Working,
+            WorktreePhaseUi.CompletionSignaled,
+            WorktreePhaseUi.ActionWorking,
+        )
+        running.forEach { phase ->
+            val result = timeline(task(phase, pullRequestUrl = "https://example.test/pr/4"))
+            assertEquals(listOf(OPEN_PR_ID), result.card("worktree:chat").actions.map { it.id }, "phase $phase")
+            assertEquals("https://example.test/pr/4", result.press("worktree:chat", OPEN_PR_ID))
+        }
+    }
+
+    @Test
+    fun `a failing browser never escapes the pull request action`() {
+        val opened = mutableListOf<String>()
+        openPullRequest(Links { opened += it }, "https://example.test/pr/5")
+        assertEquals(listOf("https://example.test/pr/5"), opened)
+        // Desktop AWT reports a missing browser through unsupported-action and checked I/O failures.
+        listOf(UnsupportedOperationException("No browse action"), IllegalStateException("No activity"), Exception())
+            .forEach { failure -> openPullRequest(Links { throw failure }, "https://example.test/pr/5") }
+    }
+
+    @Test
     fun `panes without worktree context add nothing to the transcript`() {
         val pane = PaneUi(0, sessionId = "chat")
         val plain = AiStudioScreenState(
@@ -225,6 +251,8 @@ class StudioWorktreeFeedTest {
         assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RecheckWorktree("chat")), intents)
         assertEquals(listOf("https://example.test/pr/3"), links)
     }
+
+    private fun interface Links : UriHandler
 
     /** What pressing [actionId] on card [callId] does: the sent intent, the opened link or nothing. */
     private fun WorktreeTimeline.press(callId: String, actionId: String): Any? {

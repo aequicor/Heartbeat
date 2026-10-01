@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -14,6 +15,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
@@ -60,6 +63,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import java.io.File
+import java.io.IOException
 import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -83,18 +87,41 @@ class StudioWorktreeUiTest {
                 val task = task(WorktreePhaseUi.RecoveryRequired).copy(failure = failure)
                 PaneHost(savedWorkspace(pane, task), pane, events::add)
             }
-            onNode(hasTestTag("worktree:chat") and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
-            onNode(hasAnyAncestor(hasTestTag("pane-footer-0")) and hasTestTag("worktree:chat")).assertDoesNotExist()
+            val taskCard = hasTestTag(card("worktree:chat"))
+            onNode(taskCard and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
+            onNode(hasAnyAncestor(hasTestTag("pane-footer-0")) and taskCard).assertDoesNotExist()
             onNodeWithText(dirtyLabel).assertIsDisplayed()
             onNodeWithText("OriginalCheckoutDirty").assertDoesNotExist()
             runOnIdle { failure = "UnexpectedInternalFailure" }
             onNodeWithText(unknownLabel).assertIsDisplayed()
             onNodeWithText("UnexpectedInternalFailure").assertDoesNotExist()
-            onNodeWithTag("worktree-action-Merge").assertDoesNotExist()
-            onNodeWithTag(RECHECK_ID).performClick()
+            onNodeWithTag(decision("Merge")).assertDoesNotExist()
+            onNodeWithTag(action("worktree:chat", RECHECK_ID)).performClick()
             runOnIdle {
                 assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RecheckWorktree("chat")), events)
             }
+        }
+
+    @Test
+    fun `a pull request link that no browser opens keeps the pane alive`() =
+        runSkikoComposeUiTest(size = Size(520f, 700f)) {
+            val pane = PaneUi(0, sessionId = "chat")
+            val opened = mutableListOf<String>()
+            val browser = object : UriHandler {
+                override fun openUri(uri: String) {
+                    opened += uri
+                    throw IOException("No default browser")
+                }
+            }
+            val task = task(WorktreePhaseUi.Retained).copy(pullRequestUrl = "https://example.test/pr/9")
+            setContent {
+                CompositionLocalProvider(LocalUriHandler provides browser) {
+                    PaneHost(savedWorkspace(pane, task), pane, onIntent = {})
+                }
+            }
+            onNodeWithTag(action("worktree:chat", OPEN_PR_ID)).performClick()
+            runOnIdle { assertEquals(listOf("https://example.test/pr/9"), opened) }
+            onNodeWithTag(card("worktree:chat")).assertIsDisplayed()
         }
 
     @Test
@@ -190,12 +217,12 @@ class StudioWorktreeUiTest {
                         targetLabel = stringResource(Res.string.worktree_merge_target, checkNotNull(task.sourceBranch))
                         PaneHost(savedWorkspace(pane, task), pane, events::add, isDark = dark, isCompact = width < 900f)
                     }
-                    onNodeWithTag("worktree:chat").assertIsDisplayed()
+                    onNodeWithTag(card("worktree:chat")).assertIsDisplayed()
                     onNodeWithText(resultLabel).assertIsDisplayed()
                     onNodeWithText(targetLabel, substring = true).assertIsDisplayed()
                     onNodeWithText(checkNotNull(task.summary), substring = true).assertIsDisplayed()
                     WorktreeActionUi.entries.forEach {
-                        val action = onNodeWithTag("worktree-action-${it.name}")
+                        val action = onNodeWithTag(decision(it.name))
                         action.assertIsDisplayed()
                         val bounds = action.fetchSemanticsNode().boundsInRoot
                         assertTrue(bounds.left >= 0f && bounds.right <= width)
@@ -221,12 +248,12 @@ class StudioWorktreeUiTest {
                 val pane = PaneUi(0, sessionId = "chat")
                 var task by mutableStateOf(task(WorktreePhaseUi.AwaitingDecision).copy(sourceBranch = null))
                 setContent { PaneHost(savedWorkspace(pane, task), pane, {}, isDark = dark) }
-                onNodeWithTag("worktree-action-CreatePr").assertIsDisplayed()
-                onNodeWithTag("worktree-action-Merge").assertDoesNotExist()
+                onNodeWithTag(decision("CreatePr")).assertIsDisplayed()
+                onNodeWithTag(decision("Merge")).assertDoesNotExist()
                 saveImage(captureToImage(), "detached-$dark")
                 runOnIdle { task = task.copy(phase = WorktreePhaseUi.Idle) }
-                onNodeWithTag("worktree-action-CreatePr").assertDoesNotExist()
-                onNodeWithTag("worktree:chat").assertDoesNotExist()
+                onNodeWithTag(decision("CreatePr")).assertDoesNotExist()
+                onNodeWithTag(card("worktree:chat")).assertDoesNotExist()
             }
         }
     }
@@ -249,25 +276,26 @@ class StudioWorktreeUiTest {
                     PaneHost(state, pane, events::add)
                 }
             }
-            onNode(hasTestTag(JOURNAL_LOADING_ID) and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
-            WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertDoesNotExist() }
+            val loadingCard = hasTestTag(card(JOURNAL_LOADING_ID))
+            onNode(loadingCard and hasAnyAncestor(hasTestTag("transcript-chat"))).assertIsDisplayed()
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
             runOnIdle {
                 hasTask = true
                 journal = WorktreeJournalUi.Error
             }
-            onNodeWithTag(JOURNAL_ERROR_ID).assertIsDisplayed()
-            onNodeWithTag(JOURNAL_LOADING_ID).assertDoesNotExist()
-            WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertDoesNotExist() }
-            onNodeWithTag(JOURNAL_RETRY_ID).performClick()
+            onNodeWithTag(card(JOURNAL_ERROR_ID)).assertIsDisplayed()
+            onNodeWithTag(card(JOURNAL_LOADING_ID)).assertDoesNotExist()
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertDoesNotExist() }
+            onNodeWithTag(action(JOURNAL_ERROR_ID, JOURNAL_RETRY_ID)).performClick()
             runOnIdle {
                 assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.RetryWorktreeJournal), events)
                 isShown = false
                 journal = WorktreeJournalUi.Ready
             }
-            onNodeWithTag("worktree:chat").assertDoesNotExist()
+            onNodeWithTag(card("worktree:chat")).assertDoesNotExist()
             runOnIdle { isShown = true }
-            WorktreeActionUi.entries.forEach { onNodeWithTag("worktree-action-${it.name}").assertIsDisplayed() }
-            onNodeWithTag(JOURNAL_ERROR_ID).assertDoesNotExist()
+            WorktreeActionUi.entries.forEach { onNodeWithTag(decision(it.name)).assertIsDisplayed() }
+            onNodeWithTag(card(JOURNAL_ERROR_ID)).assertDoesNotExist()
         }
 
     @Test
@@ -283,7 +311,7 @@ class StudioWorktreeUiTest {
             val initial = savedWorkspace(pane, task(WorktreePhaseUi.Idle).copy(builds = builds))
             var journal by mutableStateOf(WorktreeJournalUi.Ready)
             setContent { PaneHost(initial.copy(worktreeJournal = journal), pane, events::add) }
-            onNodeWithTag("cancel-build-queued").assertIsDisplayed().performClick()
+            onNodeWithTag(action("build:queued", "cancel-build-queued")).assertIsDisplayed().performClick()
             runOnIdle {
                 assertEquals(
                     listOf<AiStudioScreenIntent>(AiStudioScreenIntent.CancelWorktreeBuild("chat", "queued")),
@@ -291,15 +319,15 @@ class StudioWorktreeUiTest {
                 )
                 journal = WorktreeJournalUi.Error
             }
-            onNodeWithTag("build:queued").assertIsDisplayed()
-            onNodeWithTag("cancel-build-queued").assertDoesNotExist()
-            onNodeWithTag("build-output-failed").assertDoesNotExist()
-            onNodeWithTag("build:failed").performClick()
-            assertTrue(onAllNodesWithTag("build-output-failed").fetchSemanticsNodes().isNotEmpty())
+            onNodeWithTag(card("build:queued")).assertIsDisplayed()
+            onNodeWithTag(action("build:queued", "cancel-build-queued")).assertDoesNotExist()
+            onNodeWithTag(block("build-output-failed")).assertDoesNotExist()
+            onNodeWithTag(card("build:failed")).performClick()
+            assertTrue(onAllNodesWithTag(block("build-output-failed")).fetchSemanticsNodes().isNotEmpty())
             val lastLine = hasText("Compilation failed at Main.kt:42", substring = true)
             onNode(hasScrollToIndexAction()).performScrollToNode(lastLine)
-            onNode(lastLine and hasTestTag("build-output-failed")).assertIsDisplayed()
-            onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag("build:failed"))
+            onNode(lastLine and hasTestTag(block("build-output-failed"))).assertIsDisplayed()
+            onNode(hasScrollToIndexAction()).performScrollToNode(hasTestTag(card("build:failed")))
             assertTrue(onAllNodesWithText("Log line 0:", substring = true).fetchSemanticsNodes().isEmpty())
             saveImage(captureToImage(), "builds-journal-error")
         }
@@ -314,10 +342,10 @@ class StudioWorktreeUiTest {
                     preparingLabel = stringResource(Res.string.worktree_preparing)
                     PaneHost(workspace(pane), pane, {}, isDark = dark)
                 }
-                onNode(hasTestTag("worktree:pane-7") and hasAnyAncestor(hasTestTag("transcript-pane-7")))
+                onNode(hasTestTag(card("worktree:pane-7")) and hasAnyAncestor(hasTestTag("transcript-pane-7")))
                     .assertIsDisplayed()
                 onNodeWithText(preparingLabel).assertIsDisplayed()
-                onNode(hasAnyAncestor(hasTestTag("pane-footer-7")) and hasTestTag("worktree:pane-7"))
+                onNode(hasAnyAncestor(hasTestTag("pane-footer-7")) and hasTestTag(card("worktree:pane-7")))
                     .assertDoesNotExist()
                 saveImage(captureToImage(), "preparing-$dark")
             }
@@ -389,6 +417,18 @@ class StudioWorktreeUiTest {
         )
     }
 }
+
+/** Tag of the disclosure header of worktree card [id]. */
+private fun card(id: String) = "tool:$id"
+
+/** Tag of action [actionId] on worktree card [cardId]. */
+private fun action(cardId: String, actionId: String) = "tool-action:$cardId:$actionId"
+
+/** Tag of a result decision on the task card of session `chat`. */
+private fun decision(name: String) = action("worktree:chat", "worktree-action-$name")
+
+/** Tag of every content row of block [id]. */
+private fun block(id: String) = "tool-block:$id"
 
 private fun saveImage(image: ImageBitmap, name: String) {
     val directory = File("build/worktree-ui").apply { mkdirs() }
