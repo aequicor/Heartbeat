@@ -206,13 +206,13 @@ internal class EngineStudioRepository(
         }
         profile.coroutineScope.launch {
             usage.state.collect { snapshot ->
-                log.d { "Update studio usage snapshot" }
+                log.v { "Update studio usage snapshot" }
                 mutableState.update { it.copy(contexts = snapshot.contexts, providerUsage = snapshot.providers) }
             }
         }
         profile.coroutineScope.launch {
             store.observe(ChatsKey).collect { records ->
-                log.d { "Restore confirmed configurations count=${records.orEmpty().size}" }
+                log.v { "Restore confirmed configurations count=${records.orEmpty().size}" }
                 mutableState.update { runtime ->
                     val restored = records.orEmpty().mapNotNull { record ->
                         val saved = record.configuration
@@ -462,7 +462,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun shouldStop(id: String): Boolean {
-        log.d { "Read pending native stop request" }
+        log.v { "Read pending native stop request" }
         return handlesLock.withLock { id in stopRequests }
     }
 
@@ -517,24 +517,24 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun configurationRecord(id: String): StudioChatRecord {
-        log.d { "Read session configuration id=$id" }
+        log.v { "Read session configuration id=$id" }
         val record = record(id)
         val applied = state.value.configurations[id]?.applied ?: return record
         return record.copy(configuration = applied, target = studioModelTarget(applied.modelId) ?: record.target)
     }
 
     override suspend fun configurationSession(id: String, target: EngineTarget): ActiveSession {
-        log.d { "Resolve configuration handle id=$id engine=${target.engine.value}" }
+        log.v { "Resolve configuration handle id=$id engine=${target.engine.value}" }
         return open(id, target)
     }
 
     override suspend fun configurationAnchor(id: String): FeedbackAnchor = lock.withLock {
-        log.d { "Read configuration transcript anchor" }
+        log.v { "Read configuration transcript anchor" }
         FeedbackAnchor(record(id).ref, transcripts.read(id).lastOrNull()?.info?.id)
     }
 
     override suspend fun saveConfiguration(id: String, settings: StudioSessionSettings) {
-        log.d { "Save confirmed configuration id=$id" }
+        log.v { "Save confirmed configuration id=$id" }
         val target = requireNotNull(studioModelTarget(settings.modelId))
         update(id) {
             val current = state.value.configurations[id]?.applied
@@ -543,19 +543,19 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun validateConfigurationTarget(target: EngineTarget) {
-        log.d { "Validate configuration route engine=${target.engine.value}" }
+        log.v { "Validate configuration route engine=${target.engine.value}" }
         if (!selections.observe().first().isEnabled(target)) {
             throw EngineException(EngineFailure.Access(AccessFailureReason.ModelAccessDenied))
         }
     }
 
     override fun configurationModels(): List<StudioModel> {
-        log.d { "Read configuration model choices" }
+        log.v { "Read configuration model choices" }
         return offeredModels.value
     }
 
     override fun configurationState(id: String, state: StudioSessionConfiguration) {
-        log.d { "Reflect configuration id=$id pending=${state.pendingOperation != null}" }
+        log.v { "Reflect configuration id=$id pending=${state.pendingOperation != null}" }
         mutableState.update { it.copy(configurations = it.configurations + (id to state)) }
     }
 
@@ -710,7 +710,7 @@ internal class EngineStudioRepository(
     }
 
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
-        log.d { "Update pending permission projection" }
+        log.v { "Update pending permission projection" }
         val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { it.toStudio(id) }
         val (handle, isStopRequested) = handlesLock.withLock { handles[id] to (id in stopRequests) }
         val isStopSupported = handle?.features?.resolve(CancelsTurns) != FeatureAccess.Unsupported
@@ -811,7 +811,7 @@ private class StudioNativeSessionOperations(private val controller: StudioConfig
         target: EngineTarget,
         fallback: SessionConfiguration,
     ) {
-        log.d { "Reflect accepted native configuration" }
+        log.v { "Reflect accepted native configuration" }
         try {
             val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
             val confirmed = capability?.feature?.configuration?.value ?: fallback

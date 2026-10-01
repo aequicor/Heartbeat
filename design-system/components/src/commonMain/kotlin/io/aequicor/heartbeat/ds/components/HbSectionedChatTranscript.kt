@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
 
 private val timelineLog = Log.tag("DS/SectionedTranscript")
 
-/** Logs the timeline size once per distinct pair of counts; streaming rewrites only the tail. */
+/** Traces the timeline size once per distinct pair of counts; streaming rewrites only the tail. */
 private class TimelineChangeLog {
     private var counts = -1 to -1
 
@@ -49,7 +49,7 @@ private class TimelineChangeLog {
         val next = messageCount to itemCount
         if (next == counts) return
         counts = next
-        timelineLog.d { "timeline updated messages=${next.first} rows=${next.second}" }
+        timelineLog.v { "timeline updated messages=${next.first} rows=${next.second}" }
     }
 }
 

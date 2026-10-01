@@ -43,7 +43,8 @@ import kotlin.concurrent.Volatile
  * `__hb.exp.<key>` (deadline), `__hb.evt.<key>` (event), `__hb.at.<key>` (written at).
  *
  * Before the first operation it deletes expired records and records of events fired while it was closed
- * ([journal]). Logs (`DS`): key names and retention at `D`; values only with [KeyValueSpec.areValuesLogged] (`I`).
+ * ([journal]). Logs (`DS`): routine key names and retention at `V`; settings changes with
+ * [KeyValueSpec.areValuesLogged] at `I`.
  */
 internal class LoggingKeyValueStore(
     override val spec: KeyValueSpec,
@@ -77,7 +78,7 @@ internal class LoggingKeyValueStore(
     override suspend fun <T : Any> get(key: StoreKey<T>): T? = withOwnerLifetime {
         prepare()
         data.first().read(key, clock.now()).also { value ->
-            log.d { "$label: get ${key.name} -> ${if (value == null) "absent" else "present"}" }
+            log.v { "$label: get ${key.name} -> ${if (value == null) "absent" else "present"}" }
         }
     }
 
@@ -94,14 +95,14 @@ internal class LoggingKeyValueStore(
         if (spec.areValuesLogged) {
             log.i { "$label: set ${key.name}: ${old ?: "absent"} -> $value ($retention)" }
         } else {
-            log.d { "$label: set ${key.name} ($retention)" }
+            log.v { "$label: set ${key.name} ($retention)" }
         }
     }
 
     override suspend fun remove(key: StoreKey<*>): Unit = withOwnerLifetime {
         prepare()
         editWhileOpen("remove ${key.name}") { it.removeRecord(key.name) }
-        log.d { "$label: remove ${key.name}" }
+        log.v { "$label: remove ${key.name}" }
     }
 
     override suspend fun clear(): Unit = withOwnerLifetime {
@@ -119,7 +120,11 @@ internal class LoggingKeyValueStore(
             val now = clock.now()
             val removed = purge("open") { prefs, name -> prefs.isExpired(name, now) || prefs.isFiredBy(name, fired) }
             isPrepared = true
-            log.d { "$label: opened, purged $removed records" }
+            if (removed > 0) {
+                log.i { "$label: opened, purged $removed records" }
+            } else {
+                log.v { "$label: opened, purged 0 records" }
+            }
         }
     }
 

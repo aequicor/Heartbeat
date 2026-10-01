@@ -61,11 +61,11 @@ class VaultSafetyTest {
     @Test
     fun logsAndPropagatedFailuresNeverContainDataOrProfileIds() = runTest {
         val lines = mutableListOf<String>()
+        val sink = LogSink { _, _, error, message -> lines += message + error?.stackTraceToString().orEmpty() }
         Log.init(
-            true,
-            sinks = listOf(
-                LogSink { _, _, error, message -> lines += message + error?.stackTraceToString().orEmpty() },
-            ),
+            isDebug = true,
+            isTrace = true,
+            sinks = listOf(sink),
         )
         try {
             val env = VaultTestEnv(this)

@@ -92,7 +92,11 @@ internal class PiRpc(
         // close() may have drained pending between the first check and registration.
         if (isClosed) result.completeExceptionally(EngineException(EngineFailure.Engine(EngineFailureReason.Crashed)))
         try {
-            log.d { "Pi command: $type" }
+            if (type == "get_state") {
+                log.v { "Pi command: $type" }
+            } else {
+                log.d { "Pi command: $type" }
+            }
             write(JsonObject(fields + mapOf("id" to JsonPrimitive(id), "type" to JsonPrimitive(type))))
             val response = withTimeoutOrNull(commandTimeoutMillis) { result.await() } ?: run {
                 log.w(EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))) {

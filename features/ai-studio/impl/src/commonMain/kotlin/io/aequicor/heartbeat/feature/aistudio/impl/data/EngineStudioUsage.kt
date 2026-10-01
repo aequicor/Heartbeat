@@ -57,7 +57,7 @@ internal class EngineStudioUsage(
             providerTargets()
                 .distinctUntilChanged()
                 .collectLatest { ids ->
-                    log.d { "Replace observed usage routes" }
+                    log.v { "Replace observed usage routes" }
                     mutableState.update { it.copy(providers = emptyMap()) }
                     coroutineScope {
                         ids.forEach { observed ->
@@ -121,7 +121,7 @@ internal class EngineStudioUsage(
     /** Exactly one collector per handle, independent of the turn and screen observation lifetimes. */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun attach(id: String, active: ActiveSession) {
-        log.d { "Attach context observation" }
+        log.v { "Attach context observation" }
         if (handles[id] === active) return
         jobs.remove(id)?.cancel()
         handles[id] = active
@@ -184,7 +184,7 @@ internal class EngineStudioUsage(
 
     private fun publishContext(id: String, active: ActiveSession, usage: ContextUsage?) {
         if (handles[id] !== active) return
-        log.d { "Update context observation" }
+        log.v { "Update context observation" }
         mutableState.update {
             it.copy(contexts = if (usage == null) it.contexts - id else it.contexts + (id to usage))
         }

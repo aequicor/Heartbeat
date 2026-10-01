@@ -22,16 +22,16 @@ public fun interface LogSink {
  *
  * ```
  * private val log = Log.tag("ChatRepository")
- * log.d { "load history chatId=$chatId" }
+ * log.v { "load history chatId=$chatId" }
  * log.e(error) { "generation failed chatId=$chatId" }
  * ```
  */
 public class Log private constructor(private val tag: String) {
 
-    /** Fine-grained tracing: state diffs, lifecycle callbacks. */
+    /** Fine-grained tracing: routine storage IO, streaming revisions, state diffs, lifecycle callbacks. */
     public fun v(message: () -> String): Unit = write(LogLevel.VERBOSE, null, message)
 
-    /** Developer diagnostics: repository calls, cache hits. */
+    /** Developer diagnostics: operational decisions and one-shot output delivery. */
     public fun d(message: () -> String): Unit = write(LogLevel.DEBUG, null, message)
 
     /** Meaningful events: transitions, requests, configuration changes. */
@@ -63,8 +63,9 @@ public class Log private constructor(private val tag: String) {
          * Configures output. Called once by the platform entry point before the DI graph is built;
          * calling it again replaces the previous configuration.
          *
-         * Debug builds log from `DEBUG` up — the console stays readable while streaming; `isTrace` adds the
-         * `VERBOSE` level (state diffs, engine internals, lifecycle callbacks) for deep debugging.
+         * Debug builds log from `DEBUG` up; routine storage IO, streaming revisions and state/effect internals
+         * use `VERBOSE`, enabled by `isTrace`. JVM console records use compact timestamps and UTF-8;
+         * reinitialization replaces the console destination without accumulating handlers.
          */
         public fun init(isDebug: Boolean, isTrace: Boolean = false, sinks: List<LogSink> = emptyList()) {
             Napier.takeLogarithm()

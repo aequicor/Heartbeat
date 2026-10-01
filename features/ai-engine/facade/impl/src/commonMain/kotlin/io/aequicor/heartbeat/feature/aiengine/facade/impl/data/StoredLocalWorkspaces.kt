@@ -83,7 +83,7 @@ internal class StoredLocalWorkspaces(
 
     override suspend fun resolve(ref: WorkspaceRef): String? {
         requireAvailable()
-        log.d { "Resolving local project" }
+        log.v { "Resolving local project" }
         val entry = decode(store.get(ProjectsKey)).firstOrNull { it.id == ref.value }
         // Do not silently redirect an existing project after its directory was replaced by a symlink.
         return entry?.let { directories.canonical(it.directory)?.path?.takeIf { path -> path == it.directory } }
