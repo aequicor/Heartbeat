@@ -31,7 +31,11 @@ public data class HbMessageAppearance(
     val background: Color = Color.Unspecified,
     val foreground: Color = Color.Unspecified,
     val isContentWidth: Boolean = false,
-    /** Joins lazy segments into one padded, outlined studio answer with one header and footer. */
+    /**
+     * Joins lazy segments into one padded, outlined studio answer with one header and footer.
+     * A [HbChatRole.System] entry, such as a host-owned worktree card, keeps the answer column and insets
+     * without the surface, author row or copy footer.
+     */
     val isUnified: Boolean = false,
     /** Short user messages can omit an otherwise redundant author row. */
     val isAuthorVisible: Boolean = true,
@@ -102,6 +106,9 @@ internal fun resolvedAlignment(message: HbChatMessage): HbMessageAlignment =
 
         HbMessageAlignment.Start, HbMessageAlignment.Center, HbMessageAlignment.End -> placement
     }
+
+/** Host-owned entry aligned with unified answers but without their surface, author row and copy footer. */
+internal val HbChatMessage.isHostEntry: Boolean get() = appearance.isUnified && role == HbChatRole.System
 
 internal fun requireUniqueMessageIds(messages: List<HbChatMessage>) {
     require(messages.map { it.id }.toSet().size == messages.size) { "Chat message ids must be unique." }

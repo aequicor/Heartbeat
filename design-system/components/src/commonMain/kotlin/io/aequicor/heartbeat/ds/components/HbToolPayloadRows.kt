@@ -6,6 +6,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.layouts.HbColumn
@@ -30,14 +31,18 @@ internal fun HbToolPayloadRow(
         }
         ToolSectionHeading(label = label, modifier = modifier)
     } else if (isSelectionContainerRequired) {
-        SelectionContainer(modifier = modifier) {
+        SelectionContainer(modifier = modifier.hbBlockTag(row)) {
             ToolPayloadBody(row, labels, onLinkClick)
         }
     } else {
         // Transcript message content already owns selection for this row.
-        Box(modifier = modifier) { ToolPayloadBody(row, labels, onLinkClick) }
+        Box(modifier = modifier.hbBlockTag(row)) { ToolPayloadBody(row, labels, onLinkClick) }
     }
 }
+
+/** Tags a content row with the id of its [HbToolBlock] so hosts can find a block in a lazy transcript. */
+internal fun Modifier.hbBlockTag(row: HbToolDisplayRow): Modifier =
+    if (row.blockId.isBlank()) this else testTag(row.blockId)
 
 @Composable
 private fun ToolSectionHeading(label: String, modifier: Modifier = Modifier) {
@@ -70,6 +75,7 @@ internal data class HbToolDisplayRow(
     val section: HbToolSection? = null,
     val console: HbConsoleChunk? = null,
     val diff: HbDiffChunk? = null,
+    val blockId: String = "",
 ) {
     val contentType: String get() = when {
         section != null -> "tool-section:$section"
@@ -87,14 +93,25 @@ internal fun prepareToolRows(blocks: ImmutableList<HbToolBlock>): ImmutableList<
         val content = when (block) {
             is HbToolBlock.Markdown -> parseHbMarkdown(
                 block.source,
-            ).map { HbToolDisplayRow(toolRowId(block.id, "markdown:${it.id}"), markdown = it) }
+            ).map { HbToolDisplayRow(toolRowId(block.id, "markdown:${it.id}"), markdown = it, blockId = block.id) }
 
             is HbToolBlock.Console -> chunkHbConsole(block.text).mapIndexed { index, console ->
-                HbToolDisplayRow(toolRowId(block.id, "literal:$index"), text = console.text, console = console)
+                HbToolDisplayRow(
+                    toolRowId(block.id, "literal:$index"),
+                    text = console.text,
+                    console = console,
+                    blockId = block.id,
+                )
             }
 
             is HbToolBlock.Diff -> chunkHbDiff(block.text).mapIndexed { index, diff ->
-                HbToolDisplayRow(toolRowId(block.id, "literal:$index"), text = diff.text, isDiff = true, diff = diff)
+                HbToolDisplayRow(
+                    toolRowId(block.id, "literal:$index"),
+                    text = diff.text,
+                    isDiff = true,
+                    diff = diff,
+                    blockId = block.id,
+                )
             }
         }
         val section = when (block) {

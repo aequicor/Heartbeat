@@ -168,7 +168,7 @@ internal fun UnifiedToolPayload(
                 text = console.displayText,
                 spans = persistentListOf(),
                 foreground = HbTheme.colors.textPrimary,
-                modifier = Modifier.fillMaxWidth().background(HbTheme.surfaces.console)
+                modifier = Modifier.fillMaxWidth().hbBlockTag(body.row).background(HbTheme.surfaces.console)
                     .padding(HbTheme.dimensions.toolPadding),
             )
         } else if (!isUnified || body.row.section == null) {

@@ -6,6 +6,7 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toPersistentList
 
 /** Caller-localized date or session group. Keep [id] stable while its title changes language. */
 @Immutable
@@ -34,9 +35,50 @@ public class HbChatTimeline private constructor(
     internal fun message(id: String): HbChatMessage = checkNotNull(messagesById[id])
 
     /** Appends one message, creating a new sticky section when [section] changes. */
-    public fun append(section: HbChatSection, message: HbChatMessage): HbChatTimeline {
+    public fun append(section: HbChatSection, message: HbChatMessage): HbChatTimeline =
+        append(section, message, transcriptChunks(message))
+
+    /**
+     * Appends host-owned [entries] that follow the history on every update, such as status cards.
+     * Chunks of an entry that [previous] already ended with are reused, so unchanged entries are not prepared
+     * again while the history before them streams, and changed ones keep their prepared tool rows.
+     */
+    public fun appendTail(
+        section: HbChatSection,
+        entries: List<HbChatMessage>,
+        previous: HbChatTimeline? = null,
+    ): HbChatTimeline {
+        if (entries.isEmpty()) return this
+        val reusable = previous?.trailingChunks(entries.mapTo(HashSet()) { it.id }).orEmpty()
+        return entries.fold(this) { timeline, entry ->
+            val prepared = reusable[entry.id].orEmpty()
+            val chunks = if (prepared.isNotEmpty() && previous?.messagesById?.get(entry.id) == entry) {
+                prepared.toPersistentList()
+            } else {
+                transcriptChunks(entry, prepared)
+            }
+            timeline.append(section, entry, chunks)
+        }
+    }
+
+    /** Chunks of the [ids] messages that end this timeline, in display order. */
+    private fun trailingChunks(ids: Set<String>): Map<String, List<HbTranscriptChunk>> {
+        val entries = sections.lastOrNull()?.entries ?: return emptyMap()
+        val found = mutableMapOf<String, ArrayDeque<HbTranscriptChunk>>()
+        for (index in entries.indices.reversed()) {
+            val chunk = entries[index]
+            if (chunk.messageId !in ids) break
+            found.getOrPut(chunk.messageId) { ArrayDeque() }.addFirst(chunk)
+        }
+        return found
+    }
+
+    private fun append(
+        section: HbChatSection,
+        message: HbChatMessage,
+        chunks: PersistentList<HbTranscriptChunk>,
+    ): HbChatTimeline {
         require(message.id !in messagesById) { "Chat message ids must be unique: ${message.id}" }
-        val chunks = transcriptChunks(message)
         val previousSection = sections.lastOrNull()
         val isContinuingSection = previousSection?.section?.id == section.id
         val previousEntries = previousSection?.entries ?: persistentListOf()

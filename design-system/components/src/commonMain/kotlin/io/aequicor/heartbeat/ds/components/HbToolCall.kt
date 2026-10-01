@@ -7,8 +7,24 @@ import kotlinx.collections.immutable.persistentListOf
 /** Tool delivery state, updated by the agent integration rather than inferred from its payload. */
 public enum class HbToolStatus { Pending, Running, Complete, Error, Cancelled }
 
-/** Reasoning disclosures contain only engine-exposed content and never claim a tool execution status. */
-public enum class HbToolKind { Tool, Reasoning }
+/**
+ * Reasoning disclosures contain only engine-exposed content and never claim a tool execution status.
+ * Worktree disclosures report host-owned checkout and build lifecycle rather than agent calls, so they carry
+ * a branch mark and the accent of their state.
+ */
+public enum class HbToolKind { Tool, Reasoning, Worktree }
+
+/**
+ * A caller-localized command of a tool call, shown under its header without expanding the payload.
+ * [id] is unique within the call: the transcript reports it to its action handler and tags the button with it
+ * for UI tests.
+ */
+@Immutable
+public data class HbToolAction(val id: String, val label: String, val style: HbButtonStyle = HbButtonStyle.Secondary) {
+    init {
+        require(id.isNotBlank()) { "A tool action needs a stable non-blank id." }
+    }
+}
 
 /** Localized disclosure actions and status descriptions. */
 @Immutable
@@ -30,7 +46,10 @@ public data class HbToolLabels(
     val messageCopied: String = "Answer copied",
 )
 
-/** Typed tool payloads; console and unified diff content are always treated as literal text. */
+/**
+ * Typed tool payloads; console and unified diff content are always treated as literal text.
+ * Every content row of a block carries its [id] as a test tag; a long block spans several rows.
+ */
 @Immutable
 public sealed interface HbToolBlock {
     public val id: String
@@ -48,7 +67,10 @@ public sealed interface HbToolBlock {
     public data class Diff(override val id: String, val text: String) : HbToolBlock
 }
 
-/** Stable display identity preserves disclosure state as streamed results grow or leave the viewport. */
+/**
+ * Stable display identity preserves disclosure state as streamed results grow or leave the viewport.
+ * The disclosure header is tagged with [id]; [actions] stay visible while the payload is collapsed.
+ */
 @Immutable
 public data class HbToolCall(
     val id: String,
@@ -57,10 +79,12 @@ public data class HbToolCall(
     val summary: String = "",
     val blocks: ImmutableList<HbToolBlock> = persistentListOf(),
     val kind: HbToolKind = HbToolKind.Tool,
+    val actions: ImmutableList<HbToolAction> = persistentListOf(),
 ) {
     init {
         require(id.isNotBlank()) { "A tool call needs a stable non-blank id." }
         require(blocks.all { it.id.isNotBlank() }) { "Tool block ids must not be blank." }
         require(blocks.map { it.id }.toSet().size == blocks.size) { "Tool block ids must be unique within a call." }
+        require(actions.map { it.id }.toSet().size == actions.size) { "Tool action ids must be unique within a call." }
     }
 }

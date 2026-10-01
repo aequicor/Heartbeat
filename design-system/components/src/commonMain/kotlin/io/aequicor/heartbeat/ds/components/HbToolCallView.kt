@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.liveRegion
@@ -40,6 +41,7 @@ private val log = Log.tag("DS/ToolCall")
  * Expandable tool result in the parent's vertical flow. Supply [isExpanded] to control state,
  * or keep it null to save disclosure by stable tool identity through lazy disposal and restoration.
  * Transcripts should place [HbToolCallHeader] and prepared [HbToolPayloadRow]s in their outer lazy list.
+ * [onAction] receives the pressed [HbToolCall.actions] entry.
  */
 @Composable
 public fun HbToolCallView(
@@ -49,6 +51,7 @@ public fun HbToolCallView(
     onExpandedChange: (Boolean) -> Unit = {},
     labels: HbToolLabels = HbToolLabels(),
     onLinkClick: ((String) -> Unit)? = null,
+    onAction: (HbToolAction) -> Unit = {},
 ) {
     var isLocallyExpanded by rememberSaveable(toolCall.id) { mutableStateOf(false) }
     val isOpen = isExpanded ?: isLocallyExpanded
@@ -67,6 +70,7 @@ public fun HbToolCallView(
                 }
                 onExpandedChange(isNextExpanded)
             },
+            onAction = onAction,
         )
         if (isOpen) ToolPayload(toolCall.blocks, labels, onLinkClick)
     }
@@ -81,9 +85,10 @@ internal fun HbToolCallHeader(
     modifier: Modifier = Modifier,
     labels: HbToolLabels = HbToolLabels(),
     isUnified: Boolean = false,
+    onAction: (HbToolAction) -> Unit = {},
 ) {
     if (isUnified) {
-        HbUnifiedToolHeader(toolCall, isExpanded, onExpandedChange, modifier, labels)
+        HbUnifiedToolHeader(toolCall, isExpanded, onExpandedChange, modifier, labels, onAction)
         return
     }
     HbColumn(modifier = modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
@@ -103,9 +108,10 @@ internal fun HbToolCallHeader(
                 modifier = Modifier.padding(horizontal = HbTheme.spacing.xs),
                 style = HbTheme.typography.caption,
                 color = HbTheme.colors.textSecondary,
-                maxLines = 2,
+                maxLines = toolTextLines(toolCall, toolLines = 2),
             )
         }
+        HbToolActions(toolCall, onAction, Modifier.padding(horizontal = HbTheme.spacing.xs))
     }
 }
 
@@ -135,6 +141,7 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
             )
             .background(background, HbTheme.shapes.small)
             .semantics { stateDescription = if (isExpanded) labels.collapse else labels.expand }
+            .testTag(toolCall.id)
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.xxs),
         gap = HbTheme.spacing.s,
     ) {
@@ -143,11 +150,19 @@ private fun ToolHeaderButton(toolCall: HbToolCall, isExpanded: Boolean, labels: 
             contentDescription = null,
             modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
         )
+        if (toolCall.isWorktree) {
+            HbIcon(
+                icon = HbIcons.Branch,
+                contentDescription = null,
+                modifier = Modifier.size(HbTheme.dimensions.iconSmallSize),
+                tint = HbTheme.surfaces.accent,
+            )
+        }
         HbText(
             text = toolCall.title,
             modifier = Modifier.weight(1f),
             style = HbTheme.typography.label,
-            maxLines = 1,
+            maxLines = toolTextLines(toolCall, toolLines = 1),
         )
         HbRow(
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },

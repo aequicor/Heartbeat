@@ -192,4 +192,11 @@
     <string name="ru_loading_label">Загрузка…</string>
     <string name="ru_attachments">Вложения</string>
     <string name="ru_paste_image">Вставить изображение</string>
+    <string name="ru_worktree_result">Задача завершена</string>
+    <string name="ru_worktree_merge_target">Целевая ветка локального слияния: release/master</string>
+    <string name="ru_worktree_create_pr">Создать PR</string>
+    <string name="ru_worktree_leave">Оставить как есть</string>
+    <string name="ru_worktree_failed">Ошибка операции worktree</string>
+    <string name="ru_worktree_failure">В исходной рабочей папке есть незакоммиченные изменения. Сохраните их или создайте коммит, затем проверьте папку перед слиянием.</string>
+    <string name="ru_worktree_recheck">Проверить рабочую папку</string>
 </resources>

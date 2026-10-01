@@ -195,6 +195,13 @@ import io.aequicor.heartbeat.ds.resources.generated.en_warning
 import io.aequicor.heartbeat.ds.resources.generated.en_width
 import io.aequicor.heartbeat.ds.resources.generated.en_working
 import io.aequicor.heartbeat.ds.resources.generated.en_workspace
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_create_pr
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_failure
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_leave
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_merge_target
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_recheck
+import io.aequicor.heartbeat.ds.resources.generated.en_worktree_result
 import io.aequicor.heartbeat.ds.resources.generated.en_you
 import io.aequicor.heartbeat.ds.resources.generated.ru_action_feedback
 import io.aequicor.heartbeat.ds.resources.generated.ru_actions
@@ -387,6 +394,13 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_warning
 import io.aequicor.heartbeat.ds.resources.generated.ru_width
 import io.aequicor.heartbeat.ds.resources.generated.ru_working
 import io.aequicor.heartbeat.ds.resources.generated.ru_workspace
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_create_pr
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_failure
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_leave
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_merge_target
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_recheck
+import io.aequicor.heartbeat.ds.resources.generated.ru_worktree_result
 import io.aequicor.heartbeat.ds.resources.generated.ru_you
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -596,6 +610,13 @@ public enum class HbString(internal val english: StringResource, internal val ru
     EmptyTitle(Res.string.en_empty_title, Res.string.ru_empty_title),
     EmptyHint(Res.string.en_empty_hint, Res.string.ru_empty_hint),
     LoadingLabel(Res.string.en_loading_label, Res.string.ru_loading_label),
+    WorktreeResult(Res.string.en_worktree_result, Res.string.ru_worktree_result),
+    WorktreeMergeTarget(Res.string.en_worktree_merge_target, Res.string.ru_worktree_merge_target),
+    WorktreeCreatePr(Res.string.en_worktree_create_pr, Res.string.ru_worktree_create_pr),
+    WorktreeLeave(Res.string.en_worktree_leave, Res.string.ru_worktree_leave),
+    WorktreeFailed(Res.string.en_worktree_failed, Res.string.ru_worktree_failed),
+    WorktreeFailure(Res.string.en_worktree_failure, Res.string.ru_worktree_failure),
+    WorktreeRecheck(Res.string.en_worktree_recheck, Res.string.ru_worktree_recheck),
     ;
 
     internal fun resource(locale: HbLocale): StringResource = when (locale) {

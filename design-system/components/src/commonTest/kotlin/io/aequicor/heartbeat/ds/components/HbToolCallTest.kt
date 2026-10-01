@@ -68,5 +68,24 @@ class HbToolCallTest {
         assertFailsWith<IllegalArgumentException> {
             HbChatMessage("message", "Agent", "", toolCalls = persistentListOf(call, call))
         }
+        assertFailsWith<IllegalArgumentException> {
+            HbToolCall("tool", "Tool", actions = persistentListOf(HbToolAction("a", "One"), HbToolAction("a", "Two")))
+        }
+        assertFailsWith<IllegalArgumentException> { HbToolAction(" ", "Blank") }
+    }
+
+    @Test
+    fun `content rows carry their block id while section headings stay untagged`() {
+        val rows = prepareToolRows(
+            persistentListOf(
+                HbToolBlock.Markdown("details", "Done"),
+                HbToolBlock.Console("build-output", (1..400).joinToString("\n") { "line $it" }),
+            ),
+        )
+        assertTrue(rows.filter { it.section != null }.all { it.blockId.isEmpty() })
+        val console = rows.filter { it.console != null }
+        assertTrue(console.size > 1)
+        assertTrue(console.all { it.blockId == "build-output" })
+        assertEquals("details", rows.single { it.markdown != null }.blockId)
     }
 }
