@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -434,6 +435,73 @@ class ComputerUseAgentToolsTest {
         assertFalse(call.await().isError)
     }
 
+    @Test
+    fun `another turn can neither use switch nor release the capture`() = runTest {
+        val foreign = Capturing.copy(owner = CaptureOwner.Agent(Owner.session, TurnId("other-turn")))
+        val fixture = Fixture(this, foreign)
+        val text = buildJsonObject { put("text", "hello") }
+        val desktop = buildJsonObject { put("mode", "desktop") }
+        val calls = listOf(
+            "computer_screenshot" to fixture.context,
+            "computer_zoom" to fixture.context,
+            "computer_type" to fixture.approved("computer_type", text),
+            "computer_capture" to fixture.approved("computer_capture", desktop),
+            "computer_release" to fixture.approved("computer_release", EmptyArguments),
+        )
+        for ((tool, context) in calls) {
+            val arguments = when (tool) {
+                "computer_type" -> text
+                "computer_capture" -> desktop
+                else -> EmptyArguments
+            }
+            val reply = fixture.tools.execute(context, tool, arguments)
+            assertTrue(reply.isError, tool)
+            assertEquals("CaptureOwnedByAnotherTurn", reply.text, tool)
+        }
+        assertTrue(fixture.machine.sent.isEmpty())
+        assertEquals(foreign, fixture.machine.state.value)
+        assertFalse(fixture.tools.execute(fixture.context, "computer_status", EmptyArguments).isError)
+    }
+
+    @Test
+    fun `parallel approvals stay valid after the first input arms the frame`() = runTest {
+        val fixture = Fixture(this, Capturing.copy(isInputArmed = false))
+        val args = buildJsonObject { put("text", "hello") }
+        val first = fixture.approved("computer_type", args)
+        val second = fixture.approved("computer_type", args)
+        assertFalse(fixture.tools.execute(first, "computer_type", args).isError)
+        assertFalse(fixture.tools.execute(second, "computer_type", args).isError)
+        assertEquals(2, fixture.machine.appliedActions.size)
+    }
+
+    @Test
+    fun `input without an operating system grant reports the lost permission`() = runTest {
+        val noInput = Capabilities.copy(isInputAvailable = false)
+        val fixture = Fixture(this, Capturing.copy(capabilities = noInput, isInputArmed = false))
+        val args = buildJsonObject { put("text", "hello") }
+        val reply = fixture.tools.execute(fixture.approved("computer_type", args), "computer_type", args)
+        assertTrue(reply.isError)
+        assertEquals("PermissionLost", reply.text)
+        assertTrue(fixture.machine.appliedActions.isEmpty())
+    }
+
+    @Test
+    fun `lost cleanup acknowledgement ends the turn barrier without failing or leaking`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val barrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertTrue(fixture.machine.state.value is ComputerUseState.Ready)
+        assertFalse(barrier.isCompleted)
+        advanceTimeBy(30_001)
+        runCurrent()
+        assertTrue(barrier.isCompleted)
+        barrier.await()
+        assertEquals(0, fixture.machine.outputs.subscriptionCount.value)
+        val again = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertTrue(again.isCompleted)
+    }
+
     private class Fixture(scope: TestScope, initial: ComputerUseState) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
@@ -452,11 +520,7 @@ class ComputerUseAgentToolsTest {
             ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope)),
             preferences,
         )
-        val context = AgentToolContext(
-            SessionRef(EngineId("pi"), SessionSourceId("local"), "session"),
-            null,
-            TurnId("turn"),
-        )
+        val context = AgentToolContext(Owner.session, null, Owner.turn)
 
         suspend fun approved(
             name: String,
@@ -545,10 +609,11 @@ class ComputerUseAgentToolsTest {
             ),
             Session, CaptureFormat.Png, 20, 10, CaptureRegion(0, 0, 20, 10), 20, 10, 100, 1, "/test/frame.png", 1,
         )
+        val Owner = CaptureOwner.Agent(SessionRef(EngineId("pi"), SessionSourceId("local"), "session"), TurnId("turn"))
         val Capturing = ComputerUseState.Capturing(
             Session,
             ComputerUseMode.Desktop(),
-            CaptureOwner.Panel,
+            Owner,
             Capabilities,
             isInputArmed = true,
             master = Frame,

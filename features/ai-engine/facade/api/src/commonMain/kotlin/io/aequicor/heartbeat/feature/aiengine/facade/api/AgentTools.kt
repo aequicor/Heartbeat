@@ -86,7 +86,10 @@ public interface AgentToolContribution {
     /** Executes after authorization; mutable handlers atomically validate [AgentToolContext.authorization]. */
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
-    /** Releases resources owned by this exact turn after the dispatcher revoked and awaited its tool calls. */
+    /**
+     * Releases resources owned by this exact turn after the dispatcher revoked and awaited its tool calls.
+     * Bounded in time: an owner logs a cleanup it cannot confirm instead of failing the finished turn.
+     */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
 }
 

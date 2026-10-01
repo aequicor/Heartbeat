@@ -179,6 +179,24 @@ class ComputerUseMachineTest {
             observed,
             ComputerUseIntent.Public.ArmInput(true, observed.session, CaptureId("another-frame")),
         )
+        ComputerUseMachineSpec.assertIgnored(
+            observed.copy(isInputArmed = true),
+            ComputerUseIntent.Public.Input(click, expectedCapture = CaptureId("another-frame")),
+        )
+    }
+
+    @Test
+    fun `a frame named without its session still has to match`() {
+        val observed = capturing.copy(lastPreview = preview)
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, expectedCapture = CaptureId("another-frame")),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = observed,
+            intent = ComputerUseIntent.Public.ArmInput(true, expectedCapture = preview.id),
+            to = observed.copy(isInputArmed = true),
+        )
     }
 
     @Test
@@ -186,6 +204,10 @@ class ComputerUseMachineTest {
         ComputerUseMachineSpec.assertIgnored(
             ComputerUseState.Ready(capabilities),
             ComputerUseIntent.Public.ArmInput(true, capturing.session, preview.id),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            ComputerUseState.Ready(capabilities),
+            ComputerUseIntent.Public.ArmInput(true, expectedCapture = preview.id),
         )
     }
 

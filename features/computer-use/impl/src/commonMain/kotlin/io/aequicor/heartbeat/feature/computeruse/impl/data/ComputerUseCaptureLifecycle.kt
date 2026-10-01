@@ -61,7 +61,11 @@ internal class ComputerUseCaptureLifecycle(
         }
     }
 
-    /** Releases only this owner's active capture and awaits all its already-ending capture sessions. */
+    /**
+     * Releases only this owner's active capture and awaits all its already-ending capture sessions within one
+     * shared deadline. An unconfirmed closure is logged and forgotten, so a lost acknowledgement neither fails the
+     * finished turn nor keeps its waiters alive. A cancelled caller keeps the waiters for a retry.
+     */
     suspend fun finishTurn(owner: CaptureOwner.Agent): Unit = guard.withLock {
         val cleanups = ownerCaptures.getOrPut(owner) { mutableListOf() }
         val machine = machines.find(ComputerUseMachineKey)
@@ -71,11 +75,11 @@ internal class ComputerUseCaptureLifecycle(
             val result = machine.send(ComputerUseIntent.Public.OwnerReleased(owner))
             log.i { "agent turn released computer capture result=$result" }
         }
-        for (cleanup in cleanups) {
-            if (withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { cleanup.closed.await() } == null) {
-                log.w { "agent turn capture cleanup acknowledgement timed out" }
-                error("CaptureCleanupTimedOut")
-            }
+        val isConfirmed = withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { cleanups.forEach { it.closed.await() } } != null
+        if (!isConfirmed) {
+            val pending = cleanups.filterNot { it.closed.isCompleted }
+            log.w { "agent turn capture cleanup was not confirmed in time sessions=${pending.size}" }
+            pending.forEach { it.closed.cancel() }
         }
         ownerCaptures.remove(owner)
     }

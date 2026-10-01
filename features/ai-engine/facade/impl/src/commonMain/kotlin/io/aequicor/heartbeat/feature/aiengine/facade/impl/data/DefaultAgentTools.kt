@@ -107,7 +107,16 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
         }
         pending.forEach { it.cancel() }
         pending.forEach { it.cancelAndJoin() }
-        contributions.forEach { it.finishTurn(session, turn) }
+        // One owner's failed cleanup must neither skip the others nor fail the turn that already ended.
+        contributions.forEach { contribution ->
+            try {
+                contribution.finishTurn(session, turn)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "Hosted tool cleanup failed for the finished turn" }
+            }
+        }
     }
 
     private suspend fun executeAuthorized(

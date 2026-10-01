@@ -176,6 +176,20 @@ class DefaultAgentToolsTest {
     }
 
     @Test
+    fun `one owner's failed cleanup neither skips the others nor fails the finished turn`() = runTest {
+        val failing = object : AgentToolContribution {
+            override suspend fun specifications(workspace: WorkspaceRef?) = emptyList<AgentToolSpec>()
+            override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) =
+                AgentToolResult("unused", isError = true)
+            override suspend fun finishTurn(session: SessionRef, turn: TurnId) = error("cleanup not confirmed")
+        }
+        val owner = ToolOwner(AgentToolAction.Read)
+        val context = toolContext()
+        DefaultAgentTools(linkedSetOf(failing, owner)).finishTurn(context.session, context.turn)
+        assertEquals(listOf(context.session to context.turn), owner.finishedTurns)
+    }
+
+    @Test
     fun `finishTurn waits until cancelled hosted command cleanup has completed`() = runTest {
         val entered = CompletableDeferred<Unit>()
         val cleaning = CompletableDeferred<Unit>()

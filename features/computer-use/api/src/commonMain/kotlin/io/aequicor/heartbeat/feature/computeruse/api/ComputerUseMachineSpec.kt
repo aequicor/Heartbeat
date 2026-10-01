@@ -16,13 +16,13 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Unavailable / Failed / Ready | Retry | | Checking | ProbeAvailability |
  * | Ready | RefreshTargets | | stay | EnumerateWindows |
  * | Ready | TargetsLoaded | | stay(targets) | |
- * | Ready | ArmInput | input is available | stay(armed) | |
+ * | Ready | ArmInput | input is available and no authorization binding | stay(armed) | |
  * | Ready | BeginCapture | capabilities support the mode | Capturing | OpenCapture, CaptureChanged |
  * | Capturing | CaptureOpened | matching session | stay(open) | |
  * | Capturing | ArmInput | input available and matching authorization binding | stay(armed) | |
  * | Capturing | Capture | host open | stay | CaptureFrame |
  * | Capturing | Crop | master exists and holds the region | stay | ProduceCrop |
- * | Capturing | Input | armed and the mode allows input | stay | ApplyInput |
+ * | Capturing | Input | armed, the mode allows input, matching binding | stay | ApplyInput |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1) | FrameReady |
  * | Capturing | CropProduced | | stay(lastCrop) | FrameReady |
  * | Capturing | InputApplied | | stay | InputApplied output |
@@ -84,7 +84,7 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
         on<ComputerUseIntent.Public.ArmInput>(guard = {
-            state.capabilities.isInputAvailable && intent.expectedSession == null
+            state.capabilities.isInputAvailable && intent.expectedSession == null && intent.expectedCapture == null
         }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
@@ -109,9 +109,7 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
         on<ComputerUseIntent.Public.ArmInput>(guard = {
-            state.capabilities.isInputAvailable &&
-                (intent.expectedSession == null || intent.expectedSession == state.session) &&
-                (intent.expectedSession == null || intent.expectedCapture == state.lastPreview?.id)
+            state.capabilities.isInputAvailable && state.matchesBinding(intent.expectedSession, intent.expectedCapture)
         }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
@@ -129,8 +127,7 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Public.Input>(
             guard = {
                 state.isOpen && state.isInputArmed && state.capabilities.allowsInput(state.mode) &&
-                    (intent.expectedSession == null || intent.expectedSession == state.session) &&
-                    (intent.expectedSession == null || intent.expectedCapture == state.lastPreview?.id)
+                    state.matchesBinding(intent.expectedSession, intent.expectedCapture)
             },
         ) { effect { ComputerUseEffect.ApplyInput(intent.action, intent.requestId, state.lastPreview?.id) } }
         on<ComputerUseIntent.Public.SwitchMode>(guard = {
@@ -244,6 +241,15 @@ private fun ComputerUseState.Capturing.asReady(): ComputerUseState.Ready = Compu
     capabilities = capabilities,
     targets = targets,
 )
+
+/**
+ * An authorization binding names the approved session and frame. Either part alone is checked too, so a frame
+ * named without its session cannot arm or drive another capture.
+ */
+private fun ComputerUseState.Capturing.matchesBinding(session: CaptureSessionId?, capture: CaptureId?): Boolean {
+    if (session == null && capture == null) return true
+    return (session == null || session == this.session) && capture == lastPreview?.id
+}
 
 /**
  * A crop is served only from a stored master frame of this session. The machine bounds the request against the

@@ -18,7 +18,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
-import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
@@ -34,11 +33,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
-import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
-import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
-import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
@@ -57,14 +53,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
 
@@ -72,10 +63,10 @@ import kotlin.uuid.Uuid
  * The hosted `computer_*` tools.
  *
  * Read-only tools return the path of a stored frame plus its geometry and token estimate; an engine that can
- * read files opens the frame itself. Mutating tools go through the machine, so the same guards apply whether the
- * command came from an agent or from the panel. An authorized input call arms its exact captured frame without
- * a second manual switch, and input stays inside that area. Approvals show the exact action, with control
- * characters escaped and the text bounded.
+ * read files opens the frame itself. Mutating tools go through the machine and its guards. A capture belongs to
+ * the turn that opened it: other turns can neither use, switch nor release it. An authorized input call arms its
+ * exact captured frame without a second manual switch, and input stays inside that area. Approvals show the
+ * exact action, with control characters escaped and the text bounded.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -104,7 +95,8 @@ internal class ComputerUseAgentTools(
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
             "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
             "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
-            "TargetClosed). Call computer_release as soon as you finish working with the computer; capture and " +
+            "TargetClosed); a capture opened by another turn is refused with CaptureOwnedByAnotherTurn. " +
+            "Call computer_release as soon as you finish working with the computer; capture and " +
             "stored frames are also released automatically when your turn ends."
     }
 
@@ -151,7 +143,8 @@ internal class ComputerUseAgentTools(
     private fun binding(): String {
         val state = machines.find(ComputerUseMachineKey)?.state?.value
         return if (state is ComputerUseState.Capturing) {
-            "${state.session.value}:${state.lastPreview?.id?.value.orEmpty()}:${state.isInputArmed}"
+            // Arming is the tool's own step, so it is not part of what the user approved.
+            "${state.session.value}:${state.lastPreview?.id?.value.orEmpty()}"
         } else {
             state?.let { it::class.simpleName }.orEmpty()
         }
@@ -174,11 +167,34 @@ internal class ComputerUseAgentTools(
             }
         }
 
-    override suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = requests.withLock {
+    /** The dispatcher already revoked this turn's calls; the lifecycle guards cleanup on its own. */
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
         lifecycle.finishTurn(CaptureOwner.Agent(session, turn))
     }
 
     private suspend fun dispatch(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): AgentToolResult = when {
+        name in ownedTools && isForeignCapture(machine, context) -> {
+            log.w { "computer tool refused: the capture belongs to another turn name=$name" }
+            failure("CaptureOwnedByAnotherTurn")
+        }
+
+        else -> dispatchOwned(machine, context, name, arguments)
+    }
+
+    private fun isForeignCapture(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        context: AgentToolContext,
+    ): Boolean {
+        val state = machine.state.value as? ComputerUseState.Capturing ?: return false
+        return state.owner != CaptureOwner.Agent(context.session, context.turn)
+    }
+
+    private suspend fun dispatchOwned(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         context: AgentToolContext,
         name: String,
@@ -450,7 +466,16 @@ internal class ComputerUseAgentTools(
         val capture = context.authorization?.binding?.split(':')?.getOrNull(1)
             ?.takeIf { it.isNotEmpty() }?.let(::CaptureId)
         val armed = machine.send(ComputerUseIntent.Public.ArmInput(true, session, capture))
-        if (armed != SendResult.Accepted) return failure("CaptureChangedSinceApproval")
+        if (armed != SendResult.Accepted) {
+            val state = machine.state.value
+            val reason = if (state is ComputerUseState.Capturing && !state.capabilities.isInputAvailable) {
+                ComputerUseFailure.PermissionLost.name
+            } else {
+                "CaptureChangedSinceApproval"
+            }
+            log.w { "input arming refused reason=$reason" }
+            return failure(reason)
+        }
         val output = awaitOutput(
             machine,
             ComputerUseIntent.Public.Input(
@@ -573,111 +598,6 @@ internal class ComputerUseAgentTools(
         return target?.let { ComputerUseMode.Window(it, isClientAreaOnly = arguments.flag("clientAreaOnly") ?: false) }
     }
 
-    private fun click(arguments: JsonObject): InputAction? {
-        val point = point(arguments, "x", "y") ?: return null
-        return InputAction.Click(
-            point = point,
-            button = button(arguments.text("button")),
-            count = (arguments.int("count") ?: 1).coerceIn(1, MAX_CLICKS),
-            space = space(arguments.text("space")),
-        )
-    }
-
-    private fun drag(arguments: JsonObject): InputAction? {
-        val from = point(arguments, "x", "y") ?: return null
-        val to = point(arguments, "toX", "toY") ?: return null
-        return InputAction.Drag(from, to, button(arguments.text("button")), space(arguments.text("space")))
-    }
-
-    private fun scroll(arguments: JsonObject): InputAction? {
-        val at = point(arguments, "x", "y") ?: return null
-        return InputAction.Scroll(
-            point = at,
-            deltaX = arguments.int("deltaX") ?: 0,
-            deltaY = arguments.int("deltaY") ?: 0,
-            space = space(arguments.text("space")),
-        )
-    }
-
-    private fun typed(arguments: JsonObject): InputAction? {
-        val text = arguments.text("text") ?: return null
-        if (text.length > MAX_TYPED_CHARS) return null
-        return InputAction.Type(text)
-    }
-
-    private fun keys(arguments: JsonObject): InputAction? {
-        val names = arguments["keys"]?.jsonPrimitive?.content?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
-        if (names.isNullOrEmpty() || names.size > MAX_KEYS) return null
-        return InputAction.Key(names)
-    }
-
-    private fun point(arguments: JsonObject, xName: String, yName: String): FramePoint? {
-        val x = arguments.number(xName) ?: return null
-        val y = arguments.number(yName) ?: return null
-        return FramePoint(x, y)
-    }
-
-    private fun region(arguments: JsonObject): CaptureRegion? {
-        val x = arguments.int("regionX") ?: return null
-        val y = arguments.int("regionY") ?: return null
-        val width = arguments.int("regionWidth") ?: return null
-        val height = arguments.int("regionHeight") ?: return null
-        return try {
-            CaptureRegion(x, y, width, height)
-        } catch (e: IllegalArgumentException) {
-            log.w(e) { "region refused" }
-            null
-        }
-    }
-
-    private fun normalized(arguments: JsonObject): NormalizedRegion? {
-        val x = arguments.number("nx") ?: return null
-        val y = arguments.number("ny") ?: return null
-        val width = arguments.number("nw") ?: return null
-        val height = arguments.number("nh") ?: return null
-        return try {
-            NormalizedRegion(x, y, width, height)
-        } catch (e: IllegalArgumentException) {
-            log.w(e) { "normalized region refused" }
-            null
-        }
-    }
-
-    private fun encoding(arguments: JsonObject, default: CaptureEncoding): CaptureEncoding {
-        val preset = arguments.text("preset")?.let { CapturePresets.byName(it) } ?: default
-        val format = format(arguments.text("format")) ?: preset.format
-        val quality = (arguments.int("quality") ?: preset.quality).coerceIn(MIN_QUALITY, MAX_QUALITY)
-        val maxWidth = (arguments.int("maxWidth") ?: preset.maxWidthPx).coerceAtLeast(0)
-        val maxBytes = (arguments.int("maxBytes") ?: preset.maxBytes).coerceAtLeast(0)
-        return preset.copy(
-            format = format,
-            quality = quality,
-            maxWidthPx = maxWidth,
-            maxHeightPx = if (maxWidth > 0) maxWidth else preset.maxHeightPx,
-            maxBytes = maxBytes,
-        )
-    }
-
-    private fun format(name: String?): CaptureFormat? = when (name?.lowercase()) {
-        "png" -> CaptureFormat.Png
-        "jpg", "jpeg" -> CaptureFormat.Jpeg
-        null -> null
-        else -> null
-    }
-
-    private fun button(name: String?): MouseButton = when (name?.lowercase()) {
-        "right" -> MouseButton.Right
-        "middle" -> MouseButton.Middle
-        else -> MouseButton.Left
-    }
-
-    private fun space(name: String?): FrameSpace = when (name?.lowercase()) {
-        "master" -> FrameSpace.Master
-        "normalized" -> FrameSpace.Normalized
-        "screen" -> FrameSpace.Screen
-        else -> FrameSpace.Preview
-    }
-
     private fun describe(name: String, arguments: JsonObject, xName: String, yName: String): String {
         val x = arguments.number(xName)
         val y = arguments.number(yName)
@@ -715,19 +635,24 @@ internal class ComputerUseAgentTools(
         }
     }
 
-    private fun JsonObject.hasAny(keys: Set<String>): Boolean = keys.any { it in this }
-
     private fun failure(code: String): AgentToolResult = AgentToolResult(code, isError = true)
-
-    private fun JsonObject.text(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
-    private fun JsonObject.raw(name: String): String? = this[name]?.toString()
-    private fun JsonObject.flag(name: String): Boolean? = this[name]?.jsonPrimitive?.booleanOrNull
-    private fun JsonObject.int(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
-    private fun JsonObject.number(name: String): Double? = this[name]?.jsonPrimitive?.doubleOrNull
 
     private companion object {
         val regionKeys = setOf("regionX", "regionY", "regionWidth", "regionHeight")
         val normalizedKeys = setOf("nx", "ny", "nw", "nh")
+
+        /** Tools that act on the current capture; the reading tools status and windows do not. */
+        val ownedTools = setOf(
+            CAPTURE_TOOL,
+            SCREENSHOT_TOOL,
+            ZOOM_TOOL,
+            CLICK_TOOL,
+            DRAG_TOOL,
+            SCROLL_TOOL,
+            TYPE_TOOL,
+            KEY_TOOL,
+            RELEASE_TOOL,
+        )
         val mutatingTools = setOf(CAPTURE_TOOL, CLICK_TOOL, DRAG_TOOL, SCROLL_TOOL, TYPE_TOOL, KEY_TOOL, RELEASE_TOOL)
         const val STATUS_TOOL = "computer_status"
         const val WINDOWS_TOOL = "computer_windows"
@@ -744,15 +669,10 @@ internal class ComputerUseAgentTools(
         const val CAPTURE_TIMEOUT_MILLIS = 10_000L
         const val OUTPUT_TIMEOUT_MILLIS = 30_000L
         const val MAX_WINDOWS = 60
-        const val MAX_CLICKS = 3
-        const val MAX_KEYS = 6
-        const val MAX_TYPED_CHARS = 4096
         const val MAX_APPROVAL_CHARS = 512
-        const val BINDING_FIELDS = 3
+        const val BINDING_FIELDS = 2
         const val HEX_RADIX = 16
         const val UNICODE_DIGITS = 4
-        const val MIN_QUALITY = 1
-        const val MAX_QUALITY = 100
         const val OVERVIEW_WIDTH_PX = 1568
         const val FIRST_VISIBLE_CHAR = ' '
         const val DELETE_CHAR = '\u007F'
