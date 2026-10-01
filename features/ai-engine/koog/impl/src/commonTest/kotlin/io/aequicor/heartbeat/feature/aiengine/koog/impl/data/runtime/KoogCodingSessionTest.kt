@@ -14,10 +14,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -40,10 +43,11 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogCodingSessionTest {
     @Test
-    fun `hosted tools ignore legacy auto approve and keep trusted turn context`() = runTest {
+    fun `hosted tools with document input ignore legacy auto approve and keep trusted turn context`() = runTest {
         val f = fixture(autoApprove = true)
         var capturedContext: AgentToolContext? = null
         var executions = 0
+        f.isCodingEnabled = true
         f.hostedTools = object : ProfileAgentTools {
             override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
                 AgentToolSpec("edit_file", "Edit file", JsonObject(mapOf("type" to JsonPrimitive("object")))),
@@ -65,8 +69,17 @@ class KoogCodingSessionTest {
                 return AgentToolResult("done")
             }
         }
+        val original = ContentPart.Resource(ResourceRef("attachment:source", "text/markdown"))
+        f.resources = mapOf(
+            "attachment:source" to ResolvedResource(
+                "source.md",
+                "text/markdown",
+                "Attached source".encodeToByteArray(),
+            ),
+        )
+        val request = f.request().copy(parts = f.request().parts + original, trust = TrustLevel.Ask)
         val session = f.codingSession()
-        val turn = session.features.require(SendsPrompts).send(f.request().copy(trust = TrustLevel.Ask))
+        val turn = session.features.require(SendsPrompts).send(request)
         f.callTool("edit_file")
         runCurrent()
         val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
@@ -80,10 +93,45 @@ class KoogCodingSessionTest {
         f.executor.complete()
         runCurrent()
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val history = session.features.require(SessionHistory).page()
+        val user = history.items.filterIsInstance<SessionItem.Message>().single { it.role == MessageRole.User }
+        assertEquals(request.parts, user.parts)
+        val nativeUser = f.executor.prompts.first().messages.filterIsInstance<Message.User>().single()
+        assertTrue(nativeUser.textContent().contains("Attached source"))
     }
 
     private val edit = RecordingTool("edit_file", isMutating = true)
     private val read = RecordingTool("read_file", isMutating = false)
+
+    @Test
+    fun `coding toggle disables hosted file and shell declarations but keeps workspace workflows`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.isCodingEnabled = false
+        f.hostedTools = object : ProfileAgentTools {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
+                "read_file",
+                "list_dir",
+                "glob",
+                "grep",
+                "write_file",
+                "edit_file",
+                "run_command",
+                "configure_build",
+            ).map { AgentToolSpec(it, it, JsonObject(mapOf("type" to JsonPrimitive("object")))) }
+            override suspend fun instructions(workspace: WorkspaceRef?): String = "Use hosted tools"
+            override suspend fun execute(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): AgentToolResult = error("Disabled coding tools must not execute")
+        }
+        val session = f.codingSession()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("configure_build"), f.executor.tools.single().map { it.name })
+    }
 
     @Test
     fun `project session offers coding tools and instructions`() = runTest {

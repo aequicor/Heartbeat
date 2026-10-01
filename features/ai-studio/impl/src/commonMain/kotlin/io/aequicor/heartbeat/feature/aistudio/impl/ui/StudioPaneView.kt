@@ -540,6 +540,7 @@ private fun PaneFooter(
                 previews = content.attachmentPreviews,
             )
         }
+        StudioWorktree(content, onIntent, column)
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
 }

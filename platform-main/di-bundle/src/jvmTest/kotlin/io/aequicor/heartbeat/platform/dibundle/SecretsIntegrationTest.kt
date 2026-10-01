@@ -13,11 +13,13 @@ import io.aequicor.heartbeat.core.secrets.SecretRemoval
 import io.aequicor.heartbeat.core.secrets.SecretUsage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import org.junit.Assume.assumeTrue
 import java.io.File
 import kotlin.test.AfterTest
@@ -89,9 +91,11 @@ class SecretsIntegrationTest {
             val reopened = app.profileSessions.open(id)
             assertFailsWith<IllegalStateException> { (reopened.graph as SecretsAccessors).secrets }
         } finally {
-            app.profileSessions.close()
-            finish.complete(Unit)
-            wipe.await()
+            withContext(NonCancellable) {
+                app.profileSessions.close()
+                finish.complete(Unit)
+                wipe.await()
+            }
         }
         persisted.beforeProfileWipe = {}
         assertNull((app.profileSessions.open(id).graph as SecretsAccessors).secrets.read(key))

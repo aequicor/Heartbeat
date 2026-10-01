@@ -65,6 +65,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -132,6 +133,32 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
+    fun `configuration read failure after native acceptance preserves outcome observation`() = runTest {
+        TestAdapter.isConfigurationFailureEnabled = true
+        try {
+            val services = configured()
+            val repository = services.studioRepository
+            val runtime = services.studioRuntime
+            val chat = repository.createSession(null, "Accepted configuration failure")
+            val run = async { runtime.run(chat.id, "Keep observing the accepted turn", runtime.defaults()) }
+            repository.observeMessages(chat.id).first { messages -> messages.any { it is StudioMessage.Prompt } }
+            val native = TestAdapter.runtimes.single().natives.single()
+            native.configurationReadFailures.first { it > 0 }
+            assertEquals(1, native.sent.size)
+            assertTrue(chat.id in runtime.state.value.running)
+            assertFalse(run.isCompleted)
+            assertEquals(0, native.cancellations)
+            native.finish()
+            assertEquals(RunOutcome.Completed, run.await())
+            assertTrue(runtime.state.value.running.isEmpty())
+            val messages = repository.observeMessages(chat.id).first { it.size == 2 }
+            assertTrue(messages.none { it is StudioMessage.Failed })
+        } finally {
+            TestAdapter.isConfigurationFailureEnabled = false
+        }
+    }
+
+    @Test
     fun `a fresh native conversation starts with the selected approval and effort defaults`() = runTest {
         TestAdapter.reasoningEfforts = listOf("low", "high")
         TestAdapter.isTrustSupported = true
@@ -179,8 +206,8 @@ class StudioEngineIntegrationTest {
             val choices = requireNotNull(app.machines.find(EffortConfigurationMachineKey)).state.value
             assertEquals("high", assertIs<EffortConfigurationState.Ready>(choices).effortFor(target))
             restored.studioRepository.observeModels().first { it.isNotEmpty() }
-            repeat(2) {
-                val chat = restored.studioRepository.createSession(null, "Restored defaults $it")
+            repeat(2) { iteration ->
+                val chat = restored.studioRepository.createSession(null, "Restored defaults $iteration")
                 val run = async { restored.studioRuntime.run(chat.id, "Hello", restored.studioRuntime.defaults()) }
                 restored.studioRuntime.state.first { chat.id in it.configurations }
                 val native = TestAdapter.runtimes.last().natives.last()
@@ -405,7 +432,7 @@ class StudioEngineIntegrationTest {
         val native = TestAdapter.runtimes.single().natives.single()
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         native.cancelGate = gate
-        native.failCancellation = true
+        native.isCancellationFailureEnabled = true
         runtime.cancel(chat.id)
         assertTrue(chat.id in runtime.state.value.running)
         gate.complete(Unit)

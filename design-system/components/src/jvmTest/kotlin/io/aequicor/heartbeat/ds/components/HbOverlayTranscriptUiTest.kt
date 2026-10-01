@@ -83,15 +83,15 @@ class HbOverlayTranscriptUiTest {
         size = Size(480f, 420f),
     ) {
         var timeline by mutableStateOf(HbChatTimeline.from(HbChatSection("today", "Today"), overlayMessages(200, 80)))
-        var showHeaders by mutableStateOf(true)
+        var areHeadersVisible by mutableStateOf(true)
         val state = LazyListState(firstVisibleItemIndex = 24, firstVisibleItemScrollOffset = 12)
         setContent {
             OverlayTranscriptTheme {
-                HbChatTranscript(timeline, state = state, showSectionHeaders = showHeaders)
+                HbChatTranscript(timeline, state = state, showSectionHeaders = areHeadersVisible)
             }
         }
         val anchor = runOnIdle { overlayReadingAnchor(state) }
-        runOnIdle { showHeaders = false }
+        runOnIdle { areHeadersVisible = false }
         onNodeWithText("Today").assertDoesNotExist()
         runOnIdle { assertEquals(anchor, overlayReadingAnchor(state)) }
         runOnIdle { timeline = timeline.prepend(HbChatSection("older", "Older"), overlayMessages(0, 200)) }
@@ -102,7 +102,7 @@ class HbOverlayTranscriptUiTest {
                 "A prepend beyond the nearby-key window must retain position",
             )
             assertEquals(timeline.itemCount - 2, state.layoutInfo.totalItemsCount)
-            showHeaders = true
+            areHeadersVisible = true
         }
         runOnIdle { assertEquals(anchor, overlayReadingAnchor(state)) }
     }

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -62,6 +63,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -136,6 +139,7 @@ object TestAdapter {
     val runtimes = mutableListOf<TestRuntime>()
     var reasoningEfforts: List<String> = emptyList()
     var isTrustSupported = false
+    var isConfigurationFailureEnabled = false
 
     val registration: EngineRegistration get() = EngineRegistration(
         EngineDescriptor(
@@ -145,7 +149,8 @@ object TestAdapter {
             EnginePlatform.entries.toSet(),
             toggle,
             declaredFeatures = setOf(CreatesSessions.id, AttachesSessions.id) +
-                if (isTrustSupported) setOf(AppliesTrustLevels.id) else emptySet(),
+                (if (isTrustSupported) setOf(AppliesTrustLevels.id) else emptySet()) +
+                (if (isConfigurationFailureEnabled) setOf(ChangesSessionConfiguration.id) else emptySet()),
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(
                     ConnectionMethodId("key"),
@@ -176,14 +181,17 @@ object TestAdapter {
                 )
 
                 override suspend fun createRuntime(identity: RuntimeIdentity): EngineRuntime =
-                    TestRuntime(identity, isTrustSupported).also { runtimes += it }
+                    TestRuntime(identity, isTrustSupported, isConfigurationFailureEnabled).also { runtimes += it }
             },
         ),
     )
 }
 
-class TestRuntime(override val identity: RuntimeIdentity, private val isTrustSupported: Boolean = false) :
-    EngineRuntime {
+class TestRuntime(
+    override val identity: RuntimeIdentity,
+    isTrustSupported: Boolean = false,
+    isConfigurationFailureEnabled: Boolean = false,
+) : EngineRuntime {
     val natives = mutableListOf<TestNative>()
 
     /** Close calls; the profile releases runtimes asynchronously on the app scope. */
@@ -194,6 +202,7 @@ class TestRuntime(override val identity: RuntimeIdentity, private val isTrustSup
             override suspend fun create(request: CreateSessionRequest): ActiveSession = TestNative(
                 SessionRef(identity.engine, SessionSourceId("local"), "n${natives.size}"),
                 isTrustSupported,
+                isConfigurationFailureEnabled,
             ).also {
                 natives += it
             }
@@ -211,7 +220,11 @@ class TestRuntime(override val identity: RuntimeIdentity, private val isTrustSup
     }
 }
 
-class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false) : ActiveSession {
+class TestNative(
+    override val ref: SessionRef,
+    isTrustSupported: Boolean = false,
+    isConfigurationFailureEnabled: Boolean = false,
+) : ActiveSession {
     val native = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready())
     private val events = MutableStateFlow<List<SessionEvent>>(emptyList())
     private var items = emptyList<SessionItem>()
@@ -219,9 +232,23 @@ class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false
     var closeGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var cancellations = 0
     var cancelGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
-    var failCancellation = false
+    var isCancellationFailureEnabled = false
     var decision: PermissionDecision? = null
     val sent = mutableListOf<PromptRequest>()
+    val configurationReadFailures = MutableStateFlow(0)
+    private val faultyConfiguration = object : ChangesSessionConfiguration {
+        private val initial = MutableStateFlow(SessionConfiguration(ModelId("m1")))
+        override val configuration: StateFlow<SessionConfiguration>
+            get() {
+                if (sent.isNotEmpty()) {
+                    configurationReadFailures.value++
+                    error("AcceptedConfigurationReadFailed")
+                }
+                return initial
+            }
+        override suspend fun apply(operationId: String, change: SessionConfigurationChange): SessionConfiguration =
+            error("Configuration changes are not used by this fixture")
+    }
     override val route get() = error("the facade owns the route")
     override val state: StateFlow<ActiveSessionState> = native
 
@@ -249,7 +276,7 @@ class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false
             override suspend fun cancel(turn: TurnId) {
                 cancellations++
                 cancelGate?.await()
-                if (failCancellation) {
+                if (isCancellationFailureEnabled) {
                     throw EngineException(
                         EngineFailure.Transport(
                             io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason.NetworkUnavailable,
@@ -290,16 +317,20 @@ class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false
             }
         },
     ).let { original ->
-        if (!isTrustSupported) {
+        if (!isTrustSupported && !isConfigurationFailureEnabled) {
             original
         } else {
             object : EngineFeatures {
                 override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
-                    @Suppress("UNCHECKED_CAST") // A marker capability has no behavior to fake.
-                    return if (key == AppliesTrustLevels) {
-                        FeatureAccess.Available(object : AppliesTrustLevels {} as F)
-                    } else {
-                        original.resolve(key)
+                    @Suppress("UNCHECKED_CAST") // Fixed keys select the corresponding fixture capability type.
+                    return when {
+                        key == AppliesTrustLevels && isTrustSupported ->
+                            FeatureAccess.Available(object : AppliesTrustLevels {} as F)
+
+                        key == ChangesSessionConfiguration && isConfigurationFailureEnabled ->
+                            FeatureAccess.Available(faultyConfiguration as F)
+
+                        else -> original.resolve(key)
                     }
                 }
             }
@@ -327,7 +358,7 @@ class TestNative(override val ref: SessionRef, isTrustSupported: Boolean = false
     }
 
     fun finish() {
-        val turn = checkNotNull((native.value as ActiveSessionState.Running).turn)
+        val turn = (native.value as ActiveSessionState.Running).turn
         record(
             SessionItem.Message(
                 ItemInfo(ItemId("answer-${items.size}"), items.size.toLong(), 0, turn.id),

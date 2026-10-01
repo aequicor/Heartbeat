@@ -49,6 +49,7 @@ import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute as ProductionWelco
 @OptIn(ExperimentalCoroutinesApi::class)
 class WelcomeIntegrationTest {
     private val processes = mutableListOf<Process>()
+    private val clock = RealTestClock()
 
     private inner class Process(val disk: PersistedProfile, saved: SerializableContainer? = null) {
         val graph = createGraphFactory<TestAppGraph.Factory>().create(disk)
@@ -89,6 +90,7 @@ class WelcomeIntegrationTest {
     fun cleanup() {
         processes.forEach { (it.graph.appScope as OwnedScope).close() }
         Dispatchers.resetMain()
+        clock.close()
     }
 
     @Test
@@ -98,7 +100,7 @@ class WelcomeIntegrationTest {
         advanceUntilIdle()
         process.welcome.send(WelcomeIntent.Public.Skip)
         process.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
-        awaitStorage { process.host.routes.size == 2 }
+        awaitStorage(this) { process.host.routes.size == 2 }
         assertEquals(listOf(ProductionWelcomeRoute, SettingsRoute(SettingsSection.FeatureFlags)), process.host.routes)
         process.host.onBack()
         advanceUntilIdle()
@@ -158,7 +160,7 @@ class WelcomeIntegrationTest {
         advanceUntilIdle()
         before.welcome.send(WelcomeIntent.Public.Skip)
         before.welcome.send(WelcomeIntent.Public.Open(WelcomeDestination.Toggles))
-        awaitStorage { before.graph.machines.find(TogglesPanelMachineKey) != null }
+        awaitStorage(this) { before.graph.machines.find(TogglesPanelMachineKey) != null }
         val panel = checkNotNull(before.graph.machines.find(TogglesPanelMachineKey))
         panel.state.first { it is TogglesPanelState.Active && it.rows != null }
         panel.send(TogglesPanelIntent.Public.Apply(ToggleOperation.SetFlag(CinematicIntro, false)))
@@ -186,13 +188,13 @@ class WelcomeIntegrationTest {
     }
 
     /** Opening the flags reads the unified settings toggle from storage off the test dispatcher. */
-    private suspend fun TestScope.awaitStorage(isDone: () -> Boolean) {
+    private suspend fun awaitStorage(test: TestScope, isDone: () -> Boolean) {
         repeat(STORAGE_ATTEMPTS) {
-            advanceUntilIdle()
+            test.advanceUntilIdle()
             if (isDone()) return
-            withContext(Dispatchers.Default) { delay(STORAGE_POLL_MILLIS) }
+            withContext(clock.dispatcher) { delay(STORAGE_POLL_MILLIS) }
         }
-        advanceUntilIdle()
+        test.advanceUntilIdle()
     }
 
     private companion object {

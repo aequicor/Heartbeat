@@ -2,6 +2,9 @@ import { Type } from "@sinclair/typebox";
 
 const origin = process.env.HEARTBEAT_AGENT_TOOLS_URL;
 const token = process.env.HEARTBEAT_AGENT_TOOLS_TOKEN;
+// Native shell tools inherit process.env; retain this capability only in the extension closure.
+delete process.env.HEARTBEAT_AGENT_TOOLS_URL;
+delete process.env.HEARTBEAT_AGENT_TOOLS_TOKEN;
 const specs = JSON.parse(process.env.HEARTBEAT_AGENT_TOOL_SPECS ?? "[]") as Array<{
   name: string; description: string; inputSchema: object;
 }>;

@@ -36,6 +36,7 @@ data class SessionUi(
     val isRunning: Boolean = false,
     val modelId: String? = null,
     val isContinuable: Boolean = true,
+    val isWorktree: Boolean = false,
 )
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */
@@ -66,6 +67,9 @@ data class AiStudioScreenState(
     val models: ImmutableList<ModelUi> = persistentListOf(),
     val isResearchEnabled: Boolean = false,
     val isProjectAddingAvailable: Boolean = false,
+    val isWorktreeAvailable: Boolean = false,
+    val worktrees: ImmutableMap<String, WorktreeUi> = persistentMapOf(),
+    val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val addingProjectTo: Int? = null,
     val projectErrorPane: Int? = null,
     val permissions: ImmutableList<PermissionUi> = persistentListOf(),
@@ -131,6 +135,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Local attachment input and saved-file actions. */
     sealed interface Attachment : Composer
 
+    /** Worktree execution mode and the persisted task's completion/build controls. */
+    sealed interface Worktree : Composer
+
     /** Metadata changes of one session. */
     sealed interface SessionAction : AiStudioScreenIntent
 
@@ -186,6 +193,21 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composed attachment rows request their small preview and release it on disposal. */
     data class AttachmentPreviewVisible(val id: String, val mediaType: String, val isVisible: Boolean) : Attachment
+
+    /** Fixes the execution mode of a new pane before its first submission. */
+    data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Worktree
+
+    /** Applies one explicit decision to the saved result. */
+    data class DecideWorktree(val sessionId: String, val action: WorktreeActionUi) : Worktree
+
+    /** Reconciles interrupted operations against the current checkout. */
+    data class RecheckWorktree(val sessionId: String) : Worktree
+
+    /** Restores the profile journal after a storage failure. */
+    data object RetryWorktreeJournal : Worktree
+
+    /** Cancels one queued or running coordinated build. */
+    data class CancelWorktreeBuild(val sessionId: String, val operation: String) : Worktree
 
     /** Sends the composer text of a pane. */
     data class Submit(val paneId: Int) : Composer

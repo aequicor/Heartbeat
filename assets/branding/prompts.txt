@@ -1,0 +1,25 @@
+Heartbeat branding — generated with the built-in image_gen tool.
+Final master logo prompt:
+
+Use case: precise-object-edit
+Asset type: final Heartbeat application logo, transparent master for platform app icons.
+Primary request: Change only the central symbol of the provided logo to focus clearly on HEARTBEAT / ECG. Keep the exact blue-to-violet softly rounded tilted hexagonal glass tile and its silhouette, proportions and transparency.
+Input images: Image 1 is the edit target.
+Subject: replace the solid white heart with a large crisp luminous white ECG waveform that dominates the center. The waveform should run horizontally, dip briefly, rise into one tall narrow R spike, fall into a short negative S dip, then return to baseline with a gentle T wave. Rounded ends and joins, strong clear stroke, recognizable at 32px. A much quieter thin heart outline may frame the waveform, but the ECG pulse must be the dominant visual element. Empty violet interior around the pulse, no solid filled heart.
+Style/medium: same polished glass app icon with restrained glow; clean white core, subtle icy-blue glow, simple iconic geometry.
+Composition/framing: retain the square canvas, centered complete tile, and transparent margin. The ECG spans approximately two-thirds of the tile width, with the tall spike balanced centrally.
+Constraints: preserve the tile exactly; real alpha transparency outside it; no outside haze or cast shadow. No letters, no H monogram, no words, no watermark, no medical equipment, no extra icon. One ECG beat only.
+
+Final README banner prompt:
+
+Use case: ads-marketing
+Asset type: wide GitHub README hero banner for Heartbeat, a Kotlin Multiplatform AI studio.
+Primary request: Expand the supplied finished Heartbeat ECG logo into a refined panoramic 3:1 brand banner. Preserve the exact rounded blue-violet hexagonal tile and white ECG waveform from the reference logo.
+Input images: Image 1 is the logo edit target and brand reference; preserve its identity.
+Scene/backdrop: dark indigo-to-violet studio backdrop with soft glass depth, subtle cool blue and violet light flowing gently through the scene. A restrained fine ECG trace may echo the logo in the background; no grids or medical equipment.
+Subject: one prominent complete logo tile and the application name, balanced together in a spacious central composition.
+Style/medium: premium contemporary technology brand artwork, polished glass, restrained luminosity, crisp editorial typography, uncluttered.
+Composition/framing: wide panorama approximately 3:1, comfortable outer margins. Logo occupies roughly a quarter of the composition; wordmark is large and highly readable beside it. Preserve transparent-logo tile shape without enclosing it in another square.
+Color palette: reference saturated blue and violet, dark ink #18203A, cool white ECG and typography.
+Text (verbatim): "Heartbeat" as a large bright modern sans-serif wordmark; "AI STUDIO" as a small uppercase letter-spaced label above it. Spell Heartbeat exactly H-e-a-r-t-b-e-a-t.
+Constraints: use only these two text elements. Retain the exact ECG symbol and hexagonal glass tile. No heart icon, no H monogram, no provider or platform logos, no screenshots, no fake interface, no extra objects, no watermark. Must look beautiful and legible in a GitHub README at 900px wide.

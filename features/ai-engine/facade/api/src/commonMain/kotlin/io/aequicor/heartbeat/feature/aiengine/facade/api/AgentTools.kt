@@ -37,7 +37,9 @@ public object RejectAgentToolPermissions : AgentToolPermissions {
 
 /**
  * Trusted execution identity supplied by the adapter, never decoded from model arguments.
- * A context belongs to the currently accepted native turn and must be revoked when that turn ends.
+ * Adapters supply their native turn id; the dispatcher replaces it with the facade id when the request is
+ * bound by [ProfileAgentTools.bindTurn]. The permission callback still addresses the native turn.
+ * A context belongs to the currently accepted turn and must be revoked when that turn ends.
  */
 public data class AgentToolContext(
     val session: SessionRef,
@@ -87,6 +89,9 @@ public interface AgentToolContribution {
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */
 public interface ProfileAgentTools {
+    /** Binds a trusted request to its facade turn before native submission can invoke any hosted tools. */
+    public suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId): Unit = Unit
+
     /** Available tool declarations for a session's immutable execution workspace. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
 
@@ -96,7 +101,10 @@ public interface ProfileAgentTools {
     /** Rechecks availability and enforces TrustLevel before invoking a contribution. */
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
-    /** Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources. */
+    /**
+     * Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources.
+     * [turn] is the facade id registered by [bindTurn], or the native id of an unbound external turn.
+     */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
 }
 

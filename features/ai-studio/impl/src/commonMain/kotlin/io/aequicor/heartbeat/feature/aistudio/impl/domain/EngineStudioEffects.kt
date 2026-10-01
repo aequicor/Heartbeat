@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.StudioDefaults
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -59,7 +60,7 @@ class EngineStudioEffects(
             )
 
             is AiStudioEffect.CreateSession -> {
-                val session = repository.createSession(effect.projectId, titleOf(effect.prompt))
+                val session = repository.createSession(effect.projectId, titleOf(effect.prompt), effect.isWorktree)
                 machine.send(
                     AiStudioIntent.Internal.SessionCreated(
                         effect.paneId,
@@ -115,8 +116,11 @@ class EngineStudioEffects(
     }
 
     private suspend fun observeProjects(machine: EffectScope<AiStudioIntent>) {
-        (projects?.availability ?: flowOf(false)).collect {
-            machine.send(AiStudioIntent.Internal.ProjectAvailabilityChanged(it))
+        combine(
+            projects?.availability ?: flowOf(false),
+            projects?.worktreeAvailability ?: flowOf(false),
+        ) { folders, worktree -> AiStudioIntent.Internal.ProjectAvailabilityChanged(folders, worktree) }.collect {
+            machine.send(it)
         }
     }
 

@@ -1,11 +1,15 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 
 /** Local-folder selection and registration; only stable project ids leave this service. */
 interface StudioProjects {
     /** Whether this platform and the current feature switches allow selection. */
     val availability: Flow<Boolean>
+
+    /** Isolated execution is offered only by Desktop engine-backed projects. */
+    val worktreeAvailability: Flow<Boolean> get() = flowOf(false)
 
     /** Returns a registered opaque project id, or null when the user cancels. */
     suspend fun choose(): String?

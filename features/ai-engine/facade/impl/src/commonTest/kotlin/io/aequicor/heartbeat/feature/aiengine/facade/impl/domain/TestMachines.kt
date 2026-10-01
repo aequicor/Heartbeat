@@ -159,6 +159,7 @@ internal class FakeNativeSession(
     /** Runs inside the native send before anything else, e.g. to end a scope while the command is in flight. */
     var onSend: () -> Unit = {}
     var isAcceptanceOnSend = true
+    var onAccepted: suspend (Turn) -> Unit = {}
 
     /** Whether the published native turn carries the request id (adapters may not correlate). */
     var isCorrelationOnSend = true
@@ -186,6 +187,7 @@ internal class FakeNativeSession(
                         if (isAcceptanceOnSend) {
                             val correlated = request.id.takeIf { isCorrelationOnSend }
                             native.value = ActiveSessionState.Running(Turn(id, correlated, TestTarget))
+                            onAccepted(activeTurn)
                         }
                         return id
                     }

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -47,6 +48,16 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
+    private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, TurnId>()
+
+    override suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId) {
+        log.i { "Bind hosted execution to the facade turn" }
+        callsLock.withLock {
+            val key = session to request
+            check(boundTurns[key] == null || boundTurns[key] == turn) { "Request already belongs to another turn" }
+            boundTurns[key] = turn
+        }
+    }
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         declarations(workspace).map { it.second }
@@ -62,18 +73,22 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
             val turnEnded = context.lifetime?.invokeOnCompletion {
                 invocation.cancel(CancellationException("Native turn ended"))
             }
-            val key = context.session to context.turn
+            var trusted = context
             try {
                 currentCoroutineContext().ensureActive()
                 val isRegistered = callsLock.withLock {
+                    val turn = context.request?.let { boundTurns[context.session to it] } ?: context.turn
+                    trusted = context.copy(turn = turn, authorization = null)
+                    val key = trusted.session to trusted.turn
                     if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
                 }
                 if (!isRegistered) return@coroutineScope AgentToolResult("Native turn has ended", isError = true)
-                executeAuthorized(context.copy(authorization = null), name, arguments)
+                executeAuthorized(trusted, name, arguments)
             } finally {
                 turnEnded?.dispose()
                 withContext(NonCancellable) {
                     callsLock.withLock {
+                        val key = trusted.session to trusted.turn
                         calls[key]?.let { pending ->
                             pending.remove(invocation)
                             if (pending.isEmpty()) calls.remove(key)

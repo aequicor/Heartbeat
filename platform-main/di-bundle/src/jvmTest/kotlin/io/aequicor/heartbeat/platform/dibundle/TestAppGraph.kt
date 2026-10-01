@@ -68,7 +68,7 @@ interface TestAppGraph : HeartbeatGraph {
     }
 }
 
-class PersistedProfile(val suspendOperations: Boolean = true) {
+class PersistedProfile(val isOperationSuspensionEnabled: Boolean = true) {
     var id: ProfileId? = null
     var beforeProfileWipe: suspend () -> Unit = {}
     val secretsConfig: SecretsConfig by lazy {
@@ -99,19 +99,19 @@ interface TestStorageAccessors {
 class FakeActiveProfileStorage(private val persisted: PersistedProfile) : ActiveProfileStorage {
     // Usually suspends like DataStore; tests can also exercise an in-memory implementation with no suspension.
     override suspend fun read(): ProfileId? {
-        if (persisted.suspendOperations) yield()
+        if (persisted.isOperationSuspensionEnabled) yield()
         return persisted.id
     }
 
     override suspend fun write(id: ProfileId?) {
-        if (persisted.suspendOperations) yield()
+        if (persisted.isOperationSuspensionEnabled) yield()
         persisted.id = id
     }
 }
 
 // ---- a feature: its own scope and graph extension, contributed to ProfileScope ----
 
-abstract class TestFeatureScope private constructor()
+interface TestFeatureScope
 
 @GraphExtension(TestFeatureScope::class)
 interface TestFeatureGraph {
@@ -160,7 +160,7 @@ object CounterKey : SharedKey<Counter> {
     override val name = "counter"
 }
 
-class Counter(val scope: ScopeHandle)
+data class Counter(val scope: ScopeHandle)
 
 @ContributesIntoMap(ProfileScope::class)
 @StringKey("counter")

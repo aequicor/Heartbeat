@@ -11,6 +11,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SkikoComposeUiTest
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -95,24 +96,20 @@ private fun renderEdge(
 ) = runSkikoComposeUiTest(size = Size(width.toFloat(), 800f)) {
     val events = mutableListOf<AiStudioScreenIntent>()
     var stopLabel = ""
+    val isNewSession = state.panes.first().sessionId == null
+    var contextRowAllowance = 0f
     setContent {
         stopLabel = stringResource(Res.string.composer_stop)
         CompositionLocalProvider(LocalDensity provides Density(1f)) {
             HbTheme(darkTheme = isDark) {
+                contextRowAllowance = HbTheme.spacing.xs.value * 2 +
+                    if (isNewSession) HbTheme.dimensions.composerPillHeight.value else 0f
                 AiStudioContent(state, events::add, StudioExits(onBack = {}, onOpenToggles = {}))
             }
         }
     }
     settleAudit()
-    if (state.sidebar.isVisible) {
-        onNodeWithTag("studio-sidebar").assertIsDisplayed()
-        if (state.sessions.isNotEmpty()) {
-            assertTrue(completeSessionRows() >= 18, "At least 18 complete chat rows must fit")
-        }
-    } else {
-        onNodeWithTag("studio-sidebar").assertDoesNotExist()
-        onNodeWithTag("pane-open-sidebar").assertIsDisplayed()
-    }
+    assertDesktopSidebar(state)
     val lineCount = if (hasProse) visibleProseLines() else 0
     saveAudit(
         name,
@@ -124,10 +121,8 @@ private fun renderEdge(
     val metricsFile = File(desktopAuditDirectory(), "$name.json")
     val metrics = Json.parseToJsonElement(metricsFile.readText()).jsonObject
     metricsFile.writeText(JsonObject(metrics + ("visibleProseLines" to JsonPrimitive(lineCount))).toString())
-    assertDesktopGeometry(width, isIdle = state.running.isEmpty())
-    if (hasProse && width >= 1280 && state.running.isEmpty()) {
-        assertTrue(lineCount >= 25, "Expected at least 25 complete prose lines, found $lineCount")
-    }
+    assertDesktopGeometry(width, state.running.isEmpty(), contextRowAllowance, isNewSession)
+    assertDesktopProseLines(width, hasProse, state.running.isEmpty(), lineCount)
     if (state.running.isNotEmpty()) {
         onNodeWithContentDescription(stopLabel).assertIsDisplayed().performClick()
         assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Stop("audit-0")), events)
@@ -135,16 +130,57 @@ private fun renderEdge(
 }
 
 @OptIn(ExperimentalTestApi::class)
-private fun SkikoComposeUiTest.assertDesktopGeometry(width: Int, isIdle: Boolean) {
+private fun SkikoComposeUiTest.assertDesktopSidebar(state: AiStudioScreenState) {
+    if (state.sidebar.isVisible) {
+        onNodeWithTag("studio-sidebar").assertIsDisplayed()
+        if (state.sessions.isNotEmpty()) {
+            assertTrue(completeSessionRows() >= 18, "At least 18 complete chat rows must fit")
+        }
+    } else {
+        onNodeWithTag("studio-sidebar").assertDoesNotExist()
+        onNodeWithTag("pane-open-sidebar").assertIsDisplayed()
+    }
+}
+
+private fun assertDesktopProseLines(width: Int, hasProse: Boolean, isIdle: Boolean, lineCount: Int) {
+    if (hasProse && width >= 1280 && isIdle) {
+        assertTrue(lineCount >= 25, "Expected at least 25 complete prose lines, found $lineCount")
+    }
+}
+
+@OptIn(ExperimentalTestApi::class)
+private fun SkikoComposeUiTest.assertDesktopGeometry(
+    width: Int,
+    isIdle: Boolean,
+    contextRowAllowance: Float,
+    isNewSession: Boolean,
+) {
     val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
     val footer = onNodeWithTag("pane-footer-0").fetchSemanticsNode().boundsInRoot
     val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
     assertTrue(header.height in 40f..44f, "Desktop header height: ${header.height}")
-    assertTrue(composer.height <= 96f, "Desktop composer height: ${composer.height}")
+    assertTrue(composer.height <= 96f + contextRowAllowance, "Desktop composer height: ${composer.height}")
+    assertProjectContext(isNewSession)
     if (isIdle) {
-        assertTrue(header.height + footer.height <= 160f, "Header and footer leave at least 640px for conversation")
+        assertTrue(
+            header.height + footer.height <= 160f + contextRowAllowance,
+            "Header and footer leave at least ${640f - contextRowAllowance}px for conversation",
+        )
     }
     assertTrue(composer.width <= 760f && composer.left >= 0f && composer.right <= width && composer.bottom <= 800f)
+}
+
+@OptIn(ExperimentalTestApi::class)
+private fun SkikoComposeUiTest.assertProjectContext(isNewSession: Boolean) {
+    val project = onNodeWithTag("project-chip-0")
+    if (!isNewSession) {
+        project.assertDoesNotExist()
+        return
+    }
+    val context = project.assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+    val editor = onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("composer-0")))
+        .fetchSemanticsNode().boundsInRoot
+    assertTrue(context.bottom <= editor.top, "Project context must remain above the editor")
 }
 
 @OptIn(ExperimentalTestApi::class)

@@ -25,6 +25,12 @@ interface StudioRepository {
     /** Creates an empty session titled [title]. */
     suspend fun createSession(projectId: String?, title: String): StudioSession
 
+    /** An isolated execution request; demo backends never silently fall back to the source checkout. */
+    suspend fun createSession(projectId: String?, title: String, isWorktree: Boolean): StudioSession {
+        check(!isWorktree) { "Worktree execution is unavailable in this backend" }
+        return createSession(projectId, title)
+    }
+
     /** Adds [message] to the end of the transcript; prompts also move the session to the top of recents. */
     suspend fun append(sessionId: String, message: StudioMessage)
 

@@ -10,7 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 
-/** Context of an accepted turn. */
+/** Binds hosted execution to the accepted native turn and its coroutine lifetime. */
 internal suspend fun koogHostedContext(
     session: SessionRef,
     workspace: WorkspaceRef?,

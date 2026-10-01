@@ -17,6 +17,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionCon
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -73,6 +75,9 @@ internal data class PaneContent(
     val calendar: StudioCalendar = StudioCalendar(),
     val contextUsage: ContextUsageUi? = null,
     val providerUsage: ProviderUsageUi? = null,
+    val isWorktreeAvailable: Boolean = false,
+    val worktree: WorktreeUi? = null,
+    val worktreeJournal: WorktreeJournalUi = WorktreeJournalUi.Ready,
     val configuration: SessionConfigurationUi? = null,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
@@ -135,6 +140,9 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         calendar = studioCalendar(now),
         contextUsage = contexts[pane.sessionId],
         providerUsage = providerUsage[effectiveSettings.modelId],
+        isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
+        worktree = worktrees[pane.sessionId],
+        worktreeJournal = worktreeJournal,
     )
 }
 

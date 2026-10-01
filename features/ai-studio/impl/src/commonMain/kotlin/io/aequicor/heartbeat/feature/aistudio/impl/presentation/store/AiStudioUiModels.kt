@@ -30,6 +30,7 @@ data class PaneUi(
     val sessionId: String? = null,
     val projectId: String? = null,
     val isCreating: Boolean = false,
+    val isWorktree: Boolean = false,
 )
 
 /** Where a project's agent runs. */
@@ -186,7 +187,7 @@ sealed interface MessageUi {
 
 internal val DefaultSettingsUi: SettingsUi = DefaultRunSettings.toUi()
 
-internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating)
+internal fun StudioPane.toUi(): PaneUi = PaneUi(id, sessionId, projectId, isCreating, isWorktree)
 
 internal fun StudioEnvironment.toUi(): EnvironmentUi = when (this) {
     StudioEnvironment.Local -> EnvironmentUi.Local

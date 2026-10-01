@@ -21,6 +21,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project) | |
+ * | Ready | SelectWorktree | new local-project pane, available | Ready (execution mode) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
  * | Ready | ProjectChosen | matching picker | Ready (selected project, or unchanged on cancel) | |
  * | Ready | ProjectChoiceFailed | matching picker | Ready (retryable project error) | |
@@ -197,7 +198,18 @@ private fun ReadyTransitions.navigation() {
         }
     }
     on<AiStudioIntent.Public.SelectProject>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
-        stay { state.replacePane(intent.paneId) { it.copy(projectId = intent.projectId) } }
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(projectId = intent.projectId, isWorktree = it.isWorktree && intent.projectId != null)
+            }
+        }
+    }
+    on<AiStudioIntent.Public.SelectWorktree>(guard = {
+        state.isWorktreeAvailable && state.pane(intent.paneId)?.let {
+            it.isNewSessionPage() && it.projectId != null
+        } == true
+    }) {
+        stay { state.replacePane(intent.paneId) { it.copy(isWorktree = intent.isEnabled) } }
     }
     on<AiStudioIntent.Public.OpenSession>(guard = { state.hasPane(intent.paneId) }) {
         stay { state.open(intent.sessionId, intent.paneId ?: state.focusedPaneId) }
@@ -240,9 +252,10 @@ private fun ReadyTransitions.conversations() {
                 state.pane(intent.paneId)?.projectId,
                 intent.prompt.trim(),
                 state.settings,
-                state.nextCreateRequestId,
-                intent.attachments,
-                intent.submissionId,
+                requestId = state.nextCreateRequestId,
+                attachments = intent.attachments,
+                submissionId = intent.submissionId,
+                isWorktree = state.pane(intent.paneId)?.isWorktree == true,
             )
         }
     }

@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources

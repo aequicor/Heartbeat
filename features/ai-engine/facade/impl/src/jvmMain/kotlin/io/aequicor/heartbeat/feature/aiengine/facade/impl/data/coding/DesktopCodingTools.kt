@@ -56,7 +56,9 @@ internal class DesktopCodingTools(
                 "content",
             ).ifEmpty { arguments.argText("new_string") }.take(MAX_APPROVAL_CHARS)
 
-            AgentToolAction.Command -> arguments.argText("command").take(MAX_APPROVAL_CHARS)
+            AgentToolAction.Command -> arguments.argText("command").also {
+                require(it.length <= MAX_CODING_COMMAND_CHARS) { "Command is too long to review in full" }
+            }
         },
     )
 
