@@ -25,11 +25,14 @@ class ComputerUseFrameDecoderTest {
                 scheduled.dispatch(context, block)
             }
         }
-        val decoder = ComputerUseFrameDecoder(object : DispatcherProvider {
-            override val main = scheduled
-            override val default = cpu
-            override val io = scheduled
-        })
+        val decoder = ComputerUseFrameDecoder(
+            object : DispatcherProvider {
+                override val main = scheduled
+                override val default = cpu
+                override val io = scheduled
+            },
+            PlatformComputerUseFrameCodec(),
+        )
         val content = ByteArrayOutputStream().also {
             ImageIO.write(BufferedImage(2, 1, BufferedImage.TYPE_INT_RGB), "png", it)
         }.toByteArray()
