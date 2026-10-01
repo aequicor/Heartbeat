@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbNavigationItem
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -57,6 +58,10 @@ import org.jetbrains.compose.resources.stringResource
  * Research layout of the studio chat area: the conversation in the chat column and, on wide windows, a collapsible
  * side panel with sessions, questions and sources. The studio owns the header and sidebar around it; [onClose]
  * switches the chat area back to the regular chat.
+ *
+ * Drops and clipboard screenshots are captured on this screen root rather than on the composer, so the gesture
+ * reaches the conversation with keyboard focus anywhere inside it; while this area is attached, the studio keeps
+ * its own capture off.
  */
 @Composable
 internal fun ResearchScreenContent(
@@ -65,7 +70,8 @@ internal fun ResearchScreenContent(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier.fillMaxSize().testTag("research-screen").background(HbTheme.colors.background)) {
+    val capture = researchAttachmentCapture(state, onIntent)
+    Box(modifier.fillMaxSize().testTag("research-screen").then(capture).background(HbTheme.colors.background)) {
         HbColumn(Modifier.fillMaxSize().imePadding(), gap = HbTheme.spacing.none) {
             if (state.hasError && state.phase == ResearchPhase.Ready) ResearchError(onIntent)
             when (state.phase) {
@@ -266,6 +272,15 @@ private fun ResearchStatus(
         }
     }
 }
+
+/** Native capture of the whole conversation; its placement is explained by [ResearchScreenContent]. */
+@Composable
+private fun researchAttachmentCapture(state: ResearchScreenState, onIntent: (ResearchScreenIntent) -> Unit): Modifier =
+    hbAttachmentInput(
+        enabled = state.isEditable && state.isFileImportAvailable,
+        onFiles = { onIntent(ResearchScreenIntent.DroppedFiles(it)) },
+        onImage = { onIntent(ResearchScreenIntent.PastedImage(it)) },
+    )
 
 private enum class ResearchPane(val label: StringResource) {
     Sessions(Res.string.research_sessions),

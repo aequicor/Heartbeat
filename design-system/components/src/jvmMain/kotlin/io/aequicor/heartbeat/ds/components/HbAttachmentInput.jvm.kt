@@ -10,6 +10,7 @@ import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.awtTransferable
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
@@ -61,18 +62,21 @@ internal actual fun platformAttachmentInput(
         shouldStartDragAndDrop = { it.awtTransferable.isDataFlavorSupported(DataFlavor.javaFileListFlavor) },
         target = target,
     ).onPreviewKeyEvent { event ->
-        val hasPasteModifier = event.isMetaPressed || event.isCtrlPressed
-        if (event.key != Key.V || !hasPasteModifier || event.type != KeyEventType.KeyDown) {
-            false
-        } else {
-            read()?.let {
-                inputLog.i { "User pasted image" }
-                images.value(it)
-                true
-            } ?: false
+        if (!event.isImagePasteShortcut()) return@onPreviewKeyEvent false
+        val image = read()
+        if (image == null) {
+            inputLog.v { "Paste shortcut without a clipboard image keeps its native behavior" }
+            return@onPreviewKeyEvent false
         }
+        inputLog.i { "User pasted a clipboard image size=${image.size}" }
+        images.value(image)
+        true
     }
 }
+
+/** Host paste accelerator of one key press; an absent image leaves the shortcut to the focused editor. */
+private fun KeyEvent.isImagePasteShortcut(): Boolean =
+    type == KeyEventType.KeyDown && key == Key.V && (isCtrlPressed || isMetaPressed)
 
 @Composable
 internal actual fun rememberClipboardImageReader(): () -> ByteArray? = remember { { clipboardImage() } }

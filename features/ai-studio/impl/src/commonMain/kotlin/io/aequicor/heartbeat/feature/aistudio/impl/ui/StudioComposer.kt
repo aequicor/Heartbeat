@@ -22,7 +22,6 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPasteImageButton
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
-import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
@@ -73,7 +72,10 @@ import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-/** Composer of one pane: prompt templates, approval mode and model preferences around the shared editor. */
+/**
+ * Composer of one pane: prompt templates, approval mode and model preferences around the shared editor. Native drop
+ * and clipboard capture belongs to the screen root, which observes the gestures with any focus inside the studio.
+ */
 @Composable
 internal fun StudioComposer(
     content: PaneContent,
@@ -89,11 +91,6 @@ internal fun StudioComposer(
     val hasRunPreferences = content.supportsRunPreferences()
     val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
     val isAddingEnabled = content.canAddAttachments()
-    val inputCapture = hbAttachmentInput(
-        isAddingEnabled,
-        onFiles = { onIntent(AiStudioScreenIntent.ImportAttachments(pane.id, it.map(NativeAttachmentUi::File))) },
-        onImage = { onIntent(AiStudioScreenIntent.ImportAttachments(pane.id, listOf(NativeAttachmentUi.Image(it)))) },
-    )
     val focus = remember { FocusRequester() }
     var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
     SideEffect {
@@ -109,7 +106,7 @@ internal fun StudioComposer(
         onStop = { session?.let { onIntent(AiStudioScreenIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
         stopLabel = stringResource(Res.string.composer_stop),
-        modifier = modifier.then(inputCapture).testTag("composer-${pane.id}"),
+        modifier = modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
         canSend = support?.accepts(content.attachments) ?: content.attachments.isEmpty(),
         layout = HbComposerLayout.Panel,

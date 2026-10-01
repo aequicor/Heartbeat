@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -167,6 +168,17 @@ private fun AiStudioScreenState.modelsForProject(projectId: String?, modelId: St
         val isSameConnection = connection != null && it.connectionKey == connection
         projectId == null || (it.isLocalProjectSupported && (modelId == null || it.id == modelId || isSameConnection))
     }.toImmutableList()
+}
+
+/**
+ * Gate of the screen-level native capture: dropping files and pasting a clipboard screenshot is allowed exactly
+ * where the store would import them, so a captured gesture is never silently rejected for the focused pane.
+ */
+internal fun AiStudioScreenState.canCaptureAttachments(paneId: Int): Boolean {
+    val pane = panes.firstOrNull { it.id == paneId } ?: return false
+    if (!isAttachmentsEnabled || pane.isCreating) return false
+    if (session(pane.sessionId)?.isRunning == true) return false
+    return attachmentSupport(paneId)?.mediaTypes?.isNotEmpty() == true
 }
 
 internal fun AiStudioScreenState.sidebarInput(): SidebarInput {

@@ -4,8 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 /**
- * Captures user-initiated desktop file drops and image-paste shortcuts. Ordinary text paste keeps its native
- * editor behavior. Disabled capture does not read the clipboard. Native locations are transient caller inputs.
+ * Captures user-initiated desktop file drops and image-paste shortcuts inside the modified subtree. Attach it to a
+ * screen root: a key event reaches only the ancestors of the focused node, and focus often rests outside a composer.
+ * Ordinary text paste keeps its native editor behavior. Disabled capture does not read the clipboard. Native
+ * locations are transient caller inputs.
  */
 @Composable
 public fun hbAttachmentInput(

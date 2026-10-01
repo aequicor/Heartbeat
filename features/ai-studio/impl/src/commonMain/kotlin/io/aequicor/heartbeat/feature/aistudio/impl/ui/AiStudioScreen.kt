@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.ds.components.HbEmptyState
 import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -45,6 +46,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
@@ -129,6 +131,7 @@ private fun StudioWorkspace(
         val isCompact = availableWidth < maxOf(dimensions.compactBreakpoint, minimumWideWidth)
         Box(
             Modifier.fillMaxSize().studioShortcuts(state, isCompact, focus, dispatch)
+                .then(workspaceAttachmentCapture(state, isChatAreaAttached = chatArea != null, onIntent = dispatch))
                 .testTag("studio-workspace"),
         ) {
             if (isCompact) {
@@ -332,6 +335,30 @@ private fun StudioPlaceholder(onBack: () -> Unit, modifier: Modifier = Modifier)
             )
         }
     }
+}
+
+/**
+ * Drops and clipboard screenshots of the whole workspace, aimed at its focused pane. The capture belongs to the
+ * screen root instead of a composer: keyboard focus rests on this container after startup and follows a click into
+ * the transcript, so a shortcut bound to the composer never observes those pastes. A nested chat area owns the same
+ * gestures inside its own screen, which is why the studio keeps its hands off while one is attached.
+ */
+@Composable
+private fun workspaceAttachmentCapture(
+    state: AiStudioScreenState,
+    isChatAreaAttached: Boolean,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+): Modifier {
+    val paneId = state.focusedPaneId
+    return hbAttachmentInput(
+        enabled = !isChatAreaAttached && state.canCaptureAttachments(paneId),
+        onFiles = { paths ->
+            onIntent(AiStudioScreenIntent.ImportAttachments(paneId, paths.map(NativeAttachmentUi::File)))
+        },
+        onImage = { bytes ->
+            onIntent(AiStudioScreenIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.Image(bytes))))
+        },
+    )
 }
 
 /**
