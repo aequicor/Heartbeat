@@ -46,6 +46,13 @@ internal class CodexHistory : SessionHistory {
     private val items = linkedMapOf<ItemId, SessionItem>()
     private val nativeSnapshots = mutableMapOf<ItemId, JsonObject>()
     private val reasoning = CodexReasoning()
+    private val originalInputs = mutableMapOf<TurnId, List<ContentPart>>()
+
+    fun rememberOriginals(turn: TurnId, parts: List<ContentPart>) {
+        if (parts.any { it is ContentPart.Image || it is ContentPart.Resource }) originalInputs[turn] = parts.toList()
+    }
+
+    fun originals(turn: TurnId): List<ContentPart>? = originalInputs[turn]
 
     /** [floor] is the last sequence lost to truncation; checkpoints below it cannot be replayed. */
     private data class Journal(val floor: Long, val events: List<SessionEvent>)
@@ -187,7 +194,7 @@ internal class CodexHistory : SessionHistory {
             "userMessage" -> SessionItem.Message(
                 info,
                 MessageRole.User,
-                native.array("content").map { part ->
+                originalInputs[info.turn] ?: native.array("content").map { part ->
                     val value = part as? JsonObject ?: protocolFailure()
                     ContentPart.Text(value.text("text") ?: "[Unsupported input]")
                 },

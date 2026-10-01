@@ -11,7 +11,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -30,9 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
@@ -89,7 +86,8 @@ internal class PiSession(
     private val profile get() = environment.profile
     private val dispatchers get() = environment.dispatchers
     private val handle = environment.scopes.child(profile, "pi-" + UUID.randomUUID())
-    private val journal = PiJournal()
+    private val promptResources = PiPromptResources(environment)
+    private val journal = PiJournal(promptResources::originals)
     private val mutex = Mutex()
     private var connection: PiConnection? = null
     private var connector: PiConnector? = null
@@ -116,7 +114,10 @@ internal class PiSession(
         { nativeRef?.nativeId },
         ::rpc,
         { trust },
-        usage::model,
+        { model ->
+            usage.model(model)
+            promptResources.model(model)
+        },
     )
     private val target get() = sessionConfiguration.target
     override val configuration = sessionConfiguration.configuration
@@ -149,19 +150,7 @@ internal class PiSession(
 
     override val ref: SessionRef get() = requireNotNull(nativeRef)
     override val state = machine.state
-    override val features: EngineFeatures = PiFeatures(
-        listOf(
-            SendsPrompts to this,
-            CancelsTurns to this,
-            SwitchesModels to this,
-            ReconcilesSession to this,
-            RequestsPermissions to this,
-            AppliesTrustLevels to this,
-            ChangesSessionConfiguration to this,
-            SessionHistory to journal,
-            SessionContextUsage to usage,
-        ),
-    )
+    override val features: EngineFeatures = piSessionFeatures(this, journal, usage) { promptResources.support }
 
     /** Native session of this handle once started; null before [start] succeeds. */
     val attachedRef: SessionRef? get() = nativeRef
@@ -177,6 +166,7 @@ internal class PiSession(
             rpc().command("set_model", sessionConfiguration.modelFields(target.model))
             val snapshot = rpc().command("get_state")
             usage.model(snapshot["model"] as? JsonObject)
+            promptResources.model(snapshot["model"] as? JsonObject)
             val nativeId = snapshot.string("sessionId")
                 ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
             // Pi must sit on exactly the stored transcript; any other session is never adopted silently.
@@ -184,8 +174,9 @@ internal class PiSession(
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
             // The journal only observes live events; a resumed session starts from the stored conversation.
-            stored?.let(journal::restore)
             nativeRef = SessionRef(route.engine, PiSessionSource, nativeId)
+            stored?.let { promptResources.restore(ref, it) }
+            stored?.let(journal::restore)
             sessionFile = snapshot.string("sessionFile")
             sessionConfiguration.start(snapshot)
             isStarted = true
@@ -202,6 +193,7 @@ internal class PiSession(
                     piFailure(EngineFailure.Session(SessionFailureReason.Busy))
                 }
                 validatePromptRequest(request)
+                promptResources.prepare(ref, request)
                 val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 val result = CompletableDeferred<TurnId>()
                 val previous = Triple(turn, acceptance, isTurnStarted)
@@ -230,9 +222,6 @@ internal class PiSession(
     }
 
     private fun validatePromptRequest(request: PromptRequest) {
-        if (request.parts.any { it !is ContentPart.Text }) {
-            piFailure(EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id))
-        }
         val effort = request.reasoningEffort
         if (effort != null && effort !in PiAcceptedThinkingLevels) {
             piFailure(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
@@ -497,9 +486,7 @@ internal class PiSession(
             throw PromptNotSentException(e.failure, e)
         }
         val accepted = acceptance
-        val message = effect.request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        sessionConfiguration.prepareEffort(effect.request.reasoningEffort)
-        rpc().command("prompt", JsonObject(mapOf("message" to JsonPrimitive(message))))
+        promptResources.submit(rpc(), sessionConfiguration, effect.request)
         if (turn?.id == effect.turn.id) machine.send(ActiveSessionIntent.Internal.Accepted(effect.turn.id))
         started(effect.turn)
         accepted?.complete(effect.turn.id)
@@ -507,6 +494,7 @@ internal class PiSession(
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
         usage.event(record)
+        promptResources.event(ref, record)
         journal.record(record, turn?.id)
         when (record.string("type")) {
             "agent_start" -> turn?.let {

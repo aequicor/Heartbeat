@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
@@ -126,6 +127,7 @@ internal class Fixture(
     var resumedTurns: JsonArray? = JsonArray(emptyList())
     var resumedHistoryMode: String? = null
     var modelList: List<JsonObject> = emptyList()
+    var resources: ResourceResolver = ResourceResolver { null }
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
             message,
@@ -162,6 +164,7 @@ internal class Fixture(
             override suspend fun register(directory: String): LocalWorkspace = error("Not used")
             override suspend fun resolve(ref: WorkspaceRef): String? = workspacePaths[ref]
         },
+        resources = ResourceResolver { resources.resolve(it) },
     )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),

@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -39,9 +41,23 @@ internal class CodexLease(private val session: CodexSession) :
     override val route = session.route
     private val mutableState = MutableStateFlow(session.machine.state.value)
     override val state: StateFlow<ActiveSessionState> = mutableState.asStateFlow()
-    override val features: EngineFeatures = CodexFeatures(this, session.contextUsage, blocked = {
-        if (closed.value) EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed) else null
-    })
+    override val features: EngineFeatures = CodexFeatures(
+        this,
+        session.contextUsage,
+        object : AcceptsImages {
+            override val mediaTypes: Set<String> get() = session.runtime.inputSupport(
+                session.target.model,
+            ).imageMediaTypes
+        },
+        object : AcceptsResources {
+            override val mediaTypes: Set<String> get() = session.runtime.inputSupport(
+                session.target.model,
+            ).resourceMediaTypes
+        },
+        blocked = {
+            if (closed.value) EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed) else null
+        },
+    )
     private val closed = MutableStateFlow(false)
     private val observation = session.runtime.profile.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
         session.machine.state.collect {

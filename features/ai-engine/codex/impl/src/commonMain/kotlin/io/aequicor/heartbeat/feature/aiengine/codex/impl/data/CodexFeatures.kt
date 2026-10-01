@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
@@ -14,8 +16,15 @@ internal class CodexFeatures(
         val failure = blocked()
         if (failure != null) return FeatureAccess.Unavailable(failure)
         val entry = entries.firstOrNull { key.type.isInstance(it) } ?: return FeatureAccess.Unsupported
+        if (entry.hasNoSupportedInput()) return FeatureAccess.Unsupported
         // The runtime type check above proves this cast, including keys with a colliding textual id.
         @Suppress("UNCHECKED_CAST")
         return FeatureAccess.Available(entry as F)
     }
+}
+
+private fun EngineFeature.hasNoSupportedInput(): Boolean = when (this) {
+    is AcceptsImages -> mediaTypes.isEmpty()
+    is AcceptsResources -> mediaTypes.isEmpty()
+    else -> false
 }
