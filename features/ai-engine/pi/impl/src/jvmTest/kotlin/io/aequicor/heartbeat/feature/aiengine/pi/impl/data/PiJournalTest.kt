@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCursor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
@@ -194,6 +195,23 @@ class PiJournalTest {
         assertEquals(turn, item.info.turn)
         assertEquals(HistoryCoverage.Partial, journal.page().coverage)
         assertEquals(item, assertIs<SessionEvent.ItemUpserted>(journal.watch(page.checkpoint).first()).item)
+    }
+
+    @Test
+    fun `native user timestamp retains opaque inputs across live events and branch reload`() = runTest {
+        val source = listOf(ContentPart.Image(ResourceRef("attachment:opaque", "image/png")))
+        val native = """{"role":"user","timestamp":123,"content":[
+            {"type":"image","data":"aW1hZ2U=","mimeType":"image/png"}]}"""
+        val originals: (kotlinx.serialization.json.JsonObject) -> List<ContentPart>? = {
+            source.takeIf { _ -> piResourceKey(it) == "user:123" }
+        }
+        val live = PiJournal(originals)
+        live.record(record("""{"type":"message_start","message":$native}"""), TurnId("runtime-turn"))
+        live.record(record("""{"type":"message_end","message":$native}"""), TurnId("runtime-turn"))
+        assertEquals(source, assertIs<SessionItem.Message>(live.page().items.single()).parts)
+        val reopened = PiJournal(originals)
+        reopened.restore(branch("[$native]"))
+        assertEquals(source, assertIs<SessionItem.Message>(reopened.page().items.single()).parts)
     }
 
     private fun record(json: String) = Json.parseToJsonElement(json).jsonObject

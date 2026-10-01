@@ -32,8 +32,16 @@ class LogTest {
     @Test
     fun debug_stops_below_verbose_and_trace_passes_it_with_the_throwable() {
         Log.init(isDebug = true, sinks = listOf(sink))
-        Log.tag("T").v { "filtered trace" }
-        assertEquals(listOf<Record>(), records)
+        var built = false
+        Log.tag("T").v {
+            built = true
+            "filtered trace"
+        }
+        Log.tag("T").d { "useful debug" }
+        Log.tag("T").i { "meaningful event" }
+        assertFalse(built)
+        assertEquals(listOf(LogLevel.DEBUG, LogLevel.INFO), records.map { it.level })
+        records.clear()
 
         Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
         val error = IllegalStateException("boom")

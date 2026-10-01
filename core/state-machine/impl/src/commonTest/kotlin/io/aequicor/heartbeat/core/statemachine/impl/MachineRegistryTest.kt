@@ -19,7 +19,7 @@ class MachineRegistryTest {
     private val runtime = MachineRuntime()
 
     @BeforeTest
-    fun setUp() = logs.install()
+    fun setUp() = logs.install(isTrace = true)
 
     @AfterTest
     fun tearDown() = Log.init(isDebug = false)
@@ -40,7 +40,7 @@ class MachineRegistryTest {
         assertNull(observed.value)
         assertEquals(
             listOf("registered (instances: 1)", "unregistered (instances: 0)"),
-            logs.messages().filter { "registered" in it },
+            logs.messages(level = LogLevel.VERBOSE).filter { "registered" in it },
         )
     }
 

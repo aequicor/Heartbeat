@@ -5,6 +5,8 @@ import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.machineSpec
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -20,13 +22,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class RunningMachineTest {
     private val logs = LogCapture()
     private val runtime = MachineRuntime()
     private val effects = FakeEffects()
 
     @BeforeTest
-    fun setUp() = logs.install()
+    fun setUp() = logs.install(isTrace = true)
 
     @AfterTest
     fun tearDown() = Log.init(isDebug = false)
@@ -56,13 +59,15 @@ class RunningMachineTest {
         assertEquals(
             listOf(
                 "← Open (own feature)",
-                "Idle --Open--> Loading",
                 "effect Load started",
                 "← Loaded (effect Load)",
-                "Loading --Loaded--> Ready",
                 "effect Load completed",
             ),
-            logs.messages().dropWhile { !it.startsWith("← Open") },
+            logs.messages(level = LogLevel.VERBOSE).filter { it.startsWith("←") || it.startsWith("effect ") },
+        )
+        assertEquals(
+            listOf("Idle --Open--> Loading", "Loading --Loaded--> Ready"),
+            logs.messages(level = LogLevel.INFO).drop(1),
         )
     }
 
@@ -84,7 +89,7 @@ class RunningMachineTest {
         runCurrent()
 
         assertEquals(ChatState.Ready("c1"), machine.state.value)
-        assertTrue("effect Generate cancelled" in logs.messages(level = LogLevel.DEBUG))
+        assertTrue("effect Generate cancelled" in logs.messages(level = LogLevel.VERBOSE))
         effects.generation.complete(Unit)
         runCurrent()
         assertEquals(ChatState.Ready("c1"), machine.state.value)
@@ -99,8 +104,8 @@ class RunningMachineTest {
         runCurrent()
 
         assertEquals(ChatState.Ready("c1"), machine.state.value)
-        assertTrue("Generating --Draft--> (no change)" in logs.messages(level = LogLevel.DEBUG))
-        assertTrue("effect Generate completed" in logs.messages(level = LogLevel.DEBUG))
+        assertTrue("Generating --Draft--> (no change)" in logs.messages(level = LogLevel.VERBOSE))
+        assertTrue("effect Generate completed" in logs.messages(level = LogLevel.VERBOSE))
     }
 
     @Test
@@ -130,7 +135,7 @@ class RunningMachineTest {
         val failure = logs.records.single { it.level == LogLevel.ERROR }
         assertEquals("effect Load failed", failure.message)
         assertIs<IllegalStateException>(failure.error)
-        assertTrue("← Failed (failure of effect Load)" in logs.messages())
+        assertTrue("← Failed (failure of effect Load)" in logs.messages(level = LogLevel.VERBOSE))
     }
 
     @Test
@@ -208,7 +213,7 @@ class RunningMachineTest {
         runCurrent()
 
         assertEquals(ChatState.Idle, machine.state.value)
-        assertTrue("effect Generate cancelled" in logs.messages(level = LogLevel.DEBUG))
+        assertTrue("effect Generate cancelled" in logs.messages(level = LogLevel.VERBOSE))
     }
 
     @Test
@@ -244,14 +249,47 @@ class RunningMachineTest {
     }
 
     @Test
-    fun `output without subscribers is reported as dropped`() = runTest {
+    fun `output without subscribers is debug diagnostics`() = runTest {
         val machine = generating()
 
         effects.generation.complete(Unit)
         runCurrent()
 
-        assertEquals(listOf("→ output Generated dropped (subscribers: 0)"), logs.messages(level = LogLevel.WARNING))
+        assertEquals(listOf("→ output Generated unobserved (subscribers: 0)"), logs.messages(level = LogLevel.DEBUG))
+        assertTrue(logs.messages(level = LogLevel.WARNING).isEmpty())
         assertEquals(ChatState.Ready("c1"), machine.state.value)
+    }
+
+    @Test
+    fun `output buffer overflow with a slow subscriber remains a warning`() = runTest {
+        val spec = machineSpec(ChatMachineKey, initial = ChatState.Ready("c1")) {
+            state<ChatState.Ready> {
+                on<ChatIntent.Internal.Draft> { output { ChatOutput.Generated } }
+            }
+        }
+        val machine = runtime.launch(spec, FakeScope(backgroundScope), EffectHandler.None)
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            machine.outputs.collect { awaitCancellation() }
+        }
+        machine.send(ChatIntent.Internal.Draft("first"))
+        runCurrent()
+
+        repeat(65) { machine.send(ChatIntent.Internal.Draft("next")) }
+
+        assertEquals(listOf("→ output Generated dropped (subscribers: 1)"), logs.messages(level = LogLevel.WARNING))
+        assertEquals(ChatState.Ready("c1"), machine.state.value)
+    }
+
+    @Test
+    fun `normal debug keeps transitions and hides routine machine diagnostics`() = runTest {
+        logs.install(isTrace = false)
+        val machine = generating()
+
+        repeat(3) { machine.send(ChatIntent.Internal.Draft("streamed")) }
+
+        assertTrue(logs.records.none { it.level == LogLevel.VERBOSE })
+        assertTrue(logs.messages(level = LogLevel.DEBUG).isEmpty())
+        assertTrue("Ready --SendPrompt--> Generating" in logs.messages(level = LogLevel.INFO))
     }
 
     private suspend fun TestScope.generating() = launchChat().also { machine ->

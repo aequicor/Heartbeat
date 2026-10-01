@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.researchchat.api
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import kotlinx.serialization.Serializable
 
 /** Supported source categories. A document is text or an imported PDF; images retain native image content. */
@@ -12,7 +13,10 @@ public enum class ResearchResourceKind { Website, Document, Image }
 /** Shared sources are offered to every question; question sources remain local to that question. */
 public enum class ResearchResourceScope { Session, Question }
 
-/** Durable source content. [value] is a URL, an inline data URL or document text; it must never be logged. */
+/**
+ * Durable source content. [value] is a URL or a stable attachment reference.
+ * Legacy inline values migrate on opening; never log them.
+ */
 @Serializable
 public data class ResearchResource(
     val id: String,
@@ -21,6 +25,9 @@ public data class ResearchResource(
     val value: String,
     val mediaType: String,
     val text: String = "",
+    val attachmentId: AttachmentId? = null,
+    val attachmentSizeBytes: Long? = null,
+    val hasAttachmentError: Boolean = false,
 ) {
     override fun toString(): String = "ResearchResource(id=$id, kind=$kind)"
 }

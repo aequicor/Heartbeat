@@ -87,6 +87,8 @@ data class HbDimensions(
     val chatAvatarSize: Dp = 32.dp,
     val composerMinHeight: Dp = 56.dp,
     val composerMaxHeight: Dp = 120.dp,
+    /** Bounded visual preview beside an attachment name; the mobile row keeps its full touch target. */
+    val attachmentThumbnailSize: Dp = 40.dp,
     val composerEditorMinHeight: Dp = 40.dp,
     val composerMenuMaxHeight: Dp = 320.dp,
     val composerMenuMinWidth: Dp = 240.dp,
@@ -178,6 +180,7 @@ data class HbDimensions(
         val Mobile = HbDimensions()
         val Desktop = HbDimensions(
             touchTarget = 32.dp,
+            attachmentThumbnailSize = 32.dp,
             isDesktop = true,
             railWidth = 52.dp,
             sidebarWidth = 264.dp,

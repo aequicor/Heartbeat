@@ -32,6 +32,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Observation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
@@ -48,6 +50,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -64,7 +67,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-internal class ResearchExecutionFixture(scope: CoroutineScope) {
+internal class ResearchExecutionFixture(
+    scope: CoroutineScope,
+    attachments: ResearchAttachments = ResearchAttachments.Legacy,
+) {
     val storage = ExecutionStorage()
     val native = mutableListOf<ExecutionSession>()
     private val creator = object : CreatesSessions {
@@ -89,7 +95,11 @@ internal class ResearchExecutionFixture(scope: CoroutineScope) {
             override fun features(engine: EngineId): EngineFeatures = ExecutionFeatures(CreatesSessions to creator)
         }
         override val bindings: EngineBindings get() = error("Unexpected binding access")
-        override val models: ModelCatalog get() = error("Unexpected model access")
+        override val models: ModelCatalog = object : ModelCatalog {
+            private val snapshot = MutableStateFlow(ModelCatalogSnapshot(emptyList(), Observation()))
+            override fun observe(engine: EngineId, binding: EngineBindingId) = snapshot
+            override suspend fun refresh(engine: EngineId, binding: EngineBindingId) = error("Unexpected refresh")
+        }
         override val sessions: SessionCatalog get() = error("Unexpected recovery")
     }
     private val toggles = object : FeatureToggles {
@@ -111,7 +121,7 @@ internal class ResearchExecutionFixture(scope: CoroutineScope) {
         override val isClosed = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
     }
-    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile)
+    val repository = ProfileResearchRepository(storage, facade, search, toggles, profile, attachments)
 }
 
 internal class ExecutionStorage : ResearchStorage {

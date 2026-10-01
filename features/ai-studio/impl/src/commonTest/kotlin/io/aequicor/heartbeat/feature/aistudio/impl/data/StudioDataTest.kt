@@ -19,7 +19,7 @@ import kotlin.test.assertTrue
 
 class StudioDataTest {
     @Test
-    fun `seed opens with projects, recent sessions and one archived prototype`() = runTest {
+    fun `seed opens with projects recent sessions and one archived prototype`() = runTest {
         val repository = InMemoryStudioRepository(TestClock(this))
         val workspace = repository.observeWorkspace().first()
         assertEquals(listOf("heartbeat", "aequicor-site"), workspace.projects.map { it.name })

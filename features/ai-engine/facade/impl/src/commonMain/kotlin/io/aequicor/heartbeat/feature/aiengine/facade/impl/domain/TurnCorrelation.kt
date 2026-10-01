@@ -36,7 +36,7 @@ class TurnCorrelation {
 
     /** Binds [native] to [local]. */
     fun bind(native: TurnId, local: TurnId) {
-        log.d { "ids: bind native=${native.value} -> local=${local.value}" }
+        log.v { "ids: bind native=${native.value} -> local=${local.value}" }
         ids.update { Ids(it.toLocal + (native to local), it.toNative + (local to native)) }
     }
 

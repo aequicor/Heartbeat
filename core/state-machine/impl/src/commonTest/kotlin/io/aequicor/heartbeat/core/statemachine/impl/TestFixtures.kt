@@ -188,9 +188,9 @@ data class Record(val level: LogLevel, val tag: String, val error: Throwable?, v
 class LogCapture {
     val records = mutableListOf<Record>()
 
-    fun install() {
+    fun install(isTrace: Boolean = false) {
         val sink = LogSink { level, tag, error, message -> records += Record(level, tag, error, message) }
-        Log.init(isDebug = true, sinks = listOf(sink))
+        Log.init(isDebug = true, isTrace = isTrace, sinks = listOf(sink))
     }
 
     /** Messages of [tag] with exactly [level], or of every level except the engine's VERBOSE trace. */

@@ -135,7 +135,9 @@ class StudioWorktreeUiTest {
                 saveImage(captureToImage(), "composer-pinned-520-$dark")
                 onNodeWithTag("worktree-branch-7").performScrollTo().assertIsDisplayed()
                 val editor = onNode(hasAnyAncestor(hasTestTag("composer-7")) and hasSetTextAction())
-                editor.performClick().performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Enter) } }
+                editor.performClick()
+                saveImage(captureToImage(), "composer-focus-520-$dark")
+                editor.performKeyInput { withKeyDown(Key.CtrlLeft) { pressKey(Key.Enter) } }
                 runOnIdle {
                     assertEquals(listOf<AiStudioScreenIntent>(AiStudioScreenIntent.Submit(7)), events)
                     assertEquals("Inspect isolation", state.draft(7))

@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.update
 
 /** In-memory app [DataStores]: key-value only. */
 internal class FakeDataStores : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     private val stores = mutableMapOf<String, FakeKeyValueStore>()
 
     override val owner: StorageOwner = StorageOwner.App

@@ -105,6 +105,7 @@ private object RuntimeWeb : NativeWebFetch {
 }
 
 private class RuntimeStores : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     override val owner = StorageOwner.Profile(ProfileId("profile"))
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = RuntimeKeyValueStore(spec)
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("No database expected")

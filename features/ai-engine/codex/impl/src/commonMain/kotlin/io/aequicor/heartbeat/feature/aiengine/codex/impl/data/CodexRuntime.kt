@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailure
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
@@ -40,6 +42,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 internal class CodexRuntime(
@@ -172,8 +175,12 @@ internal class CodexRuntime(
         checkAccount()
     }
 
+    private val inputSupports = mutableMapOf<ModelId, PromptInputSupport>()
+    fun inputSupport(model: ModelId): PromptInputSupport = inputSupports[model] ?: PromptInputSupport.TextDocuments
+
     suspend fun models(binding: EngineBindingId): List<ModelInfo> = withContext(dispatchers.main) {
         gate()
+        inputSupports.clear()
         val result = mutableListOf<ModelInfo>()
         val cursors = mutableSetOf<String>()
         var cursor: String? = null
@@ -186,6 +193,9 @@ internal class CodexRuntime(
                     model.text("displayName").orEmpty(),
                     reasoningEfforts = model.reasoningEfforts(),
                     defaultReasoningEffort = model.text("defaultReasoningEffort"),
+                    inputSupport = codexInputSupport(model).also {
+                        inputSupports[ModelId(model.text("model") ?: protocolFailure())] = it
+                    },
                 )
             }
             cursor = response.text("nextCursor")
@@ -451,3 +461,15 @@ internal class CodexRuntime(
         const val SANDBOX_MODE = "read-only"
     }
 }
+
+/** Only model/list inputModalities confirms images; missing metadata is conservatively text-only. */
+internal fun codexInputSupport(model: JsonObject): PromptInputSupport = PromptInputSupport.TextDocuments.copy(
+    imageMediaTypes = if ((model["inputModalities"] as? JsonArray).orEmpty().any {
+            (it as? JsonPrimitive)?.contentOrNull == "image"
+        }
+    ) {
+        setOf("image/png", "image/jpeg", "image/webp", "image/gif")
+    } else {
+        emptySet()
+    },
+)

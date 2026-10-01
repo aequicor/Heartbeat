@@ -84,16 +84,28 @@ class AiStudioEffects(
                         effect.prompt,
                         effect.settings,
                         effect.requestId,
+                        effect.attachments,
+                        effect.submissionId,
                     ),
                 )
             }
 
-            is AiStudioEffect.Run -> machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, run(effect)))
+            is AiStudioEffect.Run -> runEffect(effect, machine)
 
             is AiStudioEffect.Cancel -> cancel(effect.sessionId)
 
             is AiStudioEffect.Apply -> repository.edit(effect.sessionId, effect.edit)
         }
+    }
+
+    private suspend fun runEffect(effect: AiStudioEffect.Run, machine: EffectScope<AiStudioIntent>) {
+        require(effect.attachments.isEmpty()) { "The demo agent does not accept attachments" }
+        if (effect.submissionId.isNotEmpty()) {
+            machine.send(
+                AiStudioIntent.Internal.RunAccepted(effect.paneId, effect.submissionId, effect.sessionId),
+            )
+        }
+        machine.send(AiStudioIntent.Internal.RunFinished(effect.sessionId, run(effect)))
     }
 
     private fun configure(effect: AiStudioEffect.Configuration) {
@@ -177,7 +189,7 @@ class AiStudioEffects(
 
 /** The first line of the first prompt, shortened for the sidebar. */
 internal fun titleOf(prompt: String): String {
-    val line = prompt.trim().lineSequence().first().trim()
+    val line = prompt.trim().lineSequence().first().trim().ifEmpty { "Attachment" }
     return if (line.length <= TITLE_LENGTH) line else line.take(TITLE_LENGTH).trimEnd() + "…"
 }
 

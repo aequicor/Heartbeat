@@ -13,7 +13,9 @@ import io.aequicor.heartbeat.core.datastore.jsonKey
 import io.aequicor.heartbeat.core.datastore.longKey
 import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.datastore.stringSetKey
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
@@ -251,6 +253,31 @@ class KeyValueStoreTest {
         store.set(stringKey("k"), "v")
         assertEquals("v", store.get(stringKey("k")))
         assertEquals(1, env.logged(LogLevel.ERROR, DS_LOG_TAG).count { "corrupted" in it })
+    }
+
+    @Test
+    fun `routine kv operations are traced while settings changes remain visible`() = storageTest { env ->
+        val stores = env.registry().attach(StorageOwner.App, env.app)
+        val store = stores.keyValue(KeyValueSpec("private_data"))
+        val records = mutableListOf<Pair<LogLevel, String>>()
+        val sink = LogSink { level, tag, _, message -> if (tag == DS_LOG_TAG) records += level to message }
+        Log.init(isDebug = true, sinks = listOf(sink))
+        val key = stringKey("note")
+
+        store.set(key, "SECRET-MARKER")
+        assertEquals("SECRET-MARKER", store.get(key))
+        store.remove(key)
+        assertTrue(records.isEmpty())
+
+        stores.keyValue(KeyValueSpec("ui", areValuesLogged = true)).set(stringKey("theme"), "dark")
+        assertTrue(records.any { it.first == LogLevel.INFO && "set theme:" in it.second })
+        records.clear()
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
+        store.set(key, "SECRET-MARKER")
+        store.get(key)
+        store.remove(key)
+        assertEquals(listOf(LogLevel.VERBOSE, LogLevel.VERBOSE, LogLevel.VERBOSE), records.map { it.first })
+        assertTrue(records.none { "SECRET-MARKER" in it.second })
     }
 
     @Test

@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -30,6 +31,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchQuestion
@@ -38,6 +41,7 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchRepository
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchRun
 import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchStorage
@@ -69,6 +73,7 @@ internal class ProfileResearchRepository(
     private val search: SearchEngine,
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val attachments: ResearchAttachments = ResearchAttachments.Legacy,
 ) : ResearchRepository {
     private val log = Log.tag("ResearchRepository")
     private val running = MutableStateFlow<Set<String>>(emptySet())
@@ -88,6 +93,7 @@ internal class ProfileResearchRepository(
     override suspend fun prepare(target: EngineTarget): ResearchWorkspace {
         log.i { "Prepare research workspace" }
         requireEnabled(target)
+        migrateSources()
         recoverPending()
         if (storage.read().none { it.target == target }) createSession(target)
         return observe().first()
@@ -117,15 +123,95 @@ internal class ProfileResearchRepository(
         requireEditable(sessionId, questionId)
         require(input.value.isNotBlank()) { "Empty resource" }
         log.i { "Import research source kind=${input.kind}" }
-        val source = importResource(input)
+        val imported = importResource(input)
+        val source = if (input.kind == ResearchResourceKind.Website) {
+            imported
+        } else {
+            check(toggles.get(AttachmentsEnabled)) { "New attachments are disabled" }
+            val support = inputSupport(session(sessionId).target)
+            require(support.accepts(imported.mediaType)) { "Unsupported research source" }
+            attachments.persist(imported, support, migration = false)
+        }
         // The flag or running state may have changed while fetching the website.
         requireEditable(sessionId, questionId)
         storage.update(sessionId) { it.attach(questionId, source, input.scope) }
     }
 
+    override suspend fun addAttachments(input: ResearchChatIntent.Public.AddAttachments) {
+        requireEditable(input.sessionId, input.questionId)
+        check(toggles.get(AttachmentsEnabled)) { "New attachments are disabled" }
+        val support = inputSupport(session(input.sessionId).target)
+        val files = input.attachments.map { attachments.registered(it.id) }
+        require(files.size <= support.maxAttachments && files.sumOf { it.sizeBytes } <= support.maxTotalBytes) {
+            "Research attachments exceed limits"
+        }
+        val sources = files.map { file ->
+            require(support.accepts(file.mediaType) && file.sizeBytes <= support.maxFileBytes) {
+                "Research source is not supported by this model"
+            }
+            ResearchResource(
+                newId(),
+                file.name,
+                if (file.mediaType.startsWith("image/")) ResearchResourceKind.Image else ResearchResourceKind.Document,
+                file.resource.id,
+                file.mediaType,
+                attachmentId = file.id,
+                attachmentSizeBytes = file.sizeBytes,
+            )
+        }
+        requireEditable(input.sessionId, input.questionId)
+        log.i { "Register durable research sources count=${sources.size}" }
+        storage.update(input.sessionId) { session ->
+            sources.fold(session) { current, source -> current.attach(input.questionId, source, input.scope) }
+        }
+    }
+
+    private suspend fun inputSupport(target: EngineTarget): PromptInputSupport =
+        facade.models.observe(target.engine, target.binding).first { it.isLoaded }.models.firstOrNull {
+            it.target == target
+        }?.inputSupport ?: PromptInputSupport.TextDocuments
+
+    /** Unique migration keys make reopening after a crash reuse the already committed file. */
+    private suspend fun migrateSources() = recoveryLock.withLock {
+        storage.read().forEach { session ->
+            val migrated = session.resources.map { migrateSource(it) }
+            if (migrated != session.resources) {
+                storage.update(session.id) { stored ->
+                    stored.copy(
+                        resources = stored.resources.map { original ->
+                            migrated.firstOrNull { it.id == original.id } ?: original
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    /** A rejected legacy source remains removable and never hides the other saved conversations. */
+    private suspend fun migrateSource(source: ResearchResource): ResearchResource = try {
+        attachments.persist(source, LegacyResearchSupport, migration = true)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(IllegalStateException(error::class.simpleName)) { "Legacy source migration failed" }
+        source.copy(hasAttachmentError = true)
+    }
+
     private suspend fun importResource(input: ResearchChatIntent.Public.AddResource): ResearchResource {
         val value = input.value.trim()
         val title = input.title.trim()
+        if (value.startsWith("attachment:")) {
+            val file = attachments.registered(AttachmentId(value.substringAfter(':')))
+            return ResearchResource(
+                newId(),
+                title.ifBlank { file.name },
+                input.kind,
+                file.resource.id,
+                file.mediaType,
+                attachmentId = file.id,
+                attachmentSizeBytes = file.sizeBytes,
+            )
+        }
         return when (input.kind) {
             ResearchResourceKind.Website -> {
                 require(isWebUrl(value)) { "An HTTP(S) source is required" }
@@ -229,8 +315,8 @@ internal class ProfileResearchRepository(
         }
         val session = session(sessionId)
         requireEnabled(session.target)
-        require(prompt.isNotBlank()) { "Empty research question" }
         val question = session.questions.first { it.id == questionId }
+        require(prompt.isNotBlank() || session.selectedResources(question).isNotEmpty()) { "Empty research question" }
         check(question.pendingSegmentStart == null) { "Previous research turn requires recovery" }
         val accepted = CompletableDeferred<Boolean>()
         log.i { "Start profile-owned research execution" }

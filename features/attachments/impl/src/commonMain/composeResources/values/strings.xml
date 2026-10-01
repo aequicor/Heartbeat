@@ -1,0 +1,10 @@
+<resources>
+    <string name="attachment_title">Attachment</string>
+    <string name="attachment_text_truncated">Showing the beginning of this document. Save as exports the complete original file.</string>
+    <string name="attachment_close">Close</string>
+    <string name="attachment_error">Could not process the attachment. Please try again.</string>
+    <string name="attachment_loading">Loading attachment…</string>
+    <string name="attachment_open">Open in an app</string>
+    <string name="attachment_picking">Choose attachments…</string>
+    <string name="attachment_save">Save as</string>
+</resources>

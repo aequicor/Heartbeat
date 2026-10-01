@@ -515,6 +515,7 @@ private class MemoryStores : DataStores {
     val store = MemoryStore(WorktreeJournalSpec)
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = store
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
+    override fun filesDirectory(name: String): String = error("Unused")
     override suspend fun fire(event: DataEvent) = Unit
 }
 

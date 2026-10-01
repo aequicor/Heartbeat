@@ -205,4 +205,13 @@
     <string name="feedback_failure_transport">не удалось связаться с движком</string>
     <string name="feedback_failure_lifecycle">сессия больше недоступна</string>
     <string name="feedback_failure_unknown">движок не подтвердил изменение</string>
+    <string name="attachments_add">Прикрепить файлы</string>
+    <string name="attachments_paste">Вставить изображение</string>
+    <string name="attachments_remove">Убрать вложение</string>
+    <string name="attachments_file">Вложение</string>
+    <string name="attachments_incompatible">Файл слишком большой или не поддерживается выбранной моделью.</string>
+    <string name="attachments_limits">До %1$d файлов, по %2$s каждый, всего %3$s</string>
+    <string name="attachments_limit_exceeded">Превышен лимит количества или общего размера файлов. Уберите лишние файлы перед отправкой.</string>
+    <string name="attachments_save">Сохранить как</string>
+    <string name="attachments_failed">Не удалось прикрепить файлы. Проверьте формат и размер и попробуйте ещё раз.</string>
 </resources>

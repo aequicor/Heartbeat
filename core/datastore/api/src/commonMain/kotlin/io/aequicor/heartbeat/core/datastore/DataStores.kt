@@ -22,6 +22,14 @@ public interface DataStores {
     public val owner: StorageOwner
 
     /**
+     * Absolute directory for immutable feature-owned files, removed with this owner's storage.
+     * [name] follows the same safe naming rules as a store. Resolving the path does not create it or perform IO;
+     * callers create directories and read/write files on their IO dispatcher. Fails after the owner closes.
+     * The directory is for application data, never an externally selected file or an export destination.
+     */
+    public fun filesDirectory(name: String): String
+
+    /**
      * The key-value store [spec] of this owner. One instance per name: repeated calls return the same store;
      * a different spec with the same name fails with [IllegalStateException].
      */

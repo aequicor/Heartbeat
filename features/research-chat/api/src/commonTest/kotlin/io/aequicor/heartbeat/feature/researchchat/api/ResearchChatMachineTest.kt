@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -153,6 +155,73 @@ class ResearchChatMachineTest {
             ready,
             outputs = listOf(ResearchChatOutput.ResourceAdded),
         )
+    }
+
+    @Test
+    fun `picker result targets its original question and rejects running or unknown questions`() {
+        val next = ResearchQuestion("q2")
+        val state = ready.copy(
+            workspace = ResearchWorkspace(listOf(session.copy(questions = listOf(question, next)))),
+            questionId = next.id,
+        )
+        val input = ResearchChatIntent.Public.AddAttachments(
+            session.id,
+            question.id,
+            listOf(AttachmentDescriptor(AttachmentId("file"), "notes.md", "text/markdown", 30)),
+            ResearchResourceScope.Question,
+        )
+        ResearchChatMachineSpec.assertTransition(
+            state,
+            input,
+            state.copy(isMutating = true),
+            effects = listOf(ResearchChatEffect.AddAttachments(input)),
+        )
+        ResearchChatMachineSpec.assertIgnored(
+            state.copy(workspace = state.workspace.copy(running = setOf(question.id))),
+            input,
+        )
+        ResearchChatMachineSpec.assertIgnored(state, input.copy(questionId = "foreign"))
+        ResearchChatMachineSpec.assertIgnored(state, input.copy(attachments = emptyList()))
+    }
+
+    @Test
+    fun `selected file permits attachment-only research and exclusion disables it`() {
+        val source = ResearchResource(
+            "source",
+            "notes.md",
+            ResearchResourceKind.Document,
+            "attachment:file",
+            "text/markdown",
+            attachmentId = AttachmentId("file"),
+        )
+        val withSource = ready.copy(
+            workspace = ResearchWorkspace(
+                listOf(
+                    session.copy(
+                        resources = listOf(source),
+                        sharedResourceIds = setOf(source.id),
+                    ),
+                ),
+            ),
+        )
+        ResearchChatMachineSpec.assertTransition(
+            withSource,
+            ResearchChatIntent.Public.Submit(""),
+            withSource.copy(submitting = setOf(question.id)),
+            effects = listOf(ResearchChatEffect.Run(session.id, question.id, "")),
+        )
+        val excluded = withSource.copy(
+            workspace = ResearchWorkspace(
+                listOf(
+                    session.copy(
+                        resources = listOf(source),
+                        sharedResourceIds = setOf(source.id),
+                        questions = listOf(question.copy(excludedResourceIds = setOf(source.id))),
+                    ),
+                ),
+            ),
+        )
+        ResearchChatMachineSpec.assertIgnored(excluded, ResearchChatIntent.Public.Submit(""))
     }
 
     @Test

@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
@@ -68,6 +69,7 @@ internal suspend fun fixture(
     acceptIntent: (MachineIntent) -> Boolean = { true },
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    resources: ResourceResolver = ResourceResolver { null },
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
@@ -77,7 +79,14 @@ internal suspend fun fixture(
     val session = PiSession(
         CreateSessionRequest(target, workspace),
         route,
-        piTestEnvironment(test, isUsageEnabled, acceptIntent = acceptIntent, tools = tools, bridge = bridge),
+        piTestEnvironment(
+            test,
+            isUsageEnabled,
+            acceptIntent = acceptIntent,
+            tools = tools,
+            bridge = bridge,
+            resources = resources,
+        ),
         validate,
         { released += it },
     )
@@ -104,6 +113,7 @@ internal fun piTestEnvironment(
     acceptIntent: (MachineIntent) -> Boolean = { true },
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    resources: ResourceResolver = ResourceResolver { null },
 ): PiSessionEnvironment {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -121,8 +131,9 @@ internal fun piTestEnvironment(
         FakeScope(test.backgroundScope),
         dispatchers,
         DefaultPiTestToggles(isUsageEnabled, areEnginesEnabled),
-        tools,
-        bridge,
+        tools = tools,
+        bridge = bridge,
+        resources = resources,
     )
 }
 

@@ -12,7 +12,10 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -25,7 +28,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -60,11 +68,241 @@ import kotlinx.coroutines.test.runTest
 import kotlin.reflect.safeCast
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
+    @Test
+    fun `native attachment prompt uses the same request identity as prepared worktree ownership`() = runTest {
+        val fixture = TurnFixture()
+        assertEquals(
+            fixture.turn.id,
+            fixture.active.submitStudioPrompt("", null, null, ExecutorAttachments, fixture.request.request),
+        )
+        val sent = requireNotNull(fixture.active.submittedRequest)
+        assertEquals(fixture.request.request, sent.id)
+        assertEquals(
+            listOf(ContentPart.Image(ExecutorAttachments[0]), ContentPart.Resource(ExecutorAttachments[1])),
+            sent.parts,
+        )
+    }
+
+    @Test
+    fun `isolated attachment requests retain their prepared identity and acknowledge once before settlement`() =
+        runTest {
+            val fixture = TurnFixture()
+            var acknowledgements = 0
+            val request = fixture.request.copy(attachments = ExecutorAttachments, onAccepted = { acknowledgements++ })
+            val result = async { fixture.executor.execute(fixture.host, request) }
+            runCurrent()
+            assertEquals(1, acknowledgements)
+            assertEquals(request, fixture.host.submitted)
+            assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
+            assertEquals(request.request, fixture.host.submitted?.request)
+            assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunAccepted })
+            assertFalse(result.isCompleted)
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Completed, result.await())
+            assertEquals(1, acknowledgements)
+            assertEquals(request.request, (fixture.machine.sent.last() as WorktreeIntent.Public.RunSettled).request)
+        }
+
+    @Test
+    fun `attachment refusal before native acceptance reports no acknowledgement and rejects prepared ownership`() =
+        runTest {
+            listOf(RequestFailureReason.UnsupportedContent, RequestFailureReason.Invalid).forEach { reason ->
+                val fixture = TurnFixture()
+                fixture.host.isNativeSubmissionEnabled = true
+                fixture.active.sendFailure = EngineException(EngineFailure.Request(reason, fixture.request.request))
+                var acknowledgements = 0
+                val request = fixture.request.copy(
+                    attachments = ExecutorAttachments,
+                    onAccepted = { acknowledgements++ },
+                )
+                assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, request))
+                assertEquals(0, acknowledgements)
+                assertEquals(request.prompt, fixture.host.submitted?.prompt)
+                assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
+                assertNull(fixture.tools.finished)
+                assertTrue(fixture.active.state.value is ActiveSessionState.Unavailable)
+                assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunRejected)
+                assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunAccepted })
+            }
+        }
+
+    @Test
+    fun `unknown attachment delivery retains ownership without acknowledgement until native confirmation`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isNativeSubmissionEnabled = true
+        fixture.active.sendFailure = EngineException(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+        )
+        var acknowledgements = 0
+        val request = fixture.request.copy(attachments = ExecutorAttachments, onAccepted = { acknowledgements++ })
+        val result = async { fixture.executor.execute(fixture.host, request) }
+        runCurrent()
+        assertFalse(result.isCompleted)
+        assertEquals(0, acknowledgements)
+        assertEquals(1, fixture.active.reconciliations)
+        assertEquals(listOf("started", "open", "submit"), fixture.events)
+        fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+        runCurrent()
+        assertEquals(1, acknowledgements)
+        assertFalse(result.isCompleted)
+        fixture.active.state.value = ActiveSessionState.Ready(fixture.turn)
+        runCurrent()
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, result.await())
+        assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+    }
+
+    @Test
+    fun `unknown local attachment validation becomes rejection only after authoritative idle reconciliation`() =
+        runTest {
+            val fixture = TurnFixture()
+            fixture.host.isNativeSubmissionEnabled = true
+            fixture.active.sendFailure = EngineException(
+                EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+            )
+            fixture.active.reconcile = { fixture.active.state.value = ActiveSessionState.Ready() }
+            var acknowledgements = 0
+            val request = fixture.request.copy(attachments = ExecutorAttachments, onAccepted = { acknowledgements++ })
+            assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, request))
+            assertEquals(0, acknowledgements)
+            assertEquals(1, fixture.active.reconciliations)
+            assertEquals(request.prompt, fixture.host.submitted?.prompt)
+            assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
+            assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunRejected)
+        }
+
+    @Test
+    fun `synthetic unknown terminal from idle reconciliation never acknowledges local attachment delivery`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isNativeSubmissionEnabled = true
+        fixture.active.sendFailure = EngineException(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+        )
+        fixture.active.reconcile = {
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Unknown))
+        }
+        var acknowledgements = 0
+        val request = fixture.request.copy(attachments = ExecutorAttachments, onAccepted = { acknowledgements++ })
+        assertEquals(RunOutcome.Failed, fixture.executor.execute(fixture.host, request))
+        assertEquals(0, acknowledgements)
+        assertEquals(request.prompt, fixture.host.submitted?.prompt)
+        assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
+        assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunRejected)
+    }
+
+    @Test
+    fun `a local submitting turn is not a confirmed native attachment receipt`() = runTest {
+        val fixture = TurnFixture()
+        fixture.active.sendFailure = EngineException(
+            EngineFailure.Request(RequestFailureReason.OutcomeUnknown, fixture.request.request),
+        )
+        fixture.active.reconcile = {
+            fixture.active.state.value = ActiveSessionState.Submitting(
+                requireNotNull(fixture.active.submittedRequest),
+                fixture.turn.copy(outcome = null),
+            )
+        }
+        val sending = backgroundScope.async {
+            assertFailsWith<EngineException> {
+                fixture.active.submitStudioPrompt("Question", null, null, ExecutorAttachments, fixture.request.request)
+            }
+        }
+        runCurrent()
+        assertFalse(sending.isCompleted)
+        fixture.active.state.value = ActiveSessionState.Ready()
+        assertEquals(fixture.active.sendFailure, sending.await())
+    }
+
+    @Test
+    fun `definitive attachment rejection reconciles the cached handle before a corrected retry`() = runTest {
+        val fixture = TurnFixture()
+        val failure = EngineException(
+            EngineFailure.Request(RequestFailureReason.UnsupportedContent, fixture.request.request),
+        )
+        fixture.active.sendFailure = failure
+        fixture.active.reconcile = { fixture.active.state.value = ActiveSessionState.Ready() }
+        assertEquals(
+            failure,
+            assertFailsWith<EngineException> {
+                fixture.active.submitStudioPrompt("Question", null, null, ExecutorAttachments, fixture.request.request)
+            },
+        )
+        assertEquals(1, fixture.active.reconciliations)
+        assertTrue(fixture.active.state.value is ActiveSessionState.Ready)
+        fixture.active.sendFailure = null
+        val correctedRequest = RequestId("corrected")
+        assertEquals(
+            fixture.turn.id,
+            fixture.active.submitStudioPrompt("Question", null, null, emptyList(), correctedRequest),
+        )
+        assertEquals(correctedRequest, fixture.active.submittedRequest?.id)
+        assertEquals(listOf(ContentPart.Text("Question")), fixture.active.submittedRequest?.parts)
+    }
+
+    @Test
+    fun `definitive attachment rejection preserves its original error if native reconciliation fails`() = runTest {
+        val fixture = TurnFixture()
+        val failure = EngineException(EngineFailure.Request(RequestFailureReason.Invalid, fixture.request.request))
+        fixture.active.sendFailure = failure
+        fixture.active.reconcile = { error("Native reconciliation unavailable") }
+        assertEquals(
+            failure,
+            assertFailsWith<EngineException> {
+                fixture.active.submitStudioPrompt("Question", null, null, ExecutorAttachments, fixture.request.request)
+            },
+        )
+        assertEquals(1, fixture.active.reconciliations)
+        assertTrue(fixture.active.state.value is ActiveSessionState.Unavailable)
+    }
+
+    @Test
+    fun `accepted attachment failure retains worktree ownership through cancellation and native tool cleanup`() =
+        runTest {
+            val fixture = TurnFixture()
+            fixture.host.stopCheckFailure = IllegalStateException("StopCheckFailed")
+            fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+            var acknowledgements = 0
+            val request = fixture.request.copy(attachments = ExecutorAttachments, onAccepted = { acknowledgements++ })
+            val result = async { fixture.executor.execute(fixture.host, request) }
+            runCurrent()
+            assertEquals(1, acknowledgements)
+            assertEquals(ExecutorAttachments, fixture.host.submitted?.attachments)
+            assertFalse(result.isCompleted)
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunSettled })
+            fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Cancelled))
+            runCurrent()
+            assertFalse(result.isCompleted)
+            assertEquals("finish-start", fixture.events.last())
+            fixture.tools.release.complete(Unit)
+            assertEquals(RunOutcome.Failed, result.await())
+            assertEquals(1, acknowledgements)
+            assertTrue(fixture.machine.sent.none { it is WorktreeIntent.Public.RunRejected })
+            assertEquals(fixture.active.ref to fixture.turn.id, fixture.tools.finished)
+        }
+
+    @Test
+    fun `composer acknowledgement failure cannot abandon an accepted attachment turn`() = runTest {
+        val fixture = TurnFixture()
+        val request = fixture.request.copy(
+            attachments = ExecutorAttachments,
+            onAccepted = { error("ComposerUnavailable") },
+        )
+        val result = async { fixture.executor.execute(fixture.host, request) }
+        runCurrent()
+        assertFalse(result.isCompleted)
+        assertTrue(fixture.events.none { it == "cancel" || it == "failure" })
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, result.await())
+        assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunSettled)
+    }
+
     @Test
     fun `ordinary checkout settlement finds its task by session and request instead of studio chat id`() = runTest {
         val fixture = TurnFixture()
@@ -243,6 +481,8 @@ private class ExecutorHost(
 ) : StudioTurnHost {
     var openFailure: Exception? = null
     var stopCheckFailure: Exception? = null
+    var isNativeSubmissionEnabled = false
+    var submitted: StudioTurnRequest? = null
     var isIsolated = true
     var openCount = 0
     override suspend fun isWorktree(id: String) = isIsolated
@@ -254,6 +494,16 @@ private class ExecutorHost(
     }
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         events += "submit"
+        submitted = request
+        if (isNativeSubmissionEnabled) {
+            return active.submitStudioPrompt(
+                request.prompt,
+                null,
+                null,
+                request.attachments,
+                request.request,
+            )
+        }
         return turn.id
     }
     override suspend fun shouldStop(id: String): Boolean {
@@ -278,7 +528,7 @@ private class ExecutorHost(
     }
 }
 
-private class ExecutorSession(turn: Turn) : ActiveSession {
+private class ExecutorSession(private val turn: Turn) : ActiveSession {
     override val ref = SessionRef(EngineId("test"), SessionSourceId("local"), "session")
     override val route = ExecutionRoute(
         ref.engine,
@@ -288,13 +538,35 @@ private class ExecutorSession(turn: Turn) : ActiveSession {
         WorkspaceRef("isolated"),
     )
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready(turn))
+    var submittedRequest: PromptRequest? = null
+    var sendFailure: EngineException? = null
+    var reconciliations = 0
+    var reconcile: suspend () -> Unit = {}
+    private val prompts = object : SendsPrompts {
+        override suspend fun send(request: PromptRequest): TurnId {
+            submittedRequest = request
+            (state.value as? ActiveSessionState.Unavailable)?.let { throw EngineException(it.failure) }
+            sendFailure?.let {
+                state.value = ActiveSessionState.Unavailable(it.failure, turn.copy(outcome = null))
+                throw it
+            }
+            return turn.id
+        }
+    }
+    private val reconciler = object : ReconcilesSession {
+        override suspend fun synchronize() {
+            reconciliations++
+            reconcile()
+        }
+    }
     private val history = object : SessionHistory {
         override suspend fun page(request: HistoryPageRequest) = error("Unused")
         override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
     }
     override val features = object : EngineFeatures {
         override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-            key.type.safeCast(history)?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
+            listOf(history, prompts, reconciler).firstNotNullOfOrNull { key.type.safeCast(it) }
+                ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
     }
     override suspend fun close() = Unit
 }
@@ -374,3 +646,7 @@ private fun executorRegistry(machine: ExecutorMachine) = object : MachineRegistr
 }
 
 private val ExecutorSettings = RunSettings("model", ReasoningEffort.Medium, ApprovalMode.Ask)
+private val ExecutorAttachments = listOf(
+    ResourceRef("attachment:image", "image/png"),
+    ResourceRef("attachment:notes", "text/markdown"),
+)

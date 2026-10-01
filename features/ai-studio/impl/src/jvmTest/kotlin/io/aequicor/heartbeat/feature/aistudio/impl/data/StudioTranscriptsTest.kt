@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import androidx.room.Room
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
@@ -43,7 +46,34 @@ class StudioTranscriptsTest {
     )
 
     @AfterTest
-    fun close() = database.close()
+    fun close() {
+        database.close()
+        Log.init(isDebug = false)
+    }
+
+    @Test
+    fun `streamed revisions persist quietly in debug and are observable in trace`() = runTest {
+        val records = mutableListOf<Pair<LogLevel, String>>()
+        val sink = LogSink { level, tag, _, message ->
+            if (tag == "StudioTranscripts") records += level to message
+        }
+        Log.init(isDebug = true, sinks = listOf(sink))
+        val store = transcripts()
+
+        repeat(10) { revision ->
+            val items = listOf(message("answer", 0, "stream-$revision", revision = revision.toLong()))
+            store.replace("chat", items)
+            assertEquals(items, store.read("chat"))
+        }
+
+        assertTrue(records.isEmpty())
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
+        val final = listOf(message("answer", 0, "stream-final", revision = 10))
+        store.replace("chat", final)
+        assertEquals(final, store.read("chat"))
+        assertEquals(2, records.size)
+        assertTrue(records.all { it.first == LogLevel.VERBOSE && "stream-" !in it.second })
+    }
 
     @Test
     fun `stored items keep their display order and every kind survives the round trip`() = runTest {

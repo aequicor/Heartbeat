@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatState
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchResource
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import kotlinx.collections.immutable.toImmutableList
@@ -28,21 +29,11 @@ private fun ResearchScreenState.reflectReady(state: ResearchChatState.Ready): Re
         }.toImmutableList(),
         resources = session?.resources.orEmpty().asSequence().filter {
             it.id in session?.sharedResourceIds.orEmpty() || it.id in question?.resourceIds.orEmpty()
-        }.map {
-            ResearchResourceUi(
-                it.id,
-                it.title,
-                if (it.kind == ResearchResourceKind.Website || it.value.startsWith(
-                        "https://",
-                    )
-                ) {
-                    it.value
-                } else {
-                    it.mediaType
-                },
-                it.kind.toUi(),
-                it.id in session?.sharedResourceIds.orEmpty(),
-                selected.any { source -> source.id == it.id },
+        }.map { source ->
+            toResourceUi(
+                source,
+                isShared = source.id in session?.sharedResourceIds.orEmpty(),
+                isSelected = selected.any { it.id == source.id },
             )
         }.toImmutableList(),
         messages = question?.items.orEmpty().toResearchMessages(isAnswerStreaming),
@@ -51,10 +42,40 @@ private fun ResearchScreenState.reflectReady(state: ResearchChatState.Ready): Re
         questionId = question?.id,
         draft = question?.id?.let { drafts[it] }.orEmpty(),
         isRunning = state.isRunning,
+        areSourcesWithinLimits = sourcesWithinLimits(selected),
         isEditable = state.isEnabled && !state.isMutating && !state.isRunning,
         hasError = state.hasError,
         hasQuestionFailed = question?.hasFailed == true,
     )
+}
+
+private fun ResearchScreenState.toResourceUi(
+    source: ResearchResource,
+    isShared: Boolean,
+    isSelected: Boolean,
+): ResearchResourceUi = with(source) {
+    val isCompatible = !hasAttachmentError &&
+        (kind == ResearchResourceKind.Website || attachmentSupport.accepts(mediaType))
+    ResearchResourceUi(
+        id = id,
+        title = title,
+        detail = if (kind == ResearchResourceKind.Website || value.startsWith("https://")) value else mediaType,
+        kind = kind.toUi(),
+        isShared = isShared,
+        isSelected = isSelected,
+        attachmentId = attachmentId?.value,
+        isCompatible = isCompatible,
+        sizeBytes = attachmentSizeBytes,
+        hasImportError = hasAttachmentError,
+        mediaType = mediaType,
+    )
+}
+
+private fun ResearchScreenState.sourcesWithinLimits(sources: List<ResearchResource>): Boolean {
+    val files = sources.filter { it.kind != ResearchResourceKind.Website }
+    return files.size <= attachmentSupport.maxAttachments &&
+        files.sumOf { it.attachmentSizeBytes ?: 0L } <= attachmentSupport.maxTotalBytes &&
+        files.all { (it.attachmentSizeBytes ?: 0L) <= attachmentSupport.maxFileBytes }
 }
 
 internal fun ResearchResourceKind.toUi(): ResourceKindUi = when (this) {

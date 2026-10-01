@@ -77,7 +77,7 @@ class KoogRuntimeTest {
         f.executor.complete()
         runCurrent()
         f.isSearchEnabled = true
-        f.isModelSupportingTools = false
+        f.modelSupportsTools = false
         session.features.require(SendsPrompts).send(f.request("second"))
         f.executor.complete()
         runCurrent()

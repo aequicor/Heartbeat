@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
@@ -18,10 +20,17 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
@@ -33,12 +42,15 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -56,13 +68,14 @@ import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
+import kotlin.uuid.Uuid
 
 private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>
 
 /**
  * Feature-scoped screen store. Mirrors the machine (panes, runs, preferences), the repository (projects,
  * sessions and transcripts of open panes) and keeps local input (drafts, sidebar). Business decisions stay
- * with the machine: the store forwards intents and clears a draft only once the machine accepted it.
+ * with the machine: the store forwards intents and clears a draft only after native engine acceptance.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @SingleIn(AiStudioScope::class)
@@ -76,8 +89,14 @@ class AiStudioModel(
     private val entries: StudioEntries,
     private val efforts: EffortChoicesView,
     private val machines: MachineRegistry,
+    private val attachmentsCatalog: AttachmentsCatalog,
+    previews: StudioAttachmentPreviews,
 ) {
     private val log = Log.tag("AiStudioModel")
+
+    /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
+    val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
+    private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
@@ -85,9 +104,40 @@ class AiStudioModel(
         // Failures are logged by the store factory; the workspace stays usable instead of a dead-end error.
         onError = { this },
     ) {
+        install {
+            name = "attachment-preview-visibility"
+            onState { _, next ->
+                val requests = next.visibleAttachmentPreviews.map { (id, visible) ->
+                    ResourceRef("attachment:$id", visible.mediaType)
+                }
+                if (previewRequests.value != requests) {
+                    log.d { "attachment preview visibility: ${previewRequests.value.size} -> ${requests.size}" }
+                    previewRequests.value = requests
+                }
+                next
+            }
+        }
         reflect(machine, onOutput = { output ->
             when (output) {
-                is AiStudioOutput.SubmitFailed -> updateState { restoreDraft(output, machine.state.value) }
+                is AiStudioOutput.SubmitFailed -> updateState {
+                    if (output.submissionId.isEmpty()) {
+                        restoreDraft(output, machine.state.value)
+                    } else {
+                        rejectSubmission(output.submissionId)
+                    }
+                }
+
+                is AiStudioOutput.SubmitPrepared -> updateState {
+                    prepareSubmission(output.submissionId, output.sessionId)
+                }
+
+                is AiStudioOutput.SubmitAccepted -> updateState {
+                    acceptSubmission(output.submissionId, output.sessionId)
+                }
+
+                is AiStudioOutput.SubmitRejected -> updateState {
+                    rejectSubmission(output.submissionId, output.sessionId)
+                }
 
                 // Delivery results of engine questions are handled by the question bridge.
                 is AiStudioOutput.PermissionAnswerFailed, is AiStudioOutput.RunEnded -> Unit
@@ -97,6 +147,42 @@ class AiStudioModel(
             val pipeline = this
             coroutineScope {
                 launch { observeWorkspace(pipeline) }
+                launch {
+                    entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
+                }
+                launch {
+                    machines.observe(AttachmentsMachineKey).collectLatest { ref ->
+                        ref?.outputs?.collect { output ->
+                            when (output) {
+                                is AttachmentsOutput.Imported -> appendAttachments(
+                                    pipeline,
+                                    output.requestId,
+                                    output.attachments.map { it.toUi() }.toImmutableList(),
+                                )
+
+                                is AttachmentsOutput.Failed, is AttachmentsOutput.Cancelled -> updateState {
+                                    val id = if (output is AttachmentsOutput.Failed) {
+                                        output.requestId
+                                    } else {
+                                        (output as AttachmentsOutput.Cancelled).requestId
+                                    }
+                                    val key = attachmentRequests[id]
+                                    val affected = panes.filter { draftKey(it.id) == key }.map { it.id }
+                                    copy(
+                                        attachmentRequests = (attachmentRequests - id).toImmutableMap(),
+                                        attachmentErrorPanes = if (output is AttachmentsOutput.Failed) {
+                                            (attachmentErrorPanes + affected).toImmutableSet()
+                                        } else {
+                                            attachmentErrorPanes
+                                        },
+                                    )
+                                }
+
+                                is AttachmentsOutput.Completed, is AttachmentsOutput.NativeRequested -> Unit
+                            }
+                        }
+                    }
+                }
                 launch { observeResearch(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
@@ -112,6 +198,7 @@ class AiStudioModel(
                     }
                 }
                 launch { observeTranscripts(pipeline) }
+                launch { observeAttachmentPreviews(pipeline, previews, previewRequests) }
                 launch { observeClock(pipeline) }
             }
         }
@@ -202,8 +289,24 @@ class AiStudioModel(
             emitAll(
                 combine(
                     ids.map { id ->
-                        repository.observeMessages(id).map { messages ->
-                            id to messages.map { it.toUi() }.toImmutableList()
+                        repository.observeMessages(id).flatMapLatest { messages ->
+                            val ui = messages.map { it.toUi() }
+                            val attachmentIds = ui.asSequence().filterIsInstance<MessageUi.Prompt>()
+                                .flatMap { it.attachments }.map { AttachmentId(it.id) }.distinct().toList()
+                            attachmentsCatalog.observe(attachmentIds).map { descriptors ->
+                                val metadata = descriptors.associate { it.id.value to it.toUi() }
+                                id to ui.map { message ->
+                                    if (message is MessageUi.Prompt) {
+                                        message.copy(
+                                            attachments = message.attachments.map {
+                                                metadata[it.id] ?: it
+                                            }.toImmutableList(),
+                                        )
+                                    } else {
+                                        message
+                                    }
+                                }.toImmutableList()
+                            }
                         }
                     },
                 ) { it.toMap() },
@@ -254,8 +357,10 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.FocusPane -> AiStudioIntent.Public.FocusPane(intent.paneId)
         }
+        val previous = machine.state.value
         val result = sendTo(machine, command)
-        if (result == SendResult.Accepted) updateState { afterNavigation(intent) }
+        val replaced = navigationReplacedPanes(intent, previous, machine.state.value)
+        if (result == SendResult.Accepted) updateState { afterNavigation(intent, replaced) }
     }
 
     private suspend fun compose(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Composer) = with(pipeline) {
@@ -271,13 +376,9 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
 
-            is AiStudioScreenIntent.Submit -> withState {
-                val result = sendTo(
-                    machine,
-                    AiStudioIntent.Public.Submit(intent.paneId, draft(intent.paneId)),
-                )
-                if (result == SendResult.Accepted) updateState { withDraft(intent.paneId, "") }
-            }
+            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, intent.paneId)
+
+            is AiStudioScreenIntent.Attachment -> attach(pipeline, intent)
 
             is AiStudioScreenIntent.Stop -> sendTo(machine, AiStudioIntent.Public.Stop(intent.sessionId))
 
@@ -301,6 +402,110 @@ class AiStudioModel(
                 val change = StudioSettingChange.Approval(intent.approval.toDomain())
                 selectSetting(pipeline, intent.paneId, change) { copy(approval = intent.approval.toDomain()) }
             }
+        }
+    }
+
+    private suspend fun attach(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Attachment) = with(pipeline) {
+        log.i { "Attachment action kind=${intent::class.simpleName.orEmpty()}" }
+        when (intent) {
+            is AiStudioScreenIntent.PickAttachments -> pickAttachments(pipeline, intent.paneId, null)
+
+            is AiStudioScreenIntent.ImportAttachments -> pickAttachments(pipeline, intent.paneId, intent.inputs)
+
+            is AiStudioScreenIntent.RemoveAttachment -> updateState {
+                val key = draftKey(intent.paneId)
+                copy(
+                    draftAttachments = (
+                        draftAttachments + (
+                            key to attachments(intent.paneId)
+                                .filterNot { it.id == intent.id }.toImmutableList()
+                        )
+                    ).toImmutableMap(),
+                )
+            }
+
+            is AiStudioScreenIntent.OpenAttachment -> attachmentNavigation.emit(
+                StudioAttachmentNavigation.Preview(intent.id),
+            )
+
+            is AiStudioScreenIntent.ExportAttachment -> attachmentNavigation.emit(
+                StudioAttachmentNavigation.Preview(intent.id, true),
+            )
+
+            is AiStudioScreenIntent.AttachmentsSelected -> appendAttachments(pipeline, intent.requestId, intent.files)
+
+            is AiStudioScreenIntent.AttachmentPreviewVisible -> updateState { withPreviewVisibility(intent) }
+        }
+    }
+
+    private suspend fun pickAttachments(pipeline: StudioPipeline, paneId: Int, inputs: List<NativeAttachmentUi>?) =
+        with(
+            pipeline,
+        ) {
+            withState {
+                if (!isAttachmentsEnabled) return@withState
+                val support = attachmentSupport(paneId) ?: return@withState
+                if (support.mediaTypes.isEmpty()) return@withState
+                val requestId = Uuid.random().toString()
+                val key = draftKey(paneId)
+                updateState {
+                    copy(
+                        attachmentRequests = (
+                            attachmentRequests.filterValues {
+                                it != key
+                            } + (requestId to key)
+                        ).toImmutableMap(),
+                        attachmentErrorPanes = (attachmentErrorPanes - paneId).toImmutableSet(),
+                    )
+                }
+                if (inputs == null) {
+                    log.i { "Open correlated attachment picker" }
+                    attachmentNavigation.emit(
+                        StudioAttachmentNavigation.Pick(requestId, support.toDomain()),
+                    )
+                } else {
+                    captureAttachments(pipeline, requestId, support, inputs)
+                }
+            }
+        }
+
+    private suspend fun captureAttachments(
+        pipeline: StudioPipeline,
+        requestId: String,
+        support: InputSupportUi,
+        inputs: List<NativeAttachmentUi>,
+    ) = with(pipeline) {
+        val captured = inputs.map {
+            when (it) {
+                is NativeAttachmentUi.File -> AttachmentInput.File(it.location)
+                is NativeAttachmentUi.Image -> AttachmentInput.Bytes("clipboard.png", "image/png", it.bytes)
+            }
+        }
+        val result = machines.send(
+            AttachmentsMachineKey,
+            AttachmentsIntent.Public.Import(requestId, captured, support.toDomain()),
+        )
+        if (result != SendResult.Accepted) {
+            updateState {
+                copy(attachmentRequests = (attachmentRequests - requestId).toImmutableMap())
+            }
+        }
+    }
+
+    private suspend fun appendAttachments(
+        pipeline: StudioPipeline,
+        requestId: String,
+        files: ImmutableList<AttachmentUi>,
+    ) = with(
+        pipeline,
+    ) {
+        updateState {
+            val key = attachmentRequests[requestId] ?: return@updateState this
+            val next = (draftAttachments[key].orEmpty() + files).distinctBy { it.id }.toImmutableList()
+            copy(
+                draftAttachments = (draftAttachments + (key to next)).toImmutableMap(),
+                attachmentRequests = (attachmentRequests - requestId).toImmutableMap(),
+            )
         }
     }
 
@@ -435,4 +640,13 @@ class AiStudioModel(
 private fun EffortConfigurationState.studioEfforts() = when (this) {
     EffortConfigurationState.Idle, EffortConfigurationState.Loading -> persistentMapOf()
     is EffortConfigurationState.Ready -> choices.associate { it.target.studioModelId() to it.effort }.toImmutableMap()
+}
+
+/** The component translates these requests into feature routes and result contracts. */
+sealed interface StudioAttachmentNavigation {
+    /** Opens a correlated native file picker. */
+    data class Pick(val requestId: String, val support: PromptInputSupport) : StudioAttachmentNavigation
+
+    /** Opens an existing file; optional export starts its native save dialog. */
+    data class Preview(val id: String, val isExportRequested: Boolean = false) : StudioAttachmentNavigation
 }

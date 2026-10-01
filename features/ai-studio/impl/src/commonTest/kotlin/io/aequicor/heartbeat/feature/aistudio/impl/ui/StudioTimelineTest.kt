@@ -93,7 +93,7 @@ class StudioTimelineTest {
     }
 
     @Test
-    fun `another session, an edited history or new labels rebuild the timeline`() {
+    fun `another session an edited history or new labels rebuild the timeline`() {
         val cache = TimelineCache()
         cache.update(listOf(prompt, reply("one", isStreaming = false)), labels)
 

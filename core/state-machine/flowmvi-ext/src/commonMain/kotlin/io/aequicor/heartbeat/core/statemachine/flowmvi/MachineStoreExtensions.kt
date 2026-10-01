@@ -42,7 +42,7 @@ import kotlin.time.Duration.Companion.seconds
  *
  * Derive the initial store state the same way: `initial = ChatScreenState().reduceChat(chat.state.value)`.
  * Mirroring survives the last unsubscription for `stopDelay` (configuration changes).
- * Every mirrored update and output is logged under `MVI/<store name>`.
+ * Every mirrored update and output is logged at VERBOSE under `MVI/<store name>`.
  */
 public fun <S, I, A, MS, MO> StoreBuilder<S, I, A>.reflect(
     machine: MachineRef<MS, *, MO>,
@@ -52,18 +52,18 @@ public fun <S, I, A, MS, MO> StoreBuilder<S, I, A>.reflect(
 ): Unit where S : MVIState, I : MVIIntent, A : MVIAction, MS : MachineState, MO : MachineOutput {
     whileSubscribed(name = "reflect:${machine.name}", stopDelay = stopDelay) {
         val log = storeLog()
-        log.d { "reflecting machine ${machine.name}" }
+        log.v { "reflecting machine ${machine.name}" }
         coroutineScope {
             launch {
                 machine.outputs.collect { output ->
-                    log.d { "machine ${machine.name}: output ${output.label()}" }
+                    log.v { "machine ${machine.name}: output ${output.label()}" }
                     onOutput(output)
                 }
             }
             machine.state.collect { machineState ->
                 updateState {
                     val next = reduce(machineState)
-                    log.d { "machine ${machine.name}: ${machineState.label()} → store state ${next.label()}" }
+                    log.v { "machine ${machine.name}: ${machineState.label()} → store state ${next.label()}" }
                     next
                 }
             }

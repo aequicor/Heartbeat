@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReason
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
@@ -201,8 +203,15 @@ internal class PiFeatures(private val entries: List<Pair<EngineFeatureKey<*>, En
     override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> {
         val entry = entries.firstOrNull { it.first.id == key.id && it.first.type == key.type }?.second
             ?: return FeatureAccess.Unsupported
+        if (entry.hasNoSupportedInput()) return FeatureAccess.Unsupported
         // The key's KClass was matched to the declaration and checked against the actual instance.
         @Suppress("UNCHECKED_CAST")
         return if (key.type.isInstance(entry)) FeatureAccess.Available(entry as F) else FeatureAccess.Unsupported
     }
+}
+
+private fun EngineFeature.hasNoSupportedInput(): Boolean = when (this) {
+    is AcceptsImages -> mediaTypes.isEmpty()
+    is AcceptsResources -> mediaTypes.isEmpty()
+    else -> false
 }

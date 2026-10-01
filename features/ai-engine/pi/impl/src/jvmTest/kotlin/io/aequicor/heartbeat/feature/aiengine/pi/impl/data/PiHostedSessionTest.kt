@@ -11,12 +11,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -26,6 +32,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -34,6 +41,35 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PiHostedSessionTest {
+    @Test
+    fun `image prompt keeps original history while hosted tools share its lifetime`() = runTest {
+        val bridge = HostedBridge()
+        val fixture = fixture(
+            this,
+            tools = HostedToolDeclarations,
+            bridge = bridge,
+            resources = ResourceResolver { ResolvedResource("image.png", "image/png", byteArrayOf(1)) },
+        ) { _, connection ->
+            connection.modelMetadata = record("""{"input":["text","image"]}""")
+        }
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        val parts = listOf(ContentPart.Image(ResourceRef("attachment:image", "image/png")))
+        val turn = fixture.session.send(PromptRequest(RequestId("image"), parts, trust = TrustLevel.Full))
+        assertEquals(turn, requireNotNull(bridge.context()).turn)
+        val native = fixture.connection.fields[fixture.connection.commands.indexOf("prompt")]
+        assertEquals(1, native.getValue("images").jsonArray.size)
+        fixture.connection.event(
+            record("""{"type":"message_end","message":{"role":"user","timestamp":42,"content":""}}"""),
+        )
+        val history = assertIs<FeatureAccess.Available<SessionHistory>>(
+            fixture.session.features.resolve(SessionHistory),
+        ).feature.page()
+        assertEquals(parts, history.items.filterIsInstance<SessionItem.Message>().last().parts)
+        fixture.connection.event(record("""{"type":"agent_settled"}"""))
+        assertEquals(null, bridge.context())
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `live trust changes apply to future hosted calls while an approval keeps waiting`() = runTest {
         val bridge = HostedBridge()

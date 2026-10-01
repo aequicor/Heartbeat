@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -59,6 +60,7 @@ internal class CodexSession(
     val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
+    private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
     private val loadedTurns = mutableSetOf<String>()
@@ -95,14 +97,14 @@ internal class CodexSession(
         if (!submitLock.tryLock()) fail(EngineFailure.Session(SessionFailureReason.Busy))
         try {
             runtime.gate()
-            if (request.parts.any { it !is ContentPart.Text }) {
-                fail(
-                    EngineFailure.Request(RequestFailureReason.UnsupportedContent, request.id),
-                )
-            }
+            if (request.parts.any { it !is ContentPart.Text }) runtime.models(target.binding)
+            val prepared = codexPromptInputs(request, runtime.inputSupport(target.model), runtime.host.resources)
             if (machine.state.value !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
             validateReasoningEffort(request)
             val turn = Turn(TurnId(Uuid.random().toString()), request.id, target)
+            runtime.host.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
+            history.rememberOriginals(turn.id, request.parts)
+            inputs[turn.id] = prepared
             val accepted = CompletableDeferred<TurnId>()
             submissions[turn.id] = accepted
             nativeTurn = null
@@ -257,9 +259,8 @@ internal class CodexSession(
 
     private suspend fun submit(effect: ActiveSessionEffect.Submit) {
         trust = effect.request.trust ?: TrustLevel.Ask
-        val input = JsonArray(
-            effect.request.parts.map { json("type" to "text".json(), "text" to (it as ContentPart.Text).text.json()) },
-        )
+        val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
+        val input = JsonArray(prepared.parts)
         val response = rpc.request(
             "turn/start",
             codexTurnParams(ref.nativeId, target.model.value, input, effect.request.reasoningEffort),
@@ -267,6 +268,7 @@ internal class CodexSession(
         val id = response.obj("turn").text("id") ?: protocolFailure()
         nativeTurns[id] = effect.turn.id
         if (currentTurn()?.id == effect.turn.id) nativeTurn = id
+        rememberNativeInput(id, effect.request.parts)
         accept(effect.turn)
     }
 
@@ -379,7 +381,7 @@ internal class CodexSession(
      * Such replay, and any non-full canonical snapshot, is omitted entirely: empty Partial lets consumers keep
      * their saved history.
      */
-    fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
+    suspend fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
         val snapshots = turns.orEmpty().map { value ->
             val turn = value as? JsonObject ?: protocolFailure()
             if (turn.text("id") == null) protocolFailure()
@@ -393,6 +395,7 @@ internal class CodexSession(
         for ((turn, items) in snapshots) {
             val id = TurnId(turn.text("id") ?: protocolFailure())
             loadedTurns += id.value
+            runtime.host.resourceHistory.parts(ref, id.value)?.let { history.rememberOriginals(id, it) }
             items.orEmpty().forEach { history.nativeItem(it, id) }
         }
     }
@@ -437,7 +440,27 @@ internal class CodexSession(
     }
 
     private suspend fun acceptStarted(turn: Turn?, turnId: TurnId?) {
-        if (turn != null && turn.id == turnId) accept(turn)
+        if (turn != null && turn.id == turnId) {
+            history.originals(turn.id)?.let { parts ->
+                rememberNativeInput(nativeTurn ?: protocolFailure(), parts)
+            }
+            accept(turn)
+        }
+    }
+
+    private suspend fun rememberNativeInput(id: String, parts: List<ContentPart>) {
+        try {
+            runtime.host.resourceHistory.remember(ref, id, parts)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w { "Codex original input could not be persisted: ${error::class.simpleName ?: "Failure"}" }
+            fail(
+                EngineFailure.History(
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason.Unavailable,
+                ),
+            )
+        }
     }
 
     private suspend fun usageEvent(method: String?, params: JsonObject): Boolean {

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -71,6 +72,33 @@ class CodexHistoryTest {
         assertEquals(EngineFailure.History(HistoryFailureReason.Unavailable), failure.failure)
         val event = assertIs<SessionEvent.HistoryInvalidated>(history.watch(checkpoint).single())
         assertEquals(HistoryFailureReason.Unavailable, event.reason)
+    }
+
+    @Test
+    fun `native local image events and reopened history retain host references`() = runTest {
+        val source = listOf(ContentPart.Image(ResourceRef("attachment:opaque", "image/png")))
+        val turn = TurnId("native-turn")
+        val native = json(
+            "id" to "native-item".json(),
+            "type" to "userMessage".json(),
+            "content" to kotlinx.serialization.json.JsonArray(
+                listOf(
+                    json(
+                        "type" to "localImage".json(),
+                        "path" to "/private/app/asset.png".json(),
+                    ),
+                ),
+            ),
+        )
+        val live = CodexHistory()
+        live.rememberOriginals(turn, source)
+        live.nativeItem(native, turn, isStarted = true)
+        live.nativeItem(native, turn)
+        assertEquals(source, assertIs<SessionItem.Message>(live.page().items.single()).parts)
+        val reopened = CodexHistory()
+        reopened.rememberOriginals(turn, source)
+        reopened.nativeItem(native, turn)
+        assertEquals(source, assertIs<SessionItem.Message>(reopened.page().items.single()).parts)
     }
 
     private fun message(id: String) = json("id" to id.json(), "type" to "agentMessage".json(), "text" to id.json())

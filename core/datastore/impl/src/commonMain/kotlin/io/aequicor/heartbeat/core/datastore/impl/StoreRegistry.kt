@@ -82,6 +82,13 @@ internal class StoreRegistry(
         return stores
     }
 
+    /** Resolves the owner's feature-file directory without accessing the filesystem. */
+    fun filesDirectory(owner: StorageOwner, name: String): String {
+        require(Regex("[a-z][a-z0-9_]{0,63}").matches(name)) { "invalid feature file directory name" }
+        log.d { "${owner.label}: file directory $name resolved" }
+        return layout.filesDirectory(owner, name).toString()
+    }
+
     fun openKeyValue(owner: StorageOwner, spec: KeyValueSpec, scope: ScopeHandle): LoggingKeyValueStore {
         val label = "${owner.label}/$spec"
         val store = LoggingKeyValueStore(

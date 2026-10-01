@@ -59,7 +59,7 @@ private fun ResearchResource.merge(existing: ResearchResource?): ResearchResourc
 
 /** Builds each native segment from visible conversation and the current source selection only. */
 internal fun ResearchSession.promptParts(question: ResearchQuestion, prompt: String): List<ContentPart> = buildList {
-    add(ContentPart.Text(prompt))
+    if (prompt.isNotBlank()) add(ContentPart.Text(prompt))
     val previous = question.items.filterIsInstance<SessionItem.Message>().mapNotNull { message ->
         if (message.role == MessageRole.System) return@mapNotNull null
         val text = message.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
@@ -72,20 +72,20 @@ internal fun ResearchSession.promptParts(question: ResearchQuestion, prompt: Str
     add(textResource("Sources selected for this question: ${selected.size}. Other source attachments are unavailable."))
     selected.forEach { resource ->
         add(textResource("Selected source: ${resource.title}" + resource.citation()))
-        add(
-            when (resource.kind) {
-                ResearchResourceKind.Image -> ContentPart.Image(ResourceRef(resource.value, resource.mediaType))
-
-                ResearchResourceKind.Document -> if (resource.mediaType == "application/pdf") {
-                    ContentPart.Resource(ResourceRef(resource.value, resource.mediaType))
-                } else {
-                    textResource(resource.text.ifBlank { resource.value })
-                }
-
-                ResearchResourceKind.Website -> textResource(resource.text)
-            },
-        )
+        add(resource.contentPart())
     }
+}
+
+private fun ResearchResource.contentPart(): ContentPart = when (kind) {
+    ResearchResourceKind.Image -> ContentPart.Image(ResourceRef(value, mediaType))
+
+    ResearchResourceKind.Document -> if (attachmentId != null || mediaType == "application/pdf") {
+        ContentPart.Resource(ResourceRef(value, mediaType))
+    } else {
+        textResource(text.ifBlank { value })
+    }
+
+    ResearchResourceKind.Website -> textResource(text)
 }
 
 private fun ResearchResource.citation(): String = if (kind == ResearchResourceKind.Website) "\nURL: $value" else ""

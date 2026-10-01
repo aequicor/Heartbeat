@@ -19,8 +19,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
@@ -103,6 +105,8 @@ internal class TestProfileHandle(override val coroutineScope: CoroutineScope) : 
 }
 
 internal class ClaudeFixture(val scope: CoroutineScope) {
+    var resources: ResourceResolver = ResourceResolver { null }
+    var inputSupport = PromptInputSupport.TextDocuments
     val transport = FakeClaudeTransport()
     val toggles = TestClaudeToggles()
     val account = ClaudeAccount(
@@ -123,9 +127,11 @@ internal class ClaudeFixture(val scope: CoroutineScope) {
             account,
             toggles,
             scope,
-            catalog,
-            tools,
-            bridge,
+            catalog = catalog,
+            tools = tools,
+            bridge = bridge,
+            resources = ResourceResolver { resources.resolve(it) },
+            inputSupport = { inputSupport },
         )
     }
 }

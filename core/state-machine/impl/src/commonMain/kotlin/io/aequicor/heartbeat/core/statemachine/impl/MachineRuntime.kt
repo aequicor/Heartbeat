@@ -55,12 +55,12 @@ internal class MachineRuntime :
         scope.onClose {
             machine.stop()
             val instances = slot.remove(ref)
-            Log.tag("SM/${spec.name}").d { "unregistered (instances: $instances)" }
+            Log.tag("SM/${spec.name}").v { "unregistered (instances: $instances)" }
         }
         val instances = slot.push(ref)
         val log = Log.tag("SM/${spec.name}")
         if (instances > 1) log.w { "$instances instances running; the latest one is addressed" }
-        log.d { "registered (instances: $instances)" }
+        log.v { "registered (instances: $instances)" }
         return machine
     }
 

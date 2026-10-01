@@ -190,4 +190,6 @@
     <string name="ru_empty_title">Ничего не найдено</string>
     <string name="ru_empty_hint">Измените запрос поиска</string>
     <string name="ru_loading_label">Загрузка…</string>
+    <string name="ru_attachments">Вложения</string>
+    <string name="ru_paste_image">Вставить изображение</string>
 </resources>

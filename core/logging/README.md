@@ -10,7 +10,8 @@
 ```kotlin
 private val log = Log.tag("ChatRepository")        // тег = имя класса или инфраструктурный префикс (DI, SM/chat, NET…)
 
-log.d { "load history chatId=$chatId" }            // лямбда: строка не строится, если уровень выключен
+log.v { "load history chatId=$chatId" }            // лямбда: строка не строится, если уровень выключен
+log.d { "history source selected: local" }
 log.i { "prompt sent len=${prompt.length}" }
 log.w(error) { "retry #$attempt" }                  // throwable передаётся всегда, когда он есть
 log.e(error) { "generation failed chatId=$chatId" }
@@ -25,8 +26,17 @@ Log.init(isDebug = BuildConfig.DEBUG, sinks = listOf(crashReporterSink))
 
 | Сборка | Минимальный уровень | Вывод |
 |---|---|---|
-| debug | `VERBOSE` | `DebugAntilog` Napier (Logcat / консоль / os_log) + `sinks` |
+| debug | `DEBUG` | платформенная консоль + `sinks` |
+| trace (`isTrace = true`) | `VERBOSE` | те же подключённые назначения |
 | release | `INFO` | только `sinks` (`LogSink` — файл, крэш-репортер) |
+
+На Desktop trace включается через системное свойство `heartbeat.trace=true` или `HEARTBEAT_TRACE=true`.
+Обычные чтения/записи хранилищ, ревизии транскрипта, проекции состояния и жизненный цикл эффектов идут
+в `VERBOSE`. Переходы машин, пользовательские действия и изменения настроек остаются видны без trace.
+
+JVM-консоль использует UTF-8 и формат `HH:mm:ss.SSS [LEVEL] Tag - сообщение`, без отдельного заголовка JUL.
+Переводы строк в сообщении экранируются; исключение выводится с полным стеком. Повторный `Log.init`
+заменяет назначения, поэтому одна запись выводится один раз. Android/iOS используют `DebugAntilog` Napier.
 
 ## Секреты
 
@@ -43,4 +53,5 @@ Log.init(isDebug = BuildConfig.DEBUG, sinks = listOf(crashReporterSink))
 
 ## Тесты
 
-`./gradlew :core:logging:jvmTest`: фильтрация уровней без построения сообщения, передача throwable, очистка секретов.
+`./gradlew :core:logging:jvmTest`: фильтрация уровней без построения сообщения, передача throwable, очистка секретов,
+компактный однократный вывод после повторной инициализации и Unicode при Windows-кодировке JVM.

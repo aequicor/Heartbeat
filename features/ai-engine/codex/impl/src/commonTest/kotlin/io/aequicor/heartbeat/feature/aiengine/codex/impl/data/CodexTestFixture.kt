@@ -1,4 +1,5 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
+
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.SavedBundle
@@ -36,6 +37,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
@@ -129,6 +131,7 @@ internal class Fixture(
     var resumedTurns: JsonArray? = JsonArray(emptyList())
     var resumedHistoryMode: String? = null
     var modelList: List<JsonObject> = emptyList()
+    var resources: ResourceResolver = ResourceResolver { null }
     var nativeConfig = json("features" to JsonObject(CodexDisabledCapabilities.associateWith { JsonPrimitive(false) }))
     var onTurn: suspend (JsonObject) -> Unit = { message ->
         wire.reply(
@@ -170,8 +173,9 @@ internal class Fixture(
             override suspend fun register(directory: String): LocalWorkspace = error("Not used")
             override suspend fun resolve(ref: WorkspaceRef): String? = workspacePaths[ref]
         },
-        tools,
-        manifests,
+        tools = tools,
+        manifests = manifests,
+        resources = ResourceResolver { resources.resolve(it) },
     )
     val runtime = CodexRuntime(
         RuntimeIdentity(CodexEngine.Id, AuthSourceId("codex.local"), AuthRevision.Unknown),

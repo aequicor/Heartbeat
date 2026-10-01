@@ -51,7 +51,7 @@ internal class StorageTestEnv(private val test: TestScope) {
 
     init {
         val sink = LogSink { level, tag, error, message -> logs += "$level $tag $message ${error ?: ""}" }
-        Log.init(isDebug = true, sinks = listOf(sink))
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
     }
 
     fun newScope(name: String, parent: TestScopeHandle? = null) = TestScopeHandle(name, dispatcher, parent?.job) {

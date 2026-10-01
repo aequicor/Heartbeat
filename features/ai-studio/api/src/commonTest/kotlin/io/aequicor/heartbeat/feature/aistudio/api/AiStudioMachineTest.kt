@@ -102,7 +102,7 @@ class AiStudioMachineTest {
     }
 
     @Test
-    fun `lost runtime observation clears every run, stop and permission`() {
+    fun `lost runtime observation clears every run and stop and permission`() {
         val permission = StudioPermission("s1", "request", "Allow", listOf(StudioPermissionOption("once", "Once")))
         AiStudioMachineSpec.assertTransition(
             from = session.copy(

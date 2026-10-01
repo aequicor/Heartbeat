@@ -10,5 +10,6 @@ kotlin {
         api(projects.core.navigation.api)
         api(projects.core.featureToggles.api)
         api(projects.features.aiEngine.facade.api)
+        api(projects.features.attachments.api)
     }
 }

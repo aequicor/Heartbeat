@@ -269,6 +269,7 @@ private class PreviewStores : DataStores {
     override val owner = StorageOwner.Profile(ProfileId("test"))
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = store
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
+    override fun filesDirectory(name: String): String = error("Unused")
     override suspend fun fire(event: DataEvent) = Unit
 }
 

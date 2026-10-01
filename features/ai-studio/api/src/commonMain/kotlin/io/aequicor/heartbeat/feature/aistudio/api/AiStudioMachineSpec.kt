@@ -39,6 +39,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | SessionCreated | matching pending request | Ready (pane shows session, running) | Run |
  * | Ready | CreateFailed | matching pending request | Ready (pane not creating) | output SubmitFailed(request) |
  * | Ready | Stop | running, not stopping | Ready (stopping) | Cancel |
+ * | Ready | RunAccepted / RunRejected | | Ready | output matching native submission result |
  * | Ready | RunFinished | | Ready (idle unless latest snapshot runs it) | Apply(SetUnread) if hidden; output RunEnded |
  * | Ready | ObserveUsageTargets / RefreshUsage | | Ready | ObserveUsageTargets / RefreshUsage |
  * | Ready | RuntimeChanged | | Ready (profile execution snapshot with start times, answered permissions hidden) | |
@@ -152,9 +153,15 @@ public val AiStudioMachineSpec: MachineSpec<AiStudioState, AiStudioIntent, AiStu
                     effect.paneId,
                     effect.prompt,
                     effect.requestId,
+                    effect.attachments,
+                    effect.submissionId,
                 )
 
-                is AiStudioEffect.Run -> AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
+                is AiStudioEffect.Run -> if (effect.submissionId.isEmpty()) {
+                    AiStudioIntent.Internal.RunFinished(effect.sessionId, RunOutcome.Failed)
+                } else {
+                    AiStudioIntent.Internal.RunRejected(effect.paneId, effect.submissionId, effect.sessionId)
+                }
 
                 is AiStudioEffect.Cancel -> AiStudioIntent.Internal.CancelFailed(effect.sessionId)
 
@@ -228,7 +235,11 @@ private fun ReadyTransitions.navigation() {
 
 private fun ReadyTransitions.conversations() {
     on<AiStudioIntent.Public.Submit>(
-        guard = { intent.prompt.isNotBlank() && state.pane(intent.paneId)?.isNewSessionPage() == true },
+        guard = {
+            (intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()) && state.pane(
+                intent.paneId,
+            )?.isNewSessionPage() == true
+        },
     ) {
         stay {
             state.replacePane(intent.paneId) {
@@ -242,23 +253,47 @@ private fun ReadyTransitions.conversations() {
                 intent.prompt.trim(),
                 state.settings,
                 requestId = state.nextCreateRequestId,
+                attachments = intent.attachments,
+                submissionId = intent.submissionId,
                 isWorktree = state.pane(intent.paneId)?.isWorktree == true,
             )
         }
     }
     on<AiStudioIntent.Public.Submit>(
-        guard = { intent.prompt.isNotBlank() && state.pane(intent.paneId)?.sessionId?.let(state::isIdle) == true },
+        guard = {
+            (intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()) && state.pane(
+                intent.paneId,
+            )?.sessionId?.let(state::isIdle) == true
+        },
     ) {
         stay { state.copy(running = state.running + state.sessionOf(intent.paneId)) }
-        effect { AiStudioEffect.Run(state.sessionOf(intent.paneId), intent.prompt.trim(), state.settings) }
+        effect {
+            AiStudioEffect.Run(
+                state.sessionOf(intent.paneId),
+                intent.prompt.trim(),
+                state.settings,
+                intent.attachments,
+                intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
+                intent.submissionId,
+            )
+        }
     }
     on<AiStudioIntent.Public.FollowUp>(guard = { intent.prompt.isNotBlank() && state.isIdle(intent.sessionId) }) {
         stay { state.copy(running = state.running + intent.sessionId) }
         effect { AiStudioEffect.Run(intent.sessionId, intent.prompt.trim(), state.settings) }
     }
+    creationResults()
+}
+
+private fun ReadyTransitions.creationResults() {
     on<AiStudioIntent.Internal.SessionCreated>(guard = {
         state.ownsCreateRequest(intent.paneId, intent.requestId)
     }) {
+        output {
+            intent.submissionId.takeIf { it.isNotEmpty() }?.let {
+                AiStudioOutput.SubmitPrepared(it, intent.sessionId)
+            }
+        }
         stay {
             state.copy(
                 panes = state.panes.map { pane ->
@@ -271,17 +306,46 @@ private fun ReadyTransitions.conversations() {
                 running = state.running + intent.sessionId,
             )
         }
-        effect { AiStudioEffect.Run(intent.sessionId, intent.prompt, intent.settings) }
+        effect {
+            AiStudioEffect.Run(
+                intent.sessionId,
+                intent.prompt,
+                intent.settings,
+                intent.attachments,
+                intent.paneId.takeIf { intent.submissionId.isNotEmpty() },
+                intent.submissionId,
+            )
+        }
+    }
+    on<AiStudioIntent.Internal.SessionCreated>(guard = {
+        !state.ownsCreateRequest(intent.paneId, intent.requestId) && intent.submissionId.isNotEmpty()
+    }) {
+        output { AiStudioOutput.SubmitRejected(intent.paneId, intent.submissionId, intent.sessionId) }
     }
     on<AiStudioIntent.Internal.CreateFailed>(guard = {
         state.ownsCreateRequest(intent.paneId, intent.requestId)
     }) {
         stay { state.updatePane(intent.paneId) { it.copy(isCreating = false) } }
-        output { AiStudioOutput.SubmitFailed(intent.paneId, intent.prompt, intent.requestId) }
+        output {
+            AiStudioOutput.SubmitFailed(
+                intent.paneId,
+                intent.prompt,
+                intent.requestId,
+                intent.attachments,
+                intent.submissionId,
+            )
+        }
     }
 }
 
 private fun ReadyTransitions.executions() {
+    on<AiStudioIntent.Internal.RunAccepted> {
+        output { AiStudioOutput.SubmitAccepted(intent.paneId, intent.submissionId, intent.sessionId) }
+    }
+    on<AiStudioIntent.Internal.RunRejected> {
+        stay { state.copy(running = state.running - intent.sessionId) }
+        output { AiStudioOutput.SubmitRejected(intent.paneId, intent.submissionId, intent.sessionId) }
+    }
     on<AiStudioIntent.Public.Stop>(
         guard = {
             intent.sessionId in state.running && intent.sessionId !in state.stopping &&

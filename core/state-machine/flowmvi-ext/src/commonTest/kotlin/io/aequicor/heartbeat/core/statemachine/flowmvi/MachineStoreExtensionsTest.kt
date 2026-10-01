@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineOutput
 import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -25,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class MachineStoreExtensionsTest {
     private val records = mutableListOf<Pair<LogLevel, String>>()
     private val machine = FakeMachine()
@@ -34,7 +36,7 @@ class MachineStoreExtensionsTest {
         val sink = LogSink { level, tag, _, message ->
             if (tag == "MVI/Screen") records += level to message
         }
-        Log.init(isDebug = true, sinks = listOf(sink))
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
     }
 
     @AfterTest
@@ -69,7 +71,23 @@ class MachineStoreExtensionsTest {
             advanceUntilIdle()
 
             assertEquals(ScreenState.Content("hi"), states.value)
-            assertTrue(records.any { it.second == "machine m: Ready → store state Content" })
+            assertTrue(records.any { it == LogLevel.VERBOSE to "machine m: Ready → store state Content" })
+        }
+    }
+
+    @Test
+    fun `normal debug follows machine updates without logging each projection`() = runTest {
+        val sink = LogSink { level, tag, _, message ->
+            if (tag == "MVI/Screen") records += level to message
+        }
+        Log.init(isDebug = true, sinks = listOf(sink))
+        screenStore().subscribeAndTest {
+            advanceUntilIdle()
+            machine.state.value = Machine.Ready("streamed")
+            advanceUntilIdle()
+
+            assertEquals(ScreenState.Content("streamed"), states.value)
+            assertTrue(records.isEmpty())
         }
     }
 
@@ -80,7 +98,7 @@ class MachineStoreExtensionsTest {
             machine.outputs.emit(Output.Done)
 
             assertEquals(ScreenAction.ShowDone, actions.first())
-            assertTrue(records.any { it.second == "machine m: output Done" })
+            assertTrue(records.any { it == LogLevel.VERBOSE to "machine m: output Done" })
         }
     }
 

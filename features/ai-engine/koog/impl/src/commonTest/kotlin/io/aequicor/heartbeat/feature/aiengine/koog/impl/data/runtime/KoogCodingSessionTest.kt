@@ -14,10 +14,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -40,7 +43,7 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogCodingSessionTest {
     @Test
-    fun `hosted tools ignore legacy auto approve and keep trusted turn context`() = runTest {
+    fun `hosted tools with document input ignore legacy auto approve and keep trusted turn context`() = runTest {
         val f = fixture(autoApprove = true)
         var capturedContext: AgentToolContext? = null
         var executions = 0
@@ -66,8 +69,17 @@ class KoogCodingSessionTest {
                 return AgentToolResult("done")
             }
         }
+        val original = ContentPart.Resource(ResourceRef("attachment:source", "text/markdown"))
+        f.resources = mapOf(
+            "attachment:source" to ResolvedResource(
+                "source.md",
+                "text/markdown",
+                "Attached source".encodeToByteArray(),
+            ),
+        )
+        val request = f.request().copy(parts = f.request().parts + original, trust = TrustLevel.Ask)
         val session = f.codingSession()
-        val turn = session.features.require(SendsPrompts).send(f.request().copy(trust = TrustLevel.Ask))
+        val turn = session.features.require(SendsPrompts).send(request)
         f.callTool("edit_file")
         runCurrent()
         val pending = assertIs<ActiveSessionState.AwaitingUserAction>(session.state.value).requests.single()
@@ -81,6 +93,11 @@ class KoogCodingSessionTest {
         f.executor.complete()
         runCurrent()
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val history = session.features.require(SessionHistory).page()
+        val user = history.items.filterIsInstance<SessionItem.Message>().single { it.role == MessageRole.User }
+        assertEquals(request.parts, user.parts)
+        val nativeUser = f.executor.prompts.first().messages.filterIsInstance<Message.User>().single()
+        assertTrue(nativeUser.textContent().contains("Attached source"))
     }
 
     private val edit = RecordingTool("edit_file", isMutating = true)

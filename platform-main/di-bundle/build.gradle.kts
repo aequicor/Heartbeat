@@ -38,6 +38,8 @@ kotlin {
             implementation(projects.features.computerUse.impl)
             implementation(projects.features.feedback.api)
             implementation(projects.features.feedback.impl)
+            implementation(projects.features.attachments.api)
+            implementation(projects.features.attachments.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)

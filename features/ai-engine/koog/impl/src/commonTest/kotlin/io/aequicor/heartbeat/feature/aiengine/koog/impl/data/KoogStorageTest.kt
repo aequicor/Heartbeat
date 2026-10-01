@@ -143,6 +143,7 @@ class KoogStorageTest {
 
 /** In-memory profile [DataStores]: key-value only. */
 private class FakeDataStores : DataStores {
+    override fun filesDirectory(name: String): String = error("File storage is not used by this fake")
     private val stores = mutableMapOf<String, FakeKeyValueStore>()
     override val owner: StorageOwner = StorageOwner.App
     override fun keyValue(spec: KeyValueSpec): KeyValueStore = stores.getOrPut(spec.name) { FakeKeyValueStore(spec) }

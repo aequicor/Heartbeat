@@ -147,6 +147,7 @@ internal class DesktopPiEngine(
                     model.string("name") ?: id,
                     contextLimitTokens = model["contextWindow"]?.jsonPrimitive?.longOrNull,
                     reasoningEfforts = model.piThinkingLevels(),
+                    inputSupport = piInputSupport(model),
                 )
             }
         } finally {

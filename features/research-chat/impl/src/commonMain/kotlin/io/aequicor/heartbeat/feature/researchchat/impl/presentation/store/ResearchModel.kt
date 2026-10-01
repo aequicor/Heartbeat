@@ -2,38 +2,60 @@ package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.mvi.HeartbeatStoreFactory
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatOutput
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatState
+import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import io.aequicor.heartbeat.feature.researchchat.impl.di.scope.ResearchChatScope
-import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchFileImporter
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachmentAccess
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachments
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchThumbnailEncoder
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
+import kotlin.uuid.Uuid
 
 private typealias ResearchPipeline = PipelineContext<ResearchScreenState, ResearchScreenIntent, ResearchScreenAction>
 
 /** Local input only; every business command is guarded and executed by the research machine. */
 @SingleIn(ResearchChatScope::class)
 @Inject
+@OptIn(ExperimentalCoroutinesApi::class)
 internal class ResearchModel(
     private val machine: Machine<ResearchChatState, ResearchChatIntent, ResearchChatOutput>,
-    private val importer: ResearchFileImporter,
     route: ResearchChatRoute,
     @ForScope(ResearchChatScope::class) scope: ScopeHandle,
     factory: HeartbeatStoreFactory,
+    private val attachments: ResearchAttachments = ResearchAttachments.Legacy,
+    private val attachmentAccess: ResearchAttachmentAccess = ResearchAttachmentAccess.Disabled,
+    resolver: ResourceResolver? = null,
+    dispatchers: DispatcherProvider? = null,
+    encoder: ResearchThumbnailEncoder? = null,
 ) {
+    private val thumbnails = ResearchThumbnails(scope.coroutineScope, resolver, dispatchers, encoder)
+    private val pendingPicks = mutableMapOf<String, PendingResearchPick>()
+
     val store = factory.create<ResearchScreenState, ResearchScreenIntent, ResearchScreenAction>(
         name = "ResearchChat",
-        initial = ResearchScreenState(isFileImportAvailable = importer.isAvailable)
+        initial = ResearchScreenState()
             .reflectResearch(machine.state.value),
         onError = { copy(hasError = true) },
     ) {
@@ -59,7 +81,16 @@ internal class ResearchModel(
 
     init {
         store.start(scope.coroutineScope)
+        scope.coroutineScope.launch {
+            thumbnails.state.collect { store.intent(ResearchScreenIntent.ThumbnailsChanged(it)) }
+        }
         scope.coroutineScope.launch { machine.send(ResearchChatIntent.Public.Start(route.target)) }
+        scope.coroutineScope.launch {
+            machine.state.map { (it as? ResearchChatState.Ready)?.session?.target }.filterNotNull()
+                .distinctUntilChanged().flatMapLatest(attachmentAccess::observe).collect {
+                    store.intent(ResearchScreenIntent.AttachmentPolicyChanged(it))
+                }
+        }
     }
 
     private suspend fun handle(pipeline: ResearchPipeline, intent: ResearchScreenIntent) = with(pipeline) {
@@ -72,7 +103,9 @@ internal class ResearchModel(
 
             is ResearchScreenIntent.ResourceEdit -> editResource(pipeline, intent)
 
-            ResearchScreenIntent.ImportFile -> importFile(pipeline)
+            ResearchScreenIntent.ImportFile -> pickFiles(pipeline)
+
+            is ResearchScreenIntent.AttachmentEdit -> editAttachment(pipeline, intent)
 
             ResearchScreenIntent.Submit -> submit(pipeline)
 
@@ -104,6 +137,47 @@ internal class ResearchModel(
             }
         }
     }
+
+    private suspend fun editAttachment(pipeline: ResearchPipeline, intent: ResearchScreenIntent.AttachmentEdit) =
+        with(pipeline) {
+            when (intent) {
+                is ResearchScreenIntent.FilesPicked -> addPicked(pipeline, intent.requestId, intent.attachments)
+
+                is ResearchScreenIntent.DroppedFiles -> importInputs(
+                    pipeline,
+                    intent.paths.map { AttachmentInput.File(it) },
+                )
+
+                is ResearchScreenIntent.PastedImage -> importInputs(
+                    pipeline,
+                    listOf(
+                        AttachmentInput.Bytes("clipboard.png", "image/png", intent.bytes),
+                    ),
+                )
+
+                is ResearchScreenIntent.AttachmentPolicyChanged -> updateState {
+                    copy(isFileImportAvailable = intent.policy.isEnabled, attachmentSupport = intent.policy.support)
+                        .reflectResearch(machine.state.value)
+                }
+
+                is ResearchScreenIntent.OpenAttachment -> action(ResearchScreenAction.OpenAttachment(intent.id))
+
+                is ResearchScreenIntent.SaveAttachment -> action(ResearchScreenAction.SaveAttachment(intent.id))
+
+                is ResearchScreenIntent.LoadThumbnail -> thumbnails.load(
+                    intent.key,
+                    ResourceRef("attachment:${intent.id}", intent.mime),
+                )
+
+                is ResearchScreenIntent.ReleaseThumbnail -> thumbnails.release(intent.key)
+
+                is ResearchScreenIntent.ThumbnailsChanged -> updateState {
+                    copy(
+                        thumbnails = intent.values.toImmutableMap(),
+                    )
+                }
+            }
+        }
 
     /** Capture input before dispatch so a late acknowledgement never erases edits made after sending. */
     private suspend fun submit(pipeline: ResearchPipeline): Unit = with(pipeline) {
@@ -151,19 +225,65 @@ internal class ResearchModel(
             }
         }
 
-    private suspend fun importFile(pipeline: ResearchPipeline) = with(pipeline) {
-        val file = importer.pick() ?: return@with
-        updateState {
-            copy(
-                isResourceDialogOpen = true,
-                resourceTitle = file.title,
-                resourceKind = file.kind.toUi(),
-                resourceValue = file.value,
-                resourceMediaType = file.mediaType,
-            )
+    private suspend fun pickFiles(pipeline: ResearchPipeline) = with(pipeline) {
+        val request = Uuid.random().toString()
+        val pending = pendingPick(pipeline) ?: return@with
+        pendingPicks.clear()
+        pendingPicks[request] = pending
+        withState { action(ResearchScreenAction.PickFiles(request, attachmentSupport)) }
+    }
+
+    private suspend fun pendingPick(pipeline: ResearchPipeline): PendingResearchPick? = with(pipeline) {
+        val state = machine.state.value as? ResearchChatState.Ready ?: return@with null
+        var scope = ResearchResourceScope.Question
+        var isAvailable = false
+        withState {
+            scope = resourceScope.toDomain()
+            isAvailable = isEditable && isFileImportAvailable
+        }
+        val sessionId = state.sessionId
+        val questionId = state.questionId
+        return@with if (isAvailable && sessionId != null && questionId != null) {
+            PendingResearchPick(sessionId, questionId, scope)
+        } else {
+            null
         }
     }
+
+    private suspend fun importInputs(pipeline: ResearchPipeline, inputs: List<AttachmentInput>) = with(pipeline) {
+        val pending = pendingPick(pipeline) ?: return@with
+        var files = emptyList<AttachmentDescriptor>()
+        withState { files = attachments.import(inputs, attachmentSupport) }
+        addFiles(pipeline, pending, files)
+    }
+
+    private suspend fun addPicked(pipeline: ResearchPipeline, request: String, files: List<AttachmentDescriptor>) =
+        with(pipeline) {
+            val pending = pendingPicks.remove(request) ?: return@with
+            addFiles(pipeline, pending, files)
+        }
+
+    private suspend fun addFiles(
+        pipeline: ResearchPipeline,
+        pending: PendingResearchPick,
+        files: List<AttachmentDescriptor>,
+    ) = with(
+        pipeline,
+    ) {
+        if (files.isEmpty()) return@with
+        sendTo(
+            machine,
+            ResearchChatIntent.Public.AddAttachments(
+                pending.sessionId,
+                pending.questionId,
+                files,
+                pending.scope,
+            ),
+        )
+    }
 }
+
+private data class PendingResearchPick(val sessionId: String, val questionId: String, val scope: ResearchResourceScope)
 
 private fun ResearchScreenState.submissionSnapshot(): Triple<String?, String, String?> =
     Triple(questionId, draft, questionId?.let { submittedDrafts[it] })
@@ -195,5 +315,9 @@ private fun command(intent: ResearchScreenIntent): ResearchChatIntent.Public? = 
     is ResearchScreenIntent.ResourceTitleChanged, is ResearchScreenIntent.ResourceValueChanged,
     is ResearchScreenIntent.SelectSourceScope, ResearchScreenIntent.ImportFile, ResearchScreenIntent.Submit,
     ResearchScreenIntent.AddResource, ResearchScreenIntent.DismissError,
+    is ResearchScreenIntent.FilesPicked, is ResearchScreenIntent.DroppedFiles, is ResearchScreenIntent.PastedImage,
+    is ResearchScreenIntent.AttachmentPolicyChanged, is ResearchScreenIntent.OpenAttachment,
+    is ResearchScreenIntent.SaveAttachment, is ResearchScreenIntent.LoadThumbnail,
+    is ResearchScreenIntent.ReleaseThumbnail, is ResearchScreenIntent.ThumbnailsChanged,
     -> null
 }

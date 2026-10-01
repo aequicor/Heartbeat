@@ -18,7 +18,7 @@ internal class DesktopWorkspaceDirectories(private val dispatchers: DispatcherPr
     override val isAvailable: Boolean = true
 
     override suspend fun canonical(directory: String): WorkspaceDirectory? = withContext(dispatchers.io) {
-        log.d { "Validating local project directory" }
+        log.v { "Validating local project directory" }
         try {
             val input = Path.of(directory)
             if (!input.isAbsolute) return@withContext null

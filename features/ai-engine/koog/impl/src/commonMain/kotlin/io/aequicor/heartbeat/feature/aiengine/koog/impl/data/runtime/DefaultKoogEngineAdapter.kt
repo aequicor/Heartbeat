@@ -135,6 +135,7 @@ internal class DefaultKoogEngineAdapter(
                             ),
                             contextLimitTokens = provider.catalogContextCapacity(it),
                             reasoningEfforts = levels[it.id].orEmpty(),
+                            inputSupport = access.inputs.remember(connection, it),
                         )
                     }
                 }

@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
@@ -22,6 +23,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
@@ -84,13 +86,15 @@ class AiStudioMockupUiTest {
         val exits = StudioExits(onBack = {}, onOpenToggles = {})
         var jumpLabel = ""
         var computerLabel = ""
-        var contextRowAllowance = 0f
+        var maxComposerHeight = 0f
+        var maxEditorHeight = 0f
         setContent {
             jumpLabel = stringResource(Res.string.jump_latest)
             CompositionLocalProvider(LocalDensity provides Density(1f)) {
-                HbTheme(darkTheme = isDark) {
+                HbTheme(darkTheme = isDark, dimensions = HbDimensions.Desktop) {
                     computerLabel = stringResource(Res.string.worktree_this_computer)
-                    contextRowAllowance = HbTheme.dimensions.composerPillHeight.value + HbTheme.spacing.xs.value * 2
+                    maxComposerHeight = emptyComposerMaxHeight(size.width < HbTheme.dimensions.compactBreakpoint.value)
+                    maxEditorHeight = HbTheme.dimensions.controlHeight.value
                     AiStudioContent(state, {}, exits)
                 }
             }
@@ -120,25 +124,42 @@ class AiStudioMockupUiTest {
         onAllNodesWithTag("message-footer:reference-answer", useUnmergedTree = true).assertCountEquals(1)
         onNodeWithTag("message-footer:reference-answer").assertIsDisplayed()
         onNodeWithTag("model-chip").assertIsDisplayed()
-        assertReferenceGeometry(size, computerLabel, contextRowAllowance)
+        assertReferenceGeometry(size, computerLabel, maxComposerHeight, maxEditorHeight)
     }
 }
 
+/** Empty panel budget: one editor, up to two toolbar rows and a separate project context row. */
+@Composable
+private fun emptyComposerMaxHeight(isCompact: Boolean): Float {
+    val dimensions = HbTheme.dimensions
+    val spacing = HbTheme.spacing
+    val contextHeight = dimensions.composerPillHeight + spacing.xs * 2
+    val toolbarRows = if (isCompact) 2 else 1
+    val toolbarHeight = dimensions.composerPillHeight * toolbarRows + spacing.xs * (toolbarRows - 1)
+    return (dimensions.controlHeight + toolbarHeight + contextHeight + spacing.m * 2 + spacing.xs * 3).value
+}
+
 @OptIn(ExperimentalTestApi::class)
-private fun SkikoComposeUiTest.assertReferenceGeometry(size: Size, computerLabel: String, contextRowAllowance: Float) {
+private fun SkikoComposeUiTest.assertReferenceGeometry(
+    size: Size,
+    computerLabel: String,
+    maxComposerHeight: Float,
+    maxEditorHeight: Float,
+) {
     val composer = onNodeWithTag("composer-0").fetchSemanticsNode().boundsInRoot
     val header = onNodeWithTag("pane-header-0").fetchSemanticsNode().boundsInRoot
     val footer = onNodeWithTag("message-footer:reference-answer").fetchSemanticsNode().boundsInRoot
     val isCompact = size.width < 720f
     assertTrue(composer.left >= 0f && composer.right <= size.width, "Composer must fit the viewport")
     assertTrue(
-        composer.height <= if (isCompact) 150f else 100f + contextRowAllowance,
+        composer.height <= maxComposerHeight,
         "Empty composer including its project context must remain compact",
     )
     val context = onNode(hasText(computerLabel) and hasAnyAncestor(hasTestTag("composer-0")))
         .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
     val editor = onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("composer-0")))
         .fetchSemanticsNode().boundsInRoot
+    assertTrue(editor.height <= maxEditorHeight, "Empty editor must remain a single compact control")
     assertTrue(context.bottom <= editor.top, "Local project context must remain above the editor")
     assertTrue(composer.bottom <= size.height && composer.top > header.bottom)
     assertTrue(footer.bottom <= composer.top, "The last answer action must clear the floating composer")

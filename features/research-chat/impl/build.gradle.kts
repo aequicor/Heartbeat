@@ -8,6 +8,7 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             implementation(projects.features.researchChat.api)
+            implementation(projects.features.attachments.api)
             implementation(projects.features.aiEngine.koog.api)
             implementation(projects.features.searchEngine.api)
             implementation(projects.core.datastore.api)
