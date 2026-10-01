@@ -35,7 +35,7 @@ class ConnectWizardPresentationTest {
     }
 
     @Test
-    fun `api key is required and trimmed, the name falls back to the provider`() {
+    fun `api key is required and trimmed the name falls back to the provider`() {
         assertEquals(
             FormCheck.Invalid(FormError.MissingKey),
             CredentialForm(key = SecretText(" ")).toRequest(ApiKeyMethod),
