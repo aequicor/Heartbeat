@@ -53,6 +53,11 @@ internal class ResearchChatEffects(private val repository: ResearchRepository, p
                 machine.send(ResearchChatIntent.Internal.ResourceAdded)
             }
 
+            is ResearchChatEffect.AddAttachments -> {
+                repository.addAttachments(effect.input)
+                machine.send(ResearchChatIntent.Internal.ResourceAdded)
+            }
+
             is ResearchChatEffect.SelectResource -> {
                 repository.setResourceSelected(
                     effect.sessionId,

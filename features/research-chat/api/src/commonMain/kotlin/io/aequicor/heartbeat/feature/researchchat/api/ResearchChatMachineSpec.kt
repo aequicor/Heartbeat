@@ -17,9 +17,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | Observed | Ready | — |
  * | Ready | SelectSession/Question, exists | Ready | — |
  * | Ready | NewSession/Question, enabled and no mutation | Ready, mutating | Create |
- * | Ready | Add/Select/Share/RemoveResource, idle and enabled | Ready, mutating | source mutation |
+ * | Ready | AddAttachments/Add/Select/Share/RemoveResource, idle and enabled | Ready, mutating | source mutation |
  * | Ready | Created/Mutated/ResourceAdded/MutationFailed | Ready | import acknowledgement on success |
- * | Ready | Submit, nonblank idle question and enabled | Ready, submitting | Run |
+ * | Ready | Submit, text or selected sources, idle question and enabled | Ready, submitting | Run |
  * | Ready | Submitted | Ready | Submitted |
  * | Ready | RunFinished | Ready | — |
  * | Ready | Stop, native question running | Ready | Stop |
@@ -113,7 +113,8 @@ public val ResearchChatMachineSpec: MachineSpec<
             is ResearchChatEffect.Run -> ResearchChatIntent.Internal.RunFinished(effect.questionId, true)
 
             ResearchChatEffect.Observe, is ResearchChatEffect.CreateSession, is ResearchChatEffect.CreateQuestion,
-            is ResearchChatEffect.AddResource, is ResearchChatEffect.SelectResource,
+            is ResearchChatEffect.AddResource, is ResearchChatEffect.AddAttachments,
+            is ResearchChatEffect.SelectResource,
             is ResearchChatEffect.ShareResource,
             is ResearchChatEffect.RemoveResource, is ResearchChatEffect.Stop,
             -> ResearchChatIntent.Internal.MutationFailed
@@ -154,6 +155,16 @@ private fun ResearchTransitions.selection() {
 }
 
 private fun ResearchTransitions.resources() {
+    on<ResearchChatIntent.Public.AddAttachments>(guard = {
+        state.canMutate() && intent.attachments.isNotEmpty() &&
+            intent.questionId !in state.workspace.running && intent.questionId !in state.submitting &&
+            state.workspace.sessions.any { session ->
+                session.id == intent.sessionId && session.questions.any { it.id == intent.questionId }
+            }
+    }) {
+        stay { state.copy(isMutating = true, hasError = false) }
+        effect { ResearchChatEffect.AddAttachments(intent) }
+    }
     on<ResearchChatIntent.Public.AddResource>(guard = { state.canEditSources() && intent.value.isNotBlank() }) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect {
@@ -189,7 +200,10 @@ private fun ResearchTransitions.resources() {
 
 private fun ResearchTransitions.execution() {
     on<ResearchChatIntent.Public.Submit>(guard = {
-        state.canEditSources() && intent.prompt.isNotBlank()
+        state.canEditSources() && (
+            intent.prompt.isNotBlank() ||
+                state.session?.selectedResources(requireNotNull(state.question))?.isNotEmpty() == true
+        )
     }) {
         stay { state.copy(submitting = state.submitting + requireNotNull(state.questionId), hasError = false) }
         effect {
