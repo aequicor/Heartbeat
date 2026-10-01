@@ -289,28 +289,39 @@ class AiStudioModel(
             emitAll(
                 combine(
                     ids.map { id ->
-                        repository.observeMessages(id).flatMapLatest { messages ->
-                            val ui = messages.map { it.toUi() }
-                            val attachmentIds = ui.asSequence().filterIsInstance<MessageUi.Prompt>()
-                                .flatMap { it.attachments }.map { AttachmentId(it.id) }.distinct().toList()
-                            attachmentsCatalog.observe(attachmentIds).map { descriptors ->
-                                val metadata = descriptors.associate { it.id.value to it.toUi() }
-                                id to ui.map { message ->
-                                    if (message is MessageUi.Prompt) {
-                                        message.copy(
-                                            attachments = message.attachments.map {
-                                                metadata[it.id] ?: it
-                                            }.toImmutableList(),
-                                        )
-                                    } else {
-                                        message
-                                    }
-                                }.toImmutableList()
-                            }
-                        }
+                        repository.observeMessages(id)
+                            .flatMapLatest { messages -> messages.map { it.toUi() }.withAttachmentMetadata() }
+                            .map { entries -> id to entries }
                     },
                 ) { it.toMap() },
             )
+        }
+    }
+
+    /**
+     * Transcript entries with the durable metadata of the attachments they reference.
+     *
+     * A streamed revision re-projects the entries every coalescing window of the history mirror, while the catalog
+     * is asked only when the transcript really references attachments: observing an empty request used to restart a
+     * database query — and its log record — on every revision.
+     */
+    private fun List<MessageUi>.withAttachmentMetadata(): Flow<ImmutableList<MessageUi>> {
+        val attachmentIds = asSequence().filterIsInstance<MessageUi.Prompt>()
+            .flatMap { it.attachments }.map { AttachmentId(it.id) }.distinct().toList()
+        if (attachmentIds.isEmpty()) return flowOf(toImmutableList())
+        return attachmentsCatalog.observe(attachmentIds).map { descriptors ->
+            val metadata = descriptors.associate { it.id.value to it.toUi() }
+            map { message ->
+                if (message is MessageUi.Prompt) {
+                    message.copy(
+                        attachments = message.attachments.map {
+                            metadata[it.id] ?: it
+                        }.toImmutableList(),
+                    )
+                } else {
+                    message
+                }
+            }.toImmutableList()
         }
     }
 
