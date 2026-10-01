@@ -20,8 +20,6 @@ import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceScope
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchWorkspace
-import io.aequicor.heartbeat.feature.researchchat.impl.domain.ImportedResearchFile
-import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchFileImporter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -176,10 +174,6 @@ class ResearchModelTest {
         val machine = ResearchTestMachine(researchReady())
         val model = ResearchModel(
             machine = machine,
-            importer = object : ResearchFileImporter {
-                override val isAvailable = false
-                override suspend fun pick(): ImportedResearchFile? = null
-            },
             route = ResearchChatRoute(researchReady().target),
             scope = ResearchTestScope(scope.backgroundScope),
             factory = HeartbeatStoreFactory(ResearchTestDispatchers(StandardTestDispatcher(scope.testScheduler))),

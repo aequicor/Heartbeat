@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
+import io.aequicor.heartbeat.feature.researchchat.impl.domain.ResearchAttachmentPolicy
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
@@ -32,6 +35,11 @@ internal data class ResearchResourceUi(
     val kind: ResourceKindUi,
     val isShared: Boolean,
     val isSelected: Boolean,
+    val attachmentId: String? = null,
+    val isCompatible: Boolean = true,
+    val sizeBytes: Long? = null,
+    val hasImportError: Boolean = false,
+    val mediaType: String? = null,
 )
 
 @Immutable
@@ -91,10 +99,14 @@ internal data class ResearchScreenState(
     val resourceMediaType: String? = null,
     val selectedSourceScope: ResourceScopeUi = ResourceScopeUi.Session,
     val isFileImportAvailable: Boolean = false,
+    val areSourcesWithinLimits: Boolean = true,
+    val attachmentSupport: PromptInputSupport = PromptInputSupport.TextDocuments,
+    val thumbnails: ImmutableMap<String, ResearchThumbnailUi> = persistentMapOf(),
 ) : MVIState
 
 internal sealed interface ResearchScreenIntent : MVIIntent {
     sealed interface ResourceEdit : ResearchScreenIntent
+    sealed interface AttachmentEdit : ResearchScreenIntent
     data object Retry : ResearchScreenIntent
     data object NewSession : ResearchScreenIntent
     data class SelectSession(val id: String) : ResearchScreenIntent
@@ -114,7 +126,24 @@ internal sealed interface ResearchScreenIntent : MVIIntent {
     data class RemoveResource(val id: String) : ResearchScreenIntent
     data class SelectSourceScope(val scope: ResourceScopeUi) : ResourceEdit
     data object ImportFile : ResearchScreenIntent
+    data class FilesPicked(val requestId: String, val attachments: List<AttachmentDescriptor>) : AttachmentEdit
+    data class DroppedFiles(val paths: List<String>) : AttachmentEdit {
+        override fun toString(): String = "DroppedFiles(count=${paths.size})"
+    }
+    data class PastedImage(val bytes: ByteArray) : AttachmentEdit {
+        override fun toString(): String = "PastedImage(size=${bytes.size})"
+    }
+    data class AttachmentPolicyChanged(val policy: ResearchAttachmentPolicy) : AttachmentEdit
+    data class OpenAttachment(val id: String) : AttachmentEdit
+    data class SaveAttachment(val id: String) : AttachmentEdit
+    data class LoadThumbnail(val key: String, val id: String, val mime: String) : AttachmentEdit
+    data class ReleaseThumbnail(val key: String) : AttachmentEdit
+    data class ThumbnailsChanged(val values: Map<String, ResearchThumbnailUi>) : AttachmentEdit
     data object DismissError : ResearchScreenIntent
 }
 
-internal sealed interface ResearchScreenAction : MVIAction
+internal sealed interface ResearchScreenAction : MVIAction {
+    data class PickFiles(val requestId: String, val support: PromptInputSupport) : ResearchScreenAction
+    data class OpenAttachment(val id: String) : ResearchScreenAction
+    data class SaveAttachment(val id: String) : ResearchScreenAction
+}

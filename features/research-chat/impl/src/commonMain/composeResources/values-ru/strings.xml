@@ -60,4 +60,11 @@
     <string name="research_tool_cancelled">Отменено</string>
     <string name="research_copy_answer">Копировать ответ</string>
     <string name="research_copied_answer">Ответ скопирован</string>
+    <string name="research_open_file">Просмотреть вложение</string>
+    <string name="research_save_file">Сохранить как…</string>
+    <string name="research_paste_image">Вставить изображение</string>
+    <string name="research_incompatible_source">Модель не поддерживает этот источник. Снимите выбор для отправки.</string>
+    <string name="research_file_size">%1$d Б</string>
+    <string name="research_source_import_error">Сохранённый источник не удалось перенести в хранилище вложений. Снимите выбор или удалите его.</string>
+    <string name="research_attachment_limits">Выбранные файлы превышают ограничения сообщения. Снимите выбор части источников.</string>
 </resources>
