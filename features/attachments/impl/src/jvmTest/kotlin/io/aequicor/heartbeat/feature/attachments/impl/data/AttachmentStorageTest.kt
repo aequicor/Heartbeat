@@ -10,6 +10,9 @@ import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StorageOwner
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
+import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -36,6 +39,7 @@ import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -229,6 +233,46 @@ class AttachmentStorageTest {
         )
     }
 
+    @Test
+    fun `metadata observation of a transcript without attachments stays out of the console`() = runTest {
+        val owner = owner("alice")
+        val dispatchers = TestDispatchers(UnconfinedTestDispatcher(testScheduler))
+        val saved = ProfileAttachmentStorage(owner, dispatchers).import(
+            listOf(AttachmentInput.Bytes("notes.txt", "text/plain", byteArrayOf(65))),
+            support,
+            null,
+        ).single()
+        val records = mutableListOf<Pair<LogLevel, String>>()
+        val sink = LogSink { level, tag, _, message -> if (tag == STORAGE_LOG_TAG) records += level to message }
+        Log.init(isDebug = true, isTrace = true, sinks = listOf(sink))
+        try {
+            var queries = 0
+            owner.onDatabase = { queries++ }
+
+            // A caller re-creates the observation on every streamed revision; an empty request stays in memory.
+            assertEquals(emptyList(), ProfileAttachmentStorage(owner, dispatchers).observe(emptyList()).first())
+            assertEquals(0, queries)
+            assertTrue(records.isEmpty())
+
+            val observing = ProfileAttachmentStorage(owner, dispatchers)
+            assertEquals(listOf(saved), observing.observe(listOf(saved.id)).first())
+            assertEquals(1, queries)
+            assertEquals(listOf(LogLevel.VERBOSE), records.map { it.first })
+            assertTrue("count=1" in records.single().second)
+
+            // Only a collection reads the rows: constructing the projection again does not repeat the record.
+            assertNotNull(observing.observe(listOf(saved.id)))
+            assertEquals(1, records.size)
+
+            records.clear()
+            Log.init(isDebug = true, sinks = listOf(sink))
+            assertEquals(listOf(saved), observing.observe(listOf(saved.id)).first())
+            assertTrue(records.isEmpty())
+        } finally {
+            Log.init(isDebug = false)
+        }
+    }
+
     private fun owner(id: String): TestStores = TestStores(File(root, id), id).also(stores::add)
 
     private class TestStores(private val directory: File, id: String) : DataStores {
@@ -257,5 +301,9 @@ class AttachmentStorageTest {
     private class TestDispatchers(override val io: CoroutineDispatcher) : DispatcherProvider {
         override val main: CoroutineDispatcher get() = io
         override val default: CoroutineDispatcher get() = io
+    }
+
+    private companion object {
+        const val STORAGE_LOG_TAG = "AttachmentsStorage"
     }
 }

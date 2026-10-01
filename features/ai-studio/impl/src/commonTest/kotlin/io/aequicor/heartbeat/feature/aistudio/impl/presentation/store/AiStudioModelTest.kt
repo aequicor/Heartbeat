@@ -37,6 +37,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPrevie
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
@@ -55,6 +56,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -388,6 +390,51 @@ class AiStudioModelTest {
         )
     }
 
+    @Test
+    fun `streamed revisions of a conversation without attachments do not restart a catalog observation`() = runTest {
+        val clock = TestClock(this)
+        val repository = InMemoryStudioRepository(clock)
+        val fixture = Fixture(this, ready, repository)
+        val screen = fixture.subscribe()
+        assertEquals(4, screen.states.value.transcripts.getValue("s-facade").size)
+        assertTrue(fixture.catalog.observed.isEmpty())
+
+        val reply = StudioMessage.Reply("s-facade-4", clock.now(), text = "Streamed", isStreaming = true)
+        repository.append("s-facade", reply)
+        runCurrent()
+        assertEquals(5, screen.states.value.transcripts.getValue("s-facade").size)
+        repository.replace("s-facade", reply.copy(text = "Streamed further"))
+        runCurrent()
+        assertEquals(5, screen.states.value.transcripts.getValue("s-facade").size)
+        assertTrue(fixture.catalog.observed.isEmpty())
+    }
+
+    @Test
+    fun `attachment metadata of a prompt survives the revisions that follow it`() = runTest {
+        val clock = TestClock(this)
+        val repository = InMemoryStudioRepository(clock)
+        val fixture = Fixture(this, ready, repository)
+        val screen = fixture.subscribe()
+        repository.append(
+            "s-facade",
+            StudioMessage.Prompt(
+                "s-facade-4",
+                clock.now(),
+                "Look at this",
+                attachments = listOf(ResourceRef("attachment:a-1", "image/png")),
+            ),
+        )
+        runCurrent()
+        val prompted = screen.states.value.transcripts.getValue("s-facade").filterIsInstance<MessageUi.Prompt>()
+        assertEquals(listOf(AttachmentUi("a-1", "photo.png", "image/png", 12)), prompted.last().attachments.toList())
+        assertEquals(listOf(listOf(AttachmentId("a-1"))), fixture.catalog.observed)
+
+        repository.append("s-facade", StudioMessage.Reply("s-facade-5", clock.now(), text = "Seen"))
+        runCurrent()
+        val projected = screen.states.value.transcripts.getValue("s-facade").filterIsInstance<MessageUi.Prompt>()
+        assertEquals("photo.png", projected.last().attachments.single().name)
+    }
+
     private class Fixture(
         private val scope: TestScope,
         initial: AiStudioState,
@@ -396,6 +443,7 @@ class AiStudioModelTest {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
         val researchEnabled = MutableStateFlow(false)
+        val catalog = FakeCatalog()
         val model = AiStudioModel(
             machine = machine,
             backend = object : StudioBackend {
@@ -413,10 +461,7 @@ class AiStudioModelTest {
             },
             efforts = efforts,
             machines = efforts,
-            attachmentsCatalog = object : AttachmentsCatalog {
-                override suspend fun get(id: AttachmentId): AttachmentDescriptor? = null
-                override fun observe(ids: List<AttachmentId>) = flowOf(emptyList<AttachmentDescriptor>())
-            },
+            attachmentsCatalog = catalog,
             previews = object : StudioAttachmentPreviews {
                 override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
             },
@@ -435,6 +480,17 @@ class AiStudioModelTest {
             scope.runCurrent()
             return provider.await()
         }
+    }
+}
+
+private class FakeCatalog : AttachmentsCatalog {
+    val observed = mutableListOf<List<AttachmentId>>()
+
+    override suspend fun get(id: AttachmentId): AttachmentDescriptor? = null
+
+    override fun observe(ids: List<AttachmentId>): Flow<List<AttachmentDescriptor>> {
+        observed += ids
+        return flowOf(ids.map { AttachmentDescriptor(it, "photo.png", "image/png", 12) })
     }
 }
 
