@@ -18,7 +18,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | TargetsLoaded | | stay(targets) | |
  * | Ready | ArmInput | input is available | stay(armed) | |
  * | Ready | BeginCapture | capabilities support the mode | Capturing | OpenCapture, CaptureChanged |
- * | Capturing | Capture | | stay | CaptureFrame |
+ * | Capturing | CaptureOpened | matching session | stay(open) | |
+ * | Capturing | Capture | host open | stay | CaptureFrame |
  * | Capturing | Crop | master exists and holds the region | stay | ProduceCrop |
  * | Capturing | Input | armed and the mode allows input | stay | ApplyInput |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1) | FrameReady |
@@ -27,9 +28,11 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Capturing | SwitchMode | capabilities support the mode | Capturing (re-entered) | OpenCapture, CaptureChanged |
  * | Capturing | EndCapture | | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | OwnerReleased | same owner | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
- * | Capturing | CaptureLost | | Failed | CloseCapture, CaptureChanged(null) |
+ * | Capturing | CaptureLost | | Failed | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | Rejected / Failed | | stay | Rejected output |
  * | Capturing | RefreshTargets / TargetsLoaded | | stay(targets) | EnumerateWindows |
+ * | Capturing | CancelSession | matching session | Idle | keyed cleanup, Revoked |
+ * | any | SessionClosed | | stay | SessionClosed output |
  * | any | Revoke | | Idle | CloseCapture, PurgeMasters, Revoked |
  *
  * Session identifiers come with the intents instead of being generated inside transitions, so the spec stays a
@@ -97,42 +100,65 @@ public val ComputerUseMachineSpec: MachineSpec<
         }
     }
     state<ComputerUseState.Capturing> {
+        on<ComputerUseIntent.Internal.CaptureOpened>(guard = { state.session == intent.session }) {
+            stay { state.copy(isOpen = true) }
+        }
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
         on<ComputerUseIntent.Public.ArmInput>(guard = { state.capabilities.isInputAvailable }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
-        on<ComputerUseIntent.Public.Capture> { effect { ComputerUseEffect.CaptureFrame(intent.request) } }
-        on<ComputerUseIntent.Public.Crop>(guard = { state.canCrop(intent.request) }) {
-            effect { ComputerUseEffect.ProduceCrop(intent.request) }
+        on<ComputerUseIntent.Public.Capture>(guard = {
+            state.isOpen && (intent.expectedSession == null || intent.expectedSession == state.session)
+        }) {
+            effect { ComputerUseEffect.CaptureFrame(intent.request, intent.requestId) }
+        }
+        on<ComputerUseIntent.Public.Crop>(guard = {
+            state.isOpen && state.canCrop(intent.request) &&
+                (intent.expectedSession == null || intent.expectedSession == state.session)
+        }) {
+            effect { ComputerUseEffect.ProduceCrop(intent.request, intent.requestId) }
         }
         on<ComputerUseIntent.Public.Input>(
-            guard = { state.isInputArmed && state.capabilities.allowsInput(state.mode) },
-        ) { effect { ComputerUseEffect.ApplyInput(intent.action) } }
-        on<ComputerUseIntent.Public.SwitchMode>(guard = { state.capabilities.supports(intent.mode) }) {
+            guard = {
+                state.isOpen && state.isInputArmed && state.capabilities.allowsInput(state.mode) &&
+                    (intent.expectedSession == null || intent.expectedSession == state.session) &&
+                    (intent.expectedSession == null || intent.expectedCapture == state.lastPreview?.id)
+            },
+        ) { effect { ComputerUseEffect.ApplyInput(intent.action, intent.requestId, state.lastPreview?.id) } }
+        on<ComputerUseIntent.Public.SwitchMode>(guard = {
+            state.capabilities.supports(intent.mode) &&
+                (intent.expectedSession == null || intent.expectedSession == state.session)
+        }) {
             goto<ComputerUseState.Capturing> {
                 ComputerUseState.Capturing(
                     session = intent.session,
                     mode = intent.mode,
-                    owner = state.owner,
+                    owner = intent.owner ?: state.owner,
                     capabilities = state.capabilities,
                     targets = state.targets,
-                    isInputArmed = state.isInputArmed,
+                    isInputArmed = false,
                 )
             }
             effect { ComputerUseEffect.OpenCapture(intent.mode, intent.session) }
             output { ComputerUseOutput.CaptureChanged(intent.mode) }
         }
+        on<ComputerUseIntent.Public.CancelSession>(guard = { state.session == intent.session }) {
+            goto<ComputerUseState.Idle> { ComputerUseState.Idle }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
+            effect { ComputerUseEffect.PurgeMasters(state.session) }
+            output { ComputerUseOutput.Revoked }
+        }
         on<ComputerUseIntent.Public.EndCapture> {
             goto<ComputerUseState.Ready> { state.asReady() }
-            effect { ComputerUseEffect.CloseCapture }
-            effect { ComputerUseEffect.PurgeMasters }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
+            effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
         }
         on<ComputerUseIntent.Public.OwnerReleased>(guard = { state.owner == intent.owner }) {
             goto<ComputerUseState.Ready> { state.asReady() }
-            effect { ComputerUseEffect.CloseCapture }
-            effect { ComputerUseEffect.PurgeMasters }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
+            effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
         }
         on<ComputerUseIntent.Internal.FrameCaptured> {
@@ -143,28 +169,41 @@ public val ComputerUseMachineSpec: MachineSpec<
                     frameCount = state.frameCount + 1,
                 )
             }
-            output { ComputerUseOutput.FrameReady(intent.preview, intent.tiles) }
+            output { ComputerUseOutput.FrameReady(intent.preview, intent.tiles, intent.requestId, intent.master) }
         }
         on<ComputerUseIntent.Internal.CropProduced> {
-            stay { state.copy(lastCrop = intent.crop) }
-            output { ComputerUseOutput.FrameReady(intent.crop) }
+            stay { state.copy(lastCrop = intent.crop, lastPreview = intent.crop) }
+            output { ComputerUseOutput.FrameReady(intent.crop, requestId = intent.requestId, master = intent.master) }
         }
-        on<ComputerUseIntent.Internal.InputApplied> { output { ComputerUseOutput.InputApplied(intent.action) } }
+        on<ComputerUseIntent.Internal.InputApplied> {
+            output {
+                ComputerUseOutput.InputApplied(
+                    intent.action,
+                    intent.requestId,
+                )
+            }
+        }
         on<ComputerUseIntent.Internal.CaptureLost> {
             goto<ComputerUseState.Failed> { ComputerUseState.Failed(intent.reason) }
-            effect { ComputerUseEffect.CloseCapture }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
+            effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
         }
         on<ComputerUseIntent.Internal.Failed> { output { ComputerUseOutput.Rejected(intent.reason) } }
     }
     any {
+        on<ComputerUseIntent.Internal.SessionClosed> {
+            output { ComputerUseOutput.SessionClosed(intent.session) }
+        }
         on<ComputerUseIntent.Public.Revoke> {
             goto<ComputerUseState.Idle> { ComputerUseState.Idle }
-            effect { ComputerUseEffect.CloseCapture }
-            effect { ComputerUseEffect.PurgeMasters }
+            effect { ComputerUseEffect.CloseCapture((state as? ComputerUseState.Capturing)?.session) }
+            effect { ComputerUseEffect.PurgeMasters((state as? ComputerUseState.Capturing)?.session) }
             output { ComputerUseOutput.Revoked }
         }
-        on<ComputerUseIntent.Internal.Rejected> { output { ComputerUseOutput.Rejected(intent.reason) } }
+        on<ComputerUseIntent.Internal.Rejected> {
+            output { ComputerUseOutput.Rejected(intent.reason, intent.requestId) }
+        }
     }
     onEffectFailure { effect, _ ->
         when (effect) {
@@ -176,18 +215,18 @@ public val ComputerUseMachineSpec: MachineSpec<
             is ComputerUseEffect.OpenCapture ->
                 ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.CaptureFailed)
 
-            ComputerUseEffect.CloseCapture -> null
+            is ComputerUseEffect.CloseCapture -> null
 
             is ComputerUseEffect.CaptureFrame ->
-                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed)
+                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)
 
             is ComputerUseEffect.ProduceCrop ->
-                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed)
+                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)
 
             is ComputerUseEffect.ApplyInput ->
-                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.InputRejected)
+                ComputerUseIntent.Internal.Rejected(ComputerUseFailure.InputRejected, effect.requestId)
 
-            ComputerUseEffect.PurgeMasters -> null
+            is ComputerUseEffect.PurgeMasters -> null
         }
     }
 }

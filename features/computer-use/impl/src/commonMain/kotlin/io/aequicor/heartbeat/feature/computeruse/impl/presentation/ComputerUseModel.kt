@@ -205,6 +205,8 @@ internal class ComputerUseModel(
 
             is ComputerUseOutput.CaptureChanged -> updateState { copy(message = null) }
 
+            is ComputerUseOutput.SessionClosed -> Unit
+
             ComputerUseOutput.Revoked -> updateState {
                 copy(frame = null, journal = persistentListOf(), message = PanelMessage.Revoked)
             }

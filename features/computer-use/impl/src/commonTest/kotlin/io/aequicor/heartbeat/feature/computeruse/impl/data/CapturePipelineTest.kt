@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -136,6 +137,20 @@ class CapturePipelineTest {
         assertTrue(store.files.isEmpty())
         assertEquals(0, cache.size())
         assertNull(cache.pixels(CaptureId("m")))
+    }
+
+    @Test
+    fun `failed artifact deletion reports failure and preserves retry metadata`() = runTest {
+        val store = FakeFrameStore()
+        val cache = MasterFrameCache(FakeFrameEncoder(), store, maxBytes = 1_000_000)
+        cache.put(masterReference(CaptureId("m"), store), grid(4, 4))
+        store.deleteFailure = IllegalStateException("disk unavailable")
+        assertFailsWith<IllegalStateException> { cache.forgetSession(Session) }
+        assertEquals(1, cache.size())
+        store.deleteFailure = null
+        cache.forgetSession(Session)
+        assertEquals(0, cache.size())
+        assertTrue(store.files.isEmpty())
     }
 
     private fun TestScope.pipeline(store: FakeFrameStore): FramePipeline =
@@ -343,6 +358,68 @@ class CaptureCoordinatorTest {
         fixture.coordinator.capture(CaptureRequest())
         assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(1.0, 1.0))))
         assertEquals(1, fixture.windows.activations)
+    }
+
+    @Test
+    fun `retina master coordinates map to the logical host window`() = runTest {
+        val fixture = fixture(400, 200)
+        fixture.capturer.bounds = io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds(30, 40, 200, 100)
+        fixture.coordinator.open(Session, Desktop)
+        fixture.coordinator.capture(CaptureRequest())
+        assertEquals(
+            InputOutcome.Applied,
+            fixture.coordinator.input(InputAction.Click(FramePoint(300.0, 100.0), space = FrameSpace.Master)),
+        )
+        assertEquals(ScreenPoint(180, 90), fixture.injector.points.single())
+    }
+
+    @Test
+    fun `cropped previews retain their master region when mapping input`() = runTest {
+        val fixture = fixture()
+        fixture.coordinator.open(Session, Desktop)
+        val frame = assertIs<CaptureOutcome.Produced>(
+            fixture.coordinator.capture(CaptureRequest(region = CaptureRegion(80, 30, 40, 20))),
+        ).result
+        val preview = assertNotNull(frame.reference)
+        assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(20.0, 10.0))))
+        assertEquals(ScreenPoint(110, 60), fixture.injector.points.single())
+        val zoom = assertIs<CaptureOutcome.Produced>(
+            fixture.coordinator.crop(CropRequest(preview.id, region = CaptureRegion(100, 40, 20, 10))),
+        ).result
+        assertNotNull(zoom.reference)
+        assertEquals(InputOutcome.Applied, fixture.coordinator.input(InputAction.Click(FramePoint(5.0, 5.0))))
+        assertEquals(ScreenPoint(115, 65), fixture.injector.points.last())
+    }
+
+    @Test
+    fun `switching sessions and closing the profile deletes every owned frame`() = runTest {
+        val fixture = fixture()
+        fixture.coordinator.open(Session, Desktop)
+        val first = assertNotNull(
+            assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result.master,
+        )
+        fixture.coordinator.open(CaptureSessionId("next"), Desktop)
+        assertTrue(fixture.store.files.keys.none { it.startsWith(Session.value) })
+        val result = fixture.coordinator.crop(CropRequest(first.id))
+        assertEquals(ComputerUseFailure.UnknownCapture, assertIs<CaptureOutcome.Rejected>(result).reason)
+        fixture.coordinator.capture(CaptureRequest())
+        fixture.coordinator.closeAndPurge()
+        assertTrue(fixture.store.files.isEmpty())
+        assertEquals(
+            ComputerUseFailure.Unavailable,
+            assertIs<CaptureOutcome.Rejected>(fixture.coordinator.capture(CaptureRequest())).reason,
+        )
+    }
+
+    @Test
+    fun `fractional negative and nonfinite coordinates are refused before injection`() = runTest {
+        val fixture = fixture()
+        fixture.coordinator.open(Session, Desktop)
+        fixture.coordinator.capture(CaptureRequest())
+        listOf(FramePoint(-0.1, 0.0), FramePoint(Double.NaN, 0.0), FramePoint(Double.POSITIVE_INFINITY, 0.0)).forEach {
+            assertIs<InputOutcome.Rejected>(fixture.coordinator.input(InputAction.Click(it)))
+        }
+        assertTrue(fixture.injector.applied.isEmpty())
     }
 
     private class Fixture(

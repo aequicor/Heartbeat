@@ -183,6 +183,7 @@ internal class FakeFrameEncoder : FrameEncoder {
 /** In-memory frame storage. */
 internal class FakeFrameStore : FrameStore {
     val files = mutableMapOf<String, ByteArray>()
+    var deleteFailure: Exception? = null
     var deletedSessions: Int = 0
         private set
 
@@ -195,6 +196,7 @@ internal class FakeFrameStore : FrameStore {
     override suspend fun read(path: String): ByteArray? = files[path]
 
     override suspend fun delete(session: CaptureSessionId) {
+        deleteFailure?.let { throw it }
         deletedSessions++
         files.keys.filter { it.startsWith("${session.value}/") }.forEach { files.remove(it) }
     }

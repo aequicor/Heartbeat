@@ -37,19 +37,6 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-/** Supplies the engine features of the session that currently drives the computer, when there is one. */
-internal fun interface NativeControlRouter {
-    /** Features of the active engine session; `null` while no engine session runs. */
-    suspend fun features(): EngineFeatures?
-}
-
-/** Default router: no engine declares a native computer control yet, so the host always works alone. */
-@ContributesBinding(ProfileScope::class)
-@Inject
-internal class NoNativeControlRouter : NativeControlRouter {
-    override suspend fun features(): EngineFeatures? = null
-}
-
 /**
  * The host implementation of [HostComputerControl].
  *

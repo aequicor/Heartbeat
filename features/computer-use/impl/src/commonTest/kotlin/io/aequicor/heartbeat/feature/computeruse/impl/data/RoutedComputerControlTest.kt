@@ -223,7 +223,7 @@ class RoutedComputerControlTest {
             }
     }
 
-    private class FakeMachineRef : MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput> {
+    internal class FakeMachineRef : MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput> {
         val states = MutableStateFlow<ComputerUseState>(ComputerUseState.Idle)
         val events = MutableSharedFlow<ComputerUseOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ComputerUseIntent.Public>()
@@ -238,7 +238,7 @@ class RoutedComputerControlTest {
         }
     }
 
-    private class FakeMachineRegistry(val ref: FakeMachineRef?) : MachineRegistry {
+    internal class FakeMachineRegistry(val ref: FakeMachineRef?) : MachineRegistry {
         @Suppress("UNCHECKED_CAST") // tests address one known machine key
         override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
             key: MachineKey<S, I, P, E, O>,

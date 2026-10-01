@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
@@ -38,6 +39,9 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -74,13 +78,23 @@ public object ComputerUseBindings {
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun coordinator(
-        capturer: ScreenCapturer,
-        windows: WindowCatalog,
-        injector: InputInjector,
-        pipeline: FramePipeline,
-        cache: MasterFrameCache,
-        dispatchers: DispatcherProvider,
-    ): CaptureCoordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
+        resources: ComputerUseCoordinatorResources,
+        @ForScope(ProfileScope::class) profile: ScopeHandle,
+        @ForScope(AppScope::class) app: ScopeHandle,
+    ): CaptureCoordinator = resources.create().also { coordinator ->
+        profile.onClose {
+            // Start even during app shutdown; closeAndPurge shields its finite cleanup from cancellation.
+            app.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    coordinator.closeAndPurge()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.tag("ComputerUseCleanup").w(e) { "profile capture cleanup failed" }
+                }
+            }
+        }
+    }
 
     /** Launches the machine for the lifetime of the profile. */
     @Provides
@@ -96,6 +110,20 @@ public object ComputerUseBindings {
     private const val MAX_CACHE_BYTES = 64L * 1024 * 1024
 }
 
+/** Dependencies of the profile coordinator, grouped so the scoped provider only manages its lifetime. */
+@Inject
+internal class ComputerUseCoordinatorResources(
+    private val capturer: ScreenCapturer,
+    private val windows: WindowCatalog,
+    private val injector: InputInjector,
+    private val pipeline: FramePipeline,
+    private val cache: MasterFrameCache,
+    private val dispatchers: DispatcherProvider,
+) {
+    /** Creates the one profile-owned coordinator. */
+    fun create(): CaptureCoordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
+}
+
 /** Probes availability with the profile, so the panel and the tools never wait for the first permission check. */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -108,12 +136,17 @@ internal class ComputerUseStartup(
 
     override fun start() {
         profile.coroutineScope.launch {
-            if (!toggles.get(ComputerUseEnabled)) {
-                log.i { "computer use is disabled by toggle" }
-                return@launch
+            toggles.observe(ComputerUseEnabled).distinctUntilChanged().collect { isEnabled ->
+                if (isEnabled) {
+                    val result = machine.value.send(ComputerUseIntent.Public.Start)
+                    log.i { "computer use startup result=$result" }
+                } else if (machine.isInitialized()) {
+                    val result = machine.value.send(ComputerUseIntent.Public.Revoke)
+                    log.i { "computer use disabled and revoked result=$result" }
+                } else {
+                    log.i { "computer use is disabled by toggle" }
+                }
             }
-            val result = machine.value.send(ComputerUseIntent.Public.Start)
-            log.i { "computer use startup result=$result" }
         }
     }
 }

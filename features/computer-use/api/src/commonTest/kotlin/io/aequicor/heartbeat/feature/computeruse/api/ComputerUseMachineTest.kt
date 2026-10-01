@@ -88,7 +88,7 @@ class ComputerUseMachineTest {
             from = capturing,
             intent = ComputerUseIntent.Internal.FrameCaptured(master, preview, tiles),
             to = capturing.copy(master = master, lastPreview = preview, frameCount = 1),
-            outputs = listOf(ComputerUseOutput.FrameReady(preview, tiles)),
+            outputs = listOf(ComputerUseOutput.FrameReady(preview, tiles, master = master)),
         )
     }
 
@@ -183,7 +183,7 @@ class ComputerUseMachineTest {
             from = started,
             intent = ComputerUseIntent.Public.EndCapture,
             to = ComputerUseState.Ready(capabilities),
-            effects = listOf(ComputerUseEffect.CloseCapture, ComputerUseEffect.PurgeMasters),
+            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
             outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
         )
     }
@@ -202,7 +202,7 @@ class ComputerUseMachineTest {
             from = capturing,
             intent = ComputerUseIntent.Public.OwnerReleased(owner),
             to = ComputerUseState.Ready(capabilities),
-            effects = listOf(ComputerUseEffect.CloseCapture, ComputerUseEffect.PurgeMasters),
+            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
             outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
         )
     }
@@ -213,7 +213,7 @@ class ComputerUseMachineTest {
             from = capturing,
             intent = ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed),
             to = ComputerUseState.Failed(ComputerUseFailure.TargetClosed),
-            effects = listOf(ComputerUseEffect.CloseCapture),
+            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
             outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
         )
     }
@@ -244,7 +244,7 @@ class ComputerUseMachineTest {
             from = capturing,
             intent = ComputerUseIntent.Public.Revoke,
             to = ComputerUseState.Idle,
-            effects = listOf(ComputerUseEffect.CloseCapture, ComputerUseEffect.PurgeMasters),
+            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
             outputs = listOf(ComputerUseOutput.Revoked),
         )
     }
@@ -255,7 +255,7 @@ class ComputerUseMachineTest {
             from = ComputerUseState.Idle,
             intent = ComputerUseIntent.Public.Revoke,
             to = ComputerUseState.Idle,
-            effects = listOf(ComputerUseEffect.CloseCapture, ComputerUseEffect.PurgeMasters),
+            effects = listOf(ComputerUseEffect.CloseCapture(), ComputerUseEffect.PurgeMasters()),
             outputs = listOf(ComputerUseOutput.Revoked),
         )
     }
@@ -283,6 +283,99 @@ class ComputerUseMachineTest {
         assertFalse(preview.toString().contains("png"))
     }
 
+    @Test
+    fun `capture cannot run before the host acknowledges opening`() {
+        ComputerUseMachineSpec.assertIgnored(
+            capturing.copy(isOpen = false),
+            ComputerUseIntent.Public.Capture(CaptureRequest()),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing.copy(isOpen = false),
+            intent = ComputerUseIntent.Internal.CaptureOpened(session),
+            to = capturing,
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            capturing,
+            ComputerUseIntent.Internal.CaptureOpened(CaptureSessionId("other")),
+        )
+    }
+
+    @Test
+    fun `capture replies retain their request identifier`() {
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing,
+            intent = ComputerUseIntent.Public.Capture(CaptureRequest(), "a"),
+            to = capturing,
+            effects = listOf(ComputerUseEffect.CaptureFrame(CaptureRequest(), "a")),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing,
+            intent = ComputerUseIntent.Internal.FrameCaptured(master, preview, tiles, "a"),
+            to = capturing.copy(master = master, lastPreview = preview, frameCount = 1),
+            outputs = listOf(ComputerUseOutput.FrameReady(preview, tiles, "a", master)),
+        )
+    }
+
+    @Test
+    fun `a changed approved capture cannot receive input`() {
+        val armed = capturing.copy(isInputArmed = true, mode = windowMode, lastPreview = preview)
+        ComputerUseMachineSpec.assertIgnored(
+            armed,
+            ComputerUseIntent.Public.Input(
+                click,
+                expectedSession = CaptureSessionId("old"),
+                expectedCapture = preview.id,
+            ),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            armed,
+            ComputerUseIntent.Public.Input(click, expectedSession = session, expectedCapture = CaptureId("old")),
+        )
+    }
+
+    @Test
+    fun `late cancellation and capture cannot affect a replacement session`() {
+        val old = CaptureSessionId("old")
+        ComputerUseMachineSpec.assertIgnored(capturing, ComputerUseIntent.Public.CancelSession(old))
+        ComputerUseMachineSpec.assertIgnored(
+            capturing,
+            ComputerUseIntent.Public.Capture(CaptureRequest(), expectedSession = old),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            capturing.copy(master = master),
+            ComputerUseIntent.Public.Crop(CropRequest(master.id), expectedSession = old),
+        )
+    }
+
+    @Test
+    fun `panel takeover replaces the owner and ignores old agent release`() {
+        val replacement = CaptureSessionId("replacement")
+        val switched = capturing.copy(
+            session = replacement,
+            mode = windowMode,
+            owner = CaptureOwner.Panel,
+            isOpen = false,
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing,
+            intent = ComputerUseIntent.Public.SwitchMode(windowMode, replacement, CaptureOwner.Panel, session),
+            to = switched,
+            effects = listOf(ComputerUseEffect.OpenCapture(windowMode, replacement)),
+            outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
+        )
+        ComputerUseMachineSpec.assertIgnored(switched, ComputerUseIntent.Public.OwnerReleased(owner))
+    }
+
+    @Test
+    fun `cleanup acknowledgement refers only to the cleaned session`() {
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing,
+            intent = ComputerUseIntent.Internal.SessionClosed(CaptureSessionId("old")),
+            to = capturing,
+            outputs = listOf(ComputerUseOutput.SessionClosed(CaptureSessionId("old"))),
+        )
+    }
+
     private companion object {
         val capabilities = ComputerUseCapabilities(
             isCaptureAvailable = true,
@@ -305,7 +398,7 @@ class ComputerUseMachineTest {
         )
         val session = CaptureSessionId("s1")
         val ready = ComputerUseState.Ready(capabilities)
-        val capturing = ComputerUseState.Capturing(session, desktopMode, owner, capabilities)
+        val capturing = ComputerUseState.Capturing(session, desktopMode, owner, capabilities, isOpen = true)
         val master = CaptureRef(
             id = CaptureId("m-1"),
             session = session,

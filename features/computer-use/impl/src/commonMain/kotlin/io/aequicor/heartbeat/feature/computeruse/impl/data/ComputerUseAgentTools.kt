@@ -348,6 +348,8 @@ internal class ComputerUseAgentTools(
 
         is ComputerUseOutput.PermissionRequired -> false
 
+        is ComputerUseOutput.SessionClosed -> false
+
         ComputerUseOutput.Revoked -> false
     }
 

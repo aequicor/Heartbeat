@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameEncoder
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
@@ -26,31 +27,40 @@ internal class MasterFrameCache(
     private val log = Log.tag("MasterFrameCache")
     private val mutex = Mutex()
     private val entries = LinkedHashMap<CaptureId, Entry>()
+    private val aliases = mutableMapOf<CaptureId, CaptureId>()
 
     /** Remembers [reference] and its decoded [pixels], evicting the oldest buffers over the size limit. */
-    suspend fun put(reference: CaptureRef, pixels: PixelGrid) {
+    suspend fun put(reference: CaptureRef, pixels: PixelGrid, bounds: ScreenBounds? = null) {
         mutex.withLock {
             entries.remove(reference.id)
-            entries[reference.id] = Entry(reference, pixels)
+            entries[reference.id] = Entry(reference, pixels, bounds)
             evict()
         }
         log.d { "master cached id=${reference.id} size=${pixels.widthPx}x${pixels.heightPx}" }
     }
 
+    /** Addresses the same master through a derived frame returned to the caller. */
+    suspend fun alias(derived: CaptureId, master: CaptureId) = mutex.withLock { aliases[derived] = master }
+
     /** The reference of a cached master frame, or `null` when this session never produced it. */
     suspend fun reference(id: CaptureId): CaptureRef? = mutex.withLock {
-        entries[id]?.let { entry ->
-            entries.remove(id)
-            entries[id] = entry
+        val masterId = aliases[id] ?: id
+        entries[masterId]?.let { entry ->
+            entries.remove(masterId)
+            entries[masterId] = entry
             entry.reference
         }
     }
 
+    /** Host rectangle at the time this master was captured. */
+    suspend fun bounds(id: CaptureId): ScreenBounds? = mutex.withLock { entries[aliases[id] ?: id]?.bounds }
+
     /** The decoded pixels of a master frame, re-decoding the stored artifact when its buffer was evicted. */
     suspend fun pixels(id: CaptureId): PixelGrid? = mutex.withLock {
-        val entry = entries[id] ?: return@withLock null
-        entries.remove(id)
-        entries[id] = entry
+        val masterId = aliases[id] ?: id
+        val entry = entries[masterId] ?: return@withLock null
+        entries.remove(masterId)
+        entries[masterId] = entry
         val cached = entry.pixels
         if (cached != null) {
             cached
@@ -61,17 +71,19 @@ internal class MasterFrameCache(
 
     /** Forgets every frame of [session] and deletes its stored artifacts. */
     suspend fun forgetSession(session: CaptureSessionId) {
-        val removed = mutex.withLock {
-            val ids = entries.filterValues { it.reference.session == session }.keys
-            ids.forEach { entries.remove(it) }
-            ids.size
-        }
         try {
             store.delete(session)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e) { "master purge failed session=$session" }
+            throw e
+        }
+        val removed = mutex.withLock {
+            val ids = entries.filterValues { it.reference.session == session }.keys
+            aliases.entries.removeAll { it.value in ids }
+            ids.forEach { entries.remove(it) }
+            ids.size
         }
         log.i { "masters forgotten session=$session count=$removed" }
     }
@@ -114,7 +126,7 @@ internal class MasterFrameCache(
         return decoded
     }
 
-    private class Entry(val reference: CaptureRef, var pixels: PixelGrid?) {
+    private class Entry(val reference: CaptureRef, var pixels: PixelGrid?, val bounds: ScreenBounds?) {
         val bytes: Long get() = pixels?.argb?.size?.toLong()?.times(BYTES_PER_PIXEL) ?: 0L
     }
 

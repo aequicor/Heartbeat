@@ -37,6 +37,7 @@ public sealed interface ComputerUseState : MachineState {
         public val lastPreview: CaptureRef? = null,
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
+        public val isOpen: Boolean = false,
     ) : ComputerUseState
 
     /** The session ended because of an error; [Public.Retry][ComputerUseIntent.Public.Retry] probes again. */
@@ -67,7 +68,12 @@ public sealed interface ComputerUseIntent : MachineIntent {
         ) : Public
 
         /** Replaces the captured target of the running session; its master frames become unreachable. */
-        public data class SwitchMode(public val mode: ComputerUseMode, public val session: CaptureSessionId) : Public
+        public data class SwitchMode(
+            public val mode: ComputerUseMode,
+            public val session: CaptureSessionId,
+            public val owner: CaptureOwner? = null,
+            public val expectedSession: CaptureSessionId? = null,
+        ) : Public
 
         /** Ends the running session, disarms input and purges its master frames. */
         public data object EndCapture : Public
@@ -79,13 +85,29 @@ public sealed interface ComputerUseIntent : MachineIntent {
         public data class ArmInput(public val isArmed: Boolean) : Public
 
         /** Captures one frame of the running session. */
-        public data class Capture(public val request: CaptureRequest) : Public
+        public data class Capture(
+            public val request: CaptureRequest,
+            public val requestId: String? = null,
+            public val expectedSession: CaptureSessionId? = null,
+        ) : Public
 
         /** Cuts a region out of a stored master frame of the running session. */
-        public data class Crop(public val request: CropRequest) : Public
+        public data class Crop(
+            public val request: CropRequest,
+            public val requestId: String? = null,
+            public val expectedSession: CaptureSessionId? = null,
+        ) : Public
 
         /** Applies one input action; rejected unless input is armed and the mode allows it. */
-        public data class Input(public val action: InputAction) : Public
+        public data class Input(
+            public val action: InputAction,
+            public val requestId: String? = null,
+            public val expectedSession: CaptureSessionId? = null,
+            public val expectedCapture: CaptureId? = null,
+        ) : Public
+
+        /** Cancels only the named session, fencing late tool timeouts from newer sessions. */
+        public data class CancelSession(public val session: CaptureSessionId) : Public
 
         /** Kill switch: stops everything from any state and returns to [ComputerUseState.Idle]. */
         public data object Revoke : Public
@@ -93,6 +115,12 @@ public sealed interface ComputerUseIntent : MachineIntent {
 
     /** Results reported by the effect handler. */
     public sealed interface Internal : ComputerUseIntent {
+        /** Cleanup completed for this exact session. */
+        public data class SessionClosed(public val session: CaptureSessionId) : Internal
+
+        /** The host opened this session; capture/input may now run. */
+        public data class CaptureOpened(public val session: CaptureSessionId) : Internal
+
         /** The host can work; [capabilities] drive every later guard. */
         public data class Available(public val capabilities: ComputerUseCapabilities) : Internal
 
@@ -107,16 +135,22 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val master: CaptureRef,
             public val preview: CaptureRef,
             public val tiles: TileGrid? = null,
+            public val requestId: String? = null,
         ) : Internal
 
         /** One crop of a stored master frame was produced. */
-        public data class CropProduced(public val crop: CaptureRef) : Internal
+        public data class CropProduced(
+            public val crop: CaptureRef,
+            public val requestId: String? = null,
+            public val master: CaptureRef? = null,
+        ) : Internal
 
         /** One input action reached the operating system. */
-        public data class InputApplied(public val action: InputAction) : Internal
+        public data class InputApplied(public val action: InputAction, public val requestId: String? = null) : Internal
 
         /** One request was refused; the session itself stays usable. */
-        public data class Rejected(public val reason: ComputerUseFailure) : Internal
+        public data class Rejected(public val reason: ComputerUseFailure, public val requestId: String? = null) :
+            Internal
 
         /** The captured target disappeared or a permission was revoked; the session cannot continue. */
         public data class CaptureLost(public val reason: ComputerUseFailure) : Internal
@@ -139,37 +173,53 @@ public sealed interface ComputerUseEffect : MachineEffect {
         ComputerUseEffect
 
     /** Releases the capture device. */
-    public data object CloseCapture : ComputerUseEffect
+    public data class CloseCapture(public val session: CaptureSessionId? = null) : ComputerUseEffect
 
     /** Captures one frame and stores its master and preview artifacts. */
-    public data class CaptureFrame(public val request: CaptureRequest) : ComputerUseEffect
+    public data class CaptureFrame(public val request: CaptureRequest, public val requestId: String? = null) :
+        ComputerUseEffect
 
     /** Cuts a region out of a stored master frame. */
-    public data class ProduceCrop(public val request: CropRequest) : ComputerUseEffect
+    public data class ProduceCrop(public val request: CropRequest, public val requestId: String? = null) :
+        ComputerUseEffect
 
     /** Applies one input action. */
-    public data class ApplyInput(public val action: InputAction) : ComputerUseEffect
+    public data class ApplyInput(
+        public val action: InputAction,
+        public val requestId: String? = null,
+        public val expectedCapture: CaptureId? = null,
+    ) : ComputerUseEffect
 
     /** Deletes the master frames of the finished session. */
-    public data object PurgeMasters : ComputerUseEffect
+    public data class PurgeMasters(public val session: CaptureSessionId? = null) : ComputerUseEffect
 }
 
 /** One-shot events for the panel and for other features. */
 public sealed interface ComputerUseOutput : MachineOutput {
+    /** The stored frames of this session have been removed. */
+    public data class SessionClosed(public val session: CaptureSessionId) : ComputerUseOutput
+
     /** The captured target changed; `null` means "nothing is captured". */
     public data class CaptureChanged(public val mode: ComputerUseMode?) : ComputerUseOutput
 
     /** A frame is stored and can be read by its reference. */
-    public data class FrameReady(public val capture: CaptureRef, public val tiles: TileGrid? = null) : ComputerUseOutput
+    public data class FrameReady(
+        public val capture: CaptureRef,
+        public val tiles: TileGrid? = null,
+        public val requestId: String? = null,
+        public val master: CaptureRef? = null,
+    ) : ComputerUseOutput
 
     /** One request was refused. */
-    public data class Rejected(public val reason: ComputerUseFailure) : ComputerUseOutput
+    public data class Rejected(public val reason: ComputerUseFailure, public val requestId: String? = null) :
+        ComputerUseOutput
 
     /** The user has to grant a permission before capture can start. */
     public data class PermissionRequired(public val blockers: List<ComputerUseBlocker>) : ComputerUseOutput
 
     /** One input action was applied; the panel shows it in its journal. */
-    public data class InputApplied(public val action: InputAction) : ComputerUseOutput
+    public data class InputApplied(public val action: InputAction, public val requestId: String? = null) :
+        ComputerUseOutput
 
     /** The kill switch stopped the capture and deleted its master frames. */
     public data object Revoked : ComputerUseOutput
