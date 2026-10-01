@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.presentation.component
 
 import com.arkivanov.decompose.ComponentContext
+import com.arkivanov.essenty.lifecycle.doOnDestroy
 import dev.zacsweers.metro.Assisted
 import dev.zacsweers.metro.AssistedFactory
 import dev.zacsweers.metro.AssistedInject
@@ -47,11 +48,12 @@ class ResearchComponent internal constructor(
     )
 
     init {
-        scope.coroutineScope.launch {
+        val attachmentResults = scope.coroutineScope.launch {
             dialogs.navigator.results(AttachmentsPicked).collect {
                 model.store.intent(ResearchScreenIntent.FilesPicked(it.requestId, it.attachments))
             }
         }
+        lifecycle.doOnDestroy { attachmentResults.cancel() }
     }
 
     internal fun handle(action: ResearchScreenAction) {

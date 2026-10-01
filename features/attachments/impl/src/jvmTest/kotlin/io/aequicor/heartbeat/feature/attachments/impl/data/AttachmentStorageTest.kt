@@ -14,21 +14,32 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentFailure
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import okio.FileSystem
+import okio.ForwardingFileSystem
+import okio.IOException
+import okio.Path
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class AttachmentStorageTest {
     private val root = Files.createTempDirectory("attachments-test").toFile()
     private val stores = mutableListOf<TestStores>()
@@ -85,6 +96,81 @@ class AttachmentStorageTest {
         )
         val repeated = storage.import(listOf(AttachmentInput.File("/nonexistent.txt")), support, "research:1")
         assertEquals(first, repeated)
+    }
+
+    @Test
+    fun `failed second file write rolls back the batch and keeps previously published bytes`() = runTest {
+        val owner = owner("alice")
+        val dispatchers = TestDispatchers(UnconfinedTestDispatcher(testScheduler))
+        val storage = ProfileAttachmentStorage(owner, dispatchers)
+        val input = AttachmentInput.Bytes("notes.txt", "text/plain", byteArrayOf(65))
+        val saved = storage.import(listOf(input), support, null).single()
+        var moves = 0
+        val failing = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun atomicMove(source: Path, target: Path) {
+                if (++moves == 2) throw IOException("Injected second copy failure")
+                super.atomicMove(source, target)
+            }
+        }
+        assertFailsWith<IOException> {
+            ProfileAttachmentStorage(owner, dispatchers, failing).import(listOf(input, input), support, null)
+        }
+        assertEquals(listOf("${saved.id.value}.txt"), File(owner.filesDirectory("attachments")).list()?.toList())
+        assertContentEquals(input.bytes, storage.read(saved.id).bytes)
+    }
+
+    @Test
+    fun `failed metadata write removes only unpublished files`() = runTest {
+        val owner = owner("alice")
+        val dispatchers = TestDispatchers(UnconfinedTestDispatcher(testScheduler))
+        val storage = ProfileAttachmentStorage(owner, dispatchers)
+        val input = AttachmentInput.Bytes("notes.txt", "text/plain", byteArrayOf(65))
+        val saved = storage.import(listOf(input), support, null).single()
+        owner.close()
+        assertFails { storage.import(listOf(input), support, null) }
+        assertEquals(listOf("${saved.id.value}.txt"), File(owner.filesDirectory("attachments")).list()?.toList())
+        assertContentEquals(input.bytes, ProfileAttachmentStorage(owner, dispatchers).read(saved.id).bytes)
+    }
+
+    @Test
+    fun `cancellation after copying a file rolls back unpublished bytes`() = runTest {
+        val owner = owner("alice")
+        lateinit var importing: Job
+        val cancelling = object : ForwardingFileSystem(FileSystem.SYSTEM) {
+            override fun atomicMove(source: Path, target: Path) {
+                super.atomicMove(source, target)
+                importing.cancel()
+            }
+        }
+        val storage = ProfileAttachmentStorage(
+            owner,
+            TestDispatchers(UnconfinedTestDispatcher(testScheduler)),
+            cancelling,
+        )
+        importing = launch {
+            storage.import(listOf(AttachmentInput.Bytes("notes.txt", "text/plain", byteArrayOf(65))), support, null)
+        }
+        runCurrent()
+        importing.join()
+        assertTrue(importing.isCancelled)
+        assertTrue(File(owner.filesDirectory("attachments")).listFiles().isNullOrEmpty())
+    }
+
+    @Test
+    fun `cancellation during metadata commit retains published references and original bytes`() = runTest {
+        val owner = owner("alice")
+        lateinit var importing: Job
+        owner.onDatabase = { importing.cancel() }
+        val storage = ProfileAttachmentStorage(owner, TestDispatchers(UnconfinedTestDispatcher(testScheduler)))
+        val input = AttachmentInput.Bytes("notes.txt", "text/plain", byteArrayOf(65))
+        importing = launch { storage.import(listOf(input), support, null) }
+        runCurrent()
+        importing.join()
+        assertTrue(importing.isCancelled)
+        val file = requireNotNull(File(owner.filesDirectory("attachments")).listFiles()).single()
+        val id = AttachmentId(file.nameWithoutExtension)
+        assertEquals(id, storage.get(id)?.id)
+        assertContentEquals(input.bytes, storage.read(id).bytes)
     }
 
     @Test
@@ -148,11 +234,13 @@ class AttachmentStorageTest {
     private class TestStores(private val directory: File, id: String) : DataStores {
         override val owner: StorageOwner = StorageOwner.Profile(ProfileId(id))
         private var database: AttachmentDatabase? = null
+        var onDatabase: () -> Unit = {}
         override fun filesDirectory(name: String): String = File(directory, "files/$name").absolutePath
         override fun keyValue(spec: KeyValueSpec): KeyValueStore = error("Not used")
 
         @Suppress("UNCHECKED_CAST")
         override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T {
+            onDatabase()
             directory.mkdirs()
             return (
                 database ?: Room.databaseBuilder<AttachmentDatabase>(File(directory, "attachments.db").absolutePath)

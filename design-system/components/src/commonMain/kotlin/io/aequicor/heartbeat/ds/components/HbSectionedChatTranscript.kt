@@ -238,12 +238,13 @@ private fun TimelineMessageChunk(
     } else {
         ""
     }
-    io.aequicor.heartbeat.ds.layouts.HbColumn {
+    io.aequicor.heartbeat.ds.layouts.HbColumn(
+        modifier = modifier.padding(
+            bottom = if (chunk.isLast && !isLatestMessage) HbTheme.spacing.l else HbTheme.elevation.none,
+        ),
+    ) {
         HbTranscriptChunkContent(
             chunk = chunk,
-            modifier = modifier.padding(
-                bottom = if (chunk.isLast && !isLatestMessage) HbTheme.spacing.l else HbTheme.elevation.none,
-            ),
             message = message.copy(
                 text = copyText,
                 parts = persistentListOf(),

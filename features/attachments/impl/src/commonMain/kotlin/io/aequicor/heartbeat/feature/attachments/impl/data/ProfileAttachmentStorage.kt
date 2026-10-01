@@ -18,10 +18,15 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentInput
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.impl.domain.AttachmentMetadata
 import io.aequicor.heartbeat.feature.attachments.impl.domain.AttachmentStorage
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import okio.FileSystem
+import okio.IOException
+import okio.Path
 import okio.Path.Companion.toPath
 import okio.buffer
 import okio.use
@@ -37,12 +42,12 @@ internal class AttachmentValidationException(val failure: AttachmentFailure) : I
 internal class ProfileAttachmentStorage(
     @ForScope(ProfileScope::class) private val stores: DataStores,
     private val dispatchers: DispatcherProvider,
+    private val fs: FileSystem = FileSystem.SYSTEM,
 ) : AttachmentStorage,
     AttachmentMetadata {
     private val log = Log.tag("AttachmentsStorage")
     private val dao by lazy { stores.database(AttachmentDatabaseSpec).attachments() }
     private val directory get() = stores.filesDirectory("attachments").toPath()
-    private val fs = FileSystem.SYSTEM
 
     override suspend fun prepare(): Unit = withContext(dispatchers.io) {
         log.d { "Prepare profile attachment storage" }
@@ -76,25 +81,61 @@ internal class ProfileAttachmentStorage(
             }
         }
         fs.createDirectories(directory)
-        val rows = prepared.map { input ->
-            val id = Uuid.random().toString()
-            val temporary = directory / "$id.tmp"
-            val target = directory / "$id.${attachmentExtension(input.mediaType)}"
-            try {
-                fs.openReadWrite(temporary, mustCreate = true).use { handle ->
-                    handle.sink().buffer().use { it.write(input.bytes) }
-                    handle.flush()
-                }
-                fs.atomicMove(temporary, target)
-            } finally {
-                if (fs.exists(temporary)) fs.delete(temporary)
-            }
-            AttachmentEntity(id, input.name, input.mediaType, input.bytes.size.toLong(), deduplicationKey)
+        persistInputs(prepared, deduplicationKey)
+    }
+
+    /** Rolls back unpublished files; cancellation after the atomic Room commit keeps durable references intact. */
+    private suspend fun persistInputs(
+        inputs: List<AttachmentInput.Bytes>,
+        deduplicationKey: String?,
+    ): List<AttachmentDescriptor> {
+        val rows = inputs.map {
+            AttachmentEntity(Uuid.random().toString(), it.name, it.mediaType, it.bytes.size.toLong(), deduplicationKey)
         }
-        // Files are closed and atomically renamed before metadata is committed. If interrupted,
-        // an unreferenced private file is retained until profile wiping; no published reference can break.
-        dao.insert(rows)
-        rows.map(AttachmentEntity::descriptor)
+        // Resolve once so rollback also works if the profile closes during an import.
+        val ownedDirectory = directory
+        var isCommitted = false
+        try {
+            rows.zip(inputs).forEach { (row, input) ->
+                currentCoroutineContext().ensureActive()
+                writeAttachment(ownedDirectory, row, input.bytes)
+            }
+            currentCoroutineContext().ensureActive()
+            withContext(NonCancellable) {
+                dao.insert(rows)
+                isCommitted = true
+            }
+            return rows.map(AttachmentEntity::descriptor)
+        } finally {
+            if (!isCommitted) {
+                withContext(NonCancellable) {
+                    log.d { "Roll back unpublished attachments count=${rows.size}" }
+                    rows.forEach { removeOwnedFile(ownedDirectory / "${it.id}.${attachmentExtension(it.mediaType)}") }
+                }
+            }
+        }
+    }
+
+    private fun writeAttachment(ownedDirectory: Path, row: AttachmentEntity, bytes: ByteArray) {
+        val temporary = ownedDirectory / "${row.id}.tmp"
+        val target = ownedDirectory / "${row.id}.${attachmentExtension(row.mediaType)}"
+        try {
+            fs.openReadWrite(temporary, mustCreate = true).use { handle ->
+                handle.sink().buffer().use { it.write(bytes) }
+                handle.flush()
+            }
+            fs.atomicMove(temporary, target)
+        } finally {
+            removeOwnedFile(temporary)
+        }
+    }
+
+    private fun removeOwnedFile(path: Path) {
+        try {
+            fs.delete(path, mustExist = false)
+        } catch (error: IOException) {
+            log.w(error) { "Failed to remove unpublished attachment file" }
+        }
     }
 
     override suspend fun read(id: AttachmentId): ResolvedResource = withContext(dispatchers.io) {

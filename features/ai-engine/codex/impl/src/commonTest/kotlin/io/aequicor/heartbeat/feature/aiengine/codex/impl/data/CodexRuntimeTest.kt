@@ -114,7 +114,7 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `slow tool call does not block events, is cancelled with its turn and late calls are refused`() = runTest {
+    fun `slow tool call does not block events and is cancelled with its turn while late calls are refused`() = runTest {
         val fixture = Fixture(
             this,
             object : SearchEngine {
