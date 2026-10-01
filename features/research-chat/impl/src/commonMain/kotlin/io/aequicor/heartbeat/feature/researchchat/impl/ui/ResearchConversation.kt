@@ -22,7 +22,6 @@ import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbPasteImageButton
 import io.aequicor.heartbeat.ds.components.HbText
-import io.aequicor.heartbeat.ds.components.hbAttachmentInput
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -131,13 +130,7 @@ private fun ResearchComposer(
         onStop = { onIntent(ResearchScreenIntent.Stop) },
         sendLabel = stringResource(Res.string.research_send),
         stopLabel = stringResource(Res.string.research_stop),
-        modifier = modifier.testTag("research-composer").then(
-            hbAttachmentInput(
-                enabled = state.isEditable && state.isFileImportAvailable,
-                onFiles = { onIntent(ResearchScreenIntent.DroppedFiles(it)) },
-                onImage = { onIntent(ResearchScreenIntent.PastedImage(it)) },
-            ),
-        ),
+        modifier = modifier.testTag("research-composer"),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = HbTheme.dimensions.editorMaxHeight,
         placeholder = stringResource(Res.string.research_composer_hint),

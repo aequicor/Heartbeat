@@ -34,6 +34,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
 
+/** 1: a discovered model reports the image and document formats it accepts. */
+private const val CLAUDE_MODEL_CATALOG_REVISION = 1
+
 /** Registration is lazy: constructing the profile graph never probes the CLI or account. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
@@ -74,6 +77,7 @@ public object ClaudeBindings {
         ),
         authOwner = ClaudeEngine.AuthOwner,
         factory = lazy { backend.value },
+        modelCatalogRevision = CLAUDE_MODEL_CATALOG_REVISION,
         sessionSources = listOf(ClaudeSessionSource(backend)),
     )
 }

@@ -25,8 +25,11 @@ public object PiToggleBindings {
     public fun toggle(): FeatureToggle<*> = PiEnabled
 }
 
-/** 1: compatible models inherit thinking levels of Pi's own catalog; 2: on/off-only thinking is reported as such. */
-private const val PI_MODEL_CATALOG_REVISION = 2
+/**
+ * 1: compatible models inherit thinking levels of Pi's own catalog; 2: on/off-only thinking is reported as such;
+ * 3: a model reports the image and document formats confirmed by its `input` metadata.
+ */
+private const val PI_MODEL_CATALOG_REVISION = 3
 
 /** Profile-owned lazy adapter registration and the public Pi configuration, both backed by one [PiAdapter]. */
 @BindingContainer
