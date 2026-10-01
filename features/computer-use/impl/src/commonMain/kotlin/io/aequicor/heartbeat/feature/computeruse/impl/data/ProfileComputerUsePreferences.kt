@@ -13,7 +13,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUseSettings
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 
 /** Stores the computer use settings in the profile key-value store. */
 @ContributesBinding(ProfileScope::class)
@@ -27,11 +27,21 @@ internal class ProfileComputerUsePreferences(
     override suspend fun read(): ComputerUseSettings {
         val preset = store.get(PresetKey) ?: ComputerUseSettings.DEFAULT_PRESET
         val isCursorIncluded = store.get(CursorKey) ?: true
-        return ComputerUseSettings(preset, isCursorIncluded)
+        val isEnabled = store.get(EnabledKey) ?: false
+        return ComputerUseSettings(preset, isCursorIncluded, isEnabled)
     }
 
-    override fun observe(): Flow<ComputerUseSettings> = store.observe(PresetKey).map { preset ->
-        ComputerUseSettings(preset ?: ComputerUseSettings.DEFAULT_PRESET, store.get(CursorKey) ?: true)
+    override fun observe(): Flow<ComputerUseSettings> = combine(
+        store.observe(PresetKey),
+        store.observe(CursorKey),
+        store.observe(EnabledKey),
+    ) { preset, isCursorIncluded, isEnabled ->
+        ComputerUseSettings(preset ?: ComputerUseSettings.DEFAULT_PRESET, isCursorIncluded ?: true, isEnabled ?: false)
+    }
+
+    override suspend fun setEnabled(isEnabled: Boolean) {
+        store.set(EnabledKey, isEnabled)
+        log.i { "computer use enabled changed enabled=$isEnabled" }
     }
 
     override suspend fun setPreset(name: String): Boolean {
@@ -53,5 +63,6 @@ internal class ProfileComputerUsePreferences(
         const val STORE_NAME = "computer_use"
         val PresetKey = stringKey("frame_preset")
         val CursorKey = booleanKey("include_cursor")
+        val EnabledKey = booleanKey("enabled")
     }
 }

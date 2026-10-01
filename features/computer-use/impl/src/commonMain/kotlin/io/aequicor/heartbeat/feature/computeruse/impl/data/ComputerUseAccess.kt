@@ -6,15 +6,14 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.supports
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.OsPermissions
 import kotlinx.coroutines.withContext
 
@@ -25,10 +24,11 @@ internal class ComputerUseAccess(
     private val permissions: OsPermissions,
     private val machines: MachineRegistry,
     private val dispatchers: DispatcherProvider,
+    private val preferences: ComputerUsePreferences,
 ) {
     /** Current host capabilities; a disabled master switch reports no usable capability. */
     suspend fun probe(): ComputerUseCapabilities = withContext(dispatchers.io) {
-        if (!toggles.get(ComputerUseEnabled)) {
+        if (!toggles.get(ComputerUseEnabled) || !preferences.read().isEnabled) {
             return@withContext ComputerUseCapabilities(
                 isCaptureAvailable = false,
                 isWindowCaptureAvailable = false,
@@ -37,11 +37,7 @@ internal class ComputerUseAccess(
                 blockers = listOf(ComputerUseBlocker.UnsupportedPlatform),
             )
         }
-        val fresh = permissions.probe()
-        fresh.copy(
-            isWindowCaptureAvailable = fresh.isWindowCaptureAvailable && toggles.get(ComputerUseWindowMode),
-            isDesktopInputAllowed = fresh.isDesktopInputAllowed && toggles.get(ComputerUseDesktopInput),
-        )
+        permissions.probe()
     }
 
     /** Current native-routing preference, read only after the operation passed the host guard. */

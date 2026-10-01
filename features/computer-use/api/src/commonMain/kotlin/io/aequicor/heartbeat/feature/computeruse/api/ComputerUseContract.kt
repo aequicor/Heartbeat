@@ -81,8 +81,15 @@ public sealed interface ComputerUseIntent : MachineIntent {
         /** Ends the running session when it belongs to [owner]; another owner's session is untouched. */
         public data class OwnerReleased(public val owner: CaptureOwner) : Public
 
-        /** Enables or disables input; the machine refuses it when the host reports no input capability. */
-        public data class ArmInput(public val isArmed: Boolean) : Public
+        /**
+         * Enables or disables input after the host authorizes an action. Optional session/frame binding prevents
+         * an authorization for one captured target from arming a replacement target.
+         */
+        public data class ArmInput(
+            public val isArmed: Boolean,
+            public val expectedSession: CaptureSessionId? = null,
+            public val expectedCapture: CaptureId? = null,
+        ) : Public
 
         /** Captures one frame of the running session. */
         public data class Capture(
@@ -253,7 +260,7 @@ public fun ComputerUseCapabilities.supports(mode: ComputerUseMode): Boolean = wh
 
 /**
  * `true` when input may be applied in [mode]: a window session confines input to the captured window, while
- * desktop-wide input additionally requires the explicit host allowance behind `computer_use.desktop_input`.
+ * desktop-wide input additionally requires the host's operating system permission.
  */
 public fun ComputerUseCapabilities.allowsInput(mode: ComputerUseMode?): Boolean {
     if (!isInputAvailable || mode == null) return false

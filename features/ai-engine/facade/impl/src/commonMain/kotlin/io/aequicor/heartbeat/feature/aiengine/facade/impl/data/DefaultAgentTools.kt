@@ -107,6 +107,7 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
         }
         pending.forEach { it.cancel() }
         pending.forEach { it.cancelAndJoin() }
+        contributions.forEach { it.finishTurn(session, turn) }
     }
 
     private suspend fun executeAuthorized(

@@ -7,11 +7,13 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -24,6 +26,7 @@ internal class ComputerUseEffectHandler(
     private val coordinator: CaptureCoordinator,
     private val captures: ComputerUseCaptureExecutor,
     private val runningMachine: Lazy<Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>>,
+    private val presentation: ComputerUseCapturePresentation,
 ) : EffectHandler<ComputerUseEffect, ComputerUseIntent> {
     private val log = Log.tag("ComputerUseEffects")
 
@@ -126,14 +129,22 @@ internal class ComputerUseEffectHandler(
             reject(machine, failure, effect.requestId)
             return
         }
-        when (
-            val outcome = coordinator.input(
+        val apply: suspend () -> InputOutcome = {
+            coordinator.input(
                 effect.action,
                 effect.expectedCapture,
                 isFrameBound = true,
                 guard = access::inputFailure,
             )
-        ) {
+        }
+        val outcome = when (effect.action) {
+            is InputAction.MoveTo, is InputAction.Click, is InputAction.Drag, is InputAction.Scroll -> {
+                presentation.withoutPresentation(apply)
+            }
+
+            is InputAction.Type, is InputAction.Key -> apply()
+        }
+        when (outcome) {
             InputOutcome.Applied -> machine.send(
                 ComputerUseIntent.Internal.InputApplied(effect.action, effect.requestId),
             )

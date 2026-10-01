@@ -13,34 +13,6 @@ public val ComputerUseEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /**
- * Capture of a single window instead of the whole desktop. Requires window enumeration and window capture on
- * the host: Windows uses `PrintWindow`, other platforms report [ComputerUseBlocker.UnsupportedPlatform] for
- * this mode while the desktop mode keeps working.
- */
-public val ComputerUseWindowMode: FeatureToggle.Flag = FeatureToggle.Flag(
-    "computer_use.window_mode",
-    "Захват отдельного окна приложения",
-)
-
-/**
- * Mouse and keyboard input while the whole desktop is captured. Window capture is not affected: its input is
- * confined to the captured window. Off by default because desktop-wide input can reach any application.
- */
-public val ComputerUseDesktopInput: FeatureToggle.Flag = FeatureToggle.Flag(
-    "computer_use.desktop_input",
-    "Ввод мыши и клавиатуры в режиме полного захвата рабочего стола",
-)
-
-/**
- * Publishes the `computer_*` hosted tools to AI engines through the profile dispatcher. Input tools still pass
- * the single trust gate; capture tools are read-only.
- */
-public val ComputerUseAgentTools: FeatureToggle.Flag = FeatureToggle.Flag(
-    "computer_use.agent_tools",
-    "Инструменты computer_* для ИИ-движков",
-)
-
-/**
  * Prefers an engine's own [NativeComputerControl] over the host implementation. While it is off, the host
  * captures and injects input itself, so behaviour is identical for every engine.
  */

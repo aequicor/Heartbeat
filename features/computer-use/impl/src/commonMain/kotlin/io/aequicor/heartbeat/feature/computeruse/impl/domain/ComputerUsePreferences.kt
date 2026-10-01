@@ -4,8 +4,12 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
 import kotlinx.coroutines.flow.Flow
 
-/** Frame quality the profile chose for agent captures and for the panel preview. */
-internal data class ComputerUseSettings(val preset: String = DEFAULT_PRESET, val isCursorIncluded: Boolean = true) {
+/** Profile permission to use the computer, with automatic frame defaults for hosted tools. */
+internal data class ComputerUseSettings(
+    val preset: String = DEFAULT_PRESET,
+    val isCursorIncluded: Boolean = true,
+    val isEnabled: Boolean = false,
+) {
     /** The encoding the chosen preset stands for; an unknown name falls back to the agent overview. */
     val encoding: CaptureEncoding get() = CapturePresets.byName(preset) ?: CapturePresets.AgentOverview
 
@@ -26,6 +30,9 @@ internal interface ComputerUsePreferences {
 
     /** Current settings and their changes. */
     fun observe(): Flow<ComputerUseSettings>
+
+    /** Enables or disables computer tools for this profile; disabled until explicitly enabled. */
+    suspend fun setEnabled(isEnabled: Boolean)
 
     /** Chooses the frame preset by name; an unknown name is refused. */
     suspend fun setPreset(name: String): Boolean

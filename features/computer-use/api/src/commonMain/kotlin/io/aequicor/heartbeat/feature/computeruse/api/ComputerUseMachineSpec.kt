@@ -19,13 +19,14 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | ArmInput | input is available | stay(armed) | |
  * | Ready | BeginCapture | capabilities support the mode | Capturing | OpenCapture, CaptureChanged |
  * | Capturing | CaptureOpened | matching session | stay(open) | |
+ * | Capturing | ArmInput | input available and matching authorization binding | stay(armed) | |
  * | Capturing | Capture | host open | stay | CaptureFrame |
  * | Capturing | Crop | master exists and holds the region | stay | ProduceCrop |
  * | Capturing | Input | armed and the mode allows input | stay | ApplyInput |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1) | FrameReady |
  * | Capturing | CropProduced | | stay(lastCrop) | FrameReady |
  * | Capturing | InputApplied | | stay | InputApplied output |
- * | Capturing | SwitchMode | capabilities support the mode | Capturing (re-entered) | OpenCapture, CaptureChanged |
+ * | Capturing | SwitchMode | supported mode | Capturing (re-entered) | CloseCapture(old), OpenCapture, CaptureChanged |
  * | Capturing | EndCapture | | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | OwnerReleased | same owner | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | CaptureLost | | Failed | CloseCapture, PurgeMasters, CaptureChanged(null) |
@@ -82,7 +83,9 @@ public val ComputerUseMachineSpec: MachineSpec<
         }
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
-        on<ComputerUseIntent.Public.ArmInput>(guard = { state.capabilities.isInputAvailable }) {
+        on<ComputerUseIntent.Public.ArmInput>(guard = {
+            state.capabilities.isInputAvailable && intent.expectedSession == null
+        }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
         on<ComputerUseIntent.Public.BeginCapture>(guard = { state.capabilities.supports(intent.mode) }) {
@@ -105,7 +108,11 @@ public val ComputerUseMachineSpec: MachineSpec<
         }
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
-        on<ComputerUseIntent.Public.ArmInput>(guard = { state.capabilities.isInputAvailable }) {
+        on<ComputerUseIntent.Public.ArmInput>(guard = {
+            state.capabilities.isInputAvailable &&
+                (intent.expectedSession == null || intent.expectedSession == state.session) &&
+                (intent.expectedSession == null || intent.expectedCapture == state.lastPreview?.id)
+        }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
         on<ComputerUseIntent.Public.Capture>(guard = {
@@ -140,6 +147,7 @@ public val ComputerUseMachineSpec: MachineSpec<
                     isInputArmed = false,
                 )
             }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
             effect { ComputerUseEffect.OpenCapture(intent.mode, intent.session) }
             output { ComputerUseOutput.CaptureChanged(intent.mode) }
         }

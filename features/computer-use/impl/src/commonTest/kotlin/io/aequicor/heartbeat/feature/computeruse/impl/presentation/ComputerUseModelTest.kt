@@ -212,6 +212,9 @@ private class FakePanelPreferences : ComputerUsePreferences {
     private val current = MutableStateFlow(ComputerUseSettings())
     override suspend fun read() = current.value
     override fun observe() = current
+    override suspend fun setEnabled(isEnabled: Boolean) {
+        current.value = current.value.copy(isEnabled = isEnabled)
+    }
     override suspend fun setPreset(name: String): Boolean {
         current.value = current.value.copy(preset = name)
         return true

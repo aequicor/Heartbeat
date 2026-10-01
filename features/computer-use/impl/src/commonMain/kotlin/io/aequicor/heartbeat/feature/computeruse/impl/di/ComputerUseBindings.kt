@@ -19,8 +19,6 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.MachineLauncher
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseAgentTools
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
@@ -29,11 +27,11 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.data.CaptureCoordinator
 import io.aequicor.heartbeat.feature.computeruse.impl.data.FramePipeline
 import io.aequicor.heartbeat.feature.computeruse.impl.data.MasterFrameCache
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameEncoder
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
@@ -41,7 +39,9 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -124,29 +124,43 @@ internal class ComputerUseCoordinatorResources(
     fun create(): CaptureCoordinator = CaptureCoordinator(capturer, windows, injector, pipeline, cache, dispatchers)
 }
 
-/** Probes availability with the profile, so the panel and the tools never wait for the first permission check. */
+/** Observes profile opt in and rollout availability, releasing capture even while the settings screen is closed. */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class ComputerUseStartup(
     private val machine: Lazy<Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>>,
     private val toggles: FeatureToggles,
+    private val preferences: Lazy<ComputerUsePreferences>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : ProfileStartup {
     private val log = Log.tag("ComputerUseStartup")
 
     override fun start() {
         profile.coroutineScope.launch {
-            toggles.observe(ComputerUseEnabled).distinctUntilChanged().collect { isEnabled ->
-                if (isEnabled) {
-                    val result = machine.value.send(ComputerUseIntent.Public.Start)
-                    log.i { "computer use startup result=$result" }
-                } else if (machine.isInitialized()) {
-                    val result = machine.value.send(ComputerUseIntent.Public.Revoke)
-                    log.i { "computer use disabled and revoked result=$result" }
+            toggles.observe(ComputerUseEnabled).distinctUntilChanged().collectLatest { isAvailable ->
+                if (isAvailable) {
+                    preferences.value.observe().map { it.isEnabled }.distinctUntilChanged().collect(::applyEnabled)
                 } else {
-                    log.i { "computer use is disabled by toggle" }
+                    applyEnabled(false)
                 }
             }
+        }
+    }
+
+    private suspend fun applyEnabled(isEnabled: Boolean) {
+        if (isEnabled) {
+            val intent = when (machine.value.state.value) {
+                is ComputerUseState.Unavailable, is ComputerUseState.Failed -> ComputerUseIntent.Public.Retry
+                ComputerUseState.Idle -> ComputerUseIntent.Public.Start
+                ComputerUseState.Checking, is ComputerUseState.Ready, is ComputerUseState.Capturing -> return
+            }
+            val result = machine.value.send(intent)
+            log.i { "computer use startup result=$result" }
+        } else if (machine.isInitialized()) {
+            val result = machine.value.send(ComputerUseIntent.Public.Revoke)
+            log.i { "computer use disabled and revoked result=$result" }
+        } else {
+            log.i { "computer use is disabled" }
         }
     }
 }
@@ -159,21 +173,6 @@ public object ComputerUseToggleBindings {
     @Provides
     @IntoSet
     public fun enabled(): FeatureToggle<*> = ComputerUseEnabled
-
-    /** Exact FeatureToggle wildcard joins the application registry. */
-    @Provides
-    @IntoSet
-    public fun windowMode(): FeatureToggle<*> = ComputerUseWindowMode
-
-    /** Exact FeatureToggle wildcard joins the application registry. */
-    @Provides
-    @IntoSet
-    public fun desktopInput(): FeatureToggle<*> = ComputerUseDesktopInput
-
-    /** Exact FeatureToggle wildcard joins the application registry. */
-    @Provides
-    @IntoSet
-    public fun agentTools(): FeatureToggle<*> = ComputerUseAgentTools
 
     /** Exact FeatureToggle wildcard joins the application registry. */
     @Provides

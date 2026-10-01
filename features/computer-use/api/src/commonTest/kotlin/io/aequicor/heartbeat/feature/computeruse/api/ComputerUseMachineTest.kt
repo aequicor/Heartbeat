@@ -164,6 +164,32 @@ class ComputerUseMachineTest {
     }
 
     @Test
+    fun `authorized input arms only its current capture frame`() {
+        val observed = capturing.copy(lastPreview = preview)
+        ComputerUseMachineSpec.assertTransition(
+            from = observed,
+            intent = ComputerUseIntent.Public.ArmInput(true, observed.session, preview.id),
+            to = observed.copy(isInputArmed = true),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, CaptureSessionId("another-session"), preview.id),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, observed.session, CaptureId("another-frame")),
+        )
+    }
+
+    @Test
+    fun `authorization for a capture cannot arm a ready machine`() {
+        ComputerUseMachineSpec.assertIgnored(
+            ComputerUseState.Ready(capabilities),
+            ComputerUseIntent.Public.ArmInput(true, capturing.session, preview.id),
+        )
+    }
+
+    @Test
     fun `switching mode re-enters capturing with the new session`() {
         val started = capturing.copy(master = master, lastPreview = preview, frameCount = 3)
         val next = CaptureSessionId("s2")
@@ -171,7 +197,10 @@ class ComputerUseMachineTest {
             from = started,
             intent = ComputerUseIntent.Public.SwitchMode(windowMode, next),
             to = ComputerUseState.Capturing(next, windowMode, owner, capabilities),
-            effects = listOf(ComputerUseEffect.OpenCapture(windowMode, next)),
+            effects = listOf(
+                ComputerUseEffect.CloseCapture(started.session),
+                ComputerUseEffect.OpenCapture(windowMode, next),
+            ),
             outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
         )
     }
@@ -360,7 +389,10 @@ class ComputerUseMachineTest {
             from = capturing,
             intent = ComputerUseIntent.Public.SwitchMode(windowMode, replacement, CaptureOwner.Panel, session),
             to = switched,
-            effects = listOf(ComputerUseEffect.OpenCapture(windowMode, replacement)),
+            effects = listOf(
+                ComputerUseEffect.CloseCapture(capturing.session),
+                ComputerUseEffect.OpenCapture(windowMode, replacement),
+            ),
             outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
         )
         ComputerUseMachineSpec.assertIgnored(switched, ComputerUseIntent.Public.OwnerReleased(owner))

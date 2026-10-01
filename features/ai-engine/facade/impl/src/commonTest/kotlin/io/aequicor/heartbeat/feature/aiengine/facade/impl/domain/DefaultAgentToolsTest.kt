@@ -166,6 +166,7 @@ class DefaultAgentToolsTest {
             assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
             assertTrue(lifetime.isActive)
             assertEquals(0, owner.calls)
+            assertEquals(listOf(context.session to context.turn), owner.finishedTurns)
             val nextTurn = context.copy(turn = TurnId("next"))
             assertFalse(tools.execute(nextTurn, "tool", EMPTY_ARGS).isError)
             assertEquals(1, owner.calls)
@@ -254,6 +255,7 @@ private class ToolOwner(action: AgentToolAction) : AgentToolContribution {
     var calls = 0
     var revision = 1
     var authorization: AgentToolApproval? = null
+    val finishedTurns = mutableListOf<Pair<SessionRef, TurnId>>()
     override suspend fun specifications(workspace: WorkspaceRef?) = if (isAvailable) listOf(spec) else emptyList()
     override suspend fun approval(
         context: AgentToolContext,
@@ -268,6 +270,9 @@ private class ToolOwner(action: AgentToolAction) : AgentToolContribution {
         calls++
         authorization = context.authorization
         return AgentToolResult("done")
+    }
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
+        finishedTurns += session to turn
     }
 }
 

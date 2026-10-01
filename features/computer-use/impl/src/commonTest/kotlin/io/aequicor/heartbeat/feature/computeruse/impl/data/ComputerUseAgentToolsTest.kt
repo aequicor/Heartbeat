@@ -53,9 +53,137 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseAgentTools as ToolsToggle
 
 class ComputerUseAgentToolsTest {
+    @Test
+    fun `one enabled profile switch exposes every tool without secondary toggles`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        assertTrue(fixture.tools.specifications(null).any { it.name == "computer_capture" })
+        assertTrue(fixture.tools.specifications(null).any { it.name == "computer_type" })
+        fixture.preferences.setEnabled(false)
+        assertTrue(fixture.tools.specifications(null).isEmpty())
+        assertTrue(fixture.tools.instructions(null).isEmpty())
+        val reply = fixture.tools.execute(fixture.context, "computer_status", EmptyArguments)
+        assertTrue(reply.isError)
+        assertEquals("Disabled", reply.text)
+    }
+
+    @Test
+    fun `authorized input arms the frame automatically without a manual switch`() = runTest {
+        val fixture = Fixture(this, Capturing.copy(isInputArmed = false))
+        val args = buildJsonObject { put("text", "hello") }
+        val approved = fixture.approved("computer_type", args)
+        val reply = fixture.tools.execute(approved, "computer_type", args)
+        assertFalse(reply.isError)
+        assertEquals(
+            ComputerUseIntent.Public.ArmInput(true, Session, Frame.id),
+            fixture.machine.sent.first(),
+        )
+        assertEquals(listOf<InputAction>(InputAction.Type("hello")), fixture.machine.appliedActions)
+    }
+
+    @Test
+    fun `input without dispatcher authorization cannot arm capture`() = runTest {
+        val fixture = Fixture(this, Capturing.copy(isInputArmed = false))
+        val args = buildJsonObject { put("text", "hello") }
+        val reply = fixture.tools.execute(fixture.context, "computer_type", args)
+        assertTrue(reply.isError)
+        assertTrue(fixture.machine.sent.isEmpty())
+        assertTrue(fixture.machine.appliedActions.isEmpty())
+    }
+
+    @Test
+    fun `facade turn ending releases capture even without a native lifetime`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val owner = CaptureOwner.Agent(fixture.context.session, fixture.context.turn)
+        fixture.machine.state.value = Capturing.copy(owner = owner)
+        val finish = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertTrue(fixture.machine.state.value is ComputerUseState.Ready)
+        assertEquals(ComputerUseIntent.Public.OwnerReleased(owner), fixture.machine.sent.single())
+        assertFalse(finish.isCompleted)
+        fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(Session))
+        runCurrent()
+        finish.await()
+    }
+
+    @Test
+    fun `finishing an earlier turn preserves the newer owners capture`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val newer = Capturing.copy(owner = CaptureOwner.Agent(fixture.context.session, TurnId("newer")))
+        fixture.machine.state.value = newer
+        fixture.tools.finishTurn(fixture.context.session, fixture.context.turn)
+        assertTrue(fixture.machine.sent.isEmpty())
+        assertEquals(newer, fixture.machine.state.value)
+    }
+
+    @Test
+    fun `turn barrier waits for delayed cleanup after native lifetime already ended capture`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        val lifetime = Job()
+        val context = fixture.context.copy(lifetime = lifetime)
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val approved = fixture.approved("computer_capture", arguments, context)
+        val capture = async { fixture.tools.execute(approved, "computer_capture", arguments) }
+        runCurrent()
+        val opened = fixture.machine.state.value as ComputerUseState.Capturing
+        fixture.machine.state.value = opened.copy(isOpen = true)
+        runCurrent()
+        assertFalse(capture.await().isError)
+        lifetime.complete()
+        runCurrent()
+        assertTrue(fixture.machine.state.value is ComputerUseState.Ready)
+        val barrier = async { fixture.tools.finishTurn(context.session, context.turn) }
+        runCurrent()
+        assertFalse(barrier.isCompleted)
+        fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(opened.session))
+        runCurrent()
+        barrier.await()
+    }
+
+    @Test
+    fun `cancelling a cleanup barrier keeps the acknowledgement pending for retry`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        fixture.machine.state.value = Capturing.copy(
+            owner = CaptureOwner.Agent(fixture.context.session, fixture.context.turn),
+        )
+        val first = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertTrue(fixture.machine.state.value is ComputerUseState.Ready)
+        first.cancelAndJoin()
+        val retry = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertFalse(retry.isCompleted)
+        fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(Session))
+        runCurrent()
+        retry.await()
+    }
+
+    @Test
+    fun `switching capture keeps prior cleanup acknowledged at the final turn barrier`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val sessions = mutableListOf<CaptureSessionId>()
+        repeat(2) {
+            val approved = fixture.approved("computer_capture", arguments)
+            val capture = async { fixture.tools.execute(approved, "computer_capture", arguments) }
+            runCurrent()
+            val opened = fixture.machine.state.value as ComputerUseState.Capturing
+            fixture.machine.state.value = opened.copy(isOpen = true)
+            runCurrent()
+            assertFalse(capture.await().isError)
+            sessions += opened.session
+            if (sessions.size == 2) fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(sessions.first()))
+        }
+        val barrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertFalse(barrier.isCompleted)
+        fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(sessions.last()))
+        runCurrent()
+        assertTrue(barrier.isCompleted)
+        barrier.await()
+    }
+
     @Test
     fun `capture waits for host acknowledgement before requesting a frame`() = runTest {
         val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
@@ -179,9 +307,10 @@ class ComputerUseAgentToolsTest {
         }
         val reply = fixture.tools.execute(approved, "computer_type", arguments)
         assertTrue(reply.isError)
-        val input = fixture.machine.sent.filterIsInstance<ComputerUseIntent.Public.Input>().single()
-        assertEquals(Session, input.expectedSession)
-        assertEquals(Frame.id, input.expectedCapture)
+        val arming = fixture.machine.sent.filterIsInstance<ComputerUseIntent.Public.ArmInput>().single()
+        assertEquals(Session, arming.expectedSession)
+        assertEquals(Frame.id, arming.expectedCapture)
+        assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.Input })
         assertTrue(fixture.machine.appliedActions.isEmpty())
         assertEquals(newer, fixture.machine.state.value)
     }
@@ -308,9 +437,10 @@ class ComputerUseAgentToolsTest {
     private class Fixture(scope: TestScope, initial: ComputerUseState) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
+        val preferences = FakeComputerUsePreferences()
         val tools = ComputerUseAgentTools(
             registry,
-            FakeToggles(mapOf(ComputerUseEnabled.key to true, ToolsToggle.key to true)),
+            FakeToggles(mapOf(ComputerUseEnabled.key to true)),
             object : HostComputerControl {
                 override suspend fun status() = ComputerUseStatus(Capabilities)
                 override suspend fun windows() = emptyList<WindowTarget>()
@@ -319,7 +449,8 @@ class ComputerUseAgentToolsTest {
                 override suspend fun input(action: InputAction) = InputOutcome.Applied
                 override suspend fun revoke() = Unit
             },
-            TestComputerUseScope(scope.backgroundScope),
+            ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope)),
+            preferences,
         )
         val context = AgentToolContext(
             SessionRef(EngineId("pi"), SessionSourceId("local"), "session"),

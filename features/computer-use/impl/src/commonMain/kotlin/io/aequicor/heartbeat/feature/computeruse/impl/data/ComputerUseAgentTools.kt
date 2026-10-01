@@ -2,9 +2,7 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
-import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
@@ -16,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
@@ -43,13 +43,13 @@ import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -67,15 +67,15 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseAgentTools as AgentToolsToggle
 
 /**
  * The hosted `computer_*` tools.
  *
  * Read-only tools return the path of a stored frame plus its geometry and token estimate; an engine that can
  * read files opens the frame itself. Mutating tools go through the machine, so the same guards apply whether the
- * command came from an agent or from the panel: input runs only while it is armed, and only inside the captured
- * area. Approvals show the exact action, with control characters escaped and the text bounded.
+ * command came from an agent or from the panel. An authorized input call arms its exact captured frame without
+ * a second manual switch, and input stays inside that area. Approvals show the exact action, with control
+ * characters escaped and the text bounded.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -83,7 +83,8 @@ internal class ComputerUseAgentTools(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val control: HostComputerControl,
-    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val lifecycle: ComputerUseCaptureLifecycle,
+    private val preferences: ComputerUsePreferences,
 ) : AgentToolContribution {
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
@@ -94,16 +95,17 @@ internal class ComputerUseAgentTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String {
         if (!isEnabled()) return ""
         return "Computer use drives the real screen for testing and debugging. Call computer_status first: it " +
-            "reports the permissions, the captured mode and whether input is armed. Capture the whole desktop " +
+            "reports permissions and the active capture. Choose the capture mode yourself: use one application " +
+            "window for work confined to it, or the desktop when the task spans applications. Capture the desktop " +
             "with computer_capture {mode:\"desktop\"} or one application window with " +
             "computer_capture {mode:\"window\", windowId} after picking an id from computer_windows. " +
             "computer_screenshot returns a downscaled frame (at most ${OVERVIEW_WIDTH_PX}px wide) and a tile grid; " +
             "read small text with computer_zoom on a region or a tile, which is cut from the same stored master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
-            "you pass space:\"master\", \"normalized\" or \"screen\". Input needs the user to arm it and passes " +
-            "the confirmation gate; a refusal names the reason (NotArmed, RegionOutOfBounds, TargetClosed). " +
-            "Call computer_release when the debugging step is done: the capture and its stored frames stay " +
-            "alive until then or until the profile closes."
+            "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
+            "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
+            "TargetClosed). Call computer_release as soon as you finish working with the computer; capture and " +
+            "stored frames are also released automatically when your turn ends."
     }
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval {
@@ -172,6 +174,10 @@ internal class ComputerUseAgentTools(
             }
         }
 
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = requests.withLock {
+        lifecycle.finishTurn(CaptureOwner.Agent(session, turn))
+    }
+
     private suspend fun dispatch(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         context: AgentToolContext,
@@ -192,13 +198,16 @@ internal class ComputerUseAgentTools(
         else -> failure("UnknownTool")
     }
 
-    private suspend fun isEnabled(): Boolean = toggles.get(ComputerUseEnabled) && toggles.get(AgentToolsToggle)
+    private suspend fun isEnabled(): Boolean = toggles.get(ComputerUseEnabled) && preferences.read().isEnabled
 
     /** The machine is created lazily; a tool call is what starts the availability probe. */
     private suspend fun started(): MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>? {
         val machine = machines.find(ComputerUseMachineKey) ?: return null
-        if (machine.state.value !is ComputerUseState.Idle) return machine
-        machine.send(ComputerUseIntent.Public.Start)
+        when (machine.state.value) {
+            ComputerUseState.Idle -> machine.send(ComputerUseIntent.Public.Start)
+            is ComputerUseState.Unavailable, is ComputerUseState.Failed -> machine.send(ComputerUseIntent.Public.Retry)
+            ComputerUseState.Checking, is ComputerUseState.Ready, is ComputerUseState.Capturing -> Unit
+        }
         return withTimeoutOrNull(START_TIMEOUT_MILLIS) {
             machine.state.first { it !is ComputerUseState.Idle && it !is ComputerUseState.Checking }
             machine
@@ -267,16 +276,20 @@ internal class ComputerUseAgentTools(
                 session,
             )
         }
-        val sent = machine.send(intent)
-        if (sent != SendResult.Accepted) {
+        val sent = lifecycle.begin(machine, owner, session, intent, context.lifetime)
+        return if (sent != SendResult.Accepted) {
             log.w { "capture refused result=$sent" }
-            return failure("CaptureRefused")
+            failure("CaptureRefused")
+        } else {
+            openedCapture(machine, arguments, session)
         }
-        context.lifetime?.invokeOnCompletion {
-            profile.coroutineScope.launch {
-                machine.send(ComputerUseIntent.Public.OwnerReleased(owner))
-            }
-        }
+    }
+
+    private suspend fun openedCapture(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        arguments: JsonObject,
+        session: CaptureSessionId,
+    ): AgentToolResult {
         var isCompleted = false
         try {
             val opened = withTimeoutOrNull(CAPTURE_TIMEOUT_MILLIS) {
@@ -436,6 +449,8 @@ internal class ComputerUseAgentTools(
         val session = authorizedSession(context) ?: return failure("CaptureChangedSinceApproval")
         val capture = context.authorization?.binding?.split(':')?.getOrNull(1)
             ?.takeIf { it.isNotEmpty() }?.let(::CaptureId)
+        val armed = machine.send(ComputerUseIntent.Public.ArmInput(true, session, capture))
+        if (armed != SendResult.Accepted) return failure("CaptureChangedSinceApproval")
         val output = awaitOutput(
             machine,
             ComputerUseIntent.Public.Input(
