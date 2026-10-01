@@ -6,9 +6,11 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
 import kotlinx.coroutines.CancellationException
 
@@ -49,12 +51,14 @@ internal class ComputerUseCaptureExecutor(
     }
 
     private suspend fun captureNative(request: CaptureRequest): CaptureResult? {
+        val mode = access.active()?.mode as? ComputerUseMode.Desktop ?: return null
+        if (mode.monitor != null) return null
         val native = nativeControl() ?: return null
         val refusal = access.captureFailure()
         if (refusal != null) return CaptureResult(failure = refusal)
         val session = access.active()?.session ?: return null
         val captured = try {
-            native.capture(request)
+            native.capture(request.copy(region = null, tile = null, encoding = CapturePresets.Master))
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

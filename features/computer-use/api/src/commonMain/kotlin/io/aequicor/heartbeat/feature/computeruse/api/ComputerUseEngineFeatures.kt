@@ -47,7 +47,13 @@ public interface HostComputerControl : EngineFeature {
  * [FeatureAccess.Unavailable] and on any failure.
  */
 public interface NativeComputerControl : EngineFeature {
-    /** Captures one frame with engine-side means. */
+    /**
+     * Captures one frame with engine-side means.
+     *
+     * Host routing requests the full virtual desktop at native resolution with [CapturePresets.Master],
+     * without a region or tile, then derives the requested preview from that master exactly once.
+     * Window and individual-monitor captures use the host because this contract carries no target identity.
+     */
     public suspend fun capture(request: CaptureRequest): NativeCapture
 
     /** Applies one input action with engine-side means. */
