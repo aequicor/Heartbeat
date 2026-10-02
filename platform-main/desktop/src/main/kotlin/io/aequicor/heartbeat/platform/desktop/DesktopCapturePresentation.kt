@@ -398,8 +398,16 @@ internal class MacWindowAccess {
         if (isMainThread.invokeInt(emptyArray()) != 0) {
             action()
         } else {
-            // FutureTask carries every failure, including cancellation, across the JNA callback boundary.
-            val task = FutureTask { action() }
+            // FutureTask carries every failure, including cancellation and the pool calls', across the JNA callback.
+            val task = FutureTask {
+                // The run loop drains autorelease pools only in AppKit's modes, not in AWTRunLoopMode.
+                val pool = poolPush.invokePointer(emptyArray())
+                try {
+                    action()
+                } finally {
+                    poolPop.invokeVoid(arrayOf(pool))
+                }
+            }
             runOnMainRunLoop(task)
             try {
                 task.get()
@@ -414,15 +422,8 @@ internal class MacWindowAccess {
         val finished = CountDownLatch(1)
         val work = Runnable {
             try {
-                // The run loop drains autorelease pools only in AppKit's modes, not in AWTRunLoopMode.
-                val pool = poolPush.invokePointer(emptyArray())
-                try {
-                    task.run()
-                } finally {
-                    poolPop.invokeVoid(arrayOf(pool))
-                }
+                task.run()
             } finally {
-                // Releases the event thread even if the pool calls themselves fail.
                 finished.countDown()
             }
         }

@@ -96,7 +96,7 @@ internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseab
     /** A theme change repaints the existing windows; only a new monitor layout recreates them. */
     private fun recolor(next: OverlayAppearance) {
         windows.forEach { window ->
-            window.background = Color(next.color.red, next.color.green, next.color.blue, 0)
+            // The window background stays fully transparent; only the painted perimeter carries the color.
             window.contentPane = PerimeterShadow(next.color, next.shadowWidth)
             window.validate()
             window.repaint()

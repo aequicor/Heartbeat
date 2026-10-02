@@ -79,9 +79,16 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
         awaitWindow("leave ${session.describe()}", TRANSITION_TIMEOUT, ::isFloating)
         if (session.placement != WindowPlacement.Floating) {
             // macOS reports floating before its unzoom animation starts: wait for the frame to leave the old one.
-            awaitWindow("shrink from ${session.placement}", TRANSITION_TIMEOUT) { window.bounds != placedBounds }
+            // A floating frame that equals the zoomed one never moves, so this wait is short.
+            awaitWindow("change its frame after leaving ${session.placement}", BOUNDS_TIMEOUT) {
+                window.bounds != placedBounds
+            }
         }
-        session.floatingBounds = if (isAlreadyFloating) window.bounds else awaitSettledBounds()
+        session.floatingBounds = if (isAlreadyFloating) {
+            window.bounds
+        } else {
+            awaitSettledBounds("remembering the latest ones")
+        }
         val target = computerUseSessionBounds(window.workArea, width, height)
         requestBounds(target)
         log.i { "Agent capture: session pinned to the screen edge" }
@@ -106,7 +113,7 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
                 window.placement == session.placement
             }
             // Zoom and fullscreen animate; the next session must not read the window halfway through.
-            awaitSettledBounds()
+            awaitSettledBounds("continuing with them")
         }
         if (session.isMinimized) {
             window.state.isMinimized = true
@@ -146,7 +153,7 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
     }
 
     /** Placement changes animate on macOS: the bounds count once consecutive reads agree. */
-    private suspend fun awaitSettledBounds(): Rectangle {
+    private suspend fun awaitSettledBounds(onTimeout: String): Rectangle {
         var settled = window.bounds
         val isSettled = withTimeoutOrNull(TRANSITION_TIMEOUT) {
             var stableReads = 0
@@ -158,7 +165,7 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
             }
             true
         } ?: false
-        if (!isSettled) log.w { "Session window bounds kept changing; remembering the latest ones" }
+        if (!isSettled) log.w { "Session window bounds kept changing; $onTimeout" }
         return settled
     }
 

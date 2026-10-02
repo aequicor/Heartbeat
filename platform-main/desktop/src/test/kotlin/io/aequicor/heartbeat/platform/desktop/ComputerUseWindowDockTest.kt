@@ -113,6 +113,20 @@ class ComputerUseWindowDockTest {
     }
 
     @Test
+    fun `zoomed frame reported as floating is not remembered as the floating bounds`() = runTest {
+        val window = FakeWindow(NORMAL, WindowPlacement.Maximized, unzoomTicks = 3)
+        val dock = ComputerUseWindowDock(window)
+        val session = launch { dock.holdPinned(WIDTH, HEIGHT) }
+        advanceUntilIdle()
+        window.settle()
+        assertEquals(DOCKED, window.bounds)
+        session.cancelAndJoin()
+        window.settle()
+        assertEquals(WindowPlacement.Maximized, window.placement)
+        assertEquals(NORMAL, window.floatingBounds)
+    }
+
+    @Test
     fun `minimized window stays minimized when a new session starts during its restore`() = runTest {
         val window = FakeWindow(NORMAL, WindowPlacement.Floating, isMinimized = true)
         val dock = ComputerUseWindowDock(window)
@@ -150,6 +164,7 @@ class ComputerUseWindowDockTest {
         placement: WindowPlacement,
         isMinimized: Boolean = false,
         private val fullscreenTicks: Int = 0,
+        private val unzoomTicks: Int = 0,
     ) : DockableWindow {
         /** Bounds the window manager gives the window when it is floating. */
         var floatingBounds = Rectangle(floating)
@@ -158,6 +173,9 @@ class ComputerUseWindowDockTest {
         private var nativeMinimized = isMinimized
         private var transition: WindowPlacement? = null
         private var transitionTicks = 0
+
+        /** macOS reports floating before the unzoom animation moves the frame. */
+        private var zoomedFrameTicks = 0
         private var isResized = false
         private var isMoved = false
         private var isStateChanged = false
@@ -173,7 +191,7 @@ class ComputerUseWindowDockTest {
         override val isMinimized get() = nativeMinimized
         override val bounds: Rectangle
             get() = when (nativePlacement) {
-                WindowPlacement.Floating -> Rectangle(floatingBounds)
+                WindowPlacement.Floating -> Rectangle(if (zoomedFrameTicks > 0) WORK_AREA else floatingBounds)
                 WindowPlacement.Maximized -> Rectangle(WORK_AREA)
                 WindowPlacement.Fullscreen -> Rectangle(SCREEN)
             }
@@ -188,6 +206,7 @@ class ComputerUseWindowDockTest {
         fun settle() = repeat(fullscreenTicks * 2 + 10) { tick() }
 
         private fun tick() {
+            if (zoomedFrameTicks > 0) zoomedFrameTicks--
             advanceTransition()
             applyRequests()
             deliverEvents()
@@ -236,6 +255,9 @@ class ComputerUseWindowDockTest {
                 transition = target
                 transitionTicks = fullscreenTicks
             } else {
+                if (nativePlacement == WindowPlacement.Maximized && target == WindowPlacement.Floating) {
+                    zoomedFrameTicks = unzoomTicks
+                }
                 nativePlacement = target
                 isResized = true
                 isMoved = true
