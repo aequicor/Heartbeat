@@ -588,7 +588,7 @@ internal class EngineStudioRepository(
 
     override suspend fun refreshHistory(id: String, history: SessionHistory) {
         log.d { "Refresh terminal native history" }
-        nativeSession.mirrorHistory(historyMirror, id, history, isFinal = true)
+        nativeSession.mirrorHistory(historyMirror, id, history, isFinal = true) { items(id) }
     }
 
     override suspend fun observeHistory(id: String, history: SessionHistory) {
@@ -843,13 +843,21 @@ private class StudioNativeSessionOperations(
         trust: TrustLevel?,
     ): TurnId {
         log.i { "Send the reserved native request" }
-        val prompt = learning.prompt(request.prompt)
+        val prompt = learning.prompt(request.id, request.prompt)
         return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
     }
 
-    suspend fun mirrorHistory(mirror: StudioHistoryMirror, id: String, history: SessionHistory, isFinal: Boolean) {
+    /** Mirrors native history; after the final refresh the finished turn read by [finished] is checked for hints. */
+    suspend fun mirrorHistory(
+        mirror: StudioHistoryMirror,
+        id: String,
+        history: SessionHistory,
+        isFinal: Boolean,
+        finished: (suspend () -> List<SessionItem>)? = null,
+    ) {
         try {
             if (isFinal) mirror.refresh(id, history) else mirror.follow(id, history)
+            if (isFinal && finished != null) learning.observeTurn(id, finished)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
