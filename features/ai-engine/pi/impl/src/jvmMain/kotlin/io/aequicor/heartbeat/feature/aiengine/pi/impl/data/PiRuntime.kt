@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -27,7 +26,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiActiveSession
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiSessions
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
@@ -54,8 +55,7 @@ internal class PiRuntime(
     private val environment: PiSessionEnvironment,
     private val services: PiRuntimeServices,
 ) : EngineRuntime,
-    CreatesSessions,
-    AttachesSessions {
+    PiSessions {
     private val log = Log.tag("PiRuntime")
     override val identity get() = credentials.identity
     private val source get() = credentials.source
@@ -88,7 +88,7 @@ internal class PiRuntime(
         }
     }
 
-    override suspend fun create(request: CreateSessionRequest): ActiveSession = launch(request, null)
+    override suspend fun create(request: CreateSessionRequest): PiActiveSession = launch(request, null)
 
     /**
      * Restarts Pi on the stored transcript of [ref] in this profile, e.g. after an application restart.
@@ -99,7 +99,7 @@ internal class PiRuntime(
      * through [prepare] and [validate]. Another binding of that same source is allowed; no fallback binding
      * or credentials are selected from the transcript. Foreign sources must use their own validated runtime.
      */
-    override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
+    override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): PiActiveSession {
         if (ref.engine != identity.engine || ref.source != PiSessionSource ||
             request.target.engine != identity.engine
         ) {
@@ -120,7 +120,7 @@ internal class PiRuntime(
         }
     }
 
-    private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): ActiveSession {
+    private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): PiActiveSession {
         val session = prepare(request)
         var isRegistered = false
         try {

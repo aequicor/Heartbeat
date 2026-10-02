@@ -188,7 +188,7 @@ internal class PiProcessLauncher(
             val started = builder.start()
             process = started
             started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
-            val rpc = PiRpc(started, profile.coroutineScope, dispatchers, event, failed, workingDirectory = workingDir)
+            val rpc = connect(started, workingDir, modelsJson, event, failed)
             rpc.closeWith(profile.onClose(rpc::close))
             rpc
         } catch (e: CancellationException) {
@@ -204,6 +204,22 @@ internal class PiProcessLauncher(
             environment.remove(provider.variable)
         }
     }
+
+    private fun connect(
+        process: Process,
+        directory: Path,
+        modelsJson: String?,
+        event: suspend (JsonObject) -> Unit,
+        failed: suspend (EngineFailure) -> Unit,
+    ): PiRpc = PiRpc(
+        process,
+        profile.coroutineScope,
+        dispatchers,
+        event,
+        failed,
+        workingDirectory = directory,
+        contextWindows = piConfiguredContextWindows(modelsJson),
+    )
 
     /**
      * Publishes Pi's native page reader on the bridge once per profile, so bridge tools can prefer it over

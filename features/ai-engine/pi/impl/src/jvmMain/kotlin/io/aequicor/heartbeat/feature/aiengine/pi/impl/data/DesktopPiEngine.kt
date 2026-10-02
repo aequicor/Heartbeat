@@ -39,8 +39,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.longOrNull
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.InvalidPathException
@@ -145,7 +143,7 @@ internal class DesktopPiEngine(
                 ModelInfo(
                     EngineTarget(PiEngineId, context.binding, ModelId(source.scope.provider.value + "/" + id)),
                     model.string("name") ?: id,
-                    contextLimitTokens = model["contextWindow"]?.jsonPrimitive?.longOrNull,
+                    contextLimitTokens = connection.contextCapacity(model) ?: model.nativeContextCapacity(),
                     reasoningEfforts = model.piThinkingLevels(),
                     inputSupport = piInputSupport(model),
                 )

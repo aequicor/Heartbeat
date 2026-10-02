@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
@@ -29,6 +28,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -39,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiActiveSession
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -74,7 +75,7 @@ internal class PiSession(
     private val environment: PiSessionEnvironment,
     private val validate: suspend () -> Unit,
     private val released: (PiSession) -> Unit = {},
-) : ActiveSession,
+) : PiActiveSession,
     SendsPrompts,
     CancelsTurns,
     SwitchesModels,
@@ -115,7 +116,7 @@ internal class PiSession(
         ::rpc,
         { trust },
         { model ->
-            usage.model(model)
+            usage.model(model, rpc().contextCapacity(model))
             promptResources.model(model)
         },
     )
@@ -157,7 +158,8 @@ internal class PiSession(
 
     override val ref: SessionRef get() = requireNotNull(nativeRef)
     override val state = machine.state
-    override val features: EngineFeatures = piSessionFeatures(this, journal, usage) { promptResources.support }
+    override val contextUsage: SessionContextUsage get() = usage
+    override val features: EngineFeatures = piSessionFeatures(this, journal) { promptResources.support }
 
     /** Native session of this handle once started; null before [start] succeeds. */
     val attachedRef: SessionRef? get() = nativeRef
@@ -174,7 +176,7 @@ internal class PiSession(
             val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
             rpc().command("set_model", sessionConfiguration.modelFields(target.model))
             val snapshot = rpc().command("get_state")
-            usage.model(snapshot["model"] as? JsonObject)
+            usage.model(snapshot["model"] as? JsonObject, rpc().contextCapacity(snapshot["model"] as? JsonObject))
             promptResources.model(snapshot["model"] as? JsonObject)
             val nativeId = snapshot.string("sessionId")
                 ?: piFailure(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
@@ -392,7 +394,7 @@ internal class PiSession(
         val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
         log.i { "Restarting Pi process for session recovery" }
         val fresh = open(factory)
-        try {
+        val snapshot = try {
             fresh.reattach(file)
             // Pi can acknowledge switch_session by creating a new session when the file was never persisted.
             // Verify identity before publishing the connection, otherwise this handle could keep that process.
@@ -400,6 +402,7 @@ internal class PiSession(
             if (snapshot.string("sessionId") != nativeRef?.nativeId) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
+            snapshot
         } catch (e: EngineException) {
             // Never keep a process that sits on a different transcript than this handle.
             log.w(e) { "Pi session recovery could not reattach the transcript" }
@@ -408,6 +411,8 @@ internal class PiSession(
             throw e
         }
         connection = fresh
+        val model = snapshot["model"] as? JsonObject
+        usage.model(model, fresh.contextCapacity(model))
         return fresh
     }
 

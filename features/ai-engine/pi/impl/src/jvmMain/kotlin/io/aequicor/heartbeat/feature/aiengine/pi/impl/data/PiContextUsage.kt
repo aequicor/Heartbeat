@@ -8,7 +8,12 @@ import kotlinx.serialization.json.longOrNull
 import kotlin.time.Instant
 
 /** Last native request only; Pi's contextUsage adds character estimates and is deliberately not used. */
-internal fun piContextUsage(message: JsonObject, model: JsonObject?, now: Instant): ContextUsage? {
+internal fun piContextUsage(
+    message: JsonObject,
+    model: JsonObject?,
+    now: Instant,
+    confirmedCapacity: Long? = null,
+): ContextUsage? {
     if (message.string("role") != "assistant" || message.string("stopReason") in listOf("error", "aborted")) {
         return null
     }
@@ -17,7 +22,7 @@ internal fun piContextUsage(message: JsonObject, model: JsonObject?, now: Instan
     ) {
         return null
     }
-    val capacity = model.nativeContextCapacity() ?: return null
+    val capacity = confirmedCapacity?.takeIf { it > 0 } ?: model.nativeContextCapacity() ?: return null
     val usage = message["usage"] as? JsonObject ?: return null
     val tokens = usage.number("totalTokens")?.takeIf { it > 0 } ?: run {
         val counts = listOf("input", "output", "cacheRead", "cacheWrite").map {
@@ -36,7 +41,7 @@ private fun JsonObject.number(key: String): Long? = (this[key] as? JsonPrimitive
  * Fixed vendor routes use Pi's native catalog. Compatible routes lose capacity provenance in the RPC model:
  * Pi inserts 128000 when models.json omits the limit, so its positive contextWindow alone confirms nothing.
  */
-private fun JsonObject.nativeContextCapacity(): Long? {
+internal fun JsonObject.nativeContextCapacity(): Long? {
     val provider = PiProvider.entries.firstOrNull { it.id == string("provider") }
     if (provider?.origin == null) return null
     return number("contextWindow")?.takeIf { it > 0 }

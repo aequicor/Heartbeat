@@ -29,9 +29,10 @@ public object PiToggleBindings {
 
 /**
  * 1: compatible models inherit thinking levels of Pi's own catalog; 2: on/off-only thinking is reported as such;
- * 3: a model reports the image and document formats confirmed by its `input` metadata.
+ * 3: a model reports the image and document formats confirmed by its `input` metadata;
+ * 4: compatible context limits include only explicit catalog metadata, excluding Pi fallback values.
  */
-private const val PI_MODEL_CATALOG_REVISION = 3
+private const val PI_MODEL_CATALOG_REVISION = 4
 
 /** Profile-owned lazy adapter registration and the public Pi configuration, both backed by one [PiAdapter]. */
 @BindingContainer

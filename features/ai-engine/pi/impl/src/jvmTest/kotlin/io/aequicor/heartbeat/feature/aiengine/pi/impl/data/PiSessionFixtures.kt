@@ -65,14 +65,15 @@ internal suspend fun fixture(
     test: TestScope,
     validate: suspend () -> Unit = {},
     transcript: PiTranscript? = null,
-    isUsageEnabled: Boolean = false,
+    isUsageEnabled: Boolean = EngineUsageEnabled.default,
     acceptIntent: (MachineIntent) -> Boolean = { true },
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
     resources: ResourceResolver = ResourceResolver { null },
+    targetModel: ModelId = ModelId("anthropic/test"),
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
-    val target = EngineTarget(PiEngineId, EngineBindingId("binding"), ModelId("anthropic/test"))
+    val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
     val workspace = if (tools === NoAgentTools) null else WorkspaceRef("hosted-workspace")
     val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"), workspace)
     val released = mutableListOf<PiSession>()
@@ -108,7 +109,7 @@ internal suspend fun fixture(
 
 internal fun piTestEnvironment(
     test: TestScope,
-    isUsageEnabled: Boolean = false,
+    isUsageEnabled: Boolean = EngineUsageEnabled.default,
     areEnginesEnabled: Boolean = false,
     acceptIntent: (MachineIntent) -> Boolean = { true },
     tools: ProfileAgentTools = NoAgentTools,
@@ -219,6 +220,8 @@ internal class FakeConnection : PiConnection {
     var sessionId = "native"
     var model = "test"
     var modelMetadata = JsonObject(emptyMap())
+    override var contextWindows: Map<String, Long> = emptyMap()
+    var provider = "anthropic"
     var contextWindow = 1000L
     var isStreaming = false
     var stateFailure: EngineException? = null
@@ -267,7 +270,7 @@ internal class FakeConnection : PiConnection {
         stateFailure?.let { throw it }
         val selectedModel = JsonObject(
             modelMetadata + mapOf(
-                "provider" to JsonPrimitive("anthropic"),
+                "provider" to JsonPrimitive(provider),
                 "id" to JsonPrimitive(model),
                 "contextWindow" to JsonPrimitive(contextWindow),
             ),

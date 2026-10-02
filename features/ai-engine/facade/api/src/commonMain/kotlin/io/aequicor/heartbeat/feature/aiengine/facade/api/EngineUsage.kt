@@ -82,8 +82,9 @@ public interface ProviderUsageCatalog {
     public suspend fun refresh(engine: EngineId, binding: EngineBindingId): ProviderUsageSnapshot
 }
 
-/** Shared gate for native telemetry, its catalog and the Studio context/limits UI. */
+/** Shared gate for native telemetry and the Studio context/limits UI, enabled by default. */
 public val EngineUsageEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     key = "ai_studio.usage",
     description = "Индикатор заполненности контекста и лимиты провайдера",
+    default = true,
 )

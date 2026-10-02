@@ -42,6 +42,15 @@ class PiContextUsageTest {
     }
 
     @Test
+    fun `explicit compatible capacity is accepted including a real 128k window`() {
+        val provider = PiProvider.OpenAiCompatible.id
+        val compatible = json("""{"provider":"$provider","id":"test","contextWindow":128000}""")
+        val usage = piContextUsage(message("""{"totalTokens":4096}""", provider = provider), compatible, now, 128000L)
+        assertEquals(4096L, usage?.usedTokens)
+        assertEquals(128000L, usage?.capacityTokens)
+    }
+
+    @Test
     fun `fixed native provider capacity equal to compatible fallback remains known`() {
         val provider = PiProvider.OpenAi.id
         val model = json("""{"provider":"$provider","id":"test","contextWindow":128000}""")
