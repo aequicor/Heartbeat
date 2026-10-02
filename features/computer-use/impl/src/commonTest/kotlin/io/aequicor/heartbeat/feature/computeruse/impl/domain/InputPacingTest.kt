@@ -23,6 +23,14 @@ class InputPacingTest {
     }
 
     @Test
+    fun `extreme deltas keep their direction and the clamp`() {
+        assertEquals(MAX_WHEEL_NOTCHES, wheelNotches(Int.MAX_VALUE))
+        assertEquals(-MAX_WHEEL_NOTCHES, wheelNotches(Int.MIN_VALUE))
+        val extreme = inputWaitLimitMillis(InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = Int.MIN_VALUE))
+        assertEquals(inputWaitLimitMillis(InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = -100_000)), extreme)
+    }
+
+    @Test
     fun `every action has a wait limit of at least the base wait`() {
         val actions = listOf(
             InputAction.MoveTo(FramePoint(0.0, 0.0)),

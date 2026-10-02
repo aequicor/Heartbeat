@@ -39,6 +39,30 @@ class TextSegmentTest {
     }
 
     @Test
+    fun `every line ending is one newline`() {
+        assertEquals(
+            listOf(
+                TextSegment.Literal("a"),
+                TextSegment.Newline,
+                TextSegment.Literal("b"),
+                TextSegment.Newline,
+                TextSegment.Literal("c"),
+                TextSegment.Newline,
+                TextSegment.Newline,
+            ),
+            textSegments("a\r\nb\rc\n\r"),
+        )
+    }
+
+    @Test
+    fun `backspace is a key while other control characters stay literal for the caller to refuse`() {
+        assertEquals(
+            listOf(TextSegment.Literal("a"), TextSegment.Backspace, TextSegment.Literal("b\u001B")),
+            textSegments("a\bb\u001B"),
+        )
+    }
+
+    @Test
     fun `empty text has no segments`() {
         assertEquals(emptyList(), textSegments(""))
     }

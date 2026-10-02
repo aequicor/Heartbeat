@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.wheelNotches
 import kotlinx.coroutines.currentCoroutineContext
@@ -38,10 +40,13 @@ internal interface DesktopInputDriver {
     fun pause()
     fun idle()
 
+    /** `true` when [typeUnicode] carries characters independent of the active keyboard layout. */
+    val isUnicodeAvailable: Boolean get() = false
+
     /**
-     * Types the text exactly as given, independent of the active keyboard layout; newline and tab never appear
-     * here. `false` means this driver cannot (try the key-code fallback) or refuses (report the character).
-     * An empty text is a capability probe and never injects anything.
+     * Types the text exactly as given; called only when [isUnicodeAvailable], and control characters never appear here.
+     * `false` means the system refused the events, possibly after some of them arrived, so the caller reports the
+     * failure instead of typing the text again.
      */
     fun typeUnicode(text: String): Boolean = false
 }
@@ -78,8 +83,9 @@ private class AwtInputDriver(private val robot: Robot, private val host: HostPla
     override fun pause() = robot.delay(STEP_DELAY_MILLIS)
     override fun idle() = robot.waitForIdle()
 
-    override fun typeUnicode(text: String): Boolean =
-        if (host == HostPlatform.Windows && WindowsTextBackend.isAvailable) WindowsTextBackend.type(text) else false
+    override val isUnicodeAvailable: Boolean get() = host == HostPlatform.Windows && WindowsTextBackend.isAvailable
+
+    override fun typeUnicode(text: String): Boolean = isUnicodeAvailable && WindowsTextBackend.type(text)
 
     private companion object {
         const val STEP_DELAY_MILLIS = 12
@@ -100,7 +106,8 @@ internal fun injectableKeyCode(code: Int, host: HostPlatform): Int =
  * failures and the kill switch. Text is validated in its entirety
  * before the first event, so a rejected character cannot leave a partially typed command behind.
  *
- * Text uses US keyboard key positions; unsupported characters are refused instead of silently dropped.
+ * Text goes through the driver's Unicode path when it has one (Windows), otherwise through US keyboard key
+ * positions; unsupported characters are refused instead of silently dropped.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -248,46 +255,59 @@ internal class DesktopInputInjector(
         val segments = textSegments(text)
         // The driver either carries every character itself or none of them: validate the whole text before
         // the first event, so a rejected character cannot leave a partially typed command behind.
-        val isUnicodeCapable = driver.typeUnicode("")
-        val isMappable = isUnicodeCapable || segments.filterIsInstance<TextSegment.Literal>()
-            .all { segment -> segment.text.all { typedKey(it) != null } }
+        val isUnicodeCapable = driver.isUnicodeAvailable
+        val isMappable = segments.filterIsInstance<TextSegment.Literal>().all { segment ->
+            segment.text.all { character ->
+                if (isUnicodeCapable) !character.isISOControl() else typedKey(character) != null
+            }
+        }
         if (!isMappable) {
             log.w { "typed text refused: unmappable character" }
             return InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter)
         }
-        typeSegments(driver, segments, isUnicodeCapable, onProgress)
+        if (!typeSegments(driver, segments, isUnicodeCapable, onProgress)) {
+            log.w { "typed text refused by the system chars=${text.length}" }
+            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        }
         driver.idle()
         return InputOutcome.Applied
     }
 
+    /** `false` when the system refused a Unicode run; the text typed before it stays, nothing after it is sent. */
     private suspend fun typeSegments(
         driver: DesktopInputDriver,
         segments: List<TextSegment>,
         isUnicodeCapable: Boolean,
         onProgress: suspend (ScreenPoint?) -> Unit,
-    ) {
+    ): Boolean {
         for (segment in segments) {
             currentCoroutineContext().ensureActive()
             when (segment) {
-                is TextSegment.Newline -> {
-                    pressKeys(driver, listOf(KeyEvent.VK_ENTER), onProgress)
-                    driver.pause()
-                }
-
-                is TextSegment.Tab -> {
-                    pressKeys(driver, listOf(KeyEvent.VK_TAB), onProgress)
-                    driver.pause()
-                }
-
                 is TextSegment.Literal -> if (isUnicodeCapable) {
-                    driver.typeUnicode(segment.text)
+                    if (!driver.typeUnicode(segment.text)) return false
                     onProgress(null)
                 } else {
                     // Validated upfront, so the key-code path always carries the whole run.
                     typeByKeys(driver, segment.text, onProgress)
                 }
+
+                TextSegment.Newline -> pressControl(driver, KeyEvent.VK_ENTER, onProgress)
+
+                TextSegment.Tab -> pressControl(driver, KeyEvent.VK_TAB, onProgress)
+
+                TextSegment.Backspace -> pressControl(driver, KeyEvent.VK_BACK_SPACE, onProgress)
             }
         }
+        return true
+    }
+
+    private suspend fun pressControl(
+        driver: DesktopInputDriver,
+        code: Int,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ) {
+        pressKeys(driver, listOf(code), onProgress)
+        driver.pause()
     }
 
     /** Types one literal run as layout key codes; the run is validated before the first event. */
@@ -472,8 +492,6 @@ internal class DesktopInputInjector(
 
     private companion object {
         const val DRAG_STEPS = 12
-        const val MAX_CLICKS = 3
-        const val MAX_TYPED_CHARS = 4096
         const val DIGIT_KEYS = 10
         const val FUNCTION_KEY_PREFIX = "f"
         const val STANDARD_FUNCTION_KEYS = 12

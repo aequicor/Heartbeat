@@ -41,6 +41,9 @@ import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.WHEEL_NOTCH_PX
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -98,10 +101,12 @@ internal class ComputerUseAgentTools(
             "read small text with computer_zoom on a region or a zero-based tile (column:row, e.g. 0:0), " +
             "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
-            "you pass space:\"master\", \"normalized\" or \"screen\". computer_type carries exact characters " +
-            "independent of the keyboard layout (newline is Enter), up to 1000 characters per call; split longer " +
-            "text. computer_key accepts named keys including win; 40 pixels of computer_scroll deltaY are one " +
-            "wheel notch, negative scrolls up. Input follows the session trust and confirmation gate " +
+            "you pass space:\"master\", \"normalized\" or \"screen\". computer_type types up to " +
+            "$MAX_TYPED_CHARS characters per call (newline is Enter, tab is Tab); split longer text. On Windows it " +
+            "carries exact characters independent of the keyboard layout; on macOS it uses US key positions and " +
+            "refuses other characters with UnsupportedCharacter. computer_key accepts named keys including win; " +
+            "$WHEEL_NOTCH_PX pixels of computer_scroll deltaY are one wheel notch, at most $MAX_WHEEL_NOTCHES " +
+            "notches per call, negative scrolls up. Input follows the session trust and confirmation gate " +
             "automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, TargetClosed, " +
             "ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
             "A capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
@@ -857,9 +862,9 @@ internal class ComputerUseAgentTools(
             ),
             AgentToolSpec(
                 TYPE_TOOL,
-                "Type text into the focused control of the captured area.",
+                "Type text into the focused control of the captured area, at most $MAX_TYPED_CHARS characters.",
                 Json.parseToJsonElement(
-                    """{"type":"object","properties":{"text":{"type":"string"}},
+                    """{"type":"object","properties":{"text":{"type":"string","maxLength":$MAX_TYPED_CHARS}},
                        "required":["text"],"additionalProperties":false}""",
                 ).jsonObject,
                 AgentToolAction.Command,

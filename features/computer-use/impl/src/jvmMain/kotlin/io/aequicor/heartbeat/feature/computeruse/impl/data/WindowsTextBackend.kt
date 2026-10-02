@@ -11,8 +11,8 @@ import kotlin.coroutines.cancellation.CancellationException
 /**
  * Types exact characters on Windows through `SendInput` with `KEYEVENTF_UNICODE`. Synthetic key codes go through
  * the active keyboard layout, so on a non-English layout Latin text arrives as another script; Unicode events
- * carry the character itself and bypass the layout. Every failure closes: a refused call reports `false` and the
- * caller falls back to layout key codes.
+ * carry the character itself and bypass the layout. Every failure closes: a missing library makes the backend
+ * unavailable, and a refused call reports `false` for the caller to report.
  */
 internal object WindowsTextBackend {
     private val log = Log.tag("WindowsTextBackend")
@@ -22,36 +22,28 @@ internal object WindowsTextBackend {
     val isAvailable: Boolean get() = user32 != null
 
     /**
-     * Injects every UTF-16 code unit as one press-release pair, so surrogate pairs arrive as two characters.
-     * `false` when injection was refused, for example by UIPI against an elevated window; the caller falls back
-     * in that case.
+     * Injects every UTF-16 code unit as one press-release pair in a single `SendInput` call, so surrogate pairs
+     * arrive as two characters. `false` when the system inserted fewer events than requested; some of them may
+     * already have arrived. `SendInput` does not report UIPI blocking: text sent to an elevated window is reported
+     * as typed although it never arrives.
      */
     fun type(text: String): Boolean {
         val library = user32 ?: return false
         if (text.isEmpty()) return true
-        val events = text.flatMap { codeUnit ->
-            listOf(keyboardEvent(codeUnit, UNICODE_ONLY), keyboardEvent(codeUnit, UNICODE_ONLY or KEY_UP))
-        }
-        val nativeEvents = events.toTypedArray()
+        val events = unicodeEvents(text)
         val sent = try {
-            library.SendInput(nativeEvents.size, nativeEvents, nativeEvents.first().size())
+            library.SendInput(events.size, events, events.first().size())
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e) { "unicode typing failed chars=${text.length}" }
             return false
         }
-        if (sent != nativeEvents.size) {
-            log.w { "unicode typing refused sent=$sent of=${nativeEvents.size}" }
+        if (sent != events.size) {
+            log.w { "unicode typing refused sent=$sent of=${events.size} error=${Native.getLastError()}" }
             return false
         }
         return true
-    }
-
-    private fun keyboardEvent(codeUnit: Char, flags: Int): SendInputEvent = SendInputEvent().apply {
-        input.keyboard.wScan = codeUnit.code.toShort()
-        input.keyboard.dwFlags = flags
-        input.setType(KeybdInput::class.java)
     }
 
     private fun load(): SendInputLib? = try {
@@ -61,11 +53,33 @@ internal object WindowsTextBackend {
     } catch (e: Exception) {
         log.w(e) { "native library user32 is unavailable" }
         null
+    } catch (e: UnsatisfiedLinkError) {
+        log.w(e) { "native library user32 cannot be linked" }
+        null
     }
-
-    private const val KEY_UP = 0x0002
-    private const val UNICODE_ONLY = 0x0004
 }
+
+/**
+ * Keyboard events that type [text] as Unicode characters: a press and a release per UTF-16 code unit. `SendInput`
+ * reads a C array, so the events share one contiguous native block; JNA refuses an array of separately allocated
+ * structures before the call.
+ */
+internal fun unicodeEvents(text: String): Array<SendInputEvent> {
+    if (text.isEmpty()) return emptyArray()
+    val events = SendInputEvent().toArray(text.length * 2) as Array<SendInputEvent>
+    events.forEachIndexed { index, event ->
+        // Elements after the first are read back from zeroed memory, so every field is set explicitly.
+        event.type = INPUT_KEYBOARD
+        event.input.setType(KeybdInput::class.java)
+        event.input.keyboard.wScan = text[index / 2].code.toShort()
+        event.input.keyboard.dwFlags = if (index % 2 == 0) UNICODE_ONLY else UNICODE_ONLY or KEY_UP
+    }
+    return events
+}
+
+private const val INPUT_KEYBOARD = 1
+private const val KEY_UP = 0x0002
+private const val UNICODE_ONLY = 0x0004
 
 /** `user32` entry point for synthesized input used by the Unicode typing backend. */
 @Suppress("FunctionNaming") // Win32 symbol names are fixed by the native ABI
@@ -82,10 +96,6 @@ internal class SendInputEvent : Structure() {
     @JvmField var type: Int = INPUT_KEYBOARD
 
     @JvmField var input: InputUnion = InputUnion()
-
-    private companion object {
-        const val INPUT_KEYBOARD = 1
-    }
 }
 
 /** Win32 `INPUT` payload union; JNA sizes it by the largest member and aligns it like the native declaration. */

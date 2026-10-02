@@ -9,14 +9,24 @@ internal const val WHEEL_NOTCH_PX = 40
 /** Upper bound of wheel notches per action; a scroll larger than this is clamped instead of timing out. */
 internal const val MAX_WHEEL_NOTCHES = 40
 
+/** Clicks of one click action; a larger count is clamped. */
+internal const val MAX_CLICKS = 3
+
+/**
+ * Characters of one typed text, for the hosted tools and the engine router alike. Bounds how long one call holds the
+ * input device (well under a minute on the slow key-code path), so long text arrives in steps the agent can verify.
+ */
+internal const val MAX_TYPED_CHARS = 1_000
+
 /**
  * The notch count of a scroll delta, rounded half away from zero and clamped to [MAX_WHEEL_NOTCHES]. Negative
  * deltas scroll up.
  */
 internal fun wheelNotches(deltaY: Int): Int {
-    val notches = (abs(deltaY) + WHEEL_NOTCH_PX / 2) / WHEEL_NOTCH_PX
-    val bounded = notches.coerceAtMost(MAX_WHEEL_NOTCHES)
-    return if (deltaY < 0) -bounded else bounded
+    // Clamp before the arithmetic: abs(Int.MIN_VALUE) and the rounding offset would overflow and flip the direction.
+    val magnitude = abs(deltaY.toLong()).coerceAtMost(MAX_WHEEL_NOTCHES.toLong() * WHEEL_NOTCH_PX)
+    val notches = ((magnitude + WHEEL_NOTCH_PX / 2) / WHEEL_NOTCH_PX).toInt()
+    return if (deltaY < 0) -notches else notches
 }
 
 /** Worst-case device time of one action, milliseconds; real devices are usually faster. */
@@ -32,7 +42,6 @@ internal fun inputExecutionMillis(action: InputAction): Long = when (action) {
 /** How long a caller should wait for one action before treating the device as stuck: base plus twice the estimate. */
 internal fun inputWaitLimitMillis(action: InputAction): Long = BASE_WAIT_MILLIS + 2 * inputExecutionMillis(action)
 
-private const val MAX_CLICKS = 3
 private const val BASE_MILLIS = 1_000L
 private const val MOVE_MILLIS = 200L
 private const val CLICK_MILLIS = 500L

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import kotlinx.coroutines.CoroutineStart
@@ -197,11 +198,48 @@ class DesktopInputInjectorTest {
 
     @Test
     fun `unicode-capable drivers receive the exact text and control keys stay key presses`() = runTest {
-        val driver = RecordingDriver(typeUnicodeText = "")
+        val driver = RecordingDriver(isUnicodeAvailable = true)
         val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
         assertEquals(InputOutcome.Applied, injector.apply(InputAction.Type("привет\nмир\t!")) { null })
         assertEquals(listOf("привет", "мир", "!"), driver.typedUnicode)
         assertEquals(listOf(KeyEvent.VK_ENTER, KeyEvent.VK_TAB), driver.pressedKeys)
+    }
+
+    @Test
+    fun `a refused unicode run is reported and nothing after it is sent`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true, isUnicodeRefused = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("ab\ncd")) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.InputRejected), result)
+        assertEquals(listOf("ab"), driver.typedUnicode)
+        assertTrue(driver.pressedKeys.isEmpty())
+    }
+
+    @Test
+    fun `line endings and backspace are key presses on the unicode path`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        assertEquals(InputOutcome.Applied, injector.apply(InputAction.Type("a\r\nb\bc")) { null })
+        assertEquals(listOf("a", "b", "c"), driver.typedUnicode)
+        assertEquals(listOf(KeyEvent.VK_ENTER, KeyEvent.VK_BACK_SPACE), driver.pressedKeys)
+    }
+
+    @Test
+    fun `other control characters are refused before the first unicode event`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("a\nb\u001B")) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter), result)
+        assertTrue(driver.events.isEmpty())
+    }
+
+    @Test
+    fun `text over the shared length limit is refused before any input`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("a".repeat(MAX_TYPED_CHARS + 1))) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.InputRejected), result)
+        assertTrue(driver.events.isEmpty())
     }
 
     @Test
@@ -246,7 +284,10 @@ class DesktopInputInjectorTest {
         override fun create(): DesktopInputDriver = driver
     }
 
-    private class RecordingDriver(private val typeUnicodeText: String? = null) : DesktopInputDriver {
+    private class RecordingDriver(
+        override val isUnicodeAvailable: Boolean = false,
+        private val isUnicodeRefused: Boolean = false,
+    ) : DesktopInputDriver {
         val events = mutableListOf<String>()
         val heldKeys = mutableSetOf<Int>()
         val heldButtons = mutableSetOf<Int>()
@@ -296,11 +337,9 @@ class DesktopInputInjectorTest {
         override fun idle() = Unit
 
         override fun typeUnicode(text: String): Boolean {
-            if (typeUnicodeText == null) return false
-            if (text.isEmpty()) return true
             typedUnicode += text
             events += "typeUnicode:$text"
-            return true
+            return !isUnicodeRefused
         }
     }
 }

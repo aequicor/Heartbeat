@@ -10,17 +10,15 @@ import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 // Argument parsing of the hosted computer tools: pure conversions of model-supplied JSON, bounded and validated.
 
 private val argumentLog = Log.tag("ComputerUseToolArguments")
-private const val MAX_CLICKS = 3
 private const val MAX_KEYS = 6
-
-/** A single call stays well inside the tool wait limit even on the slow key-code path. */
-private const val MAX_TYPED_CHARS = 1_000
 private const val MIN_QUALITY = 1
 private const val MAX_QUALITY = 100
 
