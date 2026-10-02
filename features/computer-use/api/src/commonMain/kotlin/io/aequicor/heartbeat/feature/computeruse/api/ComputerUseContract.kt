@@ -116,6 +116,12 @@ public sealed interface ComputerUseIntent : MachineIntent {
         /** Cancels only the named session, fencing late tool timeouts from newer sessions. */
         public data class CancelSession(public val session: CaptureSessionId) : Public
 
+        /**
+         * The user stops the agent that owns the named session: its capture ends and that turn may not use computer
+         * tools again, while its other tools keep working. A stale stop cannot end a newer session.
+         */
+        public data class StopAgent(public val session: CaptureSessionId) : Public
+
         /** Kill switch: stops everything from any state and returns to [ComputerUseState.Idle]. */
         public data object Revoke : Public
     }
@@ -199,6 +205,9 @@ public sealed interface ComputerUseEffect : MachineEffect {
 
     /** Deletes the master frames of the finished session. */
     public data class PurgeMasters(public val session: CaptureSessionId? = null) : ComputerUseEffect
+
+    /** Refuses every later computer tool call of [owner]'s turn; recorded before the next intent is handled. */
+    public data class StopOwner(public val owner: CaptureOwner.Agent) : ComputerUseEffect
 }
 
 /** One-shot events for the panel and for other features. */

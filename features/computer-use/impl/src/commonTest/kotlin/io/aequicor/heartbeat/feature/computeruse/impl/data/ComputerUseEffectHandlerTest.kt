@@ -3,6 +3,10 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
@@ -345,6 +349,15 @@ class ComputerUseEffectHandlerTest {
         }
     }
 
+    @Test
+    fun `stopping an agent is recorded before the effect suspends`() = runTest {
+        val fixture = fixture()
+        val owner = CaptureOwner.Agent(SessionRef(EngineId("pi"), SessionSourceId("local"), "chat"), TurnId("turn"))
+        fixture.run(ComputerUseEffect.StopOwner(owner))
+        assertTrue(fixture.stoppedTurns.isStopped(owner))
+        assertFalse(fixture.stoppedTurns.isStopped(owner.copy(turn = TurnId("next"))))
+    }
+
     private class Fixture(
         val handler: ComputerUseEffectHandler,
         val coordinator: CaptureCoordinator,
@@ -358,6 +371,7 @@ class ComputerUseEffectHandlerTest {
         val state: ComputerUseState.Capturing,
         val completions: CompletionMachine,
         val presentation: TestComputerUseCapturePresentation,
+        val stoppedTurns: ComputerUseStoppedTurns,
         val feedback: Feedback = Feedback(),
     ) {
         suspend fun run(effect: ComputerUseEffect) = handler.handle(effect, feedback)
@@ -402,6 +416,7 @@ class ComputerUseEffectHandlerTest {
         val presentation = TestComputerUseCapturePresentation(dispatchers)
         val access = ComputerUseAccess(toggles, permissions, registry, dispatchers, FakeComputerUsePreferences())
         val completions = CompletionMachine()
+        val stoppedTurns = ComputerUseStoppedTurns()
         return Fixture(
             ComputerUseEffectHandler(
                 access,
@@ -409,9 +424,10 @@ class ComputerUseEffectHandlerTest {
                 ComputerUseCaptureExecutor(coordinator, access, NoNativeControlRouter(), presentation),
                 lazy { completions },
                 presentation,
+                stoppedTurns,
             ),
             coordinator, toggles, permissions,
-            capturer, injector, store, registry, profile, state, completions, presentation,
+            capturer, injector, store, registry, profile, state, completions, presentation, stoppedTurns,
         )
     }
 

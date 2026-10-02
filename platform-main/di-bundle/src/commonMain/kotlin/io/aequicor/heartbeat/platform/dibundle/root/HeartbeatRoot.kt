@@ -20,15 +20,15 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.platform.dibundle.ComputerUseDesktopAccess
+import io.aequicor.heartbeat.feature.computeruse.api.computerUseActivity
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.ProfileNavigation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +36,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.serializer
@@ -124,25 +123,17 @@ class HeartbeatRoot(
         )
     }
 
-    /** Stops the current computer-use capture from the compact desktop session. */
+    /** Asks computer use to stop the agent that owns the current capture; the machine decides what that ends. */
     fun stopComputerUse() {
-        val capture = graph.machines.find(ComputerUseMachineKey)?.state?.value as? ComputerUseState.Capturing ?: return
-        val owner = capture.owner as? CaptureOwner.Agent ?: return
-        val tools = (graph.profileSessions.active.value?.graph as? ComputerUseDesktopAccess)?.agentTools
-        log.i { "root: stop computer use" }
+        log.i { "root: stop computer use requested" }
+        val capture = graph.machines.find(ComputerUseMachineKey)?.state?.value as? ComputerUseState.Capturing
+        if (capture == null || capture.owner !is CaptureOwner.Agent) {
+            log.w { "root: no agent capture to stop" }
+            return
+        }
         scope.launch {
-            try {
-                tools?.finishTurn(owner.session, owner.turn)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.w(e) { "root: hosted computer-use turn cleanup failed" }
-            } finally {
-                // A stale stop must never cancel a newer agent turn's capture.
-                withContext(NonCancellable) {
-                    graph.machines.send(ComputerUseMachineKey, ComputerUseIntent.Public.CancelSession(capture.session))
-                }
-            }
+            val result = graph.machines.send(ComputerUseMachineKey, ComputerUseIntent.Public.StopAgent(capture.session))
+            log.i { "root: stop computer use result=$result" }
         }
     }
 

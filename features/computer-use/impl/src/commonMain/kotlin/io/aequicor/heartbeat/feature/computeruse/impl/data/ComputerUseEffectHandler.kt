@@ -27,6 +27,7 @@ internal class ComputerUseEffectHandler(
     private val captures: ComputerUseCaptureExecutor,
     private val runningMachine: Lazy<Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>>,
     private val presentation: ComputerUseCapturePresentation,
+    private val stoppedTurns: ComputerUseStoppedTurns,
 ) : EffectHandler<ComputerUseEffect, ComputerUseIntent> {
     private val log = Log.tag("ComputerUseEffects")
 
@@ -40,6 +41,7 @@ internal class ComputerUseEffectHandler(
             is ComputerUseEffect.ProduceCrop -> crop(effect, machine)
             is ComputerUseEffect.ApplyInput -> input(effect, machine)
             is ComputerUseEffect.PurgeMasters -> coordinator.closeSessionAndPurge(effect.session)
+            is ComputerUseEffect.StopOwner -> stoppedTurns.stop(effect.owner)
         }
     }
 

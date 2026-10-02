@@ -13,8 +13,8 @@ import androidx.compose.ui.window.WindowState
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
-import io.aequicor.heartbeat.platform.dibundle.root.ComputerUseActivity
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.Toolkit

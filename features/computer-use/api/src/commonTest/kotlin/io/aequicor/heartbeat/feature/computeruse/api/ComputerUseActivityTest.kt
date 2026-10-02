@@ -1,23 +1,9 @@
-package io.aequicor.heartbeat.platform.dibundle
+package io.aequicor.heartbeat.feature.computeruse.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
-import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
-import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
-import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
-import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
-import io.aequicor.heartbeat.feature.computeruse.api.WindowId
-import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
-import io.aequicor.heartbeat.platform.dibundle.root.ComputerUseActivity
-import io.aequicor.heartbeat.platform.dibundle.root.ComputerUseScreenBounds
-import io.aequicor.heartbeat.platform.dibundle.root.computerUseActivity
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

@@ -46,6 +46,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -76,6 +77,7 @@ internal class ComputerUseAgentTools(
     private val control: HostComputerControl,
     private val lifecycle: ComputerUseCaptureLifecycle,
     private val preferences: ComputerUsePreferences,
+    private val stoppedTurns: ComputerUseStoppedTurns,
 ) : AgentToolContribution {
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
@@ -95,7 +97,8 @@ internal class ComputerUseAgentTools(
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
             "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
             "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
-            "TargetClosed); a capture opened by another turn is refused with CaptureOwnedByAnotherTurn. " +
+            "TargetClosed); a capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
+            "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
             "Call computer_release as soon as you finish working with the computer; capture and " +
             "stored frames are also released automatically when your turn ends."
     }
@@ -154,6 +157,10 @@ internal class ComputerUseAgentTools(
         requests.withLock {
             try {
                 if (!isEnabled()) return@withLock failure("Disabled")
+                if (stoppedTurns.isStopped(CaptureOwner.Agent(context.session, context.turn))) {
+                    log.w { "computer tool refused: the user stopped this turn name=$name" }
+                    return@withLock failure("StoppedByUser")
+                }
                 if (name in mutatingTools && context.authorization?.binding != binding()) {
                     return@withLock failure("CaptureChangedSinceApproval")
                 }
@@ -169,7 +176,9 @@ internal class ComputerUseAgentTools(
 
     /** The dispatcher already revoked this turn's calls; the lifecycle guards cleanup on its own. */
     override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
-        lifecycle.finishTurn(CaptureOwner.Agent(session, turn))
+        val owner = CaptureOwner.Agent(session, turn)
+        lifecycle.finishTurn(owner)
+        stoppedTurns.forget(owner)
     }
 
     private suspend fun dispatch(
@@ -411,8 +420,10 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
+            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+
             is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
-            is ComputerUseOutput.PermissionRequired, is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,
+            is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }.also { log.d { "frame served format=${encoding.format}" } }
     }
@@ -490,8 +501,10 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
+            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+
             is ComputerUseOutput.FrameReady, is ComputerUseOutput.CaptureChanged,
-            is ComputerUseOutput.PermissionRequired, is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,
+            is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }
     }
@@ -540,10 +553,16 @@ internal class ComputerUseAgentTools(
             ComputerUseIntent.Public.Revoke, is ComputerUseIntent.Public.ArmInput,
             is ComputerUseIntent.Public.BeginCapture, is ComputerUseIntent.Public.CancelSession,
             is ComputerUseIntent.Public.SwitchMode, is ComputerUseIntent.Public.OwnerReleased,
+            is ComputerUseIntent.Public.StopAgent,
             -> error("Only operation intents have correlated replies")
         }
-        val awaited = async(start = CoroutineStart.UNDISPATCHED) {
+        val answered = async(start = CoroutineStart.UNDISPATCHED) {
             machine.outputs.first { it.requestId() == id }
+        }
+        // A stopped or replaced session never answers; its closure is the answer.
+        val closed = async(start = CoroutineStart.UNDISPATCHED) {
+            val ended = machine.state.first { (it as? ComputerUseState.Capturing)?.session != session }
+            ComputerUseOutput.SessionClosed((ended as? ComputerUseState.Capturing)?.session ?: CaptureSessionId(""))
         }
         var isCompleted = false
         try {
@@ -551,11 +570,17 @@ internal class ComputerUseAgentTools(
                 isCompleted = true
                 return@coroutineScope ComputerUseOutput.Rejected(ignoredReason(machine.state.value, intent), id)
             }
-            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) { awaited.await() }
+            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) {
+                select {
+                    answered.onAwait { it }
+                    closed.onAwait { it }
+                }
+            }
             isCompleted = result != null
             result
         } finally {
-            awaited.cancel()
+            answered.cancel()
+            closed.cancel()
             if (!isCompleted && session != null) {
                 // Cancel state effects as well as the waiter, without touching any replacement session.
                 withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session)) }

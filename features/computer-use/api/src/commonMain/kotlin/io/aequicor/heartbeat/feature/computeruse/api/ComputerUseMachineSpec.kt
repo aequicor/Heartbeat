@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Capturing | Rejected / Failed | | stay | Rejected output |
  * | Capturing | RefreshTargets / TargetsLoaded | | stay(targets) | EnumerateWindows |
  * | Capturing | CancelSession | matching session | Idle | keyed cleanup, Revoked |
+ * | Capturing | StopAgent | agent session | Ready(disarmed) | StopOwner, CloseCapture, PurgeMasters, CaptureChanged |
  * | any | SessionClosed | | stay | SessionClosed output |
  * | any | Revoke | | Idle | CloseCapture, PurgeMasters, Revoked |
  *
@@ -154,6 +155,15 @@ public val ComputerUseMachineSpec: MachineSpec<
             effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.Revoked }
         }
+        on<ComputerUseIntent.Public.StopAgent>(guard = {
+            state.session == intent.session && state.owner is CaptureOwner.Agent
+        }) {
+            goto<ComputerUseState.Ready> { state.asReady() }
+            effect { ComputerUseEffect.StopOwner(state.owner as CaptureOwner.Agent) }
+            effect { ComputerUseEffect.CloseCapture(state.session) }
+            effect { ComputerUseEffect.PurgeMasters(state.session) }
+            output { ComputerUseOutput.CaptureChanged(null) }
+        }
         on<ComputerUseIntent.Public.EndCapture> {
             goto<ComputerUseState.Ready> { state.asReady() }
             effect { ComputerUseEffect.CloseCapture(state.session) }
@@ -232,6 +242,8 @@ public val ComputerUseMachineSpec: MachineSpec<
                 ComputerUseIntent.Internal.Rejected(ComputerUseFailure.InputRejected, effect.requestId)
 
             is ComputerUseEffect.PurgeMasters -> null
+
+            is ComputerUseEffect.StopOwner -> null
         }
     }
 }

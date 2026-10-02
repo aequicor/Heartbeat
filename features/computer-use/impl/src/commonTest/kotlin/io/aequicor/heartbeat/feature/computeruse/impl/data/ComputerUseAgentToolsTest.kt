@@ -227,7 +227,7 @@ class ComputerUseAgentToolsTest {
     }
 
     @Test
-    fun `timed out screenshot leaves a newer session running`() = runTest {
+    fun `screenshot of a replaced session ends without touching the newer session`() = runTest {
         val fixture = Fixture(this, Capturing)
         fixture.machine.isReplyEnabled = false
         val call = async { fixture.tools.execute(fixture.context, "computer_screenshot", EmptyArguments) }
@@ -237,8 +237,20 @@ class ComputerUseAgentToolsTest {
         advanceUntilIdle()
         val reply = call.await()
         assertTrue(reply.isError)
-        assertEquals(ComputerUseIntent.Public.CancelSession(Session), fixture.machine.sent.last())
+        assertEquals("CaptureEnded", reply.text)
+        assertTrue(fixture.machine.sent.last() is ComputerUseIntent.Public.Capture)
         assertEquals(newer, fixture.machine.state.value)
+    }
+
+    @Test
+    fun `timed out screenshot cancels only its own session`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        fixture.machine.isReplyEnabled = false
+        val call = async { fixture.tools.execute(fixture.context, "computer_screenshot", EmptyArguments) }
+        advanceUntilIdle()
+        val reply = call.await()
+        assertEquals("FrameTimedOut", reply.text)
+        assertEquals(ComputerUseIntent.Public.CancelSession(Session), fixture.machine.sent.last())
     }
 
     @Test
@@ -502,10 +514,40 @@ class ComputerUseAgentToolsTest {
         assertTrue(again.isCompleted)
     }
 
+    @Test
+    fun `a stopped turn cannot use the computer again while other turns still can`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        fixture.stoppedTurns.stop(Owner)
+        for (tool in listOf("computer_status", "computer_windows", "computer_screenshot")) {
+            val reply = fixture.tools.execute(fixture.context, tool, EmptyArguments)
+            assertTrue(reply.isError, tool)
+            assertEquals("StoppedByUser", reply.text, tool)
+        }
+        val next = fixture.context.copy(turn = TurnId("next"))
+        assertFalse(fixture.tools.execute(next, "computer_status", EmptyArguments).isError)
+        fixture.tools.finishTurn(fixture.context.session, fixture.context.turn)
+        assertFalse(fixture.stoppedTurns.isStopped(Owner))
+    }
+
+    @Test
+    fun `a waiting call ends as soon as its capture is stopped`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        fixture.machine.isReplyEnabled = false
+        val call = async { fixture.tools.execute(fixture.context, "computer_screenshot", EmptyArguments) }
+        runCurrent()
+        assertFalse(call.isCompleted)
+        fixture.machine.send(ComputerUseIntent.Public.StopAgent(Session))
+        runCurrent()
+        assertTrue(call.isCompleted)
+        assertEquals("CaptureEnded", call.await().text)
+        assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
+    }
+
     private class Fixture(scope: TestScope, initial: ComputerUseState) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
         val preferences = FakeComputerUsePreferences()
+        val stoppedTurns = ComputerUseStoppedTurns()
         val tools = ComputerUseAgentTools(
             registry,
             FakeToggles(mapOf(ComputerUseEnabled.key to true)),
@@ -519,6 +561,7 @@ class ComputerUseAgentToolsTest {
             },
             ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope)),
             preferences,
+            stoppedTurns,
         )
         val context = AgentToolContext(Owner.session, null, Owner.turn)
 

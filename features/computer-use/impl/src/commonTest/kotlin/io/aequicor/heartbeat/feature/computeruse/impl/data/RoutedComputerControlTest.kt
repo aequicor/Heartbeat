@@ -293,6 +293,7 @@ class RoutedComputerControlTest {
             fixture.control,
             ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope)),
             fixture.preferences,
+            ComputerUseStoppedTurns(),
         )
         assertTrue(tools.specifications(null).isNotEmpty())
         fixture.preferences.setEnabled(false)
@@ -311,6 +312,7 @@ class RoutedComputerControlTest {
             fixture.control,
             ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope)),
             fixture.preferences,
+            ComputerUseStoppedTurns(),
         )
         val result = tools.execute(
             fixture.context,
@@ -375,6 +377,7 @@ class RoutedComputerControlTest {
             ComputerUseCaptureExecutor(coordinator, access, router, presentation),
             lazy { registry.ref.ownMachine },
             presentation,
+            ComputerUseStoppedTurns(),
         )
         val control = RoutedComputerControl(
             coordinator,

@@ -22,7 +22,7 @@ interface HeartbeatGraph {
     /** Coordinates exclusion of native session windows from computer-use screenshots and input. */
     val capturePresentation: ComputerUseCapturePresentation
 
-    /** Running feature machines, observed by the desktop host for computer-use activity. */
+    /** Running feature machines; the root observes computer use to present an agent's session. */
     val machines: MachineRegistry
 
     /** Dispatchers for the entry points (e.g. creating the root component on the main thread). */

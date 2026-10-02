@@ -259,6 +259,31 @@ class ComputerUseMachineTest {
     }
 
     @Test
+    fun `stopping the agent ends its session and bars its turn`() {
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing.copy(isInputArmed = true),
+            intent = ComputerUseIntent.Public.StopAgent(session),
+            to = ComputerUseState.Ready(capabilities),
+            effects = listOf(
+                ComputerUseEffect.StopOwner(owner),
+                ComputerUseEffect.CloseCapture(session),
+                ComputerUseEffect.PurgeMasters(session),
+            ),
+            outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
+        )
+    }
+
+    @Test
+    fun `a stale or non-agent stop leaves the capture running`() {
+        ComputerUseMachineSpec.assertIgnored(capturing, ComputerUseIntent.Public.StopAgent(CaptureSessionId("old")))
+        ComputerUseMachineSpec.assertIgnored(
+            capturing.copy(owner = CaptureOwner.Panel),
+            ComputerUseIntent.Public.StopAgent(session),
+        )
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.StopAgent(session))
+    }
+
+    @Test
     fun `a lost target fails the session and releases the device`() {
         ComputerUseMachineSpec.assertTransition(
             from = capturing,
