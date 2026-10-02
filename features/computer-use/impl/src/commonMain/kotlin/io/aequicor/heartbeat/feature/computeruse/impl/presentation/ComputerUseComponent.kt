@@ -14,11 +14,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
-import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 
 /**
- * Panel component owning only screen lifetime: the capture, the frames and the machine stay profile-owned, so
- * closing the panel neither stops an agent's capture nor deletes its frames.
+ * Settings component owning only screen lifetime: capture remains profile-owned, so closing settings neither
+ * stops an agent's capture nor deletes its frames.
  */
 @AssistedInject
 internal class ComputerUseComponent(
@@ -26,13 +25,12 @@ internal class ComputerUseComponent(
     @Assisted private val navigator: Navigator,
     @Assisted screen: ScopeHandle,
     machine: Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>,
-    frames: FrameStore,
     preferences: ComputerUsePreferences,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
-    /** The panel store, retained across configuration changes. */
+    /** The settings store, retained across configuration changes. */
     val model: ComputerUseModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        RetainedModel(ComputerUseModel(machine, frames, preferences, factory, screen.coroutineScope))
+        RetainedModel(ComputerUseModel(machine, preferences, factory, screen.coroutineScope))
     }.model
 
     /** Closes this navigation entry. */
@@ -40,7 +38,7 @@ internal class ComputerUseComponent(
 
     private class RetainedModel(val model: ComputerUseModel) : InstanceKeeper.Instance
 
-    /** Metro factory for a lifecycle-owned panel instance. */
+    /** Metro factory for a lifecycle-owned settings screen instance. */
     @AssistedFactory
     fun interface Factory {
         /** Creates an instance owned by the supplied component and screen scope. */

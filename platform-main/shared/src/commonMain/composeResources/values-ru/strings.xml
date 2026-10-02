@@ -1,0 +1,5 @@
+<resources>
+    <string name="computer_use_working">Агент работает с компьютером</string>
+    <string name="computer_use_stop">Остановить</string>
+    <string name="computer_use_stop_description">Остановить агента</string>
+</resources>

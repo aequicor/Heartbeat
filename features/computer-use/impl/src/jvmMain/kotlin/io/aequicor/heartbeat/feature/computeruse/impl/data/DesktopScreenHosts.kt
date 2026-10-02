@@ -6,14 +6,11 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.HostPlatform
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
@@ -203,7 +200,6 @@ internal class DesktopScreenCapturer(
 internal class DesktopOsPermissions(
     private val platform: PlatformInfo,
     private val windows: WindowCatalog,
-    private val toggles: FeatureToggles,
     private val dispatchers: DispatcherProvider,
 ) : OsPermissions {
     private val log = Log.tag("DesktopOsPermissions")
@@ -216,11 +212,9 @@ internal class DesktopOsPermissions(
         val isInputAvailable = runtime.isUsable && isAccessibilityAllowed
         ComputerUseCapabilities(
             isCaptureAvailable = isCaptureAvailable,
-            isWindowCaptureAvailable = isCaptureAvailable &&
-                toggles.get(ComputerUseWindowMode) &&
-                windows.isAvailable,
+            isWindowCaptureAvailable = isCaptureAvailable && windows.isAvailable,
             isInputAvailable = isInputAvailable,
-            isDesktopInputAllowed = isInputAvailable && toggles.get(ComputerUseDesktopInput),
+            isDesktopInputAllowed = isInputAvailable,
             monitors = if (runtime.isUsable) monitors() else emptyList(),
             blockers = blockers(runtime, isScreenRecordingAllowed, isAccessibilityAllowed),
         )

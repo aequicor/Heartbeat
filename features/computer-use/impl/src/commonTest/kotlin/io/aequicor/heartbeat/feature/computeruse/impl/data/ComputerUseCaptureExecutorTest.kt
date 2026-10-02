@@ -16,7 +16,6 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
@@ -24,15 +23,44 @@ import io.aequicor.heartbeat.feature.computeruse.api.NativeCapture
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class ComputerUseCaptureExecutorTest {
+    @Test
+    fun `native capture and its host fallback both exclude the app presentation`() = runTest {
+        val fixture = fixture(ComputerUseMode.Desktop())
+        fixture.native.onCapture = { assertTrue(fixture.presentation.isSuppressed) }
+        fixture.native.failure = IllegalStateException("native unavailable")
+        fixture.capturer.onCapture = { assertTrue(fixture.presentation.isSuppressed) }
+        assertNotNull(fixture.executor.capture(CaptureRequest()).reference)
+        assertEquals(1, fixture.native.requests.size)
+        assertEquals(1, fixture.capturer.captures)
+        assertFalse(fixture.presentation.isSuppressed)
+    }
+
+    @Test
+    fun `cancelling native capture restores the app presentation`() = runTest {
+        val fixture = fixture(ComputerUseMode.Desktop())
+        fixture.native.paused = CompletableDeferred()
+        val capture = async { fixture.executor.capture(CaptureRequest()) }
+        runCurrent()
+        assertTrue(fixture.presentation.isSuppressed)
+        capture.cancelAndJoin()
+        assertFalse(fixture.presentation.isSuppressed)
+        assertEquals(0, fixture.capturer.captures)
+    }
+
     @Test
     fun `native full frames retain their master geometry and apply the requested region only once`() = runTest {
         val fixture = fixture(ComputerUseMode.Desktop())
@@ -65,18 +93,26 @@ class ComputerUseCaptureExecutorTest {
         )
         modes.forEach { mode ->
             val fixture = fixture(mode)
+            fixture.capturer.onCapture = { assertTrue(fixture.presentation.isSuppressed) }
             val result = fixture.executor.capture(CaptureRequest())
             assertNotNull(result.reference)
             assertEquals(1, fixture.capturer.captures)
             assertTrue(fixture.native.requests.isEmpty())
+            assertFalse(fixture.presentation.isSuppressed)
         }
     }
 
     private class NativeFrames(private val encoder: FakeFrameEncoder) : NativeComputerControl {
         val requests = mutableListOf<CaptureRequest>()
+        var onCapture: () -> Unit = {}
+        var failure: Exception? = null
+        var paused: CompletableDeferred<Unit>? = null
 
         override suspend fun capture(request: CaptureRequest): NativeCapture {
             requests += request
+            onCapture()
+            paused?.await()
+            failure?.let { throw it }
             val full = solidGrid(64, 32, 0)
             val pixels = request.region?.let(full::region) ?: full
             val encoded = encoder.encode(pixels, request.encoding)
@@ -97,6 +133,7 @@ class ComputerUseCaptureExecutorTest {
         val executor: ComputerUseCaptureExecutor,
         val native: NativeFrames,
         val capturer: FakeScreenCapturer,
+        val presentation: TestComputerUseCapturePresentation,
     )
 
     private suspend fun TestScope.fixture(mode: ComputerUseMode): Fixture {
@@ -126,13 +163,24 @@ class ComputerUseCaptureExecutorTest {
         val toggles = FakeToggles(
             mapOf(
                 ComputerUseEnabled.key to true,
-                ComputerUseWindowMode.key to true,
                 ComputerUseNativeRouting.key to true,
             ),
         )
-        val access = ComputerUseAccess(toggles, FakeOsPermissions(), registry, dispatchers)
+        val access = ComputerUseAccess(
+            toggles,
+            FakeOsPermissions(),
+            registry,
+            dispatchers,
+            FakeComputerUsePreferences(),
+        )
         val native = NativeFrames(encoder)
         val router = NativeControlRouter { NativeFeatures(native) }
-        return Fixture(ComputerUseCaptureExecutor(coordinator, access, router), native, capturer)
+        val presentation = TestComputerUseCapturePresentation(dispatchers)
+        return Fixture(
+            ComputerUseCaptureExecutor(coordinator, access, router, presentation),
+            native,
+            capturer,
+            presentation,
+        )
     }
 }

@@ -160,7 +160,7 @@ public sealed interface ComputerUseMode {
 
 /** Who owns an active capture; the capture ends together with its owner. */
 public sealed interface CaptureOwner {
-    /** The Heartbeat control panel. */
+    /** A Heartbeat screen; no longer created since the panel was removed, see issue #162. */
     public data object Panel : CaptureOwner
 
     /** One agent turn of one session. */
@@ -314,7 +314,7 @@ public data class ComputerUseCapabilities(
     public val blockers: List<ComputerUseBlocker> = emptyList(),
 )
 
-/** Host availability plus the active capture; the value exposed to engines and the panel. */
+/** Host availability plus the active capture; the value exposed to engines. */
 public data class ComputerUseStatus(
     public val capabilities: ComputerUseCapabilities,
     public val mode: ComputerUseMode? = null,

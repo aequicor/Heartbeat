@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
@@ -33,11 +34,16 @@ internal class ComputerUseCaptureExecutor(
     private val coordinator: CaptureCoordinator,
     private val access: ComputerUseAccess,
     private val router: NativeControlRouter,
+    private val presentation: ComputerUseCapturePresentation,
 ) {
     private val log = Log.tag("ComputerUseCaptureExecutor")
 
     /** Captures only in the currently open session, after fresh toggle and operating system checks. */
-    suspend fun capture(request: CaptureRequest): CaptureResult {
+    suspend fun capture(request: CaptureRequest): CaptureResult = presentation.withoutPresentation {
+        captureWithoutPresentation(request)
+    }
+
+    private suspend fun captureWithoutPresentation(request: CaptureRequest): CaptureResult {
         val refusal = access.captureFailure()
         if (refusal != null) return CaptureResult(failure = refusal)
         val native = captureNative(request)

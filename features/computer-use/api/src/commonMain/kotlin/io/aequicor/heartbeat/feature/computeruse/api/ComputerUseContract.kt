@@ -23,6 +23,11 @@ public sealed interface ComputerUseState : MachineState {
         public val targets: List<WindowTarget> = emptyList(),
         public val isInputArmed: Boolean = false,
         public val lastPreview: CaptureRef? = null,
+        /**
+         * Agent turns the user stopped while capturing; BeginCapture refuses them. Kept only while the machine
+         * stays in Ready/Capturing: the profile's tools refuse those turns for the rest of the turn in any state.
+         */
+        public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
     /** One capture session is open; its master frames are addressable by [CaptureId]. */
@@ -38,6 +43,8 @@ public sealed interface ComputerUseState : MachineState {
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
         public val isOpen: Boolean = false,
+        /** Agent turns the user stopped while capturing; carried into Ready, see [Ready.stoppedOwners]. */
+        public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
     /** The session ended because of an error; [Public.Retry][ComputerUseIntent.Public.Retry] probes again. */
@@ -46,7 +53,7 @@ public sealed interface ComputerUseState : MachineState {
 
 /** Public commands and private host results. */
 public sealed interface ComputerUseIntent : MachineIntent {
-    /** What the panel, other features and the hosted tools may send. */
+    /** What the settings screen, the host chrome, other features and the hosted tools may send. */
     public sealed interface Public : ComputerUseIntent {
         /** Probes availability; the first command after the profile started. */
         public data object Start : Public
@@ -59,7 +66,7 @@ public sealed interface ComputerUseIntent : MachineIntent {
 
         /**
          * Opens a capture session. The caller allocates [session], so transitions stay deterministic.
-         * Rejected when [mode] is not covered by the probed capabilities.
+         * Rejected when [mode] is not covered by the probed capabilities or the user stopped [owner]'s turn.
          */
         public data class BeginCapture(
             public val mode: ComputerUseMode,
@@ -67,7 +74,10 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val session: CaptureSessionId,
         ) : Public
 
-        /** Replaces the captured target of the running session; its master frames become unreachable. */
+        /**
+         * Replaces the captured target of the running session; its master frames become unreachable. A named
+         * [owner] must already own the session: a capture is never handed over to another turn.
+         */
         public data class SwitchMode(
             public val mode: ComputerUseMode,
             public val session: CaptureSessionId,
@@ -78,36 +88,60 @@ public sealed interface ComputerUseIntent : MachineIntent {
         /** Ends the running session, disarms input and purges its master frames. */
         public data object EndCapture : Public
 
-        /** Ends the running session when it belongs to [owner]; another owner's session is untouched. */
+        /**
+         * The owner's turn ended: ends the running session when it belongs to [owner] and forgets a stop of that
+         * turn; another owner's session is untouched.
+         */
         public data class OwnerReleased(public val owner: CaptureOwner) : Public
 
-        /** Enables or disables input; the machine refuses it when the host reports no input capability. */
-        public data class ArmInput(public val isArmed: Boolean) : Public
+        /**
+         * Enables or disables input after the host authorizes an action. Optional session/frame binding prevents
+         * an authorization for one captured target from arming a replacement target.
+         */
+        public data class ArmInput(
+            public val isArmed: Boolean,
+            public val expectedSession: CaptureSessionId? = null,
+            public val expectedCapture: CaptureId? = null,
+            public val expectedOwner: CaptureOwner? = null,
+        ) : Public
 
-        /** Captures one frame of the running session. */
+        /** Captures one frame of the running session; a named [expectedOwner] must own it. */
         public data class Capture(
             public val request: CaptureRequest,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Cuts a region out of a stored master frame of the running session. */
+        /** Cuts a region out of a stored master frame of the running session; a named [expectedOwner] must own it. */
         public data class Crop(
             public val request: CropRequest,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Applies one input action; rejected unless input is armed and the mode allows it. */
+        /** Applies one input action; rejected unless input is armed, the mode allows it and the binding matches. */
         public data class Input(
             public val action: InputAction,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
             public val expectedCapture: CaptureId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Cancels only the named session, fencing late tool timeouts from newer sessions. */
-        public data class CancelSession(public val session: CaptureSessionId) : Public
+        /** Cancels only the named session, fencing late tool timeouts from newer sessions and other owners. */
+        public data class CancelSession(
+            public val session: CaptureSessionId,
+            public val expectedOwner: CaptureOwner? = null,
+        ) : Public
+
+        /**
+         * The user stops [owner]'s agent turn while it captures: the capture ends, and the turn can neither open
+         * another capture nor use computer tools again while its other tools keep working. The host offers the stop
+         * only during a capture; a stop that arrives after the capture ended is ignored rather than outliving it.
+         */
+        public data class StopAgent(public val owner: CaptureOwner.Agent) : Public
 
         /** Kill switch: stops everything from any state and returns to [ComputerUseState.Idle]. */
         public data object Revoke : Public
@@ -192,9 +226,12 @@ public sealed interface ComputerUseEffect : MachineEffect {
 
     /** Deletes the master frames of the finished session. */
     public data class PurgeMasters(public val session: CaptureSessionId? = null) : ComputerUseEffect
+
+    /** Refuses every later computer tool call of [owner]'s turn; recorded before the next intent is handled. */
+    public data class StopOwner(public val owner: CaptureOwner.Agent) : ComputerUseEffect
 }
 
-/** One-shot events for the panel and for other features. */
+/** One-shot events for the hosted tools and for other features. */
 public sealed interface ComputerUseOutput : MachineOutput {
     /** The stored frames of this session have been removed. */
     public data class SessionClosed(public val session: CaptureSessionId) : ComputerUseOutput
@@ -217,7 +254,7 @@ public sealed interface ComputerUseOutput : MachineOutput {
     /** The user has to grant a permission before capture can start. */
     public data class PermissionRequired(public val blockers: List<ComputerUseBlocker>) : ComputerUseOutput
 
-    /** One input action was applied; the panel shows it in its journal. */
+    /** One input action was applied. */
     public data class InputApplied(public val action: InputAction, public val requestId: String? = null) :
         ComputerUseOutput
 
@@ -253,7 +290,7 @@ public fun ComputerUseCapabilities.supports(mode: ComputerUseMode): Boolean = wh
 
 /**
  * `true` when input may be applied in [mode]: a window session confines input to the captured window, while
- * desktop-wide input additionally requires the explicit host allowance behind `computer_use.desktop_input`.
+ * desktop-wide input additionally requires the host's operating system permission.
  */
 public fun ComputerUseCapabilities.allowsInput(mode: ComputerUseMode?): Boolean {
     if (!isInputAvailable || mode == null) return false

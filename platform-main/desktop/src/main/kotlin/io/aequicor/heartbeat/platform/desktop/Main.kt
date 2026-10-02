@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.toPainter
 import androidx.compose.ui.input.key.Key
@@ -50,13 +52,15 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
     classes.getOrNull()?.let(::attachLocalPiRuntime)
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
+    val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
     val root = runOnUiThread {
-        createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
+        createAppRoot(DefaultComponentContext(lifecycle), graph)
     }
     val dimensions = HbDimensions()
     application {
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
+        val computerUse by root.computerUse.collectAsState()
         LifecycleController(lifecycle, windowState)
         Window(
             onCloseRequest = {
@@ -67,6 +71,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
             title = "Heartbeat",
             icon = icon,
             state = windowState,
+            alwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> openSettingsOnShortcut(event, root) },
         ) {
             DisposableEffect(window) {
@@ -74,6 +79,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
                 onDispose { }
             }
             DesktopWindowContent(windowState) { App(root) }
+            DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
     }
 }

@@ -31,6 +31,9 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
@@ -184,6 +187,7 @@ class AiStudioModel(
                     }
                 }
                 launch { observeResearch(pipeline) }
+                launch { observeComputerUse(pipeline) }
                 launch { observeEfforts(pipeline) }
                 launch { observeWorktrees(pipeline) }
                 launch { observeUsageTargets() }
@@ -244,6 +248,57 @@ class AiStudioModel(
 
     private suspend fun observeResearch(pipeline: StudioPipeline) = with(pipeline) {
         entries.showsResearch.collect { updateState { copy(isResearchEnabled = it) } }
+    }
+
+    /** Shows an existing owner's conversation once capture opens; later user navigation remains in control. */
+    private suspend fun observeComputerUse(pipeline: StudioPipeline) = with(pipeline) {
+        var focusedTarget: Pair<CaptureOwner.Agent, String?>? = null
+        val owners = machines.observe(ComputerUseMachineKey).flatMapLatest { ref ->
+            ref?.state ?: flowOf(ComputerUseState.Idle)
+        }.map { state ->
+            val capture = state as? ComputerUseState.Capturing ?: return@map null
+            val owner = capture.owner as? CaptureOwner.Agent ?: return@map null
+            owner to capture.isOpen
+        }.distinctUntilChanged()
+        combine(
+            owners,
+            backend.repository().observeWorkspace(),
+            machine.state.map { it is AiStudioState.Ready }.distinctUntilChanged(),
+        ) { capture, workspace, isReady ->
+            if (capture == null) {
+                null
+            } else {
+                val (owner, isOpen) = capture
+                Triple(
+                    owner,
+                    workspace.sessions.firstOrNull { session -> session.nativeSession == owner.session }?.id,
+                    isOpen && isReady,
+                )
+            }
+        }.distinctUntilChanged().collect { target ->
+            if (target == null) {
+                focusedTarget = null
+            } else if (target.third) {
+                val next = target.first to target.second
+                if (next != focusedTarget) {
+                    focusedTarget = next
+                    focusComputerUseSession(pipeline, target.second)
+                }
+            }
+        }
+    }
+
+    private suspend fun focusComputerUseSession(pipeline: StudioPipeline, sessionId: String?) = with(pipeline) {
+        updateState { copy(sidebar = sidebar.copy(isDrawerOpen = false)) }
+        if (sessionId == null) return@with
+        val ready = machine.state.value as? AiStudioState.Ready ?: return@with
+        val shown = ready.panes.firstOrNull { it.sessionId == sessionId }
+        val navigation = when {
+            shown == null -> AiStudioScreenIntent.OpenSession(sessionId)
+            shown.id != ready.focusedPaneId -> AiStudioScreenIntent.FocusPane(shown.id)
+            else -> null
+        }
+        if (navigation != null) navigate(pipeline, navigation)
     }
 
     private suspend fun observeWorktrees(pipeline: StudioPipeline) = with(pipeline) {

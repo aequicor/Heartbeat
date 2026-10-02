@@ -5,11 +5,26 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import com.arkivanov.decompose.ComponentContext
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.ds.components.HbButton
+import io.aequicor.heartbeat.ds.components.HbButtonSize
+import io.aequicor.heartbeat.ds.components.HbButtonStyle
+import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute
@@ -17,6 +32,11 @@ import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.dibundle.root.RootStart
 import io.aequicor.heartbeat.platform.root.RootContent
+import io.aequicor.heartbeat.platform.shared.resources.Res
+import io.aequicor.heartbeat.platform.shared.resources.computer_use_stop
+import io.aequicor.heartbeat.platform.shared.resources.computer_use_stop_description
+import io.aequicor.heartbeat.platform.shared.resources.computer_use_working
+import org.jetbrains.compose.resources.stringResource
 
 /**
  * Creates the root once outside composition, using the platform lifecycle. A profile always starts in the studio;
@@ -33,12 +53,45 @@ fun createAppRoot(context: ComponentContext, graph: HeartbeatGraph): HeartbeatRo
 @Composable
 fun App(root: HeartbeatRoot, modifier: Modifier = Modifier) {
     HbTheme {
-        RootContent(root, modifier, loading = {
-            Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
-                if (HbTheme.dimensions.isDesktop) {
-                    HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
+        val computerUse by root.computerUse.collectAsState()
+        HbColumn(modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
+            if (computerUse.isActive && HbTheme.dimensions.isDesktop) {
+                // The fill sits on the drag area so it also covers the native caption controls' insets.
+                HbWindowDragArea(
+                    Modifier.fillMaxWidth().height(
+                        HbTheme.dimensions.headerHeight,
+                    ).background(HbTheme.surfaces.sidebar),
+                ) {
+                    HbRow(
+                        Modifier.fillMaxSize().padding(horizontal = HbTheme.spacing.m),
+                        gap = HbTheme.spacing.m,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        HbText(
+                            stringResource(Res.string.computer_use_working),
+                            modifier = Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                            style = HbTheme.typography.caption,
+                            maxLines = 1,
+                        )
+                        val stopDescription = stringResource(Res.string.computer_use_stop_description)
+                        HbButton(
+                            stringResource(Res.string.computer_use_stop),
+                            root::stopComputerUse,
+                            Modifier.testTag("computer-use-stop-agent")
+                                .semantics { contentDescription = stopDescription },
+                            style = HbButtonStyle.Danger,
+                            size = HbButtonSize.Small,
+                        )
+                    }
                 }
             }
-        })
+            RootContent(root, Modifier.weight(1f), loading = {
+                Box(Modifier.fillMaxSize().background(HbTheme.surfaces.backdrop)) {
+                    if (HbTheme.dimensions.isDesktop) {
+                        HbWindowDragArea(Modifier.fillMaxWidth().height(HbTheme.dimensions.headerHeight)) { }
+                    }
+                }
+            })
+        }
     }
 }

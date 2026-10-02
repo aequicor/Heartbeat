@@ -7,12 +7,15 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.Machine
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEffect
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
@@ -24,6 +27,8 @@ internal class ComputerUseEffectHandler(
     private val coordinator: CaptureCoordinator,
     private val captures: ComputerUseCaptureExecutor,
     private val runningMachine: Lazy<Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>>,
+    private val presentation: ComputerUseCapturePresentation,
+    private val stoppedTurns: ComputerUseStoppedTurns,
 ) : EffectHandler<ComputerUseEffect, ComputerUseIntent> {
     private val log = Log.tag("ComputerUseEffects")
 
@@ -37,6 +42,7 @@ internal class ComputerUseEffectHandler(
             is ComputerUseEffect.ProduceCrop -> crop(effect, machine)
             is ComputerUseEffect.ApplyInput -> input(effect, machine)
             is ComputerUseEffect.PurgeMasters -> coordinator.closeSessionAndPurge(effect.session)
+            is ComputerUseEffect.StopOwner -> stoppedTurns.stop(effect.owner)
         }
     }
 
@@ -126,19 +132,42 @@ internal class ComputerUseEffectHandler(
             reject(machine, failure, effect.requestId)
             return
         }
-        when (
-            val outcome = coordinator.input(
+        val apply: suspend () -> InputOutcome = {
+            coordinator.input(
                 effect.action,
                 effect.expectedCapture,
                 isFrameBound = true,
                 guard = access::inputFailure,
             )
-        ) {
+        }
+        val outcome = when (effect.action) {
+            is InputAction.MoveTo, is InputAction.Click, is InputAction.Drag, is InputAction.Scroll -> pointer(apply)
+            is InputAction.Type, is InputAction.Key -> apply()
+        }
+        when (outcome) {
             InputOutcome.Applied -> machine.send(
                 ComputerUseIntent.Internal.InputApplied(effect.action, effect.requestId),
             )
 
             is InputOutcome.Rejected -> reject(machine, outcome.reason, effect.requestId)
+        }
+    }
+
+    /**
+     * The injector's outcome stands: a failed window restore afterwards is logged, so applied input is not reported
+     * as rejected and repeated. A cancellation always propagates, even one a restore lease reports.
+     */
+    private suspend fun pointer(apply: suspend () -> InputOutcome): InputOutcome {
+        var finished: InputOutcome? = null
+        return try {
+            presentation.withoutPresentation { apply().also { finished = it } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val outcome = finished ?: throw e
+            val result = if (outcome is InputOutcome.Rejected) "rejected (${outcome.reason})" else "applied"
+            log.w(e) { "pointer input was $result, but app windows were not restored" }
+            outcome
         }
     }
 

@@ -19,7 +19,7 @@ public enum class SettingsSection {
     @SerialName("search")
     Search,
 
-    /** Desktop capture, frame previews and explicit input permission. */
+    /** Enables or disables agent computer-use tools. */
     @SerialName("computer_use")
     ComputerUse,
 

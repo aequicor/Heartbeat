@@ -11,8 +11,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
@@ -20,6 +22,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUseSettings
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameEncoder
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
@@ -32,7 +36,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 
 /** Test dispatchers on the standard test scheduler. */
@@ -44,18 +48,64 @@ internal class TestDispatchers(dispatcher: CoroutineDispatcher = StandardTestDis
 
 /** Toggle reader over a mutable map. */
 internal class FakeToggles(values: Map<String, Boolean> = emptyMap()) : FeatureToggles {
-    private val current = values.toMutableMap()
+    private val current = values.mapValues { MutableStateFlow(it.value) }.toMutableMap()
 
     /** Overrides one toggle value. */
     fun set(key: String, value: Boolean) {
-        current[key] = value
+        current.getOrPut(key) { MutableStateFlow(value) }.value = value
     }
 
-    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = flowOf(toggle.default)
+    @Suppress("UNCHECKED_CAST") // Tests observe boolean flags only.
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> =
+        current.getOrPut(toggle.key) { MutableStateFlow(toggle.default as Boolean) } as Flow<T>
 
     @Suppress("UNCHECKED_CAST") // tests read boolean flags only
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T =
-        (current[toggle.key] ?: toggle.default) as T
+        (current[toggle.key]?.value ?: toggle.default) as T
+}
+
+/** Live profile preference used by tests with computer tools explicitly enabled. */
+internal class FakeComputerUsePreferences(isEnabled: Boolean = true) : ComputerUsePreferences {
+    private val current = MutableStateFlow(ComputerUseSettings(isEnabled = isEnabled))
+
+    override suspend fun read(): ComputerUseSettings = current.value
+    override fun observe(): Flow<ComputerUseSettings> = current
+    override suspend fun setEnabled(isEnabled: Boolean) {
+        current.value = current.value.copy(isEnabled = isEnabled)
+    }
+    override suspend fun setPreset(name: String): Boolean {
+        current.value = current.value.copy(preset = name)
+        return true
+    }
+    override suspend fun setCursorIncluded(isIncluded: Boolean) {
+        current.value = current.value.copy(isCursorIncluded = isIncluded)
+    }
+}
+
+/** Real presentation barrier with a registered synthetic window for host operation assertions. */
+internal class TestComputerUseCapturePresentation(dispatchers: DispatcherProvider) : ComputerUseCapturePresentation {
+    private val delegate = DefaultComputerUseCapturePresentation(dispatchers)
+    var isSuppressed: Boolean = false
+        private set
+    var suppressions: Int = 0
+        private set
+
+    /** Makes restoring the app windows fail after the operation with this error. */
+    var restoreFailure: Throwable? = null
+
+    init {
+        delegate.register {
+            isSuppressed = true
+            suppressions++
+            AutoCloseable {
+                isSuppressed = false
+                restoreFailure?.let { throw it }
+            }
+        }
+    }
+
+    override fun register(presentation: ComputerUsePresentation): AutoCloseable = delegate.register(presentation)
+    override suspend fun <T> withoutPresentation(action: suspend () -> T): T = delegate.withoutPresentation(action)
 }
 
 /** Captures a fixed frame and reports fixed bounds; can be told to disappear. */
@@ -63,8 +113,10 @@ internal class FakeScreenCapturer(private val widthPx: Int = 200, private val he
     var bounds: ScreenBounds? = ScreenBounds(10, 20, widthPx, heightPx)
     var captures: Int = 0
         private set
+    var onCapture: () -> Unit = {}
 
     override suspend fun capture(mode: ComputerUseMode, region: CaptureRegion?, isCursorIncluded: Boolean): RawFrame? {
+        onCapture()
         val current = bounds ?: return null
         captures++
         return RawFrame(solidGrid(widthPx, heightPx, 0xFF336699.toInt()), current, 0L)
@@ -97,8 +149,10 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
     val applied = mutableListOf<InputAction>()
     val points = mutableListOf<ScreenPoint>()
     var refusal: ComputerUseFailure? = null
+    var onInput: () -> Unit = {}
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
+        onInput()
         val refused = refusal ?: return mappedOutcome(action, map)
         return InputOutcome.Rejected(refused)
     }

@@ -2,9 +2,7 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
-import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRef
@@ -16,9 +14,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
-import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CapturePresets
@@ -34,22 +33,20 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
-import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
-import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
 import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
-import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -57,25 +54,20 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.uuid.Uuid
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseAgentTools as AgentToolsToggle
 
 /**
  * The hosted `computer_*` tools.
  *
  * Read-only tools return the path of a stored frame plus its geometry and token estimate; an engine that can
- * read files opens the frame itself. Mutating tools go through the machine, so the same guards apply whether the
- * command came from an agent or from the panel: input runs only while it is armed, and only inside the captured
- * area. Approvals show the exact action, with control characters escaped and the text bounded.
+ * read files opens the frame itself. Mutating tools go through the machine and its guards. A capture belongs to
+ * the turn that opened it: other turns can neither use, switch nor release it. An authorized input call arms its
+ * exact captured frame without a second manual switch, and input stays inside that area. Approvals show the
+ * exact action, with control characters escaped and the text bounded.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -83,7 +75,9 @@ internal class ComputerUseAgentTools(
     private val machines: MachineRegistry,
     private val toggles: FeatureToggles,
     private val control: HostComputerControl,
-    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val lifecycle: ComputerUseCaptureLifecycle,
+    private val preferences: ComputerUsePreferences,
+    private val stoppedTurns: ComputerUseStoppedTurns,
 ) : AgentToolContribution {
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
@@ -94,16 +88,19 @@ internal class ComputerUseAgentTools(
     override suspend fun instructions(workspace: WorkspaceRef?): String {
         if (!isEnabled()) return ""
         return "Computer use drives the real screen for testing and debugging. Call computer_status first: it " +
-            "reports the permissions, the captured mode and whether input is armed. Capture the whole desktop " +
+            "reports permissions and the active capture. Choose the capture mode yourself: use one application " +
+            "window for work confined to it, or the desktop when the task spans applications. Capture the desktop " +
             "with computer_capture {mode:\"desktop\"} or one application window with " +
             "computer_capture {mode:\"window\", windowId} after picking an id from computer_windows. " +
             "computer_screenshot returns a downscaled frame (at most ${OVERVIEW_WIDTH_PX}px wide) and a tile grid; " +
             "read small text with computer_zoom on a region or a tile, which is cut from the same stored master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
-            "you pass space:\"master\", \"normalized\" or \"screen\". Input needs the user to arm it and passes " +
-            "the confirmation gate; a refusal names the reason (NotArmed, RegionOutOfBounds, TargetClosed). " +
-            "Call computer_release when the debugging step is done: the capture and its stored frames stay " +
-            "alive until then or until the profile closes."
+            "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
+            "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
+            "TargetClosed); a capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
+            "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
+            "Call computer_release as soon as you finish working with the computer; capture and " +
+            "stored frames are also released automatically when your turn ends."
     }
 
     override fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval {
@@ -149,7 +146,8 @@ internal class ComputerUseAgentTools(
     private fun binding(): String {
         val state = machines.find(ComputerUseMachineKey)?.state?.value
         return if (state is ComputerUseState.Capturing) {
-            "${state.session.value}:${state.lastPreview?.id?.value.orEmpty()}:${state.isInputArmed}"
+            // Arming is the tool's own step, so it is not part of what the user approved.
+            "${state.session.value}:${state.lastPreview?.id?.value.orEmpty()}"
         } else {
             state?.let { it::class.simpleName }.orEmpty()
         }
@@ -159,6 +157,10 @@ internal class ComputerUseAgentTools(
         requests.withLock {
             try {
                 if (!isEnabled()) return@withLock failure("Disabled")
+                if (stoppedTurns.isStopped(context.owner())) {
+                    log.w { "computer tool refused: the user stopped this turn name=$name" }
+                    return@withLock failure("StoppedByUser")
+                }
                 if (name in mutatingTools && context.authorization?.binding != binding()) {
                     return@withLock failure("CaptureChangedSinceApproval")
                 }
@@ -172,7 +174,36 @@ internal class ComputerUseAgentTools(
             }
         }
 
+    /** The dispatcher already revoked this turn's calls; the lifecycle guards cleanup on its own. */
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
+        lifecycle.finishTurn(CaptureOwner.Agent(session, turn))
+    }
+
     private suspend fun dispatch(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): AgentToolResult = when {
+        name in ownedTools && isForeignCapture(machine, context) -> {
+            log.w { "computer tool refused: the capture belongs to another turn name=$name" }
+            failure("CaptureOwnedByAnotherTurn")
+        }
+
+        else -> dispatchOwned(machine, context, name, arguments)
+    }
+
+    private fun isForeignCapture(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        context: AgentToolContext,
+    ): Boolean {
+        val state = machine.state.value as? ComputerUseState.Capturing ?: return false
+        return state.owner != context.owner()
+    }
+
+    private fun AgentToolContext.owner(): CaptureOwner.Agent = CaptureOwner.Agent(session, turn)
+
+    private suspend fun dispatchOwned(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         context: AgentToolContext,
         name: String,
@@ -181,8 +212,8 @@ internal class ComputerUseAgentTools(
         STATUS_TOOL -> status()
         WINDOWS_TOOL -> windows()
         CAPTURE_TOOL -> capture(machine, context, arguments)
-        SCREENSHOT_TOOL -> screenshot(machine, arguments)
-        ZOOM_TOOL -> zoom(machine, arguments)
+        SCREENSHOT_TOOL -> screenshot(machine, arguments, context.owner())
+        ZOOM_TOOL -> zoom(machine, arguments, context.owner())
         CLICK_TOOL -> input(machine, context, click(arguments), name)
         DRAG_TOOL -> input(machine, context, drag(arguments), name)
         SCROLL_TOOL -> input(machine, context, scroll(arguments), name)
@@ -192,13 +223,16 @@ internal class ComputerUseAgentTools(
         else -> failure("UnknownTool")
     }
 
-    private suspend fun isEnabled(): Boolean = toggles.get(ComputerUseEnabled) && toggles.get(AgentToolsToggle)
+    private suspend fun isEnabled(): Boolean = toggles.get(ComputerUseEnabled) && preferences.read().isEnabled
 
     /** The machine is created lazily; a tool call is what starts the availability probe. */
     private suspend fun started(): MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>? {
         val machine = machines.find(ComputerUseMachineKey) ?: return null
-        if (machine.state.value !is ComputerUseState.Idle) return machine
-        machine.send(ComputerUseIntent.Public.Start)
+        when (machine.state.value) {
+            ComputerUseState.Idle -> machine.send(ComputerUseIntent.Public.Start)
+            is ComputerUseState.Unavailable, is ComputerUseState.Failed -> machine.send(ComputerUseIntent.Public.Retry)
+            ComputerUseState.Checking, is ComputerUseState.Ready, is ComputerUseState.Capturing -> Unit
+        }
         return withTimeoutOrNull(START_TIMEOUT_MILLIS) {
             machine.state.first { it !is ComputerUseState.Idle && it !is ComputerUseState.Checking }
             machine
@@ -250,7 +284,7 @@ internal class ComputerUseAgentTools(
     ): AgentToolResult {
         val mode = mode(arguments) ?: return failure("InvalidMode")
         val session = CaptureSessionId(Uuid.random().toString())
-        val owner = CaptureOwner.Agent(context.session, context.turn)
+        val owner = context.owner()
         val intent = when (machine.state.value) {
             is ComputerUseState.Capturing -> ComputerUseIntent.Public.SwitchMode(
                 mode,
@@ -267,31 +301,46 @@ internal class ComputerUseAgentTools(
                 session,
             )
         }
-        val sent = machine.send(intent)
-        if (sent != SendResult.Accepted) {
+        val sent = lifecycle.begin(machine, owner, session, intent, context.lifetime)
+        return if (sent != SendResult.Accepted) {
             log.w { "capture refused result=$sent" }
-            return failure("CaptureRefused")
+            failure("CaptureRefused")
+        } else {
+            openedCapture(machine, arguments, session, owner)
         }
-        context.lifetime?.invokeOnCompletion {
-            profile.coroutineScope.launch {
-                machine.send(ComputerUseIntent.Public.OwnerReleased(owner))
-            }
-        }
+    }
+
+    private suspend fun openedCapture(
+        machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
+        arguments: JsonObject,
+        session: CaptureSessionId,
+        owner: CaptureOwner.Agent,
+    ): AgentToolResult {
         var isCompleted = false
         try {
-            val opened = withTimeoutOrNull(CAPTURE_TIMEOUT_MILLIS) {
-                machine.state.first { it is ComputerUseState.Capturing && it.session == session && it.isOpen }
+            // A stopped or replaced session never opens; its closure ends the wait as well.
+            val settled = withTimeoutOrNull(CAPTURE_TIMEOUT_MILLIS) {
+                machine.state.first { it !is ComputerUseState.Capturing || it.session != session || it.isOpen }
             }
-            if (opened == null) {
-                machine.send(ComputerUseIntent.Public.CancelSession(session))
-                return failure("CaptureTimedOut")
+            val result = when {
+                settled == null -> {
+                    machine.send(ComputerUseIntent.Public.CancelSession(session, owner))
+                    failure("CaptureTimedOut")
+                }
+
+                settled !is ComputerUseState.Capturing || settled.session != session -> {
+                    // The state carries the stop atomically with the transition that ended the session.
+                    val isStopped = (settled as? ComputerUseState.Ready)?.stoppedOwners?.contains(owner) == true
+                    failure(if (isStopped || stoppedTurns.isStopped(owner)) "StoppedByUser" else "CaptureEnded")
+                }
+
+                else -> screenshot(machine, arguments, owner)
             }
-            val result = screenshot(machine, arguments)
             isCompleted = true
             return result
         } finally {
             if (!isCompleted) {
-                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session)) }
+                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session, owner)) }
             }
         }
     }
@@ -299,6 +348,7 @@ internal class ComputerUseAgentTools(
     private suspend fun screenshot(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         arguments: JsonObject,
+        owner: CaptureOwner.Agent,
     ): AgentToolResult {
         val state = machine.state.value as? ComputerUseState.Capturing ?: return failure("NotCapturing")
         val region = region(arguments)
@@ -314,7 +364,7 @@ internal class ComputerUseAgentTools(
         )
         return frame(
             machine,
-            ComputerUseIntent.Public.Capture(request, expectedSession = state.session),
+            ComputerUseIntent.Public.Capture(request, expectedSession = state.session, expectedOwner = owner),
             request.encoding,
         )
     }
@@ -322,6 +372,7 @@ internal class ComputerUseAgentTools(
     private suspend fun zoom(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         arguments: JsonObject,
+        owner: CaptureOwner.Agent,
     ): AgentToolResult {
         val state = machine.state.value as? ComputerUseState.Capturing ?: return failure("NotCapturing")
         val master = state.master ?: return failure("NoMasterFrame")
@@ -342,7 +393,7 @@ internal class ComputerUseAgentTools(
         }
         return frame(
             machine,
-            ComputerUseIntent.Public.Crop(request, expectedSession = state.session),
+            ComputerUseIntent.Public.Crop(request, expectedSession = state.session, expectedOwner = owner),
             request.encoding,
         )
     }
@@ -382,8 +433,10 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
+            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+
             is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
-            is ComputerUseOutput.PermissionRequired, is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,
+            is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }.also { log.d { "frame served format=${encoding.format}" } }
     }
@@ -436,12 +489,25 @@ internal class ComputerUseAgentTools(
         val session = authorizedSession(context) ?: return failure("CaptureChangedSinceApproval")
         val capture = context.authorization?.binding?.split(':')?.getOrNull(1)
             ?.takeIf { it.isNotEmpty() }?.let(::CaptureId)
+        val owner = context.owner()
+        val armed = machine.send(ComputerUseIntent.Public.ArmInput(true, session, capture, owner))
+        if (armed != SendResult.Accepted) {
+            val state = machine.state.value
+            val reason = if (state is ComputerUseState.Capturing && !state.capabilities.isInputAvailable) {
+                ComputerUseFailure.PermissionLost.name
+            } else {
+                "CaptureChangedSinceApproval"
+            }
+            log.w { "input arming refused reason=$reason" }
+            return failure(reason)
+        }
         val output = awaitOutput(
             machine,
             ComputerUseIntent.Public.Input(
                 action,
                 expectedSession = session,
                 expectedCapture = capture,
+                expectedOwner = owner,
             ),
         )
             ?: return failure("InputTimedOut")
@@ -450,8 +516,10 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
+            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+
             is ComputerUseOutput.FrameReady, is ComputerUseOutput.CaptureChanged,
-            is ComputerUseOutput.PermissionRequired, is ComputerUseOutput.SessionClosed, ComputerUseOutput.Revoked,
+            is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
             -> failure("UnexpectedOutput")
         }
     }
@@ -469,7 +537,7 @@ internal class ComputerUseAgentTools(
             machine.outputs.first { it is ComputerUseOutput.SessionClosed && it.session == session }
         }
         try {
-            val sent = machine.send(ComputerUseIntent.Public.CancelSession(session))
+            val sent = machine.send(ComputerUseIntent.Public.CancelSession(session, context.owner()))
             if (sent != SendResult.Accepted) return@coroutineScope failure("CaptureChangedSinceApproval")
             if (withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) { closed.await() } == null) {
                 failure("CleanupTimedOut")
@@ -488,22 +556,29 @@ internal class ComputerUseAgentTools(
     ): ComputerUseOutput? = coroutineScope {
         val session = (machine.state.value as? ComputerUseState.Capturing)?.session
         val id = Uuid.random().toString()
+        var owner: CaptureOwner? = null
         val correlated = when (intent) {
-            is ComputerUseIntent.Public.Capture -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Capture -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
-            is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
-            is ComputerUseIntent.Public.Input -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Input -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
             ComputerUseIntent.Public.Start, ComputerUseIntent.Public.Retry,
             ComputerUseIntent.Public.RefreshTargets, ComputerUseIntent.Public.EndCapture,
             ComputerUseIntent.Public.Revoke, is ComputerUseIntent.Public.ArmInput,
             is ComputerUseIntent.Public.BeginCapture, is ComputerUseIntent.Public.CancelSession,
             is ComputerUseIntent.Public.SwitchMode, is ComputerUseIntent.Public.OwnerReleased,
+            is ComputerUseIntent.Public.StopAgent,
             -> error("Only operation intents have correlated replies")
         }
-        val awaited = async(start = CoroutineStart.UNDISPATCHED) {
+        val answered = async(start = CoroutineStart.UNDISPATCHED) {
             machine.outputs.first { it.requestId() == id }
+        }
+        // A stopped or replaced session never answers; its closure is the answer.
+        val closed = async(start = CoroutineStart.UNDISPATCHED) {
+            val ended = machine.state.first { (it as? ComputerUseState.Capturing)?.session != session }
+            ComputerUseOutput.SessionClosed((ended as? ComputerUseState.Capturing)?.session ?: CaptureSessionId(""))
         }
         var isCompleted = false
         try {
@@ -511,14 +586,20 @@ internal class ComputerUseAgentTools(
                 isCompleted = true
                 return@coroutineScope ComputerUseOutput.Rejected(ignoredReason(machine.state.value, intent), id)
             }
-            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) { awaited.await() }
+            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) {
+                select {
+                    answered.onAwait { it }
+                    closed.onAwait { it }
+                }
+            }
             isCompleted = result != null
             result
         } finally {
-            awaited.cancel()
+            answered.cancel()
+            closed.cancel()
             if (!isCompleted && session != null) {
                 // Cancel state effects as well as the waiter, without touching any replacement session.
-                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session)) }
+                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session, owner)) }
             }
         }
     }
@@ -558,111 +639,6 @@ internal class ComputerUseAgentTools(
         return target?.let { ComputerUseMode.Window(it, isClientAreaOnly = arguments.flag("clientAreaOnly") ?: false) }
     }
 
-    private fun click(arguments: JsonObject): InputAction? {
-        val point = point(arguments, "x", "y") ?: return null
-        return InputAction.Click(
-            point = point,
-            button = button(arguments.text("button")),
-            count = (arguments.int("count") ?: 1).coerceIn(1, MAX_CLICKS),
-            space = space(arguments.text("space")),
-        )
-    }
-
-    private fun drag(arguments: JsonObject): InputAction? {
-        val from = point(arguments, "x", "y") ?: return null
-        val to = point(arguments, "toX", "toY") ?: return null
-        return InputAction.Drag(from, to, button(arguments.text("button")), space(arguments.text("space")))
-    }
-
-    private fun scroll(arguments: JsonObject): InputAction? {
-        val at = point(arguments, "x", "y") ?: return null
-        return InputAction.Scroll(
-            point = at,
-            deltaX = arguments.int("deltaX") ?: 0,
-            deltaY = arguments.int("deltaY") ?: 0,
-            space = space(arguments.text("space")),
-        )
-    }
-
-    private fun typed(arguments: JsonObject): InputAction? {
-        val text = arguments.text("text") ?: return null
-        if (text.length > MAX_TYPED_CHARS) return null
-        return InputAction.Type(text)
-    }
-
-    private fun keys(arguments: JsonObject): InputAction? {
-        val names = arguments["keys"]?.jsonPrimitive?.content?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
-        if (names.isNullOrEmpty() || names.size > MAX_KEYS) return null
-        return InputAction.Key(names)
-    }
-
-    private fun point(arguments: JsonObject, xName: String, yName: String): FramePoint? {
-        val x = arguments.number(xName) ?: return null
-        val y = arguments.number(yName) ?: return null
-        return FramePoint(x, y)
-    }
-
-    private fun region(arguments: JsonObject): CaptureRegion? {
-        val x = arguments.int("regionX") ?: return null
-        val y = arguments.int("regionY") ?: return null
-        val width = arguments.int("regionWidth") ?: return null
-        val height = arguments.int("regionHeight") ?: return null
-        return try {
-            CaptureRegion(x, y, width, height)
-        } catch (e: IllegalArgumentException) {
-            log.w(e) { "region refused" }
-            null
-        }
-    }
-
-    private fun normalized(arguments: JsonObject): NormalizedRegion? {
-        val x = arguments.number("nx") ?: return null
-        val y = arguments.number("ny") ?: return null
-        val width = arguments.number("nw") ?: return null
-        val height = arguments.number("nh") ?: return null
-        return try {
-            NormalizedRegion(x, y, width, height)
-        } catch (e: IllegalArgumentException) {
-            log.w(e) { "normalized region refused" }
-            null
-        }
-    }
-
-    private fun encoding(arguments: JsonObject, default: CaptureEncoding): CaptureEncoding {
-        val preset = arguments.text("preset")?.let { CapturePresets.byName(it) } ?: default
-        val format = format(arguments.text("format")) ?: preset.format
-        val quality = (arguments.int("quality") ?: preset.quality).coerceIn(MIN_QUALITY, MAX_QUALITY)
-        val maxWidth = (arguments.int("maxWidth") ?: preset.maxWidthPx).coerceAtLeast(0)
-        val maxBytes = (arguments.int("maxBytes") ?: preset.maxBytes).coerceAtLeast(0)
-        return preset.copy(
-            format = format,
-            quality = quality,
-            maxWidthPx = maxWidth,
-            maxHeightPx = if (maxWidth > 0) maxWidth else preset.maxHeightPx,
-            maxBytes = maxBytes,
-        )
-    }
-
-    private fun format(name: String?): CaptureFormat? = when (name?.lowercase()) {
-        "png" -> CaptureFormat.Png
-        "jpg", "jpeg" -> CaptureFormat.Jpeg
-        null -> null
-        else -> null
-    }
-
-    private fun button(name: String?): MouseButton = when (name?.lowercase()) {
-        "right" -> MouseButton.Right
-        "middle" -> MouseButton.Middle
-        else -> MouseButton.Left
-    }
-
-    private fun space(name: String?): FrameSpace = when (name?.lowercase()) {
-        "master" -> FrameSpace.Master
-        "normalized" -> FrameSpace.Normalized
-        "screen" -> FrameSpace.Screen
-        else -> FrameSpace.Preview
-    }
-
     private fun describe(name: String, arguments: JsonObject, xName: String, yName: String): String {
         val x = arguments.number(xName)
         val y = arguments.number(yName)
@@ -700,19 +676,24 @@ internal class ComputerUseAgentTools(
         }
     }
 
-    private fun JsonObject.hasAny(keys: Set<String>): Boolean = keys.any { it in this }
-
     private fun failure(code: String): AgentToolResult = AgentToolResult(code, isError = true)
-
-    private fun JsonObject.text(name: String): String? = this[name]?.jsonPrimitive?.contentOrNull
-    private fun JsonObject.raw(name: String): String? = this[name]?.toString()
-    private fun JsonObject.flag(name: String): Boolean? = this[name]?.jsonPrimitive?.booleanOrNull
-    private fun JsonObject.int(name: String): Int? = this[name]?.jsonPrimitive?.intOrNull
-    private fun JsonObject.number(name: String): Double? = this[name]?.jsonPrimitive?.doubleOrNull
 
     private companion object {
         val regionKeys = setOf("regionX", "regionY", "regionWidth", "regionHeight")
         val normalizedKeys = setOf("nx", "ny", "nw", "nh")
+
+        /** Tools that act on the current capture; the reading tools status and windows do not. */
+        val ownedTools = setOf(
+            CAPTURE_TOOL,
+            SCREENSHOT_TOOL,
+            ZOOM_TOOL,
+            CLICK_TOOL,
+            DRAG_TOOL,
+            SCROLL_TOOL,
+            TYPE_TOOL,
+            KEY_TOOL,
+            RELEASE_TOOL,
+        )
         val mutatingTools = setOf(CAPTURE_TOOL, CLICK_TOOL, DRAG_TOOL, SCROLL_TOOL, TYPE_TOOL, KEY_TOOL, RELEASE_TOOL)
         const val STATUS_TOOL = "computer_status"
         const val WINDOWS_TOOL = "computer_windows"
@@ -729,15 +710,10 @@ internal class ComputerUseAgentTools(
         const val CAPTURE_TIMEOUT_MILLIS = 10_000L
         const val OUTPUT_TIMEOUT_MILLIS = 30_000L
         const val MAX_WINDOWS = 60
-        const val MAX_CLICKS = 3
-        const val MAX_KEYS = 6
-        const val MAX_TYPED_CHARS = 4096
         const val MAX_APPROVAL_CHARS = 512
-        const val BINDING_FIELDS = 3
+        const val BINDING_FIELDS = 2
         const val HEX_RADIX = 16
         const val UNICODE_DIGITS = 4
-        const val MIN_QUALITY = 1
-        const val MAX_QUALITY = 100
         const val OVERVIEW_WIDTH_PX = 1568
         const val FIRST_VISIBLE_CHAR = ' '
         const val DELETE_CHAR = '\u007F'

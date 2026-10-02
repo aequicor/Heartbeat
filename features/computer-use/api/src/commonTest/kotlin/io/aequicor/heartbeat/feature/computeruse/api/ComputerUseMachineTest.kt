@@ -164,6 +164,61 @@ class ComputerUseMachineTest {
     }
 
     @Test
+    fun `authorized input arms only its current capture frame`() {
+        val observed = capturing.copy(lastPreview = preview)
+        ComputerUseMachineSpec.assertTransition(
+            from = observed,
+            intent = ComputerUseIntent.Public.ArmInput(true, observed.session, preview.id),
+            to = observed.copy(isInputArmed = true),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, CaptureSessionId("another-session"), preview.id),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, observed.session, CaptureId("another-frame")),
+        )
+        val armedWindow = observed.copy(mode = windowMode, isInputArmed = true)
+        ComputerUseMachineSpec.assertIgnored(
+            armedWindow,
+            ComputerUseIntent.Public.Input(click, expectedCapture = CaptureId("another-frame")),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = armedWindow,
+            intent = ComputerUseIntent.Public.Input(click, expectedCapture = preview.id),
+            to = armedWindow,
+            effects = listOf(ComputerUseEffect.ApplyInput(click, expectedCapture = preview.id)),
+        )
+    }
+
+    @Test
+    fun `a frame named without its session still has to match`() {
+        val observed = capturing.copy(lastPreview = preview)
+        ComputerUseMachineSpec.assertIgnored(
+            observed,
+            ComputerUseIntent.Public.ArmInput(true, expectedCapture = CaptureId("another-frame")),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = observed,
+            intent = ComputerUseIntent.Public.ArmInput(true, expectedCapture = preview.id),
+            to = observed.copy(isInputArmed = true),
+        )
+    }
+
+    @Test
+    fun `authorization for a capture cannot arm a ready machine`() {
+        ComputerUseMachineSpec.assertIgnored(
+            ComputerUseState.Ready(capabilities),
+            ComputerUseIntent.Public.ArmInput(true, capturing.session, preview.id),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            ComputerUseState.Ready(capabilities),
+            ComputerUseIntent.Public.ArmInput(true, expectedCapture = preview.id),
+        )
+    }
+
+    @Test
     fun `switching mode re-enters capturing with the new session`() {
         val started = capturing.copy(master = master, lastPreview = preview, frameCount = 3)
         val next = CaptureSessionId("s2")
@@ -171,7 +226,10 @@ class ComputerUseMachineTest {
             from = started,
             intent = ComputerUseIntent.Public.SwitchMode(windowMode, next),
             to = ComputerUseState.Capturing(next, windowMode, owner, capabilities),
-            effects = listOf(ComputerUseEffect.OpenCapture(windowMode, next)),
+            effects = listOf(
+                ComputerUseEffect.CloseCapture(started.session),
+                ComputerUseEffect.OpenCapture(windowMode, next),
+            ),
             outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
         )
     }
@@ -204,6 +262,102 @@ class ComputerUseMachineTest {
             to = ComputerUseState.Ready(capabilities),
             effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
             outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
+        )
+    }
+
+    @Test
+    fun `stopping the agent ends its session and bars its turn`() {
+        ComputerUseMachineSpec.assertTransition(
+            from = capturing.copy(isInputArmed = true),
+            intent = ComputerUseIntent.Public.StopAgent(owner),
+            to = ComputerUseState.Ready(capabilities, stoppedOwners = setOf(owner)),
+            effects = listOf(
+                ComputerUseEffect.StopOwner(owner),
+                ComputerUseEffect.CloseCapture(session),
+                ComputerUseEffect.PurgeMasters(session),
+            ),
+            outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
+        )
+    }
+
+    @Test
+    fun `stopping another turn leaves the capture running`() {
+        ComputerUseMachineSpec.assertIgnored(capturing, ComputerUseIntent.Public.StopAgent(otherOwner))
+    }
+
+    @Test
+    fun `a stop that arrives after the capture ended is ignored`() {
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.StopAgent(owner))
+        ComputerUseMachineSpec.assertIgnored(ComputerUseState.Idle, ComputerUseIntent.Public.StopAgent(owner))
+    }
+
+    @Test
+    fun `a stopped turn cannot open or take over a capture while other turns can`() {
+        val stopped = ready.copy(stoppedOwners = setOf(owner))
+        ComputerUseMachineSpec.assertIgnored(
+            stopped,
+            ComputerUseIntent.Public.BeginCapture(desktopMode, owner, CaptureSessionId("again")),
+        )
+        val other = CaptureSessionId("other")
+        val othersCapture = ComputerUseState.Capturing(
+            other,
+            desktopMode,
+            otherOwner,
+            capabilities,
+            stoppedOwners = setOf(owner),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = stopped,
+            intent = ComputerUseIntent.Public.BeginCapture(desktopMode, otherOwner, other),
+            to = othersCapture,
+            effects = listOf(ComputerUseEffect.OpenCapture(desktopMode, other)),
+            outputs = listOf(ComputerUseOutput.CaptureChanged(desktopMode)),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            othersCapture,
+            ComputerUseIntent.Public.SwitchMode(windowMode, CaptureSessionId("taken"), owner),
+        )
+    }
+
+    @Test
+    fun `the end of a stopped turn forgets its stop`() {
+        ComputerUseMachineSpec.assertTransition(
+            from = ready.copy(stoppedOwners = setOf(owner)),
+            intent = ComputerUseIntent.Public.OwnerReleased(owner),
+            to = ready,
+        )
+        val othersCapture = capturing.copy(owner = otherOwner, stoppedOwners = setOf(owner))
+        ComputerUseMachineSpec.assertTransition(
+            from = othersCapture,
+            intent = ComputerUseIntent.Public.OwnerReleased(owner),
+            to = othersCapture.copy(stoppedOwners = emptySet()),
+        )
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.OwnerReleased(owner))
+    }
+
+    @Test
+    fun `operations naming another owner cannot touch the capture`() {
+        val armed = capturing.copy(mode = windowMode, isInputArmed = true, master = master, lastPreview = preview)
+        val request = CaptureRequest()
+        val crop = CropRequest(master.id, CaptureRegion(0, 0, 10, 10))
+        listOf(
+            ComputerUseIntent.Public.Capture(request, expectedOwner = otherOwner),
+            ComputerUseIntent.Public.Crop(crop, expectedOwner = otherOwner),
+            ComputerUseIntent.Public.Input(click, expectedOwner = otherOwner),
+            ComputerUseIntent.Public.ArmInput(true, expectedOwner = otherOwner),
+            ComputerUseIntent.Public.CancelSession(session, expectedOwner = otherOwner),
+        ).forEach { intent -> ComputerUseMachineSpec.assertIgnored(armed, intent) }
+        ComputerUseMachineSpec.assertTransition(
+            from = armed,
+            intent = ComputerUseIntent.Public.Capture(request, expectedOwner = owner),
+            to = armed,
+            effects = listOf(ComputerUseEffect.CaptureFrame(request)),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = armed,
+            intent = ComputerUseIntent.Public.Crop(crop, expectedOwner = owner),
+            to = armed,
+            effects = listOf(ComputerUseEffect.ProduceCrop(crop)),
         )
     }
 
@@ -348,22 +502,22 @@ class ComputerUseMachineTest {
     }
 
     @Test
-    fun `panel takeover replaces the owner and ignores old agent release`() {
+    fun `a capture is switched by its owner and never handed over`() {
         val replacement = CaptureSessionId("replacement")
-        val switched = capturing.copy(
-            session = replacement,
-            mode = windowMode,
-            owner = CaptureOwner.Panel,
-            isOpen = false,
+        ComputerUseMachineSpec.assertIgnored(
+            capturing,
+            ComputerUseIntent.Public.SwitchMode(windowMode, replacement, CaptureOwner.Panel, session),
         )
         ComputerUseMachineSpec.assertTransition(
             from = capturing,
-            intent = ComputerUseIntent.Public.SwitchMode(windowMode, replacement, CaptureOwner.Panel, session),
-            to = switched,
-            effects = listOf(ComputerUseEffect.OpenCapture(windowMode, replacement)),
+            intent = ComputerUseIntent.Public.SwitchMode(windowMode, replacement, owner, session),
+            to = capturing.copy(session = replacement, mode = windowMode, isOpen = false),
+            effects = listOf(
+                ComputerUseEffect.CloseCapture(capturing.session),
+                ComputerUseEffect.OpenCapture(windowMode, replacement),
+            ),
             outputs = listOf(ComputerUseOutput.CaptureChanged(windowMode)),
         )
-        ComputerUseMachineSpec.assertIgnored(switched, ComputerUseIntent.Public.OwnerReleased(owner))
     }
 
     @Test
@@ -396,6 +550,7 @@ class ComputerUseMachineTest {
             SessionRef(EngineId("pi"), SessionSourceId("source"), "native"),
             TurnId("turn"),
         )
+        val otherOwner = owner.copy(turn = TurnId("other-turn"))
         val session = CaptureSessionId("s1")
         val ready = ComputerUseState.Ready(capabilities)
         val capturing = ComputerUseState.Capturing(session, desktopMode, owner, capabilities, isOpen = true)
