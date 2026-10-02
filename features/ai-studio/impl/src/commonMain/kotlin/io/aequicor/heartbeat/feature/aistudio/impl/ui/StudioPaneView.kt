@@ -99,7 +99,8 @@ import kotlin.time.Duration
  * One workspace column: a session transcript or the new-session page, with its composer.
  * [content] holds only this pane's data, so streaming into another pane does not recompose it.
  * Keyboard focus anywhere inside the pane selects it, keeping screen-level screenshot paste on the same draft.
- * Worktree cards follow the transcript; a pane preparing a worktree session already shows them in its feed.
+ * Worktree cards are woven into the transcript at the moment they are invoked; a pane preparing a worktree
+ * session already shows them in its feed.
  */
 @Composable
 internal fun StudioPaneView(
@@ -498,7 +499,13 @@ private fun SessionTranscript(
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val timeline = rememberStudioTimeline(feedId, messages, timelineLabels(section, calendar), worktree.messages)
+    val timeline = rememberStudioTimeline(
+        feedId,
+        messages,
+        timelineLabels(section, calendar),
+        worktree.messages,
+        worktree.retained,
+    )
     val links = LocalUriHandler.current
     HbChatTranscript(
         timeline = timeline,

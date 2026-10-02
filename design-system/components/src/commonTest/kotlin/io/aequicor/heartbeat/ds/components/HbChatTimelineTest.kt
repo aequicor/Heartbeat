@@ -172,6 +172,80 @@ class HbChatTimelineTest {
         assertSame(history, history.appendTail(section, emptyList(), previous = updated))
     }
 
+    @Test
+    fun `replacing a woven card keeps its position and shares prepared rows`() {
+        val section = HbChatSection("session", "Session")
+        val card = toolMessage("card").copy(role = HbChatRole.System)
+        val timeline = HbChatTimeline.Empty
+            .append(section, HbChatMessage("first", "Agent", "History"))
+            .append(section, card)
+        val changed = card.copy(toolCalls = persistentListOf(card.toolCalls.single().copy(status = HbToolStatus.Error)))
+        val updated = timeline.replace("card", changed)
+
+        assertEquals(listOf("first", "card"), updated.messages.map { it.id })
+        assertEquals(HbToolStatus.Error, updated.messages.last().toolCalls.single().status)
+        assertSame(timeline.messages.first(), updated.messages.first())
+        assertSame(
+            (timeline.sections.single().entries.first().body as HbTranscriptBody.Text),
+            updated.sections.single().entries.first().body,
+        )
+        assertSame(
+            (timeline.sections.single().entries.last().body as HbTranscriptBody.Tool).rows,
+            (updated.sections.single().entries.last().body as HbTranscriptBody.Tool).rows,
+        )
+        assertEquals(timeline.itemCount, updated.itemCount)
+        assertEquals(timeline.sections.single().toolEntries, updated.sections.single().toolEntries)
+        assertFailsWith<IllegalArgumentException> { updated.replace("missing", changed) }
+    }
+
+    @Test
+    fun `removing a woven card keeps the history and the streaming tail replaceable`() {
+        val section = HbChatSection("session", "Session")
+        val card = toolMessage("card").copy(role = HbChatRole.System)
+        val stream = HbChatMessage("stream", "Agent", "Start", status = HbMessageStatus.Streaming)
+        val timeline = HbChatTimeline.Empty
+            .append(section, HbChatMessage("first", "Agent", "History"))
+            .append(section, card)
+            .append(section, stream)
+        val removed = timeline.remove("card")
+
+        assertEquals(listOf("first", "stream"), removed.messages.map { it.id })
+        assertEquals(timeline.itemCount - 2, removed.itemCount)
+        val streamed = removed.replaceLatest(stream.copy(text = "Start with another token"))
+        assertEquals("Start with another token", streamed.latestMessage!!.text)
+        assertEquals(listOf("first", "stream"), streamed.messages.map { it.id })
+        assertFailsWith<IllegalArgumentException> { removed.remove("card") }
+    }
+
+    @Test
+    fun `replacing a mid-timeline message with other chunk count re-indexes tools and keeps streaming`() {
+        val section = HbChatSection("today", "Today")
+        val stream = HbChatMessage("stream", "Agent", "Start", status = HbMessageStatus.Streaming)
+        val original = HbChatTimeline.from(
+            section,
+            persistentListOf(toolMessage("history"), HbChatMessage("text", "Agent", "Plain"), stream),
+        )
+        val grown = original.replace(
+            "text",
+            HbChatMessage("text", "Agent", "First\n\nSecond", kind = HbMessageKind.Markdown),
+        )
+
+        assertEquals(original.itemCount + 1, grown.itemCount)
+        val grownEntries = grown.sections.single().entries
+        // The tool history keeps its index; the grown message contributes two markdown chunks before the stream.
+        assertEquals(5, grownEntries.size)
+        assertTrue(grownEntries[2].body is HbTranscriptBody.Markdown)
+        assertEquals("Start", (grownEntries.last().body as HbTranscriptBody.Text).text.take(5))
+        grown.sections.single().toolEntries.forEach { (key, index) -> assertEquals(key, grownEntries[index].key) }
+
+        val streamed = grown.replaceLatest(stream.copy(text = "Start with another token"))
+        assertEquals("Start with another token", streamed.latestMessage!!.text)
+        assertEquals(listOf("history", "text", "stream"), streamed.messages.map { it.id })
+        streamed.sections.single().toolEntries.forEach { (key, index) ->
+            assertEquals(key, streamed.sections.single().entries[index].key)
+        }
+    }
+
     private fun toolMessage(id: String): HbChatMessage = HbChatMessage(
         id,
         "Agent",

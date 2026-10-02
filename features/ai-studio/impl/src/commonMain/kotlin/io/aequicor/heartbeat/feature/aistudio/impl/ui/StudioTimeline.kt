@@ -92,10 +92,10 @@ internal fun fill(template: String, vararg args: Any): String = args.foldIndexed
 
 /**
  * Keeps the prepared timeline of one pane. Streaming replaces only the latest message and new entries are
- * appended; anything else (another session, new labels) rebuilds the timeline. Host-owned tail entries
- * (worktree cards) follow the history in its latest section, as current state rather than dated entries: each
- * update appends them to the cached history, reusing their prepared rows, so a changing card never rebuilds the
- * transcript and streaming before the cards stays incremental.
+ * appended; anything else (another session, new labels) rebuilds the timeline. Host-owned worktree cards join
+ * the transcript at the moment they are invoked: a card lands after the messages already present and stays
+ * there while later turns stream below it. Every update refreshes offered card content in place; cards kept
+ * by the caller as retained survive after they leave the offered window, the rest are retired once absent.
  * [update] is idempotent: repeating it with the same input returns the same timeline, so a discarded
  * composition that already advanced the cache cannot desynchronize it from the committed one.
  */
@@ -103,44 +103,123 @@ internal class TimelineCache {
     private var messages: List<MessageUi> = emptyList()
     private var labels: TimelineLabels? = null
     private var history: HbChatTimeline = HbChatTimeline.Empty
-    private var tail: List<HbChatMessage> = emptyList()
-    private var timeline: HbChatTimeline? = null
+    private var cards: List<HbChatMessage> = emptyList()
+    private var retained: Set<String> = emptySet()
+
+    /** Cards already woven, by id; their insertion points replay full rebuilds in weave order. */
+    private var woven: Map<String, HbChatMessage> = emptyMap()
+    private var weaves: List<Weave> = emptyList()
+
+    private data class Weave(val id: String, val afterIndex: Int)
 
     fun update(
         next: List<MessageUi>,
         nextLabels: TimelineLabels,
-        nextTail: List<HbChatMessage> = emptyList(),
+        nextCards: List<HbChatMessage> = emptyList(),
+        nextRetained: Set<String> = emptySet(),
     ): HbChatTimeline {
-        val previous = history
-        val isSameLabels = labels == nextLabels
+        if (next == messages && nextCards == cards) {
+            if (nextLabels == labels && nextRetained == retained) return history
+        }
         val sections = sectionsFor(next, nextLabels)
+        history = syncMessages(next, nextLabels, sections)
+        messages = next
+        labels = nextLabels
+        return weave(next, nextCards, nextRetained, sections, nextLabels)
+    }
+
+    /** Streams into the latest message and appends the arrived ones; another source rebuilds the timeline. */
+    private fun syncMessages(
+        next: List<MessageUi>,
+        nextLabels: TimelineLabels,
+        sections: List<HbChatSection>,
+    ): HbChatTimeline {
+        val isSameLabels = labels == nextLabels
         val isSameSource = isSameLabels && next.size >= messages.size && messages.isNotEmpty()
         val keptPrefix = if (isSameSource) messages.size - 1 else 0
         val isIncremental = isSameSource &&
             next[keptPrefix].id == messages.last().id &&
             (0 until keptPrefix).all { next[it] == messages[it] }
-        history = if (isIncremental) {
-            val latest = next[keptPrefix]
-            var updated = if (latest == messages.last()) history else history.replaceLatest(latest.toHb(nextLabels))
-            for (index in messages.size until next.size) {
-                updated = updated.append(
-                    sections[index],
-                    next[index].toHb(nextLabels),
-                )
-            }
-            updated
+        if (!isIncremental) return rebuild(next, sections, nextLabels)
+        val latest = next[keptPrefix]
+        var updated = if (latest == messages.last()) {
+            history
         } else {
-            next.foldIndexed(HbChatTimeline.Empty) { index, current, message ->
-                current.append(sections[index], message.toHb(nextLabels))
+            history.replace(latest.id, latest.toHb(nextLabels))
+        }
+        for (index in messages.size until next.size) {
+            updated = updated.append(sections[index], next[index].toHb(nextLabels))
+        }
+        return updated
+    }
+
+    /** Appends new cards at the current end, refreshes known ones in place and retires absent ones. */
+    private fun weave(
+        next: List<MessageUi>,
+        nextCards: List<HbChatMessage>,
+        nextRetained: Set<String>,
+        sections: List<HbChatSection>,
+        nextLabels: TimelineLabels,
+    ): HbChatTimeline {
+        cards = nextCards
+        retained = nextRetained
+        val offered = nextCards.mapTo(HashSet()) { it.id }
+        offered.addAll(nextRetained)
+        var updated = history
+        for (card in nextCards) {
+            when (woven[card.id]) {
+                null -> {
+                    woven = woven + (card.id to card)
+                    weaves = weaves + Weave(card.id, next.lastIndex)
+                    updated = updated.append(cardSection(sections, nextLabels), card)
+                }
+
+                card -> Unit
+
+                else -> {
+                    woven = woven + (card.id to card)
+                    updated = updated.replace(card.id, card)
+                }
             }
         }
-        messages = next
-        labels = nextLabels
-        val composed = timeline?.takeIf { history === previous && isSameLabels && nextTail == tail }
-            ?: history.appendTail(sections.lastOrNull() ?: tailSection(nextLabels), nextTail, previous = timeline)
-        timeline = composed
-        tail = nextTail
-        return composed
+        for (id in woven.keys.filterNot(offered::contains)) {
+            woven = woven - id
+            weaves = weaves.filterNot { it.id == id }
+            updated = updated.remove(id)
+        }
+        history = updated
+        return updated
+    }
+
+    /** The cards join the section of the message they follow, or the host section of an empty transcript. */
+    private fun cardSection(sections: List<HbChatSection>, labels: TimelineLabels): HbChatSection =
+        sections.lastOrNull() ?: tailSection(labels)
+
+    /** Replays the woven cards at their recorded points; cards before the first message lead the transcript. */
+    private fun rebuild(
+        next: List<MessageUi>,
+        sections: List<HbChatSection>,
+        nextLabels: TimelineLabels,
+    ): HbChatTimeline {
+        var rebuilt = HbChatTimeline.Empty
+        val leading = weaves.filter { it.afterIndex < 0 }
+        if (leading.isNotEmpty()) {
+            val section = cardSection(emptyList(), nextLabels)
+            for (weave in leading) woven[weave.id]?.let { rebuilt = rebuilt.append(section, it) }
+        }
+        rebuilt = next.foldIndexed(rebuilt) { index, current, message ->
+            var appended = current.append(sections[index], message.toHb(nextLabels))
+            for (weave in weaves) {
+                if (weave.afterIndex == index) woven[weave.id]?.let { appended = appended.append(sections[index], it) }
+            }
+            appended
+        }
+        val trailing = weaves.filter { it.afterIndex in next.size..Int.MAX_VALUE }
+        if (trailing.isNotEmpty()) {
+            val section = cardSection(sections, nextLabels)
+            for (weave in trailing) woven[weave.id]?.let { rebuilt = rebuilt.append(section, it) }
+        }
+        return rebuilt
     }
 
     /** Host entries of an empty transcript stay in the session group, or under no date heading. */
@@ -176,18 +255,19 @@ internal class TimelineCache {
 }
 
 /**
- * The prepared timeline of [messages] followed by host-owned [tail] entries, updated incrementally while the
- * same session streams.
+ * The prepared timeline of [messages] with host-owned [cards] woven at their invocation points, updated
+ * incrementally while the same session streams.
  */
 @Composable
 internal fun rememberStudioTimeline(
     sessionId: String,
     messages: ImmutableList<MessageUi>,
     labels: TimelineLabels,
-    tail: ImmutableList<HbChatMessage> = persistentListOf(),
+    cards: ImmutableList<HbChatMessage> = persistentListOf(),
+    retained: Set<String> = emptySet(),
 ): HbChatTimeline {
     val cache = remember(sessionId) { TimelineCache() }
-    return remember(cache, messages, labels, tail) { cache.update(messages, labels, tail) }
+    return remember(cache, messages, labels, cards, retained) { cache.update(messages, labels, cards, retained) }
 }
 
 internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this) {

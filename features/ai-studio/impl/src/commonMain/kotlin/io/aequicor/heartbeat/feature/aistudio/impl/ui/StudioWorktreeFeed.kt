@@ -154,10 +154,15 @@ internal data class WorktreeFeed(
     val isPreparing: Boolean,
 )
 
-/** Synthetic transcript tail: host-owned cards in display order and the command behind each card action. */
+/**
+ * Host-owned cards of one pane, woven into the transcript at their invocation points, with the command behind
+ * each card action.
+ */
 @Immutable
 internal data class WorktreeTimeline(
     val messages: ImmutableList<HbChatMessage> = persistentListOf(),
+    /** Cards that stay woven after they leave [messages]: invoked builds are history events, not current state. */
+    val retained: Set<String> = emptySet(),
     val commands: ImmutableMap<String, WorktreeCommand> = persistentMapOf(),
 ) {
     /** Runs the command of action [actionId] pressed on card [callId]; other tools have no host command. */
@@ -205,16 +210,19 @@ internal fun PaneContent.worktreeFeed(): WorktreeFeed? {
 }
 
 /**
- * Cards of [feed] for the end of the transcript: the journal notice, one card for the task (`worktree:<key>`)
- * and one per recent build (`build:<id>`). Stable ids keep disclosure state while the transcript streams.
+ * Cards of [feed] for the transcript: the journal notice, one card for the task (`worktree:<key>`) and one per
+ * recent build (`build:<id>`). Stable ids keep disclosure state while the transcript streams; the recent-build
+ * window refreshes the last [MAX_BUILDS], while every build ever invoked stays [WorktreeTimeline.retained].
  * Until the journal is restored the task card hides its phase and decisions, which may be stale.
  */
 internal fun worktreeTimeline(feed: WorktreeFeed?, labels: WorktreeLabels): WorktreeTimeline {
     if (feed == null) return WorktreeTimeline()
-    val cards = listOfNotNull(feed.journalCard(labels), feed.taskCard(labels)) + feed.buildCards(labels.builds)
+    val builds = feed.buildCards(labels.builds)
+    val cards = listOfNotNull(feed.journalCard(labels), feed.taskCard(labels)) + builds
     if (cards.isEmpty()) return WorktreeTimeline()
     return WorktreeTimeline(
         cards.map { it.message(labels.author) }.toImmutableList(),
+        feed.buildIds(),
         cards.flatMap { card -> card.commands.map { commandKey(card.call.id, it.action.id) to it.command } }
             .toMap().toImmutableMap(),
     )
@@ -437,6 +445,9 @@ private fun WorktreeFeed.buildCards(labels: BuildLabels): List<WorktreeCard> {
         )
     }
 }
+
+/** Every build of the task keeps its card woven, even when it leaves the recent-build window. */
+private fun WorktreeFeed.buildIds(): Set<String> = task?.builds?.mapTo(HashSet()) { "build:${it.id}" }.orEmpty()
 
 /** The last lines of the bounded journal output; the end of a log carries the diagnostic. */
 private fun BuildUi.outputTail(): String =

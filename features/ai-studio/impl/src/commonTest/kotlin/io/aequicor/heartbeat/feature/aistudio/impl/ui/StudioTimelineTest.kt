@@ -117,22 +117,57 @@ class StudioTimelineTest {
     }
 
     @Test
-    fun `worktree cards stay last while the answer before them streams incrementally`() {
+    fun `worktree cards join the transcript at invocation and later entries stream below them`() {
         val cache = TimelineCache()
-        val cards = listOf(card("worktree:chat"), card("build:compile"))
-        val first = cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards)
-        assertEquals(listOf("m1", "m2", "worktree:chat", "build:compile"), first.messages.map { it.id })
-        assertSame(first, cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards))
+        val cards = listOf(card("build:compile"), card("build:test"))
+        val retained = setOf("build:compile", "build:test")
+        val first = cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards, retained)
+        assertEquals(listOf("m1", "m2", "build:compile", "build:test"), first.messages.map { it.id })
+        val repeated = listOf(prompt, reply("partial", isStreaming = true))
+        assertSame(first, cache.update(repeated, labels, cards, retained))
 
-        val streamed = cache.update(listOf(prompt, reply("partial answer", isStreaming = true)), labels, cards)
+        val streamed = cache.update(
+            listOf(prompt, reply("partial answer", isStreaming = true)),
+            labels,
+            cards,
+            retained,
+        )
         assertSame(first.messages.first(), streamed.messages.first())
         assertEquals("partial answer", streamed.messages[1].text)
-        assertEquals(cards, streamed.messages.takeLast(2))
+        assertEquals(listOf("m1", "m2", "build:compile", "build:test"), streamed.messages.map { it.id })
 
         val finished = listOf(prompt, reply("partial answer", isStreaming = false), stopped("m3", 4))
-        val appended = cache.update(finished, labels, cards.take(1))
-        assertEquals(listOf("m1", "m2", "m3", "worktree:chat"), appended.messages.map { it.id })
-        assertEquals(listOf("m1", "m2", "m3"), cache.update(finished, labels).messages.map { it.id })
+        val appended = cache.update(finished, labels, cards.takeLast(1), retained)
+        assertEquals(listOf("m1", "m2", "build:compile", "build:test", "m3"), appended.messages.map { it.id })
+    }
+
+    @Test
+    fun `woven cards refresh in place and retire once neither offered nor retained`() {
+        val cache = TimelineCache()
+        val running = card("build:compile")
+        val first = cache.update(
+            listOf(prompt),
+            labels,
+            listOf(running, card("worktree:chat")),
+            nextRetained = setOf("build:compile"),
+        )
+        assertEquals(listOf("m1", "build:compile", "worktree:chat"), first.messages.map { it.id })
+
+        val failedCall = assertIs<HbMessagePart.Tool>(running.parts.single()).call.copy(status = HbToolStatus.Error)
+        val failed = running.copy(parts = persistentListOf(HbMessagePart.Tool(failedCall)))
+        val updated = cache.update(
+            listOf(prompt),
+            labels,
+            listOf(failed, card("worktree:chat")),
+            nextRetained = setOf("build:compile"),
+        )
+        assertNotSame(first, updated)
+        assertEquals(listOf("m1", "build:compile", "worktree:chat"), updated.messages.map { it.id })
+        val call = assertIs<HbMessagePart.Tool>(updated.messages[1].parts.single()).call
+        assertEquals(HbToolStatus.Error, call.status)
+
+        val cleared = cache.update(listOf(prompt), labels)
+        assertEquals(listOf("m1"), cleared.messages.map { it.id })
     }
 
     @Test
