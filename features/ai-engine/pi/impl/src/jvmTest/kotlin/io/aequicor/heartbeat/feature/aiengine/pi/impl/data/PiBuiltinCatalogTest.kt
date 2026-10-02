@@ -33,6 +33,22 @@ class PiBuiltinCatalogTest {
     }
 
     @Test
+    fun `another executable is probed again`() = runTest {
+        val probed = mutableListOf<Path>()
+        val catalog = PiBuiltinCatalog { path, _ ->
+            probed.add(path)
+            listOf(JsonObject(mapOf("id" to JsonPrimitive(path.toString()))))
+        }
+        val updated = Path.of("/data/pi/pi")
+
+        catalog.models(executable, root)
+        catalog.models(updated, root)
+        catalog.models(updated, root)
+
+        assertEquals(listOf(executable, updated), probed)
+    }
+
+    @Test
     fun `failed probes are attempted once for the profile lifetime`() = runTest {
         val failures = listOf(
             IOException("unavailable executable"),

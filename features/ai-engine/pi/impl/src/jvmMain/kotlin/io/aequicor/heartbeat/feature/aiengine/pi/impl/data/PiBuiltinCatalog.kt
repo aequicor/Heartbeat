@@ -22,7 +22,7 @@ import java.nio.file.Path
 import java.util.Comparator
 
 /**
- * Model definitions of the bundled Pi's own catalog, read once per profile from an offline probe process that
+ * Model definitions of Pi's own catalog, read once per profile and executable from an offline probe process that
  * unlocks [PiCatalogProviders] with a placeholder key (no request leaves the machine). A failed probe yields an
  * empty catalog cached for the rest of this profile lifetime, just like a successful empty response. Concurrent
  * callers share one probe; cancellation is propagated and does not cache a partial result.
@@ -37,10 +37,13 @@ internal class PiBuiltinCatalog(private val probe: suspend (Path, Path) -> List<
 
     private val log = Log.tag("PiBuiltinCatalog")
     private val mutex = Mutex()
-    private var models: List<JsonObject>? = null
+
+    /** The catalog of the executable read last; another executable (an updated Pi) is probed again. */
+    private var models: Pair<Path, List<JsonObject>>? = null
 
     suspend fun models(executable: Path, runtimeRoot: Path): List<JsonObject> = mutex.withLock {
-        models ?: read(executable, runtimeRoot).also { models = it }
+        models?.takeIf { it.first == executable }?.second
+            ?: read(executable, runtimeRoot).also { models = executable to it }
     }
 
     private suspend fun read(executable: Path, runtimeRoot: Path): List<JsonObject> = try {

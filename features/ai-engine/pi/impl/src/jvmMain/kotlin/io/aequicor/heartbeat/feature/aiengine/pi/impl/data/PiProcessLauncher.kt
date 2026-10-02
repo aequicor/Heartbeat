@@ -16,6 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
@@ -46,12 +49,30 @@ internal class PiProcessLauncher(
     private val storage: PiStorage,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     @ForScope(ProfileScope::class) private val stores: DataStores,
+    private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
 ) : PiProcesses {
     private val log = Log.tag("PiProcessLauncher")
     private val isMissingResourcesReported = AtomicBoolean(false)
     private val nativeSearch = AtomicReference<SearchBridgeAttachment?>(null)
 
-    fun executable(): Path? {
+    /** The Pi the profile's launch context starts: a custom executable, Heartbeat's newer copy or the bundled one. */
+    suspend fun startup(launch: LaunchContext? = null): PiStartup =
+        resolvePiStartup(launch ?: launches.context(PiEngineId), bundledExecutable())
+
+    suspend fun executable(): Path? = startup().executable
+
+    /** The version `preparePiRuntime` recorded next to the bundled executable, or null when it is unknown. */
+    fun bundledVersion(): String? {
+        val file = bundledExecutable()?.resolveSibling(VERSION_FILE)?.takeIf { Files.isRegularFile(it) } ?: return null
+        return try {
+            Files.readString(file).trim().takeIf { it.isNotEmpty() && it.length <= MAX_VERSION_CHARS }
+        } catch (e: IOException) {
+            log.w(e) { "Bundled Pi version could not be read" }
+            null
+        }
+    }
+
+    fun bundledExecutable(): Path? {
         val root = System.getProperty("compose.application.resources.dir")
         if (root == null) {
             // Asked on every availability check; the missing directory is reported once.
@@ -123,7 +144,8 @@ internal class PiProcessLauncher(
         failed: suspend (EngineFailure) -> Unit,
         hosted: PiHostedTools?,
     ): PiConnection = withContext(NonCancellable + dispatchers.io) {
-        val executable = executable()?.takeIf { Files.isRegularFile(it) }
+        val startup = startup()
+        val executable = startup.executable?.takeIf { Files.isRegularFile(it) }
             ?: piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         val provider = provider(source) ?: authenticationFailure(AuthFailureReason.AuthMismatch, source.info.id)
         val owner = stores.owner as? StorageOwner.Profile
@@ -142,7 +164,7 @@ internal class PiProcessLauncher(
         val command = piCommand(executable, sessionDir, extensions, tools, isProject = workspace != null)
         val builder = ProcessBuilder(command).directory(workingDir.toFile())
         val environment = builder.environment()
-        retainPiEnvironment(environment)
+        applyPiEnvironment(environment, startup)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
         if (hosted != null) {
@@ -162,7 +184,7 @@ internal class PiProcessLauncher(
             extensions.forEach { installExtension(it.fileName.toString(), it) }
             modelsJson?.let { Files.writeString(agentDir.resolve("models.json"), it) }
             secret.use { it.reveal { chars -> environment[provider.variable] = String(chars) } }
-            log.i { "Starting bundled Pi process" }
+            log.i { "Starting Pi process source=${startup.source}" }
             val started = builder.start()
             process = started
             started.onExit().whenComplete { _, _ -> deleteTree(agentDir) }
@@ -229,6 +251,9 @@ internal class PiProcessLauncher(
 internal fun retainPiEnvironment(environment: MutableMap<String, String>) {
     environment.keys.retainAll { it.uppercase() in PI_HOST_ENVIRONMENT }
 }
+
+private const val VERSION_FILE = "VERSION"
+private const val MAX_VERSION_CHARS = 64
 
 private val PI_HOST_ENVIRONMENT = setOf(
     "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "OS", "PROCESSOR_ARCHITECTURE",

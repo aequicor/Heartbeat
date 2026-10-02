@@ -64,7 +64,7 @@ internal class DesktopPiEngine(
     private val runtimes = mutableMapOf<AuthSourceId, PiRuntime>()
 
     override suspend fun checkRequirements(): EngineAvailability = withContext(dispatchers.io) {
-        log.d { "Checking bundled Pi installation" }
+        log.d { "Checking Pi installation" }
         val os = System.getProperty("os.name")
         if (!os.startsWith("Windows") && !os.startsWith("Mac")) {
             EngineAvailability.UnsupportedPlatform
