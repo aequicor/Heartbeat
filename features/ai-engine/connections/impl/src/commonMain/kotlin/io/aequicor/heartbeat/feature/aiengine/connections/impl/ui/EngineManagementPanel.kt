@@ -53,12 +53,13 @@ import org.jetbrains.compose.resources.stringResource
 
 /**
  * Management of the selected engine, between the engine list and its connections: the profile switch with the
- * reasons that keep the engine off, the installation with its update and removal actions, the running job and the
- * runtimes. Every action waits while another change or a job runs.
+ * reasons that keep the engine off, the installation with its update and removal actions, the CLI sign-in, the
+ * running job, the runtimes and the launch settings. Every action waits while another change or a job runs.
  */
 @Composable
 internal fun EngineManagementSection(
     panel: EnginePanelUi,
+    loginCode: String,
     isSaving: Boolean,
     onIntent: (EngineConnectionsScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
@@ -82,12 +83,20 @@ internal fun EngineManagementSection(
         EngineSwitchRow(panel, isIdle, onIntent)
         HbDivider()
         InstallationBlock(panel, isIdle, onIntent)
+        panel.login?.let { login ->
+            HbDivider()
+            EngineLoginBlock(panel, login, loginCode, isIdle, onIntent)
+        }
         panel.job?.let { job ->
             HbDivider()
             JobBlock(job, isSaving, onIntent)
         }
         HbDivider()
         RuntimeRow(panel, isIdle, onIntent)
+        panel.launch?.let { launch ->
+            HbDivider()
+            EngineLaunchForm(launch, isIdle, onIntent)
+        }
     }
 }
 

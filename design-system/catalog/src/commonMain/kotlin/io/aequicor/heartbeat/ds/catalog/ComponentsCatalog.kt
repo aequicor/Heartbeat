@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.ds.components.HbCard
 import io.aequicor.heartbeat.ds.components.HbChatMessage
 import io.aequicor.heartbeat.ds.components.HbChatMessageBubble
 import io.aequicor.heartbeat.ds.components.HbChatRole
+import io.aequicor.heartbeat.ds.components.HbCopyButton
 import io.aequicor.heartbeat.ds.components.HbDiffView
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbMessageAppearance
@@ -55,6 +56,13 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                         state::showActionFeedback,
                         style = HbButtonStyle.Ghost,
                     )
+                    HbCopyButton(
+                        CATALOG_COPY_SAMPLE,
+                        hbString(HbString.CopyFilePath),
+                        hbString(HbString.FilePathCopied),
+                        Modifier.testTag("catalog-copy"),
+                    )
+                    HbCopyButton("", hbString(HbString.CopyFilePath), hbString(HbString.FilePathCopied))
                 }
                 if (state.hasActionFeedback) HbBadge(hbString(HbString.ActionFeedback), tone = HbTone.Success)
             }
@@ -163,3 +171,6 @@ private fun MessageExamples(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** A path the catalog copies to show [HbCopyButton]. */
+private const val CATALOG_COPY_SAMPLE = "/Users/me/Projects/heartbeat/README.md"

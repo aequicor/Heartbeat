@@ -10,9 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
@@ -23,22 +21,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.platform.Clipboard
-import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.offset
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
-
-private val messageLog = Log.tag("DS/Message")
 
 /** Indents measured wide content to the author while keeping narrow replies fully usable. */
 @Composable
@@ -128,28 +119,7 @@ internal fun HbUnifiedMessageFooter(
 
 @Composable
 private fun MessageCopyButton(copyText: String, labels: HbToolLabels) {
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    var isCopied by remember(copyText) { mutableStateOf(false) }
-    HbIconButton(
-        icon = if (isCopied) HbIcons.Check else HbIcons.Copy,
-        contentDescription = if (isCopied) labels.messageCopied else labels.copyMessage,
-        enabled = copyText.isNotBlank(),
-        onClick = {
-            messageLog.i { "copy answer requested length=${copyText.length}" }
-            scope.launch { isCopied = copyMessage(clipboard, copyText) }
-        },
-    )
-}
-
-private suspend fun copyMessage(clipboard: Clipboard, text: String): Boolean = try {
-    clipboard.setClipEntry(hbPlainTextClipEntry(text))
-    true
-} catch (error: CancellationException) {
-    throw error
-} catch (error: Exception) {
-    messageLog.e(error) { "copy answer failed" }
-    false
+    HbCopyButton(copyText, labels.copyMessage, labels.messageCopied)
 }
 
 @Composable
