@@ -41,6 +41,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -97,9 +98,12 @@ internal class ComputerUseAgentTools(
             "read small text with computer_zoom on a region or a zero-based tile (column:row, e.g. 0:0), " +
             "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
-            "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
-            "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
-            "TargetClosed, ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
+            "you pass space:\"master\", \"normalized\" or \"screen\". computer_type carries exact characters " +
+            "independent of the keyboard layout (newline is Enter), up to 1000 characters per call; split longer " +
+            "text. computer_key accepts named keys including win; 40 pixels of computer_scroll deltaY are one " +
+            "wheel notch, negative scrolls up. Input follows the session trust and confirmation gate " +
+            "automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, TargetClosed, " +
+            "ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
             "A capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
             "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
             "Call computer_release as soon as you finish working with the computer; capture and " +
@@ -550,6 +554,7 @@ internal class ComputerUseAgentTools(
                 expectedCapture = capture,
                 expectedOwner = owner,
             ),
+            inputWaitLimitMillis(action),
         )
             ?: return failure("InputTimedOut")
         return when (output) {
@@ -594,6 +599,7 @@ internal class ComputerUseAgentTools(
     private suspend fun awaitOutput(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         intent: ComputerUseIntent.Public,
+        timeoutMillis: Long = OUTPUT_TIMEOUT_MILLIS,
     ): ComputerUseOutput? = coroutineScope {
         val session = (machine.state.value as? ComputerUseState.Capturing)?.session
         val id = Uuid.random().toString()
@@ -630,7 +636,7 @@ internal class ComputerUseAgentTools(
                 isCompleted = true
                 return@coroutineScope ComputerUseOutput.Rejected(ignoredReason(machine.state.value, intent), id)
             }
-            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) {
+            val result = withTimeoutOrNull(timeoutMillis) {
                 select {
                     answered.onAwait { it }
                     closed.onAwait { it }

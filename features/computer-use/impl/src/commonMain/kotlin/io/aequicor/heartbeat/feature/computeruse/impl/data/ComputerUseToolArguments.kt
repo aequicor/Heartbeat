@@ -18,7 +18,9 @@ import kotlinx.serialization.json.jsonPrimitive
 private val argumentLog = Log.tag("ComputerUseToolArguments")
 private const val MAX_CLICKS = 3
 private const val MAX_KEYS = 6
-private const val MAX_TYPED_CHARS = 4096
+
+/** A single call stays well inside the tool wait limit even on the slow key-code path. */
+private const val MAX_TYPED_CHARS = 1_000
 private const val MIN_QUALITY = 1
 private const val MAX_QUALITY = 100
 

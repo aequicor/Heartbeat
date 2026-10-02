@@ -358,6 +358,7 @@ public enum class ComputerUseFailure {
     SelfCaptureNotAllowed,
     ClientAreaUnavailable,
     UnsupportedCharacter,
+    UnsupportedKey,
     RegionOutOfBounds,
     CaptureExpired,
     UnknownCapture,
