@@ -125,6 +125,20 @@ class ComputerUseModelTest {
     }
 
     @Test
+    fun `a failed read stays visible through later save failures and successes`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Idle, isEnabled = true, failObserve = true)
+        val screen = fixture.subscribe()
+        fixture.preferences.failSave = true
+        screen.intent(ComputerUseScreenIntent.SetEnabled(false))
+        runCurrent()
+        assertEquals(SettingsError.LoadFailed, screen.states.value.error)
+        fixture.preferences.failSave = false
+        screen.intent(ComputerUseScreenIntent.SetEnabled(false))
+        runCurrent()
+        assertEquals(SettingsError.LoadFailed, screen.states.value.error)
+    }
+
+    @Test
     fun `closing settings right after disabling still revokes and saves the opt out`() = runTest {
         val fixture = Fixture(this, capturing(), isEnabled = true)
         val screen = fixture.subscribe()

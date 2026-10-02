@@ -102,7 +102,7 @@ public object CapturePresets {
         isSharpened = true,
     )
 
-    /** Preview inside the Heartbeat panel. */
+    /** Preview shown inside Heartbeat. */
     public val UiPreview: CaptureEncoding = CaptureEncoding(
         format = CaptureFormat.Jpeg,
         quality = UI_QUALITY,

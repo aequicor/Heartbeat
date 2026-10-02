@@ -127,7 +127,8 @@ internal class ComputerUseModel(
             throw e
         } catch (e: Exception) {
             log.e(e) { "computer use switch was not saved enabled=$isEnabled" }
-            updateState { copy(error = SettingsError.SaveFailed) }
+            // A failed read stays visible: its observer is gone, so a save cannot vouch for the shown value.
+            updateState { copy(error = error.takeIf { it == SettingsError.LoadFailed } ?: SettingsError.SaveFailed) }
         }
     }
 }

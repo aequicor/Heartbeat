@@ -88,7 +88,8 @@ public interface AgentToolContribution {
 
     /**
      * Releases resources owned by this exact turn after the dispatcher revoked and awaited its tool calls.
-     * Bounded in time: an owner logs a cleanup it cannot confirm instead of failing the finished turn.
+     * Implementations must bound it in time and log a cleanup they cannot confirm instead of failing the finished
+     * turn; the dispatcher only isolates failures, it does not time contributions out.
      */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
 }

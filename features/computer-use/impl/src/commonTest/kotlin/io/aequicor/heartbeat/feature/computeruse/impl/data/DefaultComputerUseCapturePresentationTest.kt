@@ -253,6 +253,34 @@ class DefaultComputerUseCapturePresentationTest {
     }
 
     @Test
+    fun `cancellation while excluding a late window leaves no registration behind`() = runTest {
+        val dispatchers = TestDispatchers(StandardTestDispatcher(testScheduler))
+        val presentation = DefaultComputerUseCapturePresentation(dispatchers)
+        val entered = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        val capture = launch {
+            presentation.withoutPresentation {
+                entered.complete(Unit)
+                finish.await()
+            }
+        }
+        entered.await()
+        var suppressions = 0
+        withContext(dispatchers.main) {
+            assertFailsWith<CancellationException> {
+                presentation.register {
+                    suppressions++
+                    throw CancellationException("window gone")
+                }
+            }
+        }
+        finish.complete(Unit)
+        capture.join()
+        presentation.withoutPresentation { }
+        assertEquals(1, suppressions)
+    }
+
+    @Test
     fun `closed registration is not excluded by later captures`() = runTest {
         val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
         val window = PresentationWindow()

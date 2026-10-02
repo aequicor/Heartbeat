@@ -113,6 +113,12 @@ internal fun ComputerUseContent(
                         }
                     }
                 }
+                // The switch's own failure sits right below it, before the host's permission hints.
+                state.error?.let { error ->
+                    item(key = "error") {
+                        HbBanner(stringResource(error.resource()), Modifier.testTag("computer-use-error"))
+                    }
+                }
                 if (state.isEnabled && state.blockers.isNotEmpty()) {
                     item(key = "permissions") {
                         HbBanner(
@@ -120,11 +126,6 @@ internal fun ComputerUseContent(
                             Modifier.testTag("computer-use-permissions"),
                             tone = HbTone.Warning,
                         )
-                    }
-                }
-                state.error?.let { error ->
-                    item(key = "error") {
-                        HbBanner(stringResource(error.resource()), Modifier.testTag("computer-use-error"))
                     }
                 }
             }

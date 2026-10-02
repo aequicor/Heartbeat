@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
@@ -140,10 +141,7 @@ internal class ComputerUseEffectHandler(
             )
         }
         val outcome = when (effect.action) {
-            is InputAction.MoveTo, is InputAction.Click, is InputAction.Drag, is InputAction.Scroll -> {
-                presentation.withoutPresentation(apply)
-            }
-
+            is InputAction.MoveTo, is InputAction.Click, is InputAction.Drag, is InputAction.Scroll -> pointer(apply)
             is InputAction.Type, is InputAction.Key -> apply()
         }
         when (outcome) {
@@ -152,6 +150,20 @@ internal class ComputerUseEffectHandler(
             )
 
             is InputOutcome.Rejected -> reject(machine, outcome.reason, effect.requestId)
+        }
+    }
+
+    /** Applied input stays applied: a failed window restore afterwards is logged, so the agent does not repeat it. */
+    private suspend fun pointer(apply: suspend () -> InputOutcome): InputOutcome {
+        var applied: InputOutcome? = null
+        return try {
+            presentation.withoutPresentation { apply().also { applied = it } }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val outcome = applied ?: throw e
+            log.w(e) { "pointer input applied, but app windows were not restored" }
+            outcome
         }
     }
 

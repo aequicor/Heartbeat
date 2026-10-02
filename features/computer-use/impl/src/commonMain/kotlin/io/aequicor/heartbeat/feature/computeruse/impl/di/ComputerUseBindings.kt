@@ -47,8 +47,8 @@ import kotlinx.coroutines.launch
 /**
  * Profile-owned computer use graph.
  *
- * The machine lives in the profile scope, not in a screen scope: an agent turn keeps capturing after the panel
- * is closed, and the kill switch stays reachable through [ComputerUseMachineKey] at any time.
+ * The machine lives in the profile scope, not in a screen scope: an agent turn keeps capturing after the settings
+ * screen is closed, and the kill switch stays reachable through [ComputerUseMachineKey] at any time.
  */
 @ContributesTo(ProfileScope::class)
 @BindingContainer

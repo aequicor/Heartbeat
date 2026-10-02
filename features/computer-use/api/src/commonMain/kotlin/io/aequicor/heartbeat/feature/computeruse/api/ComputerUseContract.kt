@@ -50,7 +50,7 @@ public sealed interface ComputerUseState : MachineState {
 
 /** Public commands and private host results. */
 public sealed interface ComputerUseIntent : MachineIntent {
-    /** What the panel, other features and the hosted tools may send. */
+    /** What the settings screen, the host chrome, other features and the hosted tools may send. */
     public sealed interface Public : ComputerUseIntent {
         /** Probes availability; the first command after the profile started. */
         public data object Start : Public
@@ -227,7 +227,7 @@ public sealed interface ComputerUseEffect : MachineEffect {
     public data class StopOwner(public val owner: CaptureOwner.Agent) : ComputerUseEffect
 }
 
-/** One-shot events for the panel and for other features. */
+/** One-shot events for the hosted tools and for other features. */
 public sealed interface ComputerUseOutput : MachineOutput {
     /** The stored frames of this session have been removed. */
     public data class SessionClosed(public val session: CaptureSessionId) : ComputerUseOutput
@@ -250,7 +250,7 @@ public sealed interface ComputerUseOutput : MachineOutput {
     /** The user has to grant a permission before capture can start. */
     public data class PermissionRequired(public val blockers: List<ComputerUseBlocker>) : ComputerUseOutput
 
-    /** One input action was applied; the panel shows it in its journal. */
+    /** One input action was applied. */
     public data class InputApplied(public val action: InputAction, public val requestId: String? = null) :
         ComputerUseOutput
 

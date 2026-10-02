@@ -14,7 +14,7 @@ internal data class ComputerUseSettings(
     val encoding: CaptureEncoding get() = CapturePresets.byName(preset) ?: CapturePresets.AgentOverview
 
     internal companion object {
-        /** Name of the preset the panel and the hosted tools use until the profile chooses another one. */
+        /** Name of a stored preset; unused since the panel was removed (see issue #162). */
         const val DEFAULT_PRESET: String = "overview"
     }
 }

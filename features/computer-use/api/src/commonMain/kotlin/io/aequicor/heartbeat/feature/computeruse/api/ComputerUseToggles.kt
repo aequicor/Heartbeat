@@ -3,7 +3,7 @@ package io.aequicor.heartbeat.feature.computeruse.api
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 
 /**
- * Master switch of the feature: the panel route, the profile machine, the desktop capture and input hosts and
+ * Master switch of the feature: the settings route, the profile machine, the desktop capture and input hosts and
  * the agent tools. While it is off, every consumer sees [ComputerUseBlocker.UnsupportedPlatform] and no frame is
  * ever captured. Desktop only; mobile platforms stay unavailable even when it is on.
  */

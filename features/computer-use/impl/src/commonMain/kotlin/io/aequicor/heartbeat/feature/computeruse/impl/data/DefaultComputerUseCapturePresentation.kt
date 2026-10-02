@@ -36,7 +36,7 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
         val registration = Any()
         presentations[registration] = presentation
         log.d { "native computer-use presentation registered" }
-        if (isSuppressed) suppressLate(presentation)
+        if (isSuppressed) suppressLate(registration, presentation)
         return AutoCloseable {
             presentations.remove(registration)
             log.d { "native computer-use presentation unregistered" }
@@ -70,10 +70,12 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     private suspend fun restoreOnMain(): Throwable? = withContext(dispatchers.main) { restorePresentations() }
 
     /** A late window that cannot be hidden stays registered, so the next operation excludes it again. */
-    private fun suppressLate(presentation: ComputerUsePresentation) {
+    private fun suppressLate(registration: Any, presentation: ComputerUsePresentation) {
         try {
             restores += presentation.suppress()
         } catch (e: CancellationException) {
+            // The caller gets no handle to close, so the registration must not outlive the failed call.
+            presentations.remove(registration)
             throw e
         } catch (e: Exception) {
             log.w(e) { "native computer-use presentation registered during capture could not be excluded" }

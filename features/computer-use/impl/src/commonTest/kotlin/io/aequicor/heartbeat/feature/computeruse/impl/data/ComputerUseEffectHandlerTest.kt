@@ -150,6 +150,18 @@ class ComputerUseEffectHandlerTest {
     }
 
     @Test
+    fun `applied pointer input is reported applied even when the app windows are not restored`() = runTest {
+        val fixture = fixture()
+        val capture = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result
+        val reference = assertNotNull(capture.reference)
+        fixture.presentation.restoreFailure = "window cannot be shown again"
+        val click = InputAction.Click(FramePoint(5.0, 5.0))
+        fixture.run(ComputerUseEffect.ApplyInput(click, "pointer", reference.id))
+        assertEquals(listOf<InputAction>(click), fixture.injector.applied)
+        assertEquals(ComputerUseIntent.Internal.InputApplied(click, "pointer"), fixture.feedback.intents.single())
+    }
+
+    @Test
     fun `cancelling pointer injection restores the app before the effect exits`() = runTest {
         val injector = PausedInputInjector()
         val fixture = fixture(injector)
