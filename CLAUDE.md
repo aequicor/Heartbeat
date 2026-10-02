@@ -17,7 +17,7 @@ Codex обнаруживает одноимённые навыки в `.agents/s
 platform-main/   точки входа: android, desktop, ios (+ shared umbrella/framework);
                  di-bundle — единственный модуль, видящий все impl: Metro-граф (per-platform)
 core/            инфраструктура: navigation, mvi, state-machine, di (api/ext/impl), profile-facade (api/impl),
-                 resources, datastore, network, ai, feature-toggles, logging, common
+                 resources, datastore, network, ai, feature-toggles, logging, common, desktop-dialogs
 design-system/   tokens (единый набор, пресеты по хосту), theme, components, layouts, resources, catalog, adaptive (material | fluent | macos)
 features/<name>/ api  — контракт: state-machine (состояния, интенты, переходы, эффекты), MachineKey, маршруты
                  impl — UI, FlowMVI-сторы, Decompose-компоненты, репозитории, эффекты машины, DI-контрибуции

@@ -30,7 +30,7 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             implementation(libs.androidx.core.ktx)
         }
-        jvmMain.dependencies { implementation(libs.jna.platform) }
+        jvmMain.dependencies { implementation(projects.core.desktopDialogs) }
         jvmTest.dependencies {
             implementation(libs.androidx.sqlite.bundled)
             implementation(libs.compose.uiTest)

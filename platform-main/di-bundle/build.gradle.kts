@@ -48,6 +48,7 @@ kotlin {
             api(projects.core.datastore.api)
             api(projects.core.secrets.api)
             implementation(projects.core.secrets.impl)
+            implementation(projects.core.desktopDialogs)
             api(projects.core.stateMachine.api)
             implementation(projects.core.logging)
             implementation(projects.core.mvi)
