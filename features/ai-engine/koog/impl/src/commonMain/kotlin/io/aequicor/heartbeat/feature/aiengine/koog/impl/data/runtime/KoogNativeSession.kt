@@ -520,26 +520,13 @@ internal class KoogNativeSession(
             turn.id,
         )
         val content = KoogStreamParts()
-        val calls = mutableListOf<StreamFrame.ToolCallComplete>()
+        val calls = KoogToolCalls()
         var revision = 0L
         var isEnded = false
         contextUsage.start(client)
         client.executor.executeStreaming(input, model, tools).collect { frame ->
             when (frame) {
-                is StreamFrame.ToolCallComplete -> {
-                    // A reasoning delta between tool deltas makes the SDK flush the pending call early; its rest
-                    // then arrives as a nameless frame of the same index and rejoins the call it was flushed from.
-                    val owner = if (frame.name.isBlank() && frame.id.isNullOrBlank()) {
-                        calls.indexOfLast { it.index == frame.index }
-                    } else {
-                        -1
-                    }
-                    if (owner >= 0) {
-                        calls[owner] = calls[owner].copy(content = calls[owner].content + frame.content)
-                    } else {
-                        calls += frame
-                    }
-                }
+                is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete -> calls.append(frame)
 
                 is StreamFrame.End -> {
                     isEnded = true
@@ -548,7 +535,6 @@ internal class KoogNativeSession(
 
                 is StreamFrame.TextDelta,
                 is StreamFrame.TextComplete,
-                is StreamFrame.ToolCallDelta,
                 is StreamFrame.ReasoningDelta,
                 is StreamFrame.ReasoningComplete,
                 -> Unit
@@ -564,7 +550,7 @@ internal class KoogNativeSession(
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return ToolRound(content.text, calls)
+        return ToolRound(content.text, calls.complete())
     }
 
     private suspend fun recordUsage(client: KoogClient, model: LLModel, metadata: ResponseMetaInfo) {

@@ -55,7 +55,7 @@ internal class KoogReasoningLevels(
         models: List<String>,
         native: Map<String, List<String>>?,
     ): Map<String, List<String>> = mutex.withLock {
-        val state = store.read()
+        val state = readState()
         val isCatalogUsed = native == null && toggles.get(KoogReasoningCatalogEnabled)
         val resolved = models.associateWith { model ->
             val reported = native?.get(model)
@@ -85,17 +85,28 @@ internal class KoogReasoningLevels(
 
     /** Levels of [model] from the last discovery of this route, or the family guess when it was never discovered. */
     suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String> = mutex.withLock {
-        val state = store.read()
+        val state = readState()
         val key = key(provider, origin, model)
         if (key in state.rejected) emptyList() else state.levels[key] ?: provider.fallbackReasoningEfforts(model)
     }
 
     /** Remembers that the provider refused reasoning parameters for [model]; it offers no levels from now on. */
     suspend fun reject(provider: KoogProvider, origin: EndpointOrigin, model: String) = mutex.withLock {
-        val state = store.read()
+        val state = readState()
         val key = key(provider, origin, model)
         store.write(state.copy(rejected = state.rejected + key, levels = state.levels - key))
         log.w { "provider rejected reasoning parameters; effort disabled for this model" }
+    }
+
+    /** Upgrades fixed-origin entries before validating a restored session, even without model discovery. */
+    private suspend fun readState(): KoogReasoningState {
+        val stored = store.read()
+        val migrated = stored.withRouteOrigins()
+        if (migrated != stored) {
+            log.i { "Migrating reasoning state to fixed route origins" }
+            store.write(migrated)
+        }
+        return migrated
     }
 
     /** Compatible routes to different servers keep separate levels and rejections of the same model id. */
