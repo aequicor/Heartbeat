@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineManager
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
@@ -134,6 +135,45 @@ class EngineRegistrationTest {
             lazy { AcceptingFactory() },
         )
         validateEngineRegistrations(listOf(windows, android, secondary))
+    }
+
+    @Test
+    fun `an engine that installs or signs in a CLI must bring a manager, without constructing it`() {
+        listOf(
+            ManagementSpec(install = InstallSupport.Managed),
+            ManagementSpec(install = InstallSupport.Bundled),
+            ManagementSpec(login = LoginSupport.Cli),
+            ManagementSpec(login = LoginSupport.CliWithDeviceCode),
+        ).forEach { spec ->
+            assertFailsWith<IllegalArgumentException>(spec.toString()) {
+                EngineRegistration(descriptor, owner, lazy { AcceptingFactory() }, management = spec)
+            }
+        }
+        var isConstructed = false
+        val manager = lazy<EngineManager> {
+            isConstructed = true
+            error("The registration must not construct its manager")
+        }
+        val managed = ManagementSpec(InstallSupport.Managed, LoginSupport.Cli)
+
+        val registration = EngineRegistration(
+            descriptor,
+            owner,
+            lazy { AcceptingFactory() },
+            management = managed,
+            manager = manager,
+        )
+
+        assertEquals(managed, registration.management)
+        assertFalse(isConstructed)
+        val launchOnly = ManagementSpec(
+            login = LoginSupport.Connections,
+            launch = LaunchSpec(setOf(LaunchOption.Executable)),
+        )
+        assertEquals(
+            null,
+            EngineRegistration(descriptor, owner, lazy { AcceptingFactory() }, management = launchOnly).manager,
+        )
     }
 
     private class AcceptingFactory : EngineFactory {

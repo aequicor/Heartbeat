@@ -17,17 +17,23 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthChecks
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.BindingStorage
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineManagementStorage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.EngineSettingsSpec
-import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.FeatureToggleEngineGate
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileEngineGate
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ProfileLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.BindingUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnabledEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineGate
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -41,7 +47,7 @@ interface EngineRegistrationBindings {
     fun registrations(): Set<EngineRegistration>
 }
 
-/** Profile-owned facade infrastructure: registry, toggles, environment and bindings. */
+/** Profile-owned facade infrastructure: registry, gates, management choices, environment and bindings. */
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 object AiEngineFacadeBindings {
@@ -51,9 +57,26 @@ object AiEngineFacadeBindings {
     fun registry(registrations: Set<EngineRegistration>, platform: PlatformInfo): EngineRegistry =
         EngineRegistry(registrations, platform.host.enginePlatform())
 
-    /** Toggle gate of engines. */
+    /** Engine management choices of the profile. */
     @Provides
-    fun toggles(toggles: FeatureToggles): EngineToggles = FeatureToggleEngineGate(toggles)
+    @SingleIn(ProfileScope::class)
+    fun preferences(
+        @ForScope(ProfileScope::class) stores: DataStores,
+    ): EnginePreferences = EngineManagementStorage(stores.keyValue(EngineManagementSpec))
+
+    /** Gate of engines: developer flags and, with engine management, the profile switch. */
+    @Provides
+    fun toggles(toggles: FeatureToggles, preferences: EnginePreferences): EngineToggles =
+        ProfileEngineGate(toggles, preferences)
+
+    /** Launch settings and managed copies adapters start their processes with. */
+    @Provides
+    @SingleIn(ProfileScope::class)
+    fun launchConfig(
+        toggles: FeatureToggles,
+        preferences: EnginePreferences,
+        installs: ManagedInstallStore,
+    ): EngineLaunchConfig = ProfileLaunchConfig(toggles, preferences, installs)
 
     /** Engines enabled by toggles. */
     @Provides

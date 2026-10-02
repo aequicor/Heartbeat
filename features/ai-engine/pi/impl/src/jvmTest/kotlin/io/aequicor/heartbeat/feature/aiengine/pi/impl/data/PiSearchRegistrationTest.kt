@@ -30,7 +30,6 @@ class PiSearchRegistrationTest {
     fun `isolated Pi process loads bundled search tools beside approval gate`() {
         val arguments = piCommand(
             Path.of("pi"),
-            "anthropic",
             Path.of("sessions"),
             piExtensions(Path.of("runtime"), searchTools = true),
             "read,edit",
@@ -61,7 +60,6 @@ class PiSearchRegistrationTest {
     fun `project session loads project content but no executable resources`() {
         val arguments = piCommand(
             Path.of("pi"),
-            "anthropic",
             Path.of("sessions"),
             piExtensions(Path.of("runtime"), searchTools = false),
             "read,edit",
@@ -80,5 +78,19 @@ class PiSearchRegistrationTest {
             listOf(Path.of("runtime", "heartbeat-approval.ts").toString()),
             arguments.asSequence().windowed(2).filter { it.first() == "-e" }.map { it.last() }.toList(),
         )
+    }
+
+    @Test
+    fun `the command line leaves model selection to the session over RPC`() {
+        val arguments = piCommand(
+            Path.of("pi"),
+            Path.of("sessions"),
+            piExtensions(Path.of("runtime"), searchTools = false),
+            "read,edit",
+        )
+        // Pi rejects --provider without --model, and a --model pattern reads ':' in an id as a thinking level.
+        assertTrue("--provider" !in arguments)
+        assertTrue("--model" !in arguments)
+        assertEquals(listOf("pi", "--mode", "rpc"), arguments.take(3))
     }
 }

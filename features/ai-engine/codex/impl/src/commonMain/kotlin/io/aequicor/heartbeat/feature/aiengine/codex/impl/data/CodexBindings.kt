@@ -49,43 +49,48 @@ public object CodexBindings {
     /** The engine factory is initialized only after facade ownership and toggle checks. */
     @Provides
     @IntoSet
-    public fun registration(factory: Lazy<CodexEngineFactory>, config: CodexLocalConfiguration): EngineRegistration =
-        EngineRegistration(
-            descriptor = EngineDescriptor(
-                CodexEngine.Id,
-                "Codex",
-                EngineFamily.Vendor,
-                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
-                CodexEngine.Enabled,
-                isLocalWorkspaceSupported = true,
-                requirements = listOf(
-                    EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
-                ),
-                connectionMethods = listOf(
-                    ConnectionMethod.CliLogin(
-                        ConnectionMethodId("cli"),
-                        ProviderInfo(ProviderId("openai"), "OpenAI"),
-                        EndpointOrigin("https://api.openai.com"),
-                        CodexEngine.AuthOwner,
-                        config.location,
-                    ),
-                ),
-                declaredFeatures = setOf(
-                    ReportsProviderUsage.id,
-                    SessionContextUsage.id,
-                    CreatesSessions.id,
-                    AttachesSessions.id,
-                    SendsPrompts.id,
-                    CancelsTurns.id,
-                    RequestsPermissions.id,
-                    AppliesTrustLevels.id,
-                    SessionHistory.id,
+    public fun registration(
+        factory: Lazy<CodexEngineFactory>,
+        manager: Lazy<CodexEngineManager>,
+        config: CodexLocalConfiguration,
+    ): EngineRegistration = EngineRegistration(
+        descriptor = EngineDescriptor(
+            CodexEngine.Id,
+            "Codex",
+            EngineFamily.Vendor,
+            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+            CodexEngine.Enabled,
+            isLocalWorkspaceSupported = true,
+            requirements = listOf(
+                EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
+            ),
+            connectionMethods = listOf(
+                ConnectionMethod.CliLogin(
+                    ConnectionMethodId("cli"),
+                    ProviderInfo(ProviderId("openai"), "OpenAI"),
+                    EndpointOrigin("https://api.openai.com"),
+                    CodexEngine.AuthOwner,
+                    config.location,
                 ),
             ),
-            authOwner = CodexEngine.AuthOwner,
-            factory = lazy { factory.value },
-            modelCatalogRevision = CODEX_MODEL_CATALOG_REVISION,
-        )
+            declaredFeatures = setOf(
+                ReportsProviderUsage.id,
+                SessionContextUsage.id,
+                CreatesSessions.id,
+                AttachesSessions.id,
+                SendsPrompts.id,
+                CancelsTurns.id,
+                RequestsPermissions.id,
+                AppliesTrustLevels.id,
+                SessionHistory.id,
+            ),
+        ),
+        authOwner = CodexEngine.AuthOwner,
+        factory = lazy { factory.value },
+        modelCatalogRevision = CODEX_MODEL_CATALOG_REVISION,
+        management = CodexManagementSpec,
+        manager = lazy { manager.value },
+    )
 }
 
 /** Adds the Codex switch to the application's toggle control panel. */

@@ -33,6 +33,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -57,7 +58,9 @@ internal class KoogRuntime(
     private val log = Log.tag("KoogRuntime")
     private val mutex = Mutex()
     private val sessions = mutableMapOf<SessionRef, KoogNativeSession>()
-    var isClosed = false
+
+    @Volatile
+    override var isClosed = false
         private set
     override val features: EngineFeatures = KoogFeatures(CreatesSessions to this, AttachesSessions to this)
 

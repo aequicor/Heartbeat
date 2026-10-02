@@ -71,7 +71,7 @@ internal class PiRuntime(
     // Reserved before transcript lookup and process startup; only accessed under mutex.
     private val attaching = mutableSetOf<SessionRef>()
 
-    @Volatile var isClosed: Boolean = false
+    @Volatile override var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
         PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to services.nativeWeb))

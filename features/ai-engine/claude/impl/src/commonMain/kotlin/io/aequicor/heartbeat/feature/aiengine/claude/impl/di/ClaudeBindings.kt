@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
@@ -44,42 +46,47 @@ public object ClaudeBindings {
     /** Contributes the adapter without constructing its native runtime. */
     @Provides
     @IntoSet
-    public fun registration(backend: Lazy<ClaudeBackend>): EngineRegistration = EngineRegistration(
-        descriptor = EngineDescriptor(
-            ClaudeEngine.Id,
-            "Claude Code",
-            EngineFamily.Vendor,
-            setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
-            ClaudeEngine.Enabled,
-            requirements = listOf(EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support")),
-            connectionMethods = listOf(
-                ConnectionMethod.CliLogin(
-                    ConnectionMethodId("cli"),
-                    ProviderInfo(ProviderId("anthropic"), "Anthropic"),
-                    EndpointOrigin("https://api.anthropic.com"),
-                    ClaudeEngine.AuthOwner,
-                    ClaudeEngine.AuthLocation,
+    public fun registration(backend: Lazy<ClaudeBackend>, manager: Lazy<ClaudeEngineManager>): EngineRegistration =
+        EngineRegistration(
+            descriptor = EngineDescriptor(
+                ClaudeEngine.Id,
+                "Claude Code",
+                EngineFamily.Vendor,
+                setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
+                ClaudeEngine.Enabled,
+                requirements = listOf(
+                    EngineRequirement("claude-cli", "Native Claude Code CLI with stream-json support"),
+                ),
+                connectionMethods = listOf(
+                    ConnectionMethod.CliLogin(
+                        ConnectionMethodId("cli"),
+                        ProviderInfo(ProviderId("anthropic"), "Anthropic"),
+                        EndpointOrigin("https://api.anthropic.com"),
+                        ClaudeEngine.AuthOwner,
+                        ClaudeEngine.AuthLocation,
+                    ),
+                ),
+                isLocalWorkspaceSupported = true,
+                declaredFeatures = setOf(
+                    ReportsProviderUsage.id,
+                    SessionContextUsage.id,
+                    CreatesSessions.id,
+                    AttachesSessions.id,
+                    SendsPrompts.id,
+                    SessionHistory.id,
+                    ReconcilesSession.id,
+                    CancelsTurns.id,
+                    RequestsPermissions.id,
+                    AppliesTrustLevels.id,
                 ),
             ),
-            isLocalWorkspaceSupported = true,
-            declaredFeatures = setOf(
-                ReportsProviderUsage.id,
-                SessionContextUsage.id,
-                CreatesSessions.id,
-                AttachesSessions.id,
-                SendsPrompts.id,
-                SessionHistory.id,
-                ReconcilesSession.id,
-                CancelsTurns.id,
-                RequestsPermissions.id,
-                AppliesTrustLevels.id,
-            ),
-        ),
-        authOwner = ClaudeEngine.AuthOwner,
-        factory = lazy { backend.value },
-        modelCatalogRevision = CLAUDE_MODEL_CATALOG_REVISION,
-        sessionSources = listOf(ClaudeSessionSource(backend)),
-    )
+            authOwner = ClaudeEngine.AuthOwner,
+            factory = lazy { backend.value },
+            modelCatalogRevision = CLAUDE_MODEL_CATALOG_REVISION,
+            sessionSources = listOf(ClaudeSessionSource(backend)),
+            management = ClaudeManagementSpec,
+            manager = lazy { manager.value },
+        )
 }
 
 /** Registers the experimental adapter toggle in the application panel. */

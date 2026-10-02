@@ -258,6 +258,7 @@ internal class FakeNativeSession(
 internal class FakeRuntime(override val identity: RuntimeIdentity, supports: Boolean = true) : EngineRuntime {
     val sessions = mutableListOf<FakeNativeSession>()
     var closes = 0
+    override var isClosed = false
 
     override val features: EngineFeatures = if (!supports) {
         NoEngineFeatures

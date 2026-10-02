@@ -61,6 +61,11 @@ API конкретных движков могут зависеть от эти�
 Доступ к IO, UI, сторонним SDK и любым impl в этих API по-прежнему запрещён.
 Машина активной сессии принадлежит объекту доступа в профиле; native runtime и принятый ход
 живут в скоупе профиля и не отменяются при закрытии экрана или смене состояния машины.
+Управление движками — сервисный контракт `EngineManagement` (состояние всех зарегистрированных движков и команды
+`EngineCommand`) и чистые типы `LaunchSettings` / `validateLaunchSettings` в `facade:api`; SPI `EngineManager`,
+`EngineLaunchConfig` и `ReleaseFeeds` (план установки `InstallPlan`) — в `facade.api.spi`. Установка, загрузка и вход
+выполняются в `facade:impl` и адаптерах; UI шлёт команды через операцию машины `ConnectionOperation.ManageEngine`.
+Секреты в параметрах запуска запрещены (только подключения), значения путей и окружения не логируются.
 
 `features/ai-engine/acp-interface/api` — сервисный контракт ACP v1: клиент, транспорт,
 DTO и callbacks без реализации IO. Допускает kotlinx.serialization JSON для расширяемых полей

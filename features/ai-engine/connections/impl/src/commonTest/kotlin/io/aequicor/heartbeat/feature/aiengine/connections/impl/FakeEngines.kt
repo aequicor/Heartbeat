@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -33,6 +34,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
@@ -217,5 +220,15 @@ internal class RecordingScope<I : MachineIntent> : EffectScope<I> {
     override suspend fun send(intent: I): SendResult {
         intents += intent
         return result
+    }
+}
+
+/** Records management commands and publishes the state a test sets. */
+internal class FakeEngineManagement : EngineManagement {
+    override val state = MutableStateFlow(EngineManagementState.Off)
+    val commands = mutableListOf<Pair<EngineId, EngineCommand>>()
+
+    override suspend fun execute(engine: EngineId, command: EngineCommand) {
+        commands += engine to command
     }
 }

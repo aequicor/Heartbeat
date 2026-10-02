@@ -31,15 +31,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -83,6 +87,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import kotlinx.coroutines.Dispatchers
@@ -97,6 +102,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.Assume.assumeTrue
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.reflect.safeCast
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -115,6 +121,8 @@ interface AiEngineTestAccessors {
     val studioRuntime: StudioRuntime
     val modelSelections: ModelSelections
     val engineRegistrations: Set<EngineRegistration>
+    val enginePreferences: EnginePreferences
+    val engineManagement: EngineManagement
 }
 
 /** A scripted adapter bundled only into the test graph, registered like a real adapter. */
@@ -137,6 +145,7 @@ object TestAdapter {
     val engine = EngineId("itest")
     val toggle = FeatureToggle.Flag("itest.engine", "Integration test engine")
     val runtimes = mutableListOf<TestRuntime>()
+    private val nativeIds = AtomicInteger()
     var reasoningEfforts: List<String> = emptyList()
     var isTrustSupported = false
     var isConfigurationFailureEnabled = false
@@ -185,6 +194,9 @@ object TestAdapter {
             },
         ),
     )
+
+    /** Native ids stay unique across runtimes, so a replacement runtime can attach an earlier native session. */
+    fun nextNativeId(): String = "n${nativeIds.getAndIncrement()}"
 }
 
 class TestRuntime(
@@ -200,7 +212,7 @@ class TestRuntime(
     override val features: EngineFeatures = features(
         CreatesSessions to object : CreatesSessions {
             override suspend fun create(request: CreateSessionRequest): ActiveSession = TestNative(
-                SessionRef(identity.engine, SessionSourceId("local"), "n${natives.size}"),
+                SessionRef(identity.engine, SessionSourceId("local"), TestAdapter.nextNativeId()),
                 isTrustSupported,
                 isConfigurationFailureEnabled,
             ).also {
@@ -209,7 +221,7 @@ class TestRuntime(
         },
         AttachesSessions to object : AttachesSessions {
             override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession =
-                natives.single {
+                TestAdapter.runtimes.flatMap { it.natives }.single {
                     it.ref == ref
                 }.also { it.native.value = ActiveSessionState.Ready() }
         },
@@ -403,6 +415,54 @@ class AiEngineFacadeIntegrationTest {
         (app.appScope as OwnedScope).close()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `engine management toggle is registered and off by default`() = runTest {
+        val control = (app as TestToggleAccessors).toggleControl
+        val state = control.observeStates().first().single { it.toggle == EngineManagementEnabled }
+        assertEquals(false, state.value)
+    }
+
+    @Test
+    fun `an engine switched off in the profile leaves the catalog only while engine management is on`() = runTest {
+        val toggles = app as TestToggleAccessors
+        toggles.toggleControl.setOverride(AiEngines, true)
+        toggles.toggleControl.setOverride(TestAdapter.toggle, true)
+        val accessors = app.profileSessions.open(ProfileId("switched-off")).graph as AiEngineTestAccessors
+        val catalog = accessors.engineFacade.engines.state
+        catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
+
+        accessors.enginePreferences.update { it.copy(disabled = setOf(TestAdapter.engine)) }
+        assertTrue(catalog.value.any { it.descriptor.id == TestAdapter.engine }, "ignored while management is off")
+
+        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
+        catalog.first { list -> list.none { it.descriptor.id == TestAdapter.engine } }
+        val refused = assertFailsWith<EngineException> { accessors.engineFacade.engines.refresh(TestAdapter.engine) }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.Unavailable), refused.failure)
+
+        accessors.enginePreferences.update { it.copy(disabled = emptySet()) }
+        catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
+    }
+
+    @Test
+    fun `engine management lists every engine and its switch reaches the catalog`() = runTest {
+        val toggles = app as TestToggleAccessors
+        toggles.toggleControl.setOverride(AiEngines, true)
+        toggles.toggleControl.setOverride(TestAdapter.toggle, true)
+        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
+        val accessors = app.profileSessions.open(ProfileId("management")).graph as AiEngineTestAccessors
+        val management = accessors.engineManagement
+        val listed = management.state.first { state -> state.engines.any { it.descriptor.id == TestAdapter.engine } }
+        assertEquals(accessors.engineRegistrations.size, listed.engines.size)
+
+        management.execute(TestAdapter.engine, EngineCommand.SetEnabled(false))
+
+        accessors.engineFacade.engines.state.first { list -> list.none { it.descriptor.id == TestAdapter.engine } }
+        val off = management.state.first { state ->
+            state.engines.single { it.descriptor.id == TestAdapter.engine }.enablement.isOnlyUserDisabled
+        }
+        assertTrue(off.isEnabled)
     }
 
     @Test

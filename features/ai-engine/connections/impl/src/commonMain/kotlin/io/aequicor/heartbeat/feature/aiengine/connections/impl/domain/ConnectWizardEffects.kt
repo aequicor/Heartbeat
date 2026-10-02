@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.create
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -29,8 +31,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Engine-side services of the connection screens. */
-data class EngineServices(val facade: EngineFacade, val sources: AuthSources)
+/** Engine-side services of the connection screens; [management] is off unless engine management is enabled. */
+data class EngineServices(
+    val facade: EngineFacade,
+    val sources: AuthSources,
+    val management: EngineManagement = UnavailableEngineManagement(),
+)
 
 /** Executes wizard effects. Typed keys are closed after use whatever the outcome. */
 class ConnectWizardEffects(private val services: EngineServices, private val selections: ModelSelections) :

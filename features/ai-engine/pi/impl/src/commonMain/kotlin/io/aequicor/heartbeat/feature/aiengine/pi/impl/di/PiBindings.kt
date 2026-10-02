@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiDescriptor
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiManagementSpec
 
 /** Registers the built-in toggle without instantiating a profile or starting Pi. */
 @BindingContainer
@@ -39,8 +41,15 @@ public object PiRegistrationBindings {
     @Provides
     @IntoSet
     @SingleIn(ProfileScope::class)
-    internal fun registration(adapter: Lazy<PiAdapter>): EngineRegistration =
-        EngineRegistration(PiDescriptor, PiAuthOwner, adapter, modelCatalogRevision = PI_MODEL_CATALOG_REVISION)
+    internal fun registration(adapter: Lazy<PiAdapter>, manager: Lazy<PiEngineManager>): EngineRegistration =
+        EngineRegistration(
+            PiDescriptor,
+            PiAuthOwner,
+            adapter,
+            modelCatalogRevision = PI_MODEL_CATALOG_REVISION,
+            management = PiManagementSpec,
+            manager = lazy { manager.value },
+        )
 
     /** Exposes only the configuration contract of the profile's adapter; the SPI stays internal. */
     @Provides

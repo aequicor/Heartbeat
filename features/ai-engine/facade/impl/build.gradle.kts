@@ -6,7 +6,8 @@ plugins {
 }
 
 // Реализация фасада ИИ-движков профиля: каталог движков и подключений, выбор движка по умолчанию, модели,
-// индекс сессий, пул runtime и активные сессии на машине ActiveSessionMachineSpec. Подключается только в :platform-main:di-bundle.
+// индекс сессий, пул runtime, активные сессии на машине ActiveSessionMachineSpec и управление движками
+// (проверенные загрузки релизов, управляемые копии CLI). Подключается только в :platform-main:di-bundle.
 kotlin {
     sourceSets {
         commonMain.dependencies {
@@ -17,11 +18,13 @@ kotlin {
             implementation(projects.core.di.api)
             implementation(projects.core.common)
             implementation(projects.core.logging)
+            implementation(projects.core.network.api)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.okio)
         }
         jvmTest.dependencies {
             implementation(libs.androidx.sqlite.bundled)
+            implementation(libs.ktor.client.mock)
         }
     }
 }

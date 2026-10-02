@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 
 class CodexBindingsTest {
     /**
@@ -12,7 +13,10 @@ class CodexBindingsTest {
     @Test
     fun `registration keeps the catalog revision that introduced input support`() {
         val factory = lazy<CodexEngineFactory> { error("Must stay lazy") }
-        val registration = CodexBindings.registration(factory, CodexLocalConfiguration())
+        val manager = lazy<CodexEngineManager> { error("Must stay lazy") }
+        val registration = CodexBindings.registration(factory, manager, CodexLocalConfiguration())
         assertEquals(1, registration.modelCatalogRevision)
+        assertEquals(CodexManagementSpec, registration.management)
+        assertFalse(manager.isInitialized())
     }
 }

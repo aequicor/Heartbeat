@@ -36,6 +36,8 @@ import javax.inject.Inject
  * Archive layouts differ per platform: `.tar.gz` assets wrap everything in a single top-level directory,
  * which is stripped; `.zip` (Windows) assets are flat and copied as is. An archive `LICENSE` is kept
  * unchanged; assets without one (the Windows zip) get [fallbackLicense] copied next to the executable.
+ * The pinned [version] is written to `VERSION` next to the executable: the app reports it without starting Pi
+ * and treats it as the verified version when the user installs a newer release.
  */
 @DisableCachingByDefault(because = "Downloads and extracts a large binary; the archive is cached in Gradle user home")
 abstract class PreparePiRuntime : DefaultTask() {
@@ -87,6 +89,7 @@ abstract class PreparePiRuntime : DefaultTask() {
         val executable = payload.resolve(if (zipped) "pi.exe" else "pi")
         check(executable.isFile) { "Pi archive ${asset.get()} did not contain its executable" }
         check(zipped || executable.setExecutable(true, false)) { "Cannot mark bundled Pi executable" }
+        payload.resolve("VERSION").writeText(version.get())
         val license = payload.resolve("LICENSE")
         if (!license.isFile) {
             logger.info("Pi archive ${asset.get()} has no LICENSE; bundling the checked-in upstream copy")

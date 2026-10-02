@@ -73,7 +73,7 @@ Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#AppName}}"; F
 [UninstallDelete]
 ; The app's data shares its lifecycle, including the bundled Pi engine's data (<app data>\engines\pi).
 ; Keep in sync with the data folders of core:datastore (JvmStorageRoot) and core:secrets (JvmProtectedVault and
-; JvmDevelopmentVault, which development builds use).
+; JvmDevelopmentVault, which development builds use), and DesktopManagedInstallStore's machine-local copies.
 Type: filesandordirs; Name: "{userappdata}\Aequicor\Heartbeat"
 Type: filesandordirs; Name: "{localappdata}\Aequicor\Heartbeat"
 Type: dirifempty; Name: "{userappdata}\Aequicor"

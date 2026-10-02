@@ -10,9 +10,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -94,6 +97,52 @@ class EngineConnectionsModelTest {
             ),
             machine.sent.drop(1),
         )
+    }
+
+    @Test
+    fun `a saved launch draft is sent once and the saved settings are shown again`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(managedSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SelectEngine(CodexId.value))
+        val draft = LaunchDraftUi(executable = "/opt/codex/bin/codex")
+        model.store.intent(EngineConnectionsScreenIntent.EditLaunch(draft))
+        runCurrent()
+        assertEquals(draft, screen.states.value.panel?.launch?.draft)
+
+        model.store.intent(EngineConnectionsScreenIntent.SaveLaunch)
+        runCurrent()
+
+        val configure = EngineCommand.Configure(LaunchSettings(executable = "/opt/codex/bin/codex"))
+        assertEquals(
+            listOf(EngineConnectionsIntent.Public.Apply(ConnectionOperation.ManageEngine(CodexId, configure))),
+            machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>(),
+        )
+        assertEquals(null, screen.states.value.launchDraft)
+    }
+
+    @Test
+    fun `an uninstall waits for confirmation and a switched engine forgets it`() = runTest {
+        machine.state.value = EngineConnectionsState.Active(managedSnapshot())
+        val model = model()
+        val screen = subscribe(model.store)
+        model.store.intent(EngineConnectionsScreenIntent.SelectEngine(CodexId.value))
+        model.store.intent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Uninstall))
+        runCurrent()
+        assertEquals(EngineActionUi.Uninstall, screen.states.value.confirmAction)
+        assertTrue(machine.sent.none { it is EngineConnectionsIntent.Public.Apply })
+
+        model.store.intent(EngineConnectionsScreenIntent.ConfirmEngineAction)
+        model.store.intent(EngineConnectionsScreenIntent.RequestEngineAction(EngineActionUi.Logout))
+        model.store.intent(EngineConnectionsScreenIntent.SelectEngine(KoogId.value))
+        runCurrent()
+
+        val uninstall = EngineCommand.Start(EngineAction.Uninstall)
+        assertEquals(
+            listOf(EngineConnectionsIntent.Public.Apply(ConnectionOperation.ManageEngine(CodexId, uninstall))),
+            machine.sent.filterIsInstance<EngineConnectionsIntent.Public.Apply>(),
+        )
+        assertEquals(null, screen.states.value.confirmAction)
     }
 
     @Test

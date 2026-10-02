@@ -6,6 +6,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeAttachment
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
@@ -20,6 +25,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import java.io.File
 import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
@@ -43,7 +49,10 @@ class ClaudeProcessTest {
         nativeDispatcher.close()
     }
 
-    private fun TestScope.transport(executable: String = java): ProcessClaudeTransport {
+    private fun TestScope.transport(
+        executable: String = java,
+        launches: EngineLaunchConfig = EngineLaunchConfig.Default,
+    ): ProcessClaudeTransport {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val dispatchers = object : DispatcherProvider {
             override val main = testDispatcher
@@ -58,6 +67,7 @@ class ClaudeProcessTest {
                 override fun attach(features: EngineFeatures) = SearchBridgeAttachment { }
             },
             TestLocalWorkspaces(),
+            launches,
         )
     }
 
@@ -198,22 +208,44 @@ class ClaudeProcessTest {
     }
 
     @Test
-    fun `environment drops provider credentials and keeps the CLI default config`() {
-        val host = mapOf(
-            "PATH" to "/bin",
-            "HTTPS_PROXY" to "http://proxy",
-            "ANTHROPIC_API_KEY" to "secret",
-            "ANTHROPIC_BASE_URL" to "http://elsewhere",
-            "CLAUDE_CONFIG_DIR" to "/elsewhere",
+    fun `a pinned transport keeps its executable and native history when the launch changes`() = runTest {
+        var launch = LaunchContext(LaunchSettings(executable = java, homeDirectory = "/tmp/claude-a"))
+        val transport = transport(launches = EngineLaunchConfig { launch })
+        val pinned = transport.pinned()
+        launch = LaunchContext(
+            LaunchSettings(executable = "/heartbeat/missing/claude", homeDirectory = "/tmp/claude-b"),
         )
-        assertEquals(
-            mapOf("PATH" to "/bin", "HTTPS_PROXY" to "http://proxy"),
-            claudeEnvironment(host, ClaudeConfiguration()),
-        )
-        assertEquals(
-            "/configured",
-            claudeEnvironment(host, ClaudeConfiguration(configDirectory = "/configured"))["CLAUDE_CONFIG_DIR"],
-        )
+
+        assertEquals(0, pinned.run(listOf("--version")) { false })
+        val error = assertFailsWith<EngineException> { transport.run(listOf("--version")) { false } }
+        assertEquals(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet), error.failure)
+        assertEquals(claudeNativeStore("/tmp/claude-a"), pinned.nativeStore)
+        assertEquals(claudeNativeStore("/tmp/claude-b"), transport.pinned().nativeStore)
+    }
+
+    @Test
+    fun `locating reads the version of the executable the launch names`() = runTest {
+        if (File.separatorChar == '\\') return@runTest
+        val directory = Files.createTempDirectory("claude-locate")
+        try {
+            val claude = directory.resolve("claude")
+            Files.writeString(claude, "#!/bin/sh\necho '2.1.285 (Claude Code)'\n")
+            claude.toFile().setExecutable(true)
+
+            val transport = transport()
+            // The probe deadline needs a real clock, like the process pipes.
+            val found = withContext(nativeDispatcher) {
+                transport.locate(LaunchContext(LaunchSettings(executable = claude.toString())))
+            }
+
+            assertEquals(Installation(InstallSource.Custom, "2.1.285", claude.toString()), found)
+            val missing = withContext(nativeDispatcher) {
+                transport.locate(LaunchContext(LaunchSettings(executable = "/heartbeat/missing/claude")))
+            }
+            assertEquals(Installation(InstallSource.Custom, null, "/heartbeat/missing/claude"), missing)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
     }
 
     @Test

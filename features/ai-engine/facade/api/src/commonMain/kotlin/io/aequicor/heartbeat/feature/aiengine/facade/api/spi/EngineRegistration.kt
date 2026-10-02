@@ -14,6 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -43,8 +46,13 @@ public class EngineRegistration(
      * automatically instead of waiting for the user.
      */
     public val modelCatalogRevision: Int = 0,
+    /** What the engine management panel may manage; static, never IO. */
+    public val management: ManagementSpec = ManagementSpec(),
+    /** Installation and CLI sign-in of the adapter; required when [management] installs or signs in a CLI. */
+    public val manager: Lazy<EngineManager>? = null,
 ) {
     init {
+        require(manager != null || !management.needsManager()) { "Managed installation or CLI login needs a manager" }
         require(sessionSources.all { it.source.engine == descriptor.id }) { "Foreign engine session source" }
         require(
             sessionSources.map { it.source.id }.distinct().size == sessionSources.size,
@@ -114,6 +122,12 @@ public interface EngineRuntime {
     /** Runtime operations use the same capability contracts as facade handles. */
     public val features: EngineFeatures
 
+    /**
+     * Whether the runtime shut itself down (a crashed process, a changed account) and can run nothing more.
+     * The pool replaces such a runtime on the next request instead of handing it out again. Never blocks.
+     */
+    public val isClosed: Boolean get() = false
+
     /** Releases runtime resources at profile shutdown or idle eviction; reconciles active turns before shutdown. */
     public suspend fun close()
 }
@@ -137,3 +151,6 @@ public fun validateEngineRegistrations(registrations: Collection<EngineRegistrat
         }
     }
 }
+
+private fun ManagementSpec.needsManager(): Boolean =
+    install != InstallSupport.BuiltIn || login == LoginSupport.Cli || login == LoginSupport.CliWithDeviceCode

@@ -18,7 +18,7 @@ enum class FailureUi { Authentication, Network, Limit, EngineUnavailable, Access
 /** How a method authenticates. */
 enum class MethodKindUi { ApiKey, CliLogin, NoAuth }
 
-/** Engine row of the wizard and of the settings space. */
+/** Engine row of the wizard and of the settings space; [isEnabled] is false for an engine switched off. */
 @Immutable
 data class EngineRowUi(
     val id: String,
@@ -26,6 +26,7 @@ data class EngineRowUi(
     val availability: AvailabilityUi,
     val connections: Int,
     val isConnectable: Boolean,
+    val isEnabled: Boolean = true,
 )
 
 /** Provider/method row of the wizard's second step. */

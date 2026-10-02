@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -40,6 +41,29 @@ class ClaudeBackendTest {
 
     private suspend fun ClaudeFixture.identity() =
         RuntimeIdentity(ClaudeEngine.Id, ClaudeEngine.AuthSource, account.inspect().check.revision)
+
+    @Test
+    fun `saving a different CLI home keeps the existing runtime on its pinned account`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val retained = FakeClaudeTransport()
+        fixture.transport.pinnedTransport = retained
+        val identity = fixture.identity()
+        val backend = fixture.backend(backgroundScope)
+        val first = backend.createRuntime(identity)
+        fixture.transport.account = "new-home@example.test"
+        assertSame(first, backend.createRuntime(identity))
+        val session = first.features.available(io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions)
+            .create(CreateSessionRequest(testTarget))
+        session.features.available(SendsPrompts).send(prompt())
+        runCurrent()
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+        assertTrue(retained.calls.any { args -> args.any { it.startsWith("--session-id=") } })
+        first.close()
+        fixture.transport.pinnedTransport = FakeClaudeTransport().also { it.account = fixture.transport.account }
+        val second = backend.createRuntime(fixture.identity())
+        assertNotSame(first, second)
+        second.close()
+    }
 
     @Test
     fun `disabled toggle stops login inspection before the CLI runs`() = runTest {
