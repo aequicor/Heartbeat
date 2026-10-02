@@ -12,13 +12,13 @@ public interface ClaudeEngineManager : EngineManager
 
 /**
  * What engine management may change for Claude Code: Heartbeat installs its own copy of the official native build,
- * the account is still added through the connection wizard, and launch settings may name the executable, the
+ * the CLI signs in to a claude.ai account in the browser, and launch settings may name the executable, the
  * config directory (`CLAUDE_CONFIG_DIR`, which selects the account and the native history) and extra environment.
  * Variables Heartbeat sets itself are reserved.
  */
 internal val ClaudeManagementSpec = ManagementSpec(
     install = InstallSupport.Managed,
-    login = LoginSupport.Connections,
+    login = LoginSupport.Cli,
     launch = LaunchSpec(
         options = setOf(LaunchOption.Executable, LaunchOption.HomeDirectory, LaunchOption.Environment),
         homeVariable = "CLAUDE_CONFIG_DIR",

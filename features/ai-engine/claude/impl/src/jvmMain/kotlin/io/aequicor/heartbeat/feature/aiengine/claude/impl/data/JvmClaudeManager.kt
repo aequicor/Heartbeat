@@ -11,11 +11,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
@@ -28,11 +31,22 @@ import kotlinx.serialization.json.longOrNull
 @Inject
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
-internal class JvmClaudeManager(private val transport: ClaudeTransport, private val dispatchers: DispatcherProvider) :
-    ClaudeEngineManager {
+internal class JvmClaudeManager(
+    private val transport: ClaudeTransport,
+    private val signIn: ClaudeSignIn,
+    private val dispatchers: DispatcherProvider,
+) : ClaudeEngineManager {
     private val log = Log.tag("ClaudeManager")
 
     override suspend fun inspect(launch: LaunchContext): Installation = transport.locate(launch)
+
+    override suspend fun loginStatus(launch: LaunchContext): LoginState = signIn.status(launch)
+
+    /** Claude Code has one browser sign-in; a code the page shows instead is pasted back. */
+    override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState =
+        signIn.login(launch, session)
+
+    override suspend fun logout(launch: LaunchContext): LoginState = signIn.logout(launch)
 
     override suspend fun check(settings: LaunchSettings): List<LaunchProblem> =
         withContext(dispatchers.io) { claudeLaunchProblems(settings) }
