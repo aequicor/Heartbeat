@@ -3,15 +3,16 @@ package io.aequicor.heartbeat.core.desktopdialogs
 import io.aequicor.heartbeat.core.common.HostPlatform
 
 /**
- * One host's dialog implementation. Every method is called on the AWT event thread and reports
- * a cancelled dialog as `null` / an empty list.
+ * One host's dialog implementation. Every method starts on the AWT event thread and reports
+ * a cancelled dialog as `null` / an empty list. Windows captures the owner there, then suspends while
+ * a dedicated STA thread drives the dialog; AWT panels run their own nested event loop.
  */
 internal interface NativeDialogs {
-    fun pickDirectory(title: String?): String?
+    suspend fun pickDirectory(title: String?): String?
 
-    fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String>
+    suspend fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String>
 
-    fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String?
+    suspend fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String?
 }
 
 /**

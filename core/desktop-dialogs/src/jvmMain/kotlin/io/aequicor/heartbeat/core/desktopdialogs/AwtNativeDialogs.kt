@@ -20,21 +20,22 @@ import javax.swing.JFileChooser
  */
 internal class AwtNativeDialogs(internal val directoriesThroughAwtProperty: Boolean) : NativeDialogs {
 
-    override fun pickDirectory(title: String?): String? =
+    override suspend fun pickDirectory(title: String?): String? =
         if (directoriesThroughAwtProperty) macDirectory(title) else swingDirectory(title)
 
-    override fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String> = show(
-        title = title,
-        mode = FileDialog.LOAD,
-        configure = {
-            isMultipleMode = allowMultiple
-            filenameFilter = FilenameFilter { _, name -> matchesExtensions(name, extensions) }
-        },
-    ) { dialog ->
-        if (allowMultiple) dialog.files.map { it.absolutePath } else listOfNotNull(dialog.selectedPath())
-    }
+    override suspend fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String> =
+        show(
+            title = title,
+            mode = FileDialog.LOAD,
+            configure = {
+                isMultipleMode = allowMultiple
+                filenameFilter = FilenameFilter { _, name -> matchesExtensions(name, extensions) }
+            },
+        ) { dialog ->
+            if (allowMultiple) dialog.files.map { it.absolutePath } else listOfNotNull(dialog.selectedPath())
+        }
 
-    override fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String? =
+    override suspend fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String? =
         show(title = title, mode = FileDialog.SAVE, configure = { file = suggestedName }) { dialog ->
             dialog.selectedPath()
         }

@@ -6,9 +6,11 @@ package io.aequicor.heartbeat.core.desktopdialogs
  * Java's own windows are not system dialogs, so features ask for a selection here instead of
  * building an AWT or Swing chooser.
  *
- * Calls are safe from any thread: the implementation moves to the UI thread, where the modal dialog
- * is parented to the focused application window. A dialog the user cancels returns an empty result
- * (`null` / `emptyList()`) and never throws; a failure of the native backend is logged and rethrown.
+ * Calls are safe from any thread and serialized: the implementation captures the focused application
+ * window on the UI thread, then uses a dedicated STA thread on Windows or AWT's modal loop elsewhere.
+ * A dialog the user cancels returns an empty result (`null` / `emptyList()`) and never throws; a failure
+ * of the native backend is logged and rethrown. Coroutine cancellation waits for an already visible
+ * dialog to be dismissed so native resources and modal ownership are released before returning.
  *
  * Bound on Desktop (JVM) only — Android and iOS present their own system pickers inside features.
  */
@@ -27,8 +29,9 @@ public interface DesktopFileDialogs {
     ): List<String>
 
     /**
-     * Save chooser with [suggestedName] pre-filled, an overwrite confirmation and [extensions] as its type
-     * mask; returns the chosen absolute path, or null when the user cancels. Nothing is written here.
+     * Save chooser with [suggestedName] pre-filled and overwrite confirmation. Windows uses [extensions]
+     * as its type mask and default extension; AWT panels infer the type from [suggestedName]. Returns the
+     * chosen absolute path, or null when the user cancels. Nothing is written here.
      */
     public suspend fun pickSaveLocation(
         title: String? = null,

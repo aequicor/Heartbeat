@@ -27,37 +27,38 @@ import java.awt.KeyboardFocusManager
  * `IFileDialog` methods run 4..26, `IFileOpenDialog.GetResults` is 27, `IShellItem.GetDisplayName` is 5 and
  * `IShellItemArray.GetCount` / `GetItemAt` are 7 and 8.
  *
- * Runs on the AWT event thread: a modal COM dialog is driven by the message pump of the thread that owns
- * the window it is parented to.
+ * Captures the owner on the AWT event thread, then runs the entire COM lifetime on a dedicated STA
+ * thread. The native modal loop pumps that thread while the AWT event queue remains responsive.
  */
 internal class WindowsExplorerDialogs : NativeDialogs {
     private val log = Log.tag("WindowsExplorerDialogs")
 
-    override fun pickDirectory(title: String?): String? = openDialog(
+    override suspend fun pickDirectory(title: String?): String? = openDialog(
         title = title,
         extensions = emptyList(),
         allowMultiple = false,
         options = FOS_PICKFOLDERS or FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST,
     ).firstOrNull()
 
-    override fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String> = openDialog(
-        title = title,
-        extensions = extensions,
-        allowMultiple = allowMultiple,
-        options = FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST or FOS_FILEMUSTEXIST or FOS_DONTADDTORECENT,
-    )
+    override suspend fun pickFiles(title: String?, extensions: List<String>, allowMultiple: Boolean): List<String> =
+        openDialog(
+            title = title,
+            extensions = extensions,
+            allowMultiple = allowMultiple,
+            options = FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST or FOS_FILEMUSTEXIST or FOS_DONTADDTORECENT,
+        )
 
-    override fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String? =
-        inApartment {
+    override suspend fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String? =
+        withDialogOwner { owner ->
             createDialog(clsidFileSaveDialog, iidFileSaveDialog).use { dialog ->
                 dialog.setOptions(
                     FOS_OVERWRITEPROMPT or FOS_FORCEFILESYSTEM or FOS_PATHMUSTEXIST or FOS_DONTADDTORECENT,
                 )
                 dialog.setTitle(title)
                 dialog.setFileTypes(extensions)
-                suggestedName?.let { dialog.call(SLOT_SET_FILE_NAME, WString(it)) }
-                extensions.firstOrNull()?.let { dialog.call(SLOT_SET_DEFAULT_EXTENSION, WString(it)) }
-                when (val shown = dialog.show(ownerWindow())) {
+                suggestedName?.let { dialog.callChecked(SLOT_SET_FILE_NAME, WString(it)) }
+                extensions.firstOrNull()?.let { dialog.callChecked(SLOT_SET_DEFAULT_EXTENSION, WString(it)) }
+                when (val shown = dialog.show(owner)) {
                     HRESULT_CANCELLED -> null
 
                     else -> {
@@ -68,18 +69,18 @@ internal class WindowsExplorerDialogs : NativeDialogs {
             }
         }
 
-    private fun openDialog(
+    private suspend fun openDialog(
         title: String?,
         extensions: List<String>,
         allowMultiple: Boolean,
         options: Int,
-    ): List<String> = inApartment {
+    ): List<String> = withDialogOwner { owner ->
         createDialog(clsidFileOpenDialog, iidFileOpenDialog).use { dialog ->
             val multiple = if (allowMultiple) FOS_ALLOWMULTISELECT else 0
             dialog.setOptions(options or multiple)
             dialog.setTitle(title)
             dialog.setFileTypes(extensions)
-            when (val shown = dialog.show(ownerWindow())) {
+            when (val shown = dialog.show(owner)) {
                 HRESULT_CANCELLED -> emptyList()
 
                 else -> {
@@ -98,14 +99,16 @@ internal class WindowsExplorerDialogs : NativeDialogs {
         return ComObject(pointer)
     }
 
-    /**
-     * COM apartment of the calling thread. `RPC_E_CHANGED_MODE` means the thread already runs COM in another
-     * model: the dialog still works, but the apartment is not ours to close.
-     */
+    private suspend fun <T> withDialogOwner(body: (Pointer?) -> T): T {
+        val owner = ownerWindow()
+        return onDialogThread { inApartment { body(owner) } }
+    }
+
+    /** All COM calls, including interface release and apartment teardown, stay on the fresh STA thread. */
     private fun <T> inApartment(body: () -> T): T {
         val initialized = ole32.CoInitializeEx(null, COINIT_APARTMENTTHREADED)
         val owned = COMUtils.SUCCEEDED(initialized)
-        check(owned || initialized == RPC_E_CHANGED_MODE) { "COM is unavailable (${initialized.code()})" }
+        check(owned) { "COM is unavailable (${initialized.code()})" }
         return try {
             body()
         } finally {
@@ -115,13 +118,12 @@ internal class WindowsExplorerDialogs : NativeDialogs {
 
     private fun ComObject.setOptions(extra: Int) {
         val current = IntByReference()
-        val known = if (COMUtils.SUCCEEDED(callResult(SLOT_GET_OPTIONS, current))) current.value else 0
-        val applied = callResult(SLOT_SET_OPTIONS, known or extra)
-        check(COMUtils.SUCCEEDED(applied)) { "The Explorer dialog rejected its options (${applied.code()})" }
+        callChecked(SLOT_GET_OPTIONS, current)
+        callChecked(SLOT_SET_OPTIONS, current.value or extra)
     }
 
     private fun ComObject.setTitle(title: String?) {
-        if (title != null) call(SLOT_SET_TITLE, WString(title))
+        if (title != null) callChecked(SLOT_SET_TITLE, WString(title))
     }
 
     /** One entry of the dialog's type list: Explorer shows the mask itself as the entry label. */
@@ -135,7 +137,7 @@ internal class WindowsExplorerDialogs : NativeDialogs {
         filter.write()
         val applied = callResult(SLOT_SET_FILE_TYPES, 1, filter)
         check(COMUtils.SUCCEEDED(applied)) { "The Explorer dialog rejected its type mask (${applied.code()})" }
-        call(SLOT_SET_FILE_TYPE_INDEX, 1)
+        callChecked(SLOT_SET_FILE_TYPE_INDEX, 1)
     }
 
     private fun ComObject.show(owner: Pointer?): Int = callResult(SLOT_SHOW, owner)
@@ -183,8 +185,10 @@ internal class ComObject(private val pointer: Pointer) : AutoCloseable {
     private val log = Log.tag("WindowsExplorerDialogs")
     private val vtable: Pointer = pointer.getPointer(0)
 
-    fun call(slot: Int, vararg arguments: Any?) {
-        function(slot).invoke(arrayOf(pointer, *arguments))
+    /** Configuration methods return HRESULT; unlike Release, failure must reach the logging wrapper. */
+    fun callChecked(slot: Int, vararg arguments: Any?) {
+        val result = callResult(slot, *arguments)
+        check(COMUtils.SUCCEEDED(result)) { "Explorer COM method $slot failed (${result.code()})" }
     }
 
     fun callResult(slot: Int, vararg arguments: Any?): Int = function(slot).invokeInt(arrayOf(pointer, *arguments))
@@ -244,7 +248,6 @@ private val ole32: Ole32Library by lazy {
 }
 
 private const val HRESULT_CANCELLED = 0x800704C7.toInt() // HRESULT_FROM_WIN32(ERROR_CANCELLED)
-private const val RPC_E_CHANGED_MODE = 0x80010106.toInt()
 private const val COINIT_APARTMENTTHREADED = 0x2
 private const val CLSCTX_INPROC_SERVER = 0x1
 private const val SIGDN_FILESYSPATH = 0x80058000.toInt()

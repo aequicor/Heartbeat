@@ -63,12 +63,12 @@ class WindowsShellItemTest {
     private companion object {
         private const val COINIT_APARTMENTTHREADED = 0x2
 
-        val shell32: Shell32Library = Native.load("shell32", Shell32Library::class.java, W32APIOptions.DEFAULT_OPTIONS)
-        val ole32Test: Ole32TestLibrary = Native.load(
-            "ole32",
-            Ole32TestLibrary::class.java,
-            W32APIOptions.DEFAULT_OPTIONS,
-        )
+        val shell32: Shell32Library by lazy {
+            Native.load("shell32", Shell32Library::class.java, W32APIOptions.DEFAULT_OPTIONS)
+        }
+        val ole32Test: Ole32TestLibrary by lazy {
+            Native.load("ole32", Ole32TestLibrary::class.java, W32APIOptions.DEFAULT_OPTIONS)
+        }
         val iidShellItem = GUID("{43826d1e-e718-42ee-bc55-a1e261c37bfe}")
     }
 }

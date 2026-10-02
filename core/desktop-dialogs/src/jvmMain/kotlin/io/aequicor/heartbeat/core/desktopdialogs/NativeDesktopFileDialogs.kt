@@ -8,11 +8,15 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Desktop binding of [DesktopFileDialogs]: picks the host's native dialog, runs it on the AWT event
- * thread — the thread whose message pump a modal system dialog needs — and logs the outcome.
+ * Desktop binding of [DesktopFileDialogs]: serializes modal dialogs, starts them on the AWT event
+ * thread to capture their owner, and logs only cancellation or the selection count.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class)
@@ -23,6 +27,7 @@ internal class NativeDesktopFileDialogs(
     private val dialogs: NativeDialogs = nativeDialogsFor(platform.host),
 ) : DesktopFileDialogs {
     private val log = Log.tag("DesktopFileDialogs")
+    private val dialogMutex = Mutex()
 
     override suspend fun pickDirectory(title: String?): String? =
         onEventThread("folder") { dialogs.pickDirectory(title) }
@@ -33,24 +38,29 @@ internal class NativeDesktopFileDialogs(
     override suspend fun pickSaveLocation(title: String?, suggestedName: String?, extensions: List<String>): String? =
         onEventThread("save") { dialogs.pickSaveLocation(title, suggestedName, extensions) }
 
-    /** A system dialog blocks the thread until the user closes it; only its failure reaches the caller. */
-    private suspend fun <T> onEventThread(kind: String, dialog: () -> T): T = withContext(dispatchers.main) {
-        log.i { "Open native $kind dialog" }
-        val selection = try {
-            dialog()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            log.e(error) { "Native $kind dialog failed" }
-            throw error
+    /** Waiting callers may cancel; an already visible dialog finishes its native cleanup before returning. */
+    private suspend fun <T> onEventThread(kind: String, dialog: suspend () -> T): T = dialogMutex.withLock {
+        withContext(dispatchers.main) {
+            log.i { "Open native $kind dialog" }
+            val selection = try {
+                dialog().also { currentCoroutineContext().ensureActive() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: LinkageError) {
+                log.e(error) { "Native $kind backend is unavailable" }
+                throw error
+            } catch (error: Exception) {
+                log.e(error) { "Native $kind dialog failed" }
+                throw error
+            }
+            log.d { "Native $kind dialog closed selection=${selection.describeSelection()}" }
+            selection
         }
-        log.d { "Native $kind dialog closed selection=${selection.describeSelection()}" }
-        selection
     }
 
     private fun Any?.describeSelection(): String = when (this) {
         null -> "cancelled"
-        is List<*> -> if (isEmpty()) "cancelled" else joinToString(",")
-        else -> toString()
+        is List<*> -> if (isEmpty()) "cancelled" else "count=$size"
+        else -> "count=1"
     }
 }
