@@ -119,6 +119,7 @@ internal fun EngineConnectionsContent(
                 ConnectionsToolbar(onAddEngine = { onAddConnection(null) })
                 SettingsStatus(state, onIntent)
                 EnginesSection(state, onIntent)
+                state.panel?.let { EngineManagementSection(it, state.isSaving, onIntent) }
                 ConnectionsSection(state, onIntent, onAddConnection)
                 ModelsSection(state, onIntent)
             }
@@ -126,6 +127,9 @@ internal fun EngineConnectionsContent(
     }
     val confirming = state.connections.firstOrNull { it.id == state.confirmDisconnect }
     if (confirming != null) DisconnectDialog(confirming.label, isEnabled = !state.isSaving, onIntent)
+    val panel = state.panel
+    val action = state.confirmAction
+    if (panel != null && action != null) EngineActionDialog(action, panel, isEnabled = !state.isSaving, onIntent)
 }
 
 @Composable
@@ -217,6 +221,7 @@ private fun EngineEntry(engine: EngineRowUi, isSelected: Boolean, onClick: () ->
         onClick = onClick,
         isSelected = isSelected,
     ) {
+        if (!engine.isEnabled) HbBadge(stringResource(Res.string.settings_connection_off))
         AvailabilityBadge(engine.availability)
     }
 }
@@ -228,7 +233,8 @@ private fun ConnectionsSection(
     onAddConnection: (engine: String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val engine = state.engines.firstOrNull { it.id == state.selectedEngine } ?: return
+    // A switched-off engine has no connections to manage; its panel explains why.
+    val engine = state.engines.firstOrNull { it.id == state.selectedEngine }?.takeIf { it.isEnabled } ?: return
     HbSettingsSection(
         stringResource(Res.string.settings_connections),
         modifier,
@@ -292,7 +298,7 @@ private fun ModelsSection(
 ) {
     val connection = state.connections.firstOrNull { it.id == state.selectedConnection }
     val pane = state.models
-    if (state.selectedEngine == null) return
+    if (state.engines.none { it.id == state.selectedEngine && it.isEnabled }) return
     HbSettingsSection(stringResource(Res.string.settings_models), modifier, description = connection?.label) {
         if (connection == null || pane == null) {
             HbEmptyState(stringResource(Res.string.settings_select_connection))
