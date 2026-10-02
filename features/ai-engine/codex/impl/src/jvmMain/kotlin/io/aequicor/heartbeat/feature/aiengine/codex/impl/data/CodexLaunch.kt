@@ -52,8 +52,12 @@ internal fun resolveCodexLaunch(
     val managed = context.managed?.executable
     val (executable, source, isRunnable) = when {
         custom != null -> Triple(custom, InstallSource.Custom, !custom.isScriptWrapper())
+
         managed != null -> Triple(managed, InstallSource.Managed, true)
-        config.executable != DEFAULT_COMMAND -> Triple(config.executable, InstallSource.System, true)
+
+        config.executable != DEFAULT_COMMAND ->
+            Triple(config.executable, InstallSource.System, !config.executable.isScriptWrapper())
+
         else -> systemCodex(host)
     }
     return CodexLaunch(executable, source, isRunnable, home, settings.configOverrides, settings.environment)

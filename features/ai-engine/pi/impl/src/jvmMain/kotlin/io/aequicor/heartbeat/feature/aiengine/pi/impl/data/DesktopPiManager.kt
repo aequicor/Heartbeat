@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.nio.file.Files
@@ -67,8 +68,8 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         return piInstallPlan(feeds.latestGitHubRelease(PI_OWNER, PI_REPOSITORY), target, feeds)
     }
 
-    /** `pi --version`, offline and bounded; an executable that does not answer has no known version. */
-    private fun version(executable: Path, startup: PiStartup): String? = try {
+    /** `pi --version`, offline, bounded and cancellable; an executable that does not answer has no known version. */
+    private suspend fun version(executable: Path, startup: PiStartup): String? = try {
         val builder = ProcessBuilder(executable.toString(), "--version").redirectErrorStream(true)
         applyPiEnvironment(builder.environment(), startup)
         builder.environment()["PI_OFFLINE"] = "1"
@@ -76,14 +77,14 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         val process = builder.start()
         try {
             process.outputStream.close()
-            val isDone = process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
             if (isDone) parsePiVersion(process.inputStream.readNBytes(MAX_VERSION_BYTES).decodeToString()) else null
         } finally {
             process.descendants().forEach { it.destroyForcibly() }
             process.destroyForcibly()
         }
     } catch (e: IOException) {
-        log.w(e) { "Pi version could not be read" }
+        log.w(e.withoutDetails()) { "Pi version could not be read" }
         null
     }
 

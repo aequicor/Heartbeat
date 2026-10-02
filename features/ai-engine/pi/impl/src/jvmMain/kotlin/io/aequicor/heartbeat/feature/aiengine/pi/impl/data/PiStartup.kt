@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
@@ -16,8 +17,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.isTrustedReleaseUrl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.sha256FromSums
 import java.io.File
+import java.nio.file.InvalidPathException
 import java.nio.file.Path
 
 /** The Pi a process starts: [executable] (null when none is attached) and where it came from, plus user entries. */
@@ -29,14 +32,17 @@ internal data class PiStartup(
     override fun toString(): String = "PiStartup(source=$source)"
 }
 
-/** The custom executable of [context]'s settings, else Heartbeat's newer copy, else the [bundled] Pi. */
+/**
+ * The custom executable of [context]'s settings, else Heartbeat's newer copy, else the [bundled] Pi. A custom path the
+ * file system cannot name (Windows reserved characters) is a custom Pi that cannot start.
+ */
 internal fun resolvePiStartup(context: LaunchContext, bundled: Path?): PiStartup {
     val custom = context.settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
     val environment = context.settings.environment
     return when {
-        custom != null -> PiStartup(Path.of(custom), InstallSource.Custom, environment)
-        managed != null -> PiStartup(Path.of(managed), InstallSource.Managed, environment)
+        custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
+        managed != null -> PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
         bundled != null -> PiStartup(bundled, InstallSource.Bundled, environment)
         else -> PiStartup(null, InstallSource.Missing, environment)
     }
@@ -88,10 +94,12 @@ internal fun piReleaseTarget(
 internal suspend fun piInstallPlan(release: GitHubRelease, target: String, feeds: ReleaseFeeds): InstallPlan {
     val isWindows = target.startsWith("windows")
     val name = "pi-$target." + if (isWindows) "zip" else "tar.gz"
-    val asset = release.asset(name) ?: throw installFailure(InstallFailureReason.NoAssetForPlatform)
+    val asset = release.asset(name) ?: installFailed(InstallFailureReason.NoAssetForPlatform)
+    // A publisher's URL outside its download hosts is refused before it reaches the plan.
+    if (!isTrustedReleaseUrl(asset.url, GitHubDownloadHosts)) installFailed(InstallFailureReason.UntrustedSource)
     val sha256 = asset.sha256 ?: release.asset(PI_SUMS)?.let { sums ->
         sha256FromSums(feeds.document(sums.url, GitHubDownloadHosts), name)
-    } ?: throw installFailure(InstallFailureReason.UntrustedSource)
+    } ?: installFailed(InstallFailureReason.UntrustedSource)
     return InstallPlan(
         version = release.tag.removePrefix("v"),
         url = asset.url,
@@ -110,10 +118,21 @@ internal fun piCompatibility(version: String, bundled: String?): Compatibility =
     else -> Compatibility.Unverified
 }
 
+/** This failure without its message, which names the user's paths; only the kind of failure is logged. */
+internal fun Throwable.withoutDetails(): Throwable = IllegalStateException(this::class.simpleName ?: "Failure")
+
+private fun pathOrNull(path: String): Path? = try {
+    Path.of(path)
+} catch (e: InvalidPathException) {
+    Log.tag("PiStartup").w(e.withoutDetails()) { "custom Pi path cannot be used" }
+    null
+}
+
 /** The version `pi --version` prints, or null. */
 internal fun parsePiVersion(output: String): String? = VersionPattern.find(output)?.groupValues?.get(1)
 
-private fun installFailure(reason: InstallFailureReason) = ManagementException(ManagementFailure.Install(reason))
+private fun installFailed(reason: InstallFailureReason): Nothing =
+    throw ManagementException(ManagementFailure.Install(reason))
 
 internal const val PI_OWNER = "earendil-works"
 internal const val PI_REPOSITORY = "pi"

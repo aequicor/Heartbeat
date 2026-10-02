@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.isTrustedReleaseUrl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.sha256FromSums
 
 /** Qualified manager contract, like [CodexEngineFactory], so it never collides with other engines' managers. */
@@ -77,7 +78,7 @@ internal class CodexManager(private val transport: CodexTransport, private val l
     override suspend fun resolveRelease(feeds: ReleaseFeeds): InstallPlan {
         val target = transport.releaseTarget() ?: run {
             log.w { "Codex publishes no build for this host" }
-            throw installFailure(InstallFailureReason.NoAssetForPlatform)
+            installFailed(InstallFailureReason.NoAssetForPlatform)
         }
         return codexInstallPlan(feeds.latestGitHubRelease(CODEX_OWNER, CODEX_REPOSITORY), target, feeds)
     }
@@ -89,10 +90,12 @@ internal class CodexManager(private val transport: CodexTransport, private val l
  */
 internal suspend fun codexInstallPlan(release: GitHubRelease, target: CodexTarget, feeds: ReleaseFeeds): InstallPlan {
     val name = "codex-package-${target.triple}.tar.gz"
-    val asset = release.asset(name) ?: throw installFailure(InstallFailureReason.NoAssetForPlatform)
+    val asset = release.asset(name) ?: installFailed(InstallFailureReason.NoAssetForPlatform)
+    // A publisher's URL outside its download hosts is refused before it reaches the plan.
+    if (!isTrustedReleaseUrl(asset.url, GitHubDownloadHosts)) installFailed(InstallFailureReason.UntrustedSource)
     val sha256 = asset.sha256 ?: release.asset(CODEX_SUMS)?.let { sums ->
         sha256FromSums(feeds.document(sums.url, GitHubDownloadHosts), name)
-    } ?: throw installFailure(InstallFailureReason.UntrustedSource)
+    } ?: installFailed(InstallFailureReason.UntrustedSource)
     return InstallPlan(
         version = release.tag.removePrefix("rust-v").removePrefix("v"),
         url = asset.url,
@@ -104,7 +107,8 @@ internal suspend fun codexInstallPlan(release: GitHubRelease, target: CodexTarge
     )
 }
 
-private fun installFailure(reason: InstallFailureReason) = ManagementException(ManagementFailure.Install(reason))
+private fun installFailed(reason: InstallFailureReason): Nothing =
+    throw ManagementException(ManagementFailure.Install(reason))
 
 private const val CODEX_OWNER = "openai"
 private const val CODEX_REPOSITORY = "codex"

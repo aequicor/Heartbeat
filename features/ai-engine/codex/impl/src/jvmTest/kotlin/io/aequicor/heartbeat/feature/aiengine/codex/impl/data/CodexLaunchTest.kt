@@ -54,6 +54,7 @@ class CodexLaunchTest {
         }
         val wrapper = resolveCodexLaunch(LaunchContext(LaunchSettings(executable = "C:\\codex.bat")), config, windows)
         assertFalse(wrapper.isRunnable)
+        assertFalse(resolveCodexLaunch(LaunchContext(), config.copy(executable = "C:\\codex.cmd"), windows).isRunnable)
     }
 
     @Test

@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -65,7 +66,10 @@ internal class LocalCodexTransport(
         val resolved = resolveCodexLaunch(launch, config)
         log.i { "Starting local Codex app-server source=${resolved.source}" }
         try {
-            require(resolved.isRunnable) { "Codex executable cannot be started safely" }
+            // A missing CLI still tries the bare command, so it fails as an unavailable app-server, as before.
+            require(resolved.isRunnable || resolved.source == InstallSource.Missing) {
+                "Codex executable cannot be started safely"
+            }
             resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
             val builder = ProcessBuilder(codexCommand(resolved)).redirectError(ProcessBuilder.Redirect.DISCARD)
             applyCodexEnvironment(builder.environment(), resolved)
@@ -100,21 +104,22 @@ internal class LocalCodexTransport(
 
     override fun releaseTarget(): CodexTarget? = codexReleaseTarget()
 
-    /** `codex --version`, bounded; an executable that does not answer has no known version. */
-    private fun version(launch: CodexLaunch): String? = try {
+    /** `codex --version`, bounded and cancellable; an executable that does not answer has no known version. */
+    private suspend fun version(launch: CodexLaunch): String? = try {
         val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
         applyCodexEnvironment(builder.environment(), launch)
         val process = builder.start()
         try {
             process.outputStream.close()
-            val isDone = process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
             if (isDone) parseCodexVersion(process.inputStream.readNBytes(MAX_VERSION_BYTES).decodeToString()) else null
         } finally {
             process.descendants().forEach { it.destroyForcibly() }
             process.destroyForcibly()
         }
     } catch (e: IOException) {
-        log.w(e) { "Codex version could not be read" }
+        // The message names the executable's path; only the kind of failure is logged.
+        log.w(e.sanitized()) { "Codex version could not be read" }
         null
     }
 

@@ -38,6 +38,8 @@ class PiStartupTest {
         )
         assertEquals(bundled to InstallSource.Bundled, resolvePiStartup(LaunchContext(), bundled).pair())
         assertEquals(null to InstallSource.Missing, resolvePiStartup(LaunchContext(), null).pair())
+        val unnamed = LaunchContext(LaunchSettings(executable = "C:\\pi\u0000.exe"))
+        assertEquals(null to InstallSource.Custom, resolvePiStartup(unnamed, bundled).pair())
     }
 
     @Test

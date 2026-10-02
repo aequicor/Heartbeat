@@ -67,7 +67,7 @@ internal class PiProcessLauncher(
         return try {
             Files.readString(file).trim().takeIf { it.isNotEmpty() && it.length <= MAX_VERSION_CHARS }
         } catch (e: IOException) {
-            log.w(e) { "Bundled Pi version could not be read" }
+            log.w(e.withoutDetails()) { "Bundled Pi version could not be read" }
             null
         }
     }
