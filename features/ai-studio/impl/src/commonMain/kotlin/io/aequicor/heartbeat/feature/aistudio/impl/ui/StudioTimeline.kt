@@ -22,7 +22,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartU
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 
@@ -264,7 +266,7 @@ internal fun rememberStudioTimeline(
     messages: ImmutableList<MessageUi>,
     labels: TimelineLabels,
     cards: ImmutableList<HbChatMessage> = persistentListOf(),
-    retained: Set<String> = emptySet(),
+    retained: ImmutableSet<String> = persistentSetOf(),
 ): HbChatTimeline {
     val cache = remember(sessionId) { TimelineCache() }
     return remember(cache, messages, labels, cards, retained) { cache.update(messages, labels, cards, retained) }

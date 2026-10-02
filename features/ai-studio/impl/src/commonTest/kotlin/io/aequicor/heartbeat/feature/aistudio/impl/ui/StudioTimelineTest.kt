@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartUi
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -120,7 +121,7 @@ class StudioTimelineTest {
     fun `worktree cards join the transcript at invocation and later entries stream below them`() {
         val cache = TimelineCache()
         val cards = listOf(card("build:compile"), card("build:test"))
-        val retained = setOf("build:compile", "build:test")
+        val retained = persistentSetOf("build:compile", "build:test")
         val first = cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards, retained)
         assertEquals(listOf("m1", "m2", "build:compile", "build:test"), first.messages.map { it.id })
         val repeated = listOf(prompt, reply("partial", isStreaming = true))
@@ -149,7 +150,7 @@ class StudioTimelineTest {
             listOf(prompt),
             labels,
             listOf(running, card("worktree:chat")),
-            nextRetained = setOf("build:compile"),
+            nextRetained = persistentSetOf("build:compile"),
         )
         assertEquals(listOf("m1", "build:compile", "worktree:chat"), first.messages.map { it.id })
 
@@ -159,7 +160,7 @@ class StudioTimelineTest {
             listOf(prompt),
             labels,
             listOf(failed, card("worktree:chat")),
-            nextRetained = setOf("build:compile"),
+            nextRetained = persistentSetOf("build:compile"),
         )
         assertNotSame(first, updated)
         assertEquals(listOf("m1", "build:compile", "worktree:chat"), updated.messages.map { it.id })
@@ -168,6 +169,42 @@ class StudioTimelineTest {
 
         val cleared = cache.update(listOf(prompt), labels)
         assertEquals(listOf("m1"), cleared.messages.map { it.id })
+    }
+
+    @Test
+    fun `a rebuild replays woven cards at their invocation points`() {
+        val cache = TimelineCache()
+        val cards = listOf(card("build:compile"))
+        val retained = persistentSetOf("build:compile")
+        val before = listOf(prompt, reply("one", isStreaming = false))
+        cache.update(before, labels, cards, retained)
+        val grown = cache.update(before + stopped("m3", 4), labels, cards, retained)
+        assertEquals(listOf("m1", "m2", "build:compile", "m3"), grown.messages.map { it.id })
+
+        val translated = cache.update(before + stopped("m3", 4), labels.copy(you = "Reader"), cards, retained)
+        assertEquals(listOf("m1", "m2", "build:compile", "m3"), translated.messages.map { it.id })
+
+        val edited = cache.update(
+            listOf(prompt, reply("one!", isStreaming = false), stopped("m3", 4)),
+            labels,
+            cards,
+            retained,
+        )
+        assertEquals(listOf("m1", "m2", "build:compile", "m3"), edited.messages.map { it.id })
+        assertEquals("one!", edited.messages[1].text)
+
+        val shrunk = cache.update(before, labels, cards, retained)
+        assertEquals(listOf("m1", "m2", "build:compile"), shrunk.messages.map { it.id })
+    }
+
+    @Test
+    fun `retiring the last card of an empty transcript leaves no orphan section`() {
+        val cache = TimelineCache()
+        cache.update(emptyList(), labels, listOf(card("worktree-journal-loading")))
+        val cleared = cache.update(emptyList(), labels)
+
+        assertEquals(0, cleared.messageCount)
+        assertEquals(0, cleared.itemCount)
     }
 
     @Test

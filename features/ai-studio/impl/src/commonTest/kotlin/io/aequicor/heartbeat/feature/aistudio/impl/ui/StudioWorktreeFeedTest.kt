@@ -240,6 +240,15 @@ class StudioWorktreeFeedTest {
     }
 
     @Test
+    fun `every invoked build stays retained beyond the recent-build window`() {
+        val builds = (1..5).map { BuildUi("b$it", "verify", BuildPhaseUi.Completed, "", failure = null) }
+        val result = timeline(task(WorktreePhaseUi.Idle, builds = builds))
+
+        assertEquals(builds.map { "build:${it.id}" }.toSet(), result.retained.toSet())
+        assertEquals(listOf("build:b3", "build:b4", "build:b5"), result.messages.map { it.id })
+    }
+
+    @Test
     fun `dispatch sends store intents and opens verified links`() {
         val result = timeline(task(WorktreePhaseUi.Failed, pullRequestUrl = "https://example.test/pr/3"))
         val intents = mutableListOf<AiStudioScreenIntent>()

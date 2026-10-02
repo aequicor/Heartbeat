@@ -196,6 +196,19 @@ class HbChatTimelineTest {
         assertEquals(timeline.itemCount, updated.itemCount)
         assertEquals(timeline.sections.single().toolEntries, updated.sections.single().toolEntries)
         assertFailsWith<IllegalArgumentException> { updated.replace("missing", changed) }
+        assertFailsWith<IllegalArgumentException> { updated.replace("card", changed.copy(id = "renamed")) }
+    }
+
+    @Test
+    fun `removing the last entry drops its emptied section instead of an orphan header`() {
+        val section = HbChatSection("session", "Session")
+        val timeline = HbChatTimeline.Empty
+            .append(section, toolMessage("solo").copy(role = HbChatRole.System))
+        val removed = timeline.remove("solo")
+
+        assertEquals(0, removed.messageCount)
+        assertEquals(0, removed.itemCount)
+        assertTrue(removed.sections.isEmpty())
     }
 
     @Test

@@ -74,6 +74,7 @@ public class HbChatTimeline private constructor(
      */
     public fun replace(id: String, message: HbChatMessage): HbChatTimeline {
         require(id in messagesById) { "Chat timeline has no message $id to replace." }
+        require(message.id == id) { "Replacing $id must keep the message id, got ${message.id}." }
         if (isTrackedTail(id)) return replaceLatest(message)
         return relocate(id, message)
     }
@@ -107,7 +108,10 @@ public class HbChatTimeline private constructor(
         )
     }
 
-    /** Drops one message with its chunks; a following streaming tail shifts with the removed range. */
+    /**
+     * Drops one message with its chunks; a following streaming tail shifts with the removed range. Sections
+     * left without entries are dropped too, so removing the last entry never leaves an orphan header.
+     */
     public fun remove(id: String): HbChatTimeline {
         require(id in messagesById) { "Chat timeline has no message $id to remove." }
         val spot = locate(id)
@@ -128,12 +132,18 @@ public class HbChatTimeline private constructor(
 
             else -> latestEntryStart
         }
+        var nextSections = sections.replacingAt(spot.sectionIndex, section.withEntries(updatedEntries))
+        var removedSections = 0
+        while (nextSections.isNotEmpty() && nextSections.last().entries.isEmpty()) {
+            nextSections = nextSections.removingAt(nextSections.lastIndex)
+            removedSections++
+        }
         return HbChatTimeline(
-            sections.replacingAt(spot.sectionIndex, section.withEntries(updatedEntries)),
+            nextSections,
             orderedMessages.removingAt(spot.messageIndex),
             messagesById.removing(id),
             latestStart,
-            itemCount - spot.chunkCount,
+            itemCount - spot.chunkCount - removedSections,
         )
     }
 
