@@ -76,6 +76,7 @@ abstract class PackageInnoSetup : DefaultTask() {
     @TaskAction
     fun compile() {
         val compiler = compiler()
+        logger.lifecycle("Inno Setup compiler: $compiler")
         val image = appImage.get().asFile
         check(image.resolve(appExecutable.get()).isFile) { "App image $image has no launcher ${appExecutable.get()}" }
         files.delete { delete(outputDirectory.asFileTree.matching { include("*.exe") }) }
@@ -107,12 +108,16 @@ abstract class PackageInnoSetup : DefaultTask() {
         }
         val installRoots = listOf("ProgramFiles", "ProgramFiles(x86)").mapNotNull(System::getenv).map(::File) +
             listOfNotNull(System.getenv("LOCALAPPDATA")?.let { File(it, "Programs") })
-        // "Inno Setup 7" sorts before "Inno Setup 6": the newest installed compiler wins.
+        // Install folders end with the major version ("Inno Setup 7"): the newest installed major wins.
         val installed = installRoots
             .flatMap { root -> root.listFiles().orEmpty().asList() }
-            .filter { it.isDirectory && it.name.startsWith("Inno Setup") }
-            .sortedByDescending { it.name }
-        val onPath = System.getenv("PATH").orEmpty().split(File.pathSeparator).filter(String::isNotBlank).map(::File)
+            .filter { it.isDirectory && it.name.startsWith(INSTALL_FOLDER, ignoreCase = true) }
+            .sortedByDescending { it.name.drop(INSTALL_FOLDER.length).trim().toIntOrNull() ?: 0 }
+        // Windows accepts quoted PATH entries.
+        val onPath = System.getenv("PATH").orEmpty().split(File.pathSeparator)
+            .map { it.trim().trim('"') }
+            .filter(String::isNotBlank)
+            .map(::File)
         return checkNotNull((installed + onPath).map { it.resolve(COMPILER) }.firstOrNull(File::isFile)) {
             "Inno Setup 6.6 or newer is required to build the Windows installer: install it " +
                 "(winget install JRSoftware.InnoSetup.7) or point the heartbeat.innoSetupDir Gradle property " +
@@ -122,5 +127,6 @@ abstract class PackageInnoSetup : DefaultTask() {
 
     private companion object {
         const val COMPILER = "ISCC.exe"
+        const val INSTALL_FOLDER = "Inno Setup"
     }
 }
