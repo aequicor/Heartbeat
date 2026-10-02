@@ -192,9 +192,12 @@ public interface AgentToolBridge {
     /** False on platforms without local processes. */
     public val isAvailable: Boolean
 
-    /** Creates a private capability. A null context rejects calls outside an active turn. */
+    /**
+     * Creates a private capability. A null context rejects calls outside an active turn. A null [workspace] serves
+     * a session without a project: only detached contributions answer it.
+     */
     public suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment
 }
@@ -203,7 +206,7 @@ public interface AgentToolBridge {
 public object UnavailableAgentToolBridge : AgentToolBridge {
     override val isAvailable: Boolean = false
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment = throw UnsupportedOperationException("Local agent tools are unavailable")
 }

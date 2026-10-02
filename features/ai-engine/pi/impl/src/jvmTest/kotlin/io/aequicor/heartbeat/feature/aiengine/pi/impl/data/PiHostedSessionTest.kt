@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -67,6 +68,38 @@ class PiHostedSessionTest {
         assertEquals(parts, history.items.filterIsInstance<SessionItem.Message>().last().parts)
         fixture.connection.event(record("""{"type":"agent_settled"}"""))
         assertEquals(null, bridge.context())
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `session without a project starts with hosted tools only when its caller opted in`() = runTest {
+        val plainBridge = HostedBridge()
+        fixture(this, tools = HostedToolDeclarations, bridge = plainBridge, project = null).session.shutdown()
+        assertTrue(plainBridge.attached.isEmpty())
+
+        val bridge = HostedBridge()
+        val fixture = fixture(
+            this,
+            tools = HostedToolDeclarations,
+            bridge = bridge,
+            project = null,
+            areDetachedToolsEnabled = true,
+        )
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        val turn = fixture.session.send(PromptRequest(RequestId("chat"), listOf(ContentPart.Text("Hi"))))
+        val context = requireNotNull(bridge.context())
+        assertEquals(listOf<WorkspaceRef?>(null), bridge.attached)
+        assertEquals(null, context.workspace)
+        assertEquals(turn, context.turn)
+        assertEquals(ModelId("anthropic/test"), context.target?.model)
+        fixture.session.shutdown()
+    }
+
+    @Test
+    fun `chat without a project starts without detached tools where no bridge exists`() = runTest {
+        val fixture = fixture(this, tools = HostedToolDeclarations, project = null, areDetachedToolsEnabled = true)
+        fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+        fixture.session.send(PromptRequest(RequestId("chat"), listOf(ContentPart.Text("Hi"))))
         fixture.session.shutdown()
     }
 
@@ -164,10 +197,12 @@ private class HostedBridge : AgentToolBridge {
     override val isAvailable = true
     var context: suspend () -> AgentToolContext? = { null }
     var isClosed = false
+    val attached = mutableListOf<WorkspaceRef?>()
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
+        attached += workspace
         this.context = context
         return object : AgentToolBridgeAttachment {
             override val endpoint = AgentToolBridgeEndpoint("http://127.0.0.1:1", "fixture")

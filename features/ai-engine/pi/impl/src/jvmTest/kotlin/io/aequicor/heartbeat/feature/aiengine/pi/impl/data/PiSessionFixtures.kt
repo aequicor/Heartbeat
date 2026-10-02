@@ -71,14 +71,16 @@ internal suspend fun fixture(
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
     resources: ResourceResolver = ResourceResolver { null },
     targetModel: ModelId = ModelId("anthropic/test"),
+    project: WorkspaceRef? = WorkspaceRef("hosted-workspace"),
+    areDetachedToolsEnabled: Boolean = false,
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
-    val workspace = if (tools === NoAgentTools) null else WorkspaceRef("hosted-workspace")
+    val workspace = if (tools === NoAgentTools) null else project
     val route = ExecutionRoute(PiEngineId, target.binding, AuthSourceId("source"), AuthRevision.Known("1"), workspace)
     val released = mutableListOf<PiSession>()
     val session = PiSession(
-        CreateSessionRequest(target, workspace),
+        CreateSessionRequest(target, workspace, areDetachedToolsEnabled),
         route,
         piTestEnvironment(
             test,

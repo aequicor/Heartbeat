@@ -71,7 +71,7 @@ internal class DesktopAgentToolBridge(
     }
 
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
         check(!profile.isClosed) { "Agent tools profile is closed" }
@@ -287,7 +287,7 @@ internal class DesktopAgentToolBridge(
     }
 
     private data class Capability(
-        val workspace: WorkspaceRef,
+        val workspace: WorkspaceRef?,
         val context: suspend () -> AgentToolContext?,
         val scope: CoroutineScope,
     )

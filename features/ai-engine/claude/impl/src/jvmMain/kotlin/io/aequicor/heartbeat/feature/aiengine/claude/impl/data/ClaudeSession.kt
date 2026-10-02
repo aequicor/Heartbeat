@@ -75,6 +75,10 @@ internal class ClaudeSession(
     private val commands = Mutex()
     private val lock = Any()
     private val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
+
+    /** Chosen by the request that opened the session; only callers answering hosted permissions enable it. */
+    @Volatile
+    var areDetachedToolsEnabled: Boolean = false
     private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
@@ -286,7 +290,13 @@ internal class ClaudeSession(
 
     private suspend fun hostedTurn(submission: Submission, observer: ClaudeTurnObserver): ClaudeHostedTurn =
         ClaudeHostedTurn(
-            ClaudeTurnContext(ref, route.workspace, submission.request),
+            ClaudeTurnContext(
+                ref,
+                route.workspace,
+                submission.request,
+                submission.turn.target,
+                areDetachedToolsEnabled,
+            ),
             observer,
             history,
             environment,

@@ -114,7 +114,8 @@ internal class PiRuntime(
             val file = processes.transcript(ref.nativeId)
                 ?: piFailure(EngineFailure.Session(SessionFailureReason.NotFound))
             log.i { "Attaching stored Pi session" }
-            return launch(CreateSessionRequest(request.target, request.workspace), PiTranscript(ref, file))
+            val launchRequest = CreateSessionRequest(request.target, request.workspace, request.areDetachedToolsEnabled)
+            return launch(launchRequest, PiTranscript(ref, file))
         } finally {
             withContext(NonCancellable) { mutex.withLock { attaching.remove(ref) } }
         }

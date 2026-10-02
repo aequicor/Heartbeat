@@ -94,6 +94,56 @@ class ClaudeHostedTest {
     }
 
     @Test
+    fun `session without a project gets hosted tools only when its caller opted in`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val contexts = mutableListOf<AgentToolContext?>()
+        fixture.transport.generation = { args, line ->
+            contexts += bridge.context()
+            line(resultFrame(args.first { it.startsWith("--session-id=") }.substringAfter('=')))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val plain = runtime.create(CreateSessionRequest(testTarget))
+        plain.features.available(SendsPrompts).send(prompt("plain"))
+        runCurrent()
+        assertTrue(bridge.attached.isEmpty())
+        assertNull(fixture.transport.hostedCalls.last())
+
+        val chat = runtime.create(CreateSessionRequest(testTarget, areDetachedToolsEnabled = true))
+        val turn = chat.features.available(SendsPrompts).send(prompt("chat"))
+        runCurrent()
+        assertEquals(listOf<WorkspaceRef?>(null), bridge.attached)
+        val hosted = assertNotNull(fixture.transport.hostedCalls.last())
+        assertFalse(hosted.isProject)
+        val context = assertNotNull(contexts.last())
+        assertNull(context.workspace)
+        assertEquals(turn, context.turn)
+        assertEquals(testTarget, context.target)
+        runtime.close()
+    }
+
+    @Test
+    fun `detached hosted arguments keep provider web search`() {
+        val config = Files.createTempFile("heartbeat-mcp-", ".json")
+        try {
+            val args = claudeHostedArguments(
+                claudeArguments(search = true),
+                config,
+                config.resolveSibling("prompt.txt"),
+                search = true,
+                isProviderSearchKept = true,
+            )
+            assertFalse("--tools=" in args)
+            assertTrue("--tools=WebSearch" in args)
+            assertTrue("--allowedTools=mcp__heartbeat_tools__*,mcp__heartbeat_search__*,WebSearch" in args)
+            assertTrue("--strict-mcp-config" in args)
+        } finally {
+            Files.deleteIfExists(config)
+        }
+    }
+
+    @Test
     fun `MCP call proves acceptance before buffered stdout and permissions belong to that turn`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val bridge = TestAgentBridge()
@@ -388,12 +438,14 @@ private class TestAgentTools : ProfileAgentTools {
 private class TestAgentBridge : AgentToolBridge {
     override val isAvailable = true
     var closed = 0
+    val attached = mutableListOf<WorkspaceRef?>()
     private var factory: (suspend () -> AgentToolContext?)? = null
     suspend fun context() = factory?.invoke()
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
+        attached += workspace
         factory = context
         return object : AgentToolBridgeAttachment {
             override val endpoint = AgentToolBridgeEndpoint("http://127.0.0.1:42", "test-token")

@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -31,7 +33,8 @@ internal class ClaudeHostedTurn(
     )
 
     suspend fun prepare(): ClaudeHostedTools? {
-        val project = context.workspace ?: return null
+        val project = context.workspace
+        if (project == null && !context.areDetachedToolsEnabled) return null
         if (environment.tools.specifications(project).isEmpty()) return null
         val capability = environment.bridge.attach(project) {
             if (isActive()) {
@@ -45,13 +48,15 @@ internal class ClaudeHostedTurn(
                     context.request.trust ?: TrustLevel.Ask,
                     permissions,
                     lifetime = lifetime,
+                    target = context.target,
                 )
             } else {
                 null
             }
         }
         attachment = capability
-        return ClaudeHostedTools(capability.endpoint, environment.tools.instructions(project))
+        val instructions = environment.tools.instructions(AgentToolScope(project, context.target))
+        return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
     }
 
     private fun isActive(): Boolean = isOpen.get() && !observer.isFinished && callbacks.isCurrent()
@@ -63,8 +68,17 @@ internal class ClaudeHostedTurn(
     }
 }
 
-/** Trusted identity and request captured before starting the native process. */
-internal data class ClaudeTurnContext(val ref: SessionRef, val workspace: WorkspaceRef?, val request: PromptRequest)
+/**
+ * Trusted identity and request captured before starting the native process. [target] is the turn's model;
+ * [areDetachedToolsEnabled] admits hosted tools without a project for the caller that opted in.
+ */
+internal data class ClaudeTurnContext(
+    val ref: SessionRef,
+    val workspace: WorkspaceRef?,
+    val request: PromptRequest,
+    val target: EngineTarget? = null,
+    val areDetachedToolsEnabled: Boolean = false,
+)
 
 /** Session-owned state updates and serialized persistence; callbacks never replace turn ownership. */
 internal data class ClaudeTurnCallbacks(

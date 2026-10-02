@@ -6,8 +6,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -55,6 +57,7 @@ internal class PiHostedSessionTools(
             trust,
             AgentToolPermissions { approval(turn, it) },
             lifetime = lifetime,
+            target = turn.target,
         )
     }
 
@@ -73,12 +76,24 @@ internal class PiHostedSessionTools(
         snapshot = null
     }
 
-    suspend fun prepare(workspace: WorkspaceRef?): PiHostedTools? {
-        if (workspace == null) return null
+    /**
+     * Tools and instructions for the process about to start. A session without a project gets detached tools only
+     * when its caller opted in. Instructions are fixed for the process: a later model switch keeps those of [target].
+     */
+    suspend fun prepare(
+        workspace: WorkspaceRef?,
+        target: EngineTarget,
+        areDetachedToolsEnabled: Boolean,
+    ): PiHostedTools? {
+        if (workspace == null && !areDetachedToolsEnabled) return null
         val specs = environment.tools.specifications(workspace)
         if (specs.isEmpty()) return null
-        val instructions = environment.tools.instructions(workspace)
-        if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        val instructions = environment.tools.instructions(AgentToolScope(workspace, target))
+        if (!environment.bridge.isAvailable) {
+            // Detached tools are optional: a chat without a project still starts without them.
+            if (workspace == null) return null
+            piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+        }
         val capability = environment.bridge.attach(workspace, ::context)
         attachment = capability
         return PiHostedTools(capability.endpoint, specs, instructions)
