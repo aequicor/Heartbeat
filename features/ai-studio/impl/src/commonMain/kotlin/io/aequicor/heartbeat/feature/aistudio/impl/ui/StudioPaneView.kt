@@ -269,12 +269,21 @@ private fun PaneNotices(
         content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(
-                    Modifier.padding(HbTheme.spacing.m)
-                        .semantics { liveRegion = LiveRegionMode.Polite }
-                        .testTag("permission-${request.requestId}"),
+                    Modifier.padding(HbTheme.spacing.m).testTag("permission-${request.requestId}"),
                     gap = HbTheme.spacing.s,
                 ) {
-                    HbText(request.title)
+                    // Only the title is announced: the reviewed content can be thousands of characters long.
+                    HbText(request.title, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    request.description?.takeIf { it.isNotBlank() }?.let { description ->
+                        // Bounded and scrollable so a long instruction never pushes the decision off screen.
+                        Box(
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)
+                                .hbVerticalScroll(rememberScrollState()),
+                        ) {
+                            HbText(description, Modifier.testTag("permission-${request.requestId}-description"))
+                        }
+                    }
                     request.options.forEach { option ->
                         HbButton(
                             text = option.title,

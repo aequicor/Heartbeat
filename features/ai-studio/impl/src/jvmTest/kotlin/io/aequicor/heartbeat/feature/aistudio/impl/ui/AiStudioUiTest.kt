@@ -224,11 +224,18 @@ class AiStudioUiTest {
             running = persistentSetOf("s-facade"),
             transcripts = transcriptsOf("s-facade"),
             permissions = persistentListOf(
-                PermissionUi("s-facade", "request", "Run tests", persistentListOf(PermissionOptionUi("once", "Once"))),
+                PermissionUi(
+                    "s-facade",
+                    "request",
+                    "Run tests",
+                    persistentListOf(PermissionOptionUi("once", "Once")),
+                    description = "./gradlew jvmTest",
+                ),
             ),
         )
         setContent { HbTheme(darkTheme = false) { AiStudioContent(state, events::add, exits) } }
         onNodeWithTag("permission-request").assertIsDisplayed()
+        onNodeWithTag("permission-request-description").assertIsDisplayed()
         onNodeWithTag("permission-request-once").performClick()
         runOnIdle {
             assertEquals(

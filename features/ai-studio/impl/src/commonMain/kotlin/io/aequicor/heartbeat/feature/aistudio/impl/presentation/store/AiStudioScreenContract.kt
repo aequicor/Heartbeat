@@ -286,6 +286,8 @@ data class PermissionUi(
     val requestId: String,
     val title: String,
     val options: ImmutableList<PermissionOptionUi>,
+    /** What exactly is being approved, e.g. the text of an instruction the agent wants to remember. */
+    val description: String? = null,
 )
 
 /** Exact native choice identity, displayed without inventing approval policy. */
