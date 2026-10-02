@@ -7,11 +7,19 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
@@ -21,12 +29,14 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 @ContributesBinding(ProfileScope::class)
 @Inject
 internal class LocalCodexTransport(
     private val config: CodexLocalConfiguration,
+    private val launches: EngineLaunchConfig,
     private val dispatchers: DispatcherProvider,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) : CodexTransport {
@@ -49,24 +59,16 @@ internal class LocalCodexTransport(
         }
     }
 
-    override suspend fun open(): CodexWire = withContext(dispatchers.io) {
-        log.i { "Starting local Codex app-server" }
+    override suspend fun open(): CodexWire = open(launches.context(CodexEngine.Id))
+
+    override suspend fun open(launch: LaunchContext): CodexWire = withContext(dispatchers.io) {
+        val resolved = resolveCodexLaunch(launch, config)
+        log.i { "Starting local Codex app-server source=${resolved.source}" }
         try {
-            val command = listOf(
-                resolveCodexExecutable(config.executable),
-                "app-server",
-                "-c",
-                "model_provider=\"openai\"",
-            ) + CodexDisabledCapabilities.flatMap { listOf("-c", "features.$it=false") }
-            val builder = ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD)
-            builder.environment().apply {
-                remove("OPENAI_API_KEY")
-                remove("CODEX_API_KEY")
-                remove("OPENAI_BASE_URL")
-                if (config.homeDirectory != null) put("CODEX_HOME", config.homeDirectory)
-            }
-            config.homeDirectory?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
-            require(!config.executable.endsWith(".cmd", true) && !config.executable.endsWith(".bat", true))
+            require(resolved.isRunnable) { "Codex executable cannot be started safely" }
+            resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
+            val builder = ProcessBuilder(codexCommand(resolved)).redirectError(ProcessBuilder.Redirect.DISCARD)
+            applyCodexEnvironment(builder.environment(), resolved)
             val process = builder.start()
             var cleanup: (() -> Unit)? = null
             val wire = ProcessCodexWire(process, dispatchers) { cleanup?.invoke() }
@@ -75,7 +77,50 @@ internal class LocalCodexTransport(
             wire
         } catch (e: IOException) {
             throw e.sanitized()
+        } catch (e: IllegalArgumentException) {
+            log.w(e) { "Codex launch settings rejected" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
+    }
+
+    override suspend fun locate(launch: LaunchContext): Installation = withContext(dispatchers.io) {
+        val resolved = resolveCodexLaunch(launch, config)
+        val version = if (resolved.isRunnable && resolved.source != InstallSource.Missing) version(resolved) else null
+        log.i { "Codex located source=${resolved.source} version=${version ?: "unknown"}" }
+        Installation(
+            source = resolved.source,
+            version = version,
+            path = resolved.executable.takeIf { resolved.source != InstallSource.Missing },
+            isRunnable = resolved.isRunnable,
+        )
+    }
+
+    override suspend fun check(settings: LaunchSettings): List<LaunchProblem> =
+        withContext(dispatchers.io) { codexLaunchProblems(settings) }
+
+    override fun releaseTarget(): CodexTarget? = codexReleaseTarget()
+
+    /** `codex --version`, bounded; an executable that does not answer has no known version. */
+    private fun version(launch: CodexLaunch): String? = try {
+        val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
+        applyCodexEnvironment(builder.environment(), launch)
+        val process = builder.start()
+        try {
+            process.outputStream.close()
+            val isDone = process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (isDone) parseCodexVersion(process.inputStream.readNBytes(MAX_VERSION_BYTES).decodeToString()) else null
+        } finally {
+            process.descendants().forEach { it.destroyForcibly() }
+            process.destroyForcibly()
+        }
+    } catch (e: IOException) {
+        log.w(e) { "Codex version could not be read" }
+        null
+    }
+
+    private companion object {
+        const val VERSION_TIMEOUT_SECONDS = 15L
+        const val MAX_VERSION_BYTES = 4096
     }
 }
 
