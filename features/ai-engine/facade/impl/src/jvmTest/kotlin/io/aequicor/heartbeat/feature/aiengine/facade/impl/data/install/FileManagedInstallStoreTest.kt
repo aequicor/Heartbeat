@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install
 
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
@@ -8,7 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import java.nio.channels.FileChannel
@@ -33,13 +37,26 @@ class FileManagedInstallStoreTest {
     private val root: Path = Files.createTempDirectory("heartbeat-managed")
     private val engine = EngineId("codex")
     private val releases = mutableMapOf<String, ByteArray>()
+    private val lockScope = ManagedLockTestScope()
+    private val fileLocks = JvmManagedFileLocks(lockScope)
     private val clock = object : Clock {
         override fun now(): Instant = Instant.fromEpochSeconds(1_000)
     }
 
     @AfterTest
     fun cleanUp() {
+        lockScope.close()
         root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `app shutdown releases every outstanding managed lease`() = runTest {
+        val staged = store().stage(engine, plan("1.0.0")) {}
+        val lease = root.resolve("codex/staging/${staged.token}/.lease")
+        assertFalse(canLockFromAnotherProcess(lease))
+        lockScope.close()
+        assertTrue(canLockFromAnotherProcess(lease))
+        assertInstallFailure(InstallFailureReason.FilesInUse) { store().stage(engine, plan("2.0.0")) {} }
     }
 
     @Test
@@ -284,6 +301,7 @@ class FileManagedInstallStoreTest {
             ArchiveExtractor(),
             io,
             clock,
+            fileLocks,
         )
     }
 
@@ -312,6 +330,29 @@ class FileManagedInstallStoreTest {
     }
 
     private val isPosix = "posix" in root.fileSystem.supportedFileAttributeViews()
+}
+
+private class ManagedLockTestScope :
+    ScopeHandle,
+    AutoCloseable {
+    private val actions = mutableListOf<() -> Unit>()
+    override val name: String = "managed-lock-test"
+    override val coroutineScope: CoroutineScope get() = error("No coroutines in this scope fixture")
+    override val savedState: ScopeSavedState get() = error("No saved state in this scope fixture")
+    override var isClosed: Boolean = false
+        private set
+
+    override fun onClose(action: () -> Unit): DisposableHandle {
+        actions += action
+        return DisposableHandle { actions -= action }
+    }
+
+    override fun close() {
+        if (isClosed) return
+        isClosed = true
+        actions.asReversed().forEach { it() }
+        actions.clear()
+    }
 }
 
 private const val LOCK_PROBE = """

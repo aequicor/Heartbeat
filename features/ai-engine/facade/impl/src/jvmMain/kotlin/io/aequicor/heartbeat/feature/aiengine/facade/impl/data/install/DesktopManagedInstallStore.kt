@@ -27,12 +27,14 @@ internal class DesktopManagedInstallStore(
     platform: PlatformInfo,
     dispatchers: DispatcherProvider,
     clock: Clock,
+    fileLocks: ManagedFileLocks,
 ) : ManagedInstallStore by FileManagedInstallStore(
         managedRoot(platform.host, storage),
         ReleaseDownloader(client, dispatchers.io),
         ArchiveExtractor(),
         dispatchers.io,
         clock,
+        fileLocks,
     )
 
 /** Folder of the managed copies on [host]. */

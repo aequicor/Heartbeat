@@ -26,14 +26,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import java.io.IOException
-import java.nio.channels.FileChannel
 import java.nio.channels.FileLock
-import java.nio.channels.OverlappingFileLockException
 import java.nio.file.FileSystemException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.nio.file.StandardOpenOption
 import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
@@ -46,12 +43,13 @@ import kotlin.uuid.Uuid
  * that a running process still uses (Windows) stays where it is and is swept once nothing uses it. Paths and URLs
  * are never logged, and neither are file system messages, which contain them.
  */
-class FileManagedInstallStore(
+internal class FileManagedInstallStore(
     private val root: Path,
     private val downloader: ReleaseDownloader,
     private val extractor: ArchiveExtractor,
     private val io: CoroutineDispatcher,
     private val clock: Clock,
+    private val fileLocks: ManagedFileLocks,
 ) : ManagedInstallStore {
     private val log = Log.tag("ManagedInstallStorage")
     private val installs = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
@@ -97,7 +95,7 @@ class FileManagedInstallStore(
             withContext(io) {
                 storage { Files.createDirectories(download.parent) }
                 storage { Files.createDirectories(staging) }
-                lease = acquire(staging, LEASE)
+                lease = fileLocks.acquire(staging, LEASE)
             }
             downloader.download(plan, download) { bytes, total -> progress(InstallStep.Downloading(bytes, total)) }
             progress(InstallStep.Verified)
@@ -108,7 +106,7 @@ class FileManagedInstallStore(
             currentCoroutineContext().ensureActive()
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
             val staged = StagedInstall(engine, candidate, token, plan.sha256) {
-                release(lease)
+                fileLocks.release(lease)
                 deleteQuietly(staging.resolve(LEASE))
             }
             isHandedOver = true
@@ -124,7 +122,7 @@ class FileManagedInstallStore(
     }
 
     private suspend fun removeFailedStage(lease: FileLock?, download: Path, staging: Path) = withContext(io) {
-        release(lease)
+        fileLocks.release(lease)
         deleteQuietly(download)
         deleteTree(staging)
     }
@@ -253,22 +251,7 @@ class FileManagedInstallStore(
     }
 
     /** A candidate stays leased between download and activation, including while another profile refreshes. */
-    private fun isAbandoned(staging: Path): Boolean = synchronized(processLocks) {
-        try {
-            val file = staging.toRealPath().resolve(LEASE)
-            if (file in processLocks) return@synchronized false
-            if (!Files.exists(file)) return@synchronized true
-            FileChannel.open(file, StandardOpenOption.WRITE).use { channel ->
-                channel.tryLock()?.use { true } ?: false
-            }
-        } catch (e: OverlappingFileLockException) {
-            log.w(e.withoutDetails()) { "staged copy is being checked in this process" }
-            false
-        } catch (e: IOException) {
-            log.w(e.withoutDetails()) { "staged copy lease could not be checked; files are kept" }
-            false
-        }
-    }
+    private fun isAbandoned(staging: Path): Boolean = fileLocks.isAbandoned(staging, LEASE)
 
     private fun children(folder: Path): List<Path> = storage { Files.list(folder).use { it.toList() } }
 
@@ -353,52 +336,10 @@ class FileManagedInstallStore(
         val directory = root.resolve(engine.value)
         var acquired: FileLock? = null
         return try {
-            withContext(io) { acquire(directory).also { acquired = it } }
+            withContext(io) { fileLocks.acquire(directory, LOCK).also { acquired = it } }
             block(directory)
         } finally {
-            release(acquired)
-        }
-    }
-
-    /** The cross-process lock of [directory]; another Heartbeat process holding it makes the copy in use. */
-    private fun acquire(directory: Path, name: String = LOCK): FileLock = synchronized(processLocks) {
-        storage { Files.createDirectories(directory) }
-        val file = storage { directory.toRealPath().resolve(name) }
-        if (file in processLocks) {
-            log.w { "managed copies are locked in this process" }
-            throw installFailure(InstallFailureReason.FilesInUse)
-        }
-        val channel = storage {
-            FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
-        }
-        var isLocked = false
-        val lock = try {
-            val acquired = try {
-                storage { channel.tryLock() }
-            } catch (e: OverlappingFileLockException) {
-                log.w(e.withoutDetails()) { "managed copies are locked in this process" }
-                null
-            }
-            isLocked = acquired != null
-            if (acquired != null) processLocks[file] = acquired
-            acquired ?: run {
-                log.w { "managed copies are being changed by another Heartbeat process" }
-                throw installFailure(InstallFailureReason.FilesInUse)
-            }
-        } finally {
-            if (!isLocked) storage { channel.close() }
-        }
-        lock
-    }
-
-    private fun release(lock: FileLock?) {
-        if (lock == null) return
-        synchronized(processLocks) {
-            try {
-                storage { lock.channel().close() }
-            } finally {
-                processLocks.entries.removeAll { it.value == lock }
-            }
+            fileLocks.release(acquired)
         }
     }
 
@@ -434,9 +375,6 @@ class FileManagedInstallStore(
     )
 
     private companion object {
-        // POSIX can release all locks on an inode when any channel of that inode closes. Never open a second
-        // channel for a file locked by another store in this JVM, including short-lived sweep probes.
-        val processLocks = mutableMapOf<Path, FileLock>()
         const val ACTIVE = "active.json"
         const val LOCK = ".lock"
         const val LEASE = ".lease"
