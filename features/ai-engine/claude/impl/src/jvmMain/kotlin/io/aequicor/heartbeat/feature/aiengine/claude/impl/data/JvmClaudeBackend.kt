@@ -203,7 +203,7 @@ internal class JvmClaudeBackend(
         log.i { "Creating Claude profile runtime" }
         ClaudeRuntime(
             identity,
-            transport,
+            transport.pinned(),
             account,
             toggles,
             profile.coroutineScope,

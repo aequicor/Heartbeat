@@ -7,12 +7,17 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeConfiguration
+import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridge
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CancellationException
@@ -33,8 +38,6 @@ import java.nio.file.attribute.AclEntryType
 import java.nio.file.attribute.AclFileAttributeView
 import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFilePermissions
-import java.security.MessageDigest
-import java.util.HexFormat
 
 /**
  * Runs one CLI operation. [line] returning `true` stops reading and kills the child; `run` then returns 0.
@@ -53,11 +56,21 @@ internal interface ClaudeTransport {
         hosted: ClaudeHostedTools? = null,
         line: suspend (String) -> Boolean,
     ): Int
+
+    /**
+     * This transport bound to [launch], or to the profile's current launch context when null. A runtime keeps its
+     * pinned transport for life, so its sessions never move to another executable or native history mid-way.
+     */
+    suspend fun pinned(launch: LaunchContext? = null): ClaudeTransport = this
+
+    /** The executable [launch] would start and its version; never signs in or starts a session. */
+    suspend fun locate(launch: LaunchContext): Installation = Installation(InstallSource.Missing)
 }
 
 /**
  * Native executable only, bounded UTF-8 frames, discarded stderr and an allowlisted host environment.
  * Every operation is its own process, so operations run concurrently; sessions serialize their own turns.
+ * Unless pinned, each operation starts the CLI as the profile's current launch context describes.
  */
 @ContributesBinding(ProfileScope::class)
 @SingleIn(ProfileScope::class)
@@ -67,15 +80,53 @@ internal class ProcessClaudeTransport(
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
     private val searchBridge: SearchBridge,
     private val workspaces: LocalWorkspaces,
+    private val launches: EngineLaunchConfig = EngineLaunchConfig.Default,
 ) : ClaudeTransport {
     private val log = Log.tag("ClaudeProcess")
-    override val nativeStore: String by lazy {
-        val root = configuration.configDirectory ?: Path.of(System.getProperty("user.home"), ".claude").toString()
-        MessageDigest.getInstance("SHA-256").digest(Path.of(root).toAbsolutePath().normalize().toString().toByteArray())
-            .let { HexFormat.of().formatHex(it) }
-    }
+    override val nativeStore: String by lazy { claudeNativeStore(configuration.configDirectory) }
 
     override suspend fun run(
+        arguments: List<String>,
+        input: String,
+        workspace: WorkspaceRef?,
+        closeInput: Boolean,
+        hosted: ClaudeHostedTools?,
+        line: suspend (String) -> Boolean,
+    ): Int = run(startup(null), arguments, input, workspace, closeInput, hosted, line)
+
+    override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = PinnedClaudeTransport(this, startup(launch))
+
+    override suspend fun locate(launch: LaunchContext): Installation {
+        val startup = startup(launch)
+        val isFound = startup.source != InstallSource.Missing
+        val version = if (isFound && startup.isRunnable) version(startup) else null
+        log.i { "Claude located source=${startup.source} version=${version ?: "unknown"}" }
+        return Installation(startup.source, version, startup.executable.takeIf { isFound }, startup.isRunnable)
+    }
+
+    private suspend fun startup(launch: LaunchContext?): ClaudeStartup =
+        resolveClaudeStartup(launch ?: launches.context(ClaudeEngine.Id), configuration)
+
+    /** `claude --version`, bounded; an executable that does not answer has no known version. */
+    private suspend fun version(startup: ClaudeStartup): String? = try {
+        var version: String? = null
+        withProbeTimeout {
+            run(startup, listOf("--version"), "", null, true, null) { line ->
+                version = version ?: parseClaudeVersion(line)
+                false
+            }
+        }
+        version
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        log.w(e.redacted()) { "Claude version could not be read" }
+        null
+    }
+
+    @Suppress("LongParameterList") // One CLI operation: the startup plus the run contract's parameters.
+    suspend fun run(
+        startup: ClaudeStartup,
         arguments: List<String>,
         input: String,
         workspace: WorkspaceRef?,
@@ -85,7 +136,7 @@ internal class ProcessClaudeTransport(
     ): Int = withContext(dispatchers.io) {
         log.d { "Starting Claude CLI operation" }
         try {
-            execute(arguments, input, workspace, closeInput, hosted, line)
+            execute(startup, arguments, input, workspace, closeInput, hosted, line)
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -96,7 +147,9 @@ internal class ProcessClaudeTransport(
         }
     }
 
+    @Suppress("LongParameterList") // The run contract's parameters, resolved to one startup.
     private suspend fun execute(
+        startup: ClaudeStartup,
         arguments: List<String>,
         input: String,
         workspace: WorkspaceRef?,
@@ -126,7 +179,7 @@ internal class ProcessClaudeTransport(
             } else {
                 bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
             }
-            val process = start(processBuilder(effectiveArguments, workspace))
+            val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
                 return communicate(process, input, closeInput, line)
             } finally {
@@ -264,9 +317,13 @@ internal class ProcessClaudeTransport(
         throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
 
-    private suspend fun processBuilder(arguments: List<String>, workspace: WorkspaceRef?): ProcessBuilder {
-        val executable = configuration.executable
-        if (executable.endsWith(".cmd", true) || executable.endsWith(".bat", true)) {
+    private suspend fun processBuilder(
+        startup: ClaudeStartup,
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+    ): ProcessBuilder {
+        if (!startup.isRunnable) {
+            log.w { "Claude executable is missing or not runnable source=${startup.source}" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         }
         val directory = if (workspace == null) {
@@ -277,14 +334,33 @@ internal class ProcessClaudeTransport(
                     EngineFailure.Engine(EngineFailureReason.RequirementsNotMet),
                 )
         }
-        val builder = ProcessBuilder(listOf(executable) + arguments).directory(File(directory))
+        val builder = ProcessBuilder(listOf(startup.executable) + arguments).directory(File(directory))
             .redirectError(ProcessBuilder.Redirect.DISCARD)
         val environment = builder.environment()
-        val allowed = claudeEnvironment(environment.toMap(), configuration)
+        val allowed = claudeEnvironment(environment.toMap(), startup)
         environment.clear()
         environment.putAll(allowed)
         return builder
     }
+}
+
+/** [base] with one resolved startup; the native history is the one of its config directory. */
+private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, private val startup: ClaudeStartup) :
+    ClaudeTransport {
+    override val nativeStore: String = claudeNativeStore(startup.configDirectory)
+
+    override suspend fun run(
+        arguments: List<String>,
+        input: String,
+        workspace: WorkspaceRef?,
+        closeInput: Boolean,
+        hosted: ClaudeHostedTools?,
+        line: suspend (String) -> Boolean,
+    ): Int = base.run(startup, arguments, input, workspace, closeInput, hosted, line)
+
+    override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = launch?.let { base.pinned(it) } ?: this
+
+    override suspend fun locate(launch: LaunchContext): Installation = base.locate(launch)
 }
 
 /** A turn-scoped bearer; trusted instructions are passed in an owner-only file, never shell-escaped JSON. */
@@ -396,16 +472,6 @@ internal fun restrictToOwner(path: Path, directory: Boolean) {
 private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
 private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
-/**
- * Host variables passed to the CLI: no API keys or endpoint overrides. `CLAUDE_CONFIG_DIR` is set only when
- * configured, because an explicit value changes where the CLI looks up its default login.
- */
-internal fun claudeEnvironment(host: Map<String, String>, configuration: ClaudeConfiguration): Map<String, String> =
-    buildMap {
-        putAll(host.filterKeys { it.uppercase() in HOST_ENVIRONMENT })
-        configuration.configDirectory?.let { put("CLAUDE_CONFIG_DIR", it) }
-    }
-
 private fun BufferedReader.readFrame(): String? {
     val result = StringBuilder()
     var next = read()
@@ -418,11 +484,6 @@ private fun BufferedReader.readFrame(): String? {
 }
 
 private const val MAX_FRAME_CHARS = 2 * 1024 * 1024
-private val HOST_ENVIRONMENT = setOf(
-    "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-    "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)",
-    "USER", "LOGNAME", "USERNAME", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE",
-)
 
 private const val CLAUDE_SEARCH_TOOLS =
     "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"
