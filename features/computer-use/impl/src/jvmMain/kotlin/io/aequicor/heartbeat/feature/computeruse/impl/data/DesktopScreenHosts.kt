@@ -75,12 +75,22 @@ internal class DesktopWindowCatalog(private val platform: PlatformInfo, private 
         }
     }
 
-    override suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? = if (activate(target)) {
-        null
-    } else if (platform.host == HostPlatform.MacOs) {
-        ComputerUseFailure.TargetNotForeground
-    } else {
-        ComputerUseFailure.ActivationFailed
+    override suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? = activationFailure(target, false)
+
+    override suspend fun activationFailure(target: WindowTarget, isClientAreaOnly: Boolean): ComputerUseFailure? {
+        val live = resolve(target.id)
+        val isReliable = if (isClientAreaOnly) live?.clientBounds != null else live?.isInputGeometryReliable != false
+        if (!isReliable) {
+            log.w { "input geometry spans multiple monitor coordinate maps" }
+            return ComputerUseFailure.InputRejected
+        }
+        return if (activate(target)) {
+            null
+        } else if (platform.host == HostPlatform.MacOs) {
+            ComputerUseFailure.TargetNotForeground
+        } else {
+            ComputerUseFailure.ActivationFailed
+        }
     }
 
     override suspend fun isForeground(target: WindowTarget): Boolean = withContext(dispatchers.io) {

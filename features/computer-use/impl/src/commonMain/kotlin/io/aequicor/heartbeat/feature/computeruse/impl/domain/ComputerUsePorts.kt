@@ -59,6 +59,10 @@ internal interface WindowCatalog {
     suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? =
         if (activate(target)) null else ComputerUseFailure.ActivationFailed
 
+    /** Validates the selected capture geometry before attempting activation. */
+    suspend fun activationFailure(target: WindowTarget, isClientAreaOnly: Boolean): ComputerUseFailure? =
+        activationFailure(target)
+
     /** Reads foreground state without moving focus. */
     suspend fun isForeground(target: WindowTarget): Boolean = true
 }

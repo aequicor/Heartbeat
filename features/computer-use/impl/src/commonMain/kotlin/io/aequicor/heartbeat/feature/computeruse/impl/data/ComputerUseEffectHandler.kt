@@ -145,8 +145,9 @@ internal class ComputerUseEffectHandler(
 
     private suspend fun input(effect: ComputerUseEffect.ApplyInput, machine: EffectScope<ComputerUseIntent>) {
         log.i {
-            "input requested session=${access.active()?.session} action=${effect.action::class.simpleName} " +
-                "request=${effect.requestId}"
+            "input requested session=${access.active()?.session?.value.orEmpty()} " +
+                "action=${effect.action::class.simpleName.orEmpty()} " +
+                "request=${effect.requestId.orEmpty()}"
         }
         val failure = access.inputFailure()
         if (failure != null) {
@@ -202,7 +203,10 @@ internal class ComputerUseEffectHandler(
         reason: ComputerUseFailure,
         requestId: String?,
     ) {
-        log.w { "request refused session=${access.active()?.session} request=$requestId reason=$reason" }
+        log.w {
+            "request refused session=${access.active()?.session?.value.orEmpty()} " +
+                "request=${requestId.orEmpty()} reason=$reason"
+        }
         machine.send(ComputerUseIntent.Internal.Rejected(reason, requestId))
     }
 

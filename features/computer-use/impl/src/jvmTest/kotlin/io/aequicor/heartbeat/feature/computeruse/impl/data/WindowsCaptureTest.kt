@@ -18,6 +18,16 @@ import kotlin.test.assertTrue
 
 class WindowsCaptureTest {
     @Test
+    fun `maximized invisible border outside the only display still has reliable coordinates`() {
+        val display = ScreenBounds(0, 0, 1920, 1080)
+        val maximized = ScreenBounds(-8, -8, 1936, 1096)
+        assertEquals(maximized, windowsUserBounds(maximized, listOf(display), true))
+        val neighbor = ScreenBounds(-1920, 0, 1920, 1080, 1.5)
+        assertNull(windowsUserBounds(maximized, listOf(display, neighbor), true))
+        assertEquals(display, windowsUserBounds(display, listOf(display), true))
+    }
+
+    @Test
     fun `direct lookup recognizes a hidden untitled host peer`() {
         if (!Platform.isWindows() || GraphicsEnvironment.isHeadless()) return
         EventQueue.invokeAndWait {

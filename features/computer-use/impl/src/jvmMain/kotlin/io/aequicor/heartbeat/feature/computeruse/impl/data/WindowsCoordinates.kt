@@ -28,16 +28,11 @@ internal fun windowsUserBounds(
     displays: List<ScreenBounds>,
     requiresSingleDisplay: Boolean = false,
 ): ScreenBounds? {
-    val display = displays.maxByOrNull { candidate ->
-        val right = candidate.x + (candidate.widthPx * candidate.scale).roundToInt()
-        val bottom = candidate.y + (candidate.heightPx * candidate.scale).roundToInt()
-        (minOf(right, native.right) - maxOf(candidate.x, native.x)).coerceAtLeast(0).toLong() *
-            (minOf(bottom, native.bottom) - maxOf(candidate.y, native.y)).coerceAtLeast(0)
-    } ?: return null
-    val startsInside = native.x >= display.x && native.y >= display.y
-    val endsInside = native.right <= display.x + display.widthPx * display.scale &&
-        native.bottom <= display.y + display.heightPx * display.scale
-    if (requiresSingleDisplay && (!startsInside || !endsInside)) return null
+    val display = displays.maxByOrNull { overlap(native, it) } ?: return null
+    if (overlap(native, display) == 0L) return null
+    // GetWindowRect includes invisible resize borders outside a maximized monitor. Off-screen margins are safe;
+    // only an intersection with a second monitor introduces a different AWT coordinate transform.
+    if (requiresSingleDisplay && displays.any { it != display && overlap(native, it) > 0L }) return null
     return ScreenBounds(
         display.x + ((native.x - display.x) / display.scale).roundToInt(),
         display.y + ((native.y - display.y) / display.scale).roundToInt(),
@@ -45,4 +40,11 @@ internal fun windowsUserBounds(
         (native.heightPx / display.scale).roundToInt().coerceAtLeast(1),
         display.scale,
     )
+}
+
+private fun overlap(native: ScreenBounds, display: ScreenBounds): Long {
+    val right = display.x + (display.widthPx * display.scale).roundToInt()
+    val bottom = display.y + (display.heightPx * display.scale).roundToInt()
+    return (minOf(right, native.right) - maxOf(display.x, native.x)).coerceAtLeast(0).toLong() *
+        (minOf(bottom, native.bottom) - maxOf(display.y, native.y)).coerceAtLeast(0)
 }

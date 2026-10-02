@@ -269,7 +269,7 @@ internal class CaptureCoordinator(
             ?: InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         log.i {
             "input session=${session.session} outcome=${outcome::class.simpleName.orEmpty()} " +
-                "reason=${(outcome as? InputOutcome.Rejected)?.reason} action=${action::class.simpleName.orEmpty()}"
+                "reason=${(outcome as? InputOutcome.Rejected)?.reason?.name.orEmpty()} action=${action::class.simpleName.orEmpty()}"
         }
         return outcome
     }
@@ -320,7 +320,8 @@ internal class CaptureCoordinator(
     private suspend fun activationFailure(mode: ComputerUseMode): ComputerUseFailure? {
         if (mode !is ComputerUseMode.Window) return null
         val outcome = runLogged("window activation") {
-            windows.activationFailure(mode.target)?.let(InputOutcome::Rejected) ?: InputOutcome.Applied
+            windows.activationFailure(mode.target, mode.isClientAreaOnly)?.let(InputOutcome::Rejected)
+                ?: InputOutcome.Applied
         } ?: InputOutcome.Rejected(ComputerUseFailure.ActivationFailed)
         return (outcome as? InputOutcome.Rejected)?.reason
     }
@@ -344,11 +345,11 @@ internal class CaptureCoordinator(
         } ?: return@withContext null
         val (session, previous) = snapshot
         val bounds = capturer.currentBounds(session.mode)
-        val sizeChanged = bounds != null && previous.bounds?.let { !bounds.hasSameSize(it) } == true
-        val point = if (sizeChanged) null else previous.pointer
+        val hasSizeChanged = bounds != null && previous.bounds?.let { !bounds.hasSameSize(it) } == true
+        val point = if (hasSizeChanged) null else previous.pointer
         val window = session.mode as? ComputerUseMode.Window
-        val visible = bounds != null && point != null && window != null && windows.isForeground(window.target)
-        val next = previous.copy(bounds = bounds ?: previous.bounds, pointer = point, isPointerVisible = visible)
+        val isVisible = bounds != null && point != null && window != null && windows.isForeground(window.target)
+        val next = previous.copy(bounds = bounds ?: previous.bounds, pointer = point, isPointerVisible = isVisible)
         mutex.withLock {
             if (active !== session) return@withLock null
             if (session.inputActivity.revision == previous.revision && next != previous) {

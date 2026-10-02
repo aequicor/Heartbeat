@@ -135,6 +135,8 @@ public data class WindowTarget(
     public val isSelfOwned: Boolean = false,
     /** Native client rectangle in host coordinates, when the host can determine it without guessing. */
     public val clientBounds: ScreenBounds? = null,
+    /** False when the native rectangle cannot be mapped linearly into AWT input coordinates (mixed displays). */
+    public val isInputGeometryReliable: Boolean = true,
 ) {
     override fun toString(): String = "WindowTarget(id=$id, minimized=$isMinimized, revision=$revision)"
 }

@@ -109,6 +109,7 @@ internal object WindowsScreenBackend {
             application = applicationOf(library, hwnd) ?: title,
             title = title,
             bounds = userBounds,
+            isInputGeometryReliable = windowsUserBounds(nativeBounds, displays, requiresSingleDisplay = true) != null,
             isMinimized = library.IsIconic(hwnd),
             isSelfOwned = processId(library, hwnd).toLong() == ProcessHandle.current().pid(),
             clientBounds = windowsClientBounds(library, hwnd, scale(library, hwnd))?.let {
@@ -365,8 +366,8 @@ internal fun captureWindowsBitmap(
     val log = Log.tag("WindowsScreenBackend")
     if (users.IsIconic(handle)) return null
     val rect = NativeRect()
-    val measured = if (isClientAreaOnly) users.GetClientRect(handle, rect) else users.GetWindowRect(handle, rect)
-    if (!measured) return null
+    val isMeasured = if (isClientAreaOnly) users.GetClientRect(handle, rect) else users.GetWindowRect(handle, rect)
+    if (!isMeasured) return null
     val width = rect.right - rect.left
     val height = rect.bottom - rect.top
     if (width <= 0 || height <= 0) return null

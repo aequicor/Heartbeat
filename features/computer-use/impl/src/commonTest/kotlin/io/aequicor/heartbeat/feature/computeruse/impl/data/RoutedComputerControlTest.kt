@@ -76,6 +76,8 @@ class RoutedComputerControlTest {
         runCurrent()
         assertFalse(pending.isCompleted)
         machine.ownMachine.send(ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed, Session))
+        machine.ownMachine.send(ComputerUseIntent.Public.Retry)
+        machine.events.emit(ComputerUseOutput.SessionClosed(Session, ComputerUseFailure.TargetClosed))
         assertEquals(ComputerUseFailure.TargetClosed, pending.await().failure)
     }
 

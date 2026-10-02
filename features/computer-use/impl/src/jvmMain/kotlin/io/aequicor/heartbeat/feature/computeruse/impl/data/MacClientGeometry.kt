@@ -19,8 +19,6 @@ internal class MacClientGeometry(private val ax: ApplicationServicesLib, private
         return try {
             val app = ax.AXUIElementCreateApplication(pid) ?: return null
             try {
-                val timeoutResult = ax.AXUIElementSetMessagingTimeout(app, AX_TIMEOUT_SECONDS)
-                check(timeoutResult == 0) { "AX messaging timeout unavailable nativeError=$timeoutResult" }
                 attribute(app, "AXWindows") { windows ->
                     val matches = elements(windows).filter { rectangle(it) == window }
                     val match = matches.singleOrNull() ?: return@attribute null
@@ -72,6 +70,8 @@ internal class MacClientGeometry(private val ax: ApplicationServicesLib, private
     }
 
     private fun <T> attribute(element: Pointer, name: String, read: (Pointer) -> T?): T? {
+        val timeoutResult = ax.AXUIElementSetMessagingTimeout(element, AX_TIMEOUT_SECONDS)
+        check(timeoutResult == 0) { "AX messaging timeout unavailable nativeError=$timeoutResult" }
         val key = cf.CFStringCreateWithCString(null, name, UTF8_ENCODING) ?: return null
         try {
             val result = PointerByReference()
