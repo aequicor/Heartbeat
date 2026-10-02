@@ -18,7 +18,8 @@ public data class HbChatSection(val id: String, val title: String, val isDate: B
 
 /**
  * Prepared, immutable transcript. Build history once, then replace only the latest streaming message.
- * Host-owned entries after the history go through [appendTail] on a copy that is only rendered.
+ * Host-owned status entries after the history go through [appendTail] on a copy that is only rendered; hosts
+ * that keep their cards inside the history weave them with [append], [replace] and [remove].
  * Persistent collections share unchanged history; rendering never validates or flattens the full list.
  */
 @Immutable
@@ -65,6 +66,127 @@ public class HbChatTimeline private constructor(
             timeline.append(section, entry, chunks)
         }
     }
+
+    /**
+     * Replaces an already-appended message in place by [id], keeping its position and section. Streaming into
+     * the latest message takes the cheap [replaceLatest] path; any other id rebuilds only that message's chunks
+     * and reuses the prepared rows of identical chunks. Host cards woven into the history update through this.
+     */
+    public fun replace(id: String, message: HbChatMessage): HbChatTimeline {
+        require(id in messagesById) { "Chat timeline has no message $id to replace." }
+        require(message.id == id) { "Replacing $id must keep the message id, got ${message.id}." }
+        if (isTrackedTail(id)) return replaceLatest(message)
+        return relocate(id, message)
+    }
+
+    private fun isTrackedTail(id: String): Boolean =
+        latestMessage?.id == id && sections.last().entries.getOrNull(latestEntryStart)?.messageId == id
+
+    private fun relocate(id: String, message: HbChatMessage): HbChatTimeline {
+        val spot = locate(id)
+        val section = sections[spot.sectionIndex]
+        val previousChunks = section.entries.subList(spot.entryStart, spot.entryStart + spot.chunkCount).toList()
+        val chunks = transcriptChunks(message, previousChunks).mapIndexed { index, chunk ->
+            previousChunks.getOrNull(index)?.takeIf { it == chunk } ?: chunk
+        }
+        val updatedEntries = section.entries.builder().apply {
+            repeat(spot.chunkCount) { removeAt(spot.entryStart) }
+            chunks.forEachIndexed { index, chunk -> add(spot.entryStart + index, chunk) }
+        }.build()
+        val delta = chunks.size - spot.chunkCount
+        val latestStart = when {
+            delta == 0 -> latestEntryStart
+            spot.sectionIndex == sections.lastIndex && latestEntryStart > spot.entryStart -> latestEntryStart + delta
+            else -> latestEntryStart
+        }
+        return HbChatTimeline(
+            sections.replacingAt(spot.sectionIndex, section.withEntries(updatedEntries)),
+            orderedMessages.replacingAt(spot.messageIndex, message),
+            messagesById.putting(message.id, message),
+            latestStart,
+            itemCount + delta,
+        )
+    }
+
+    /**
+     * Drops one message with its chunks; a following streaming tail shifts with the removed range. Sections
+     * left without entries are dropped too, so removing the last entry never leaves an orphan header.
+     */
+    public fun remove(id: String): HbChatTimeline {
+        require(id in messagesById) { "Chat timeline has no message $id to remove." }
+        val spot = locate(id)
+        val section = sections[spot.sectionIndex]
+        val updatedEntries = section.entries.builder().apply {
+            repeat(spot.chunkCount) { removeAt(spot.entryStart) }
+        }.build()
+        val latestStart = when {
+            orderedMessages.last().id == id && orderedMessages.size > 1 -> {
+                val successor = orderedMessages[orderedMessages.lastIndex - 1]
+                chunkStart(updatedEntries, successor.id) ?: 0
+            }
+
+            orderedMessages.size == 1 -> 0
+
+            spot.sectionIndex == sections.lastIndex && latestEntryStart > spot.entryStart ->
+                latestEntryStart - spot.chunkCount
+
+            else -> latestEntryStart
+        }
+        var nextSections = sections.replacingAt(spot.sectionIndex, section.withEntries(updatedEntries))
+        var removedSections = 0
+        while (nextSections.isNotEmpty() && nextSections.last().entries.isEmpty()) {
+            nextSections = nextSections.removingAt(nextSections.lastIndex)
+            removedSections++
+        }
+        return HbChatTimeline(
+            nextSections,
+            orderedMessages.removingAt(spot.messageIndex),
+            messagesById.removing(id),
+            latestStart,
+            itemCount - spot.chunkCount - removedSections,
+        )
+    }
+
+    /** Section index, chunk range and history index of one appended message. */
+    private fun locate(id: String): LocatedMessage {
+        val messageIndex = orderedMessages.indexOfFirst { it.id == id }
+        check(messageIndex >= 0) { "Chat timeline message $id is not in the history." }
+        sections.forEachIndexed { sectionIndex, section ->
+            val start = section.entries.indexOfFirst { it.messageId == id }
+            if (start >= 0) {
+                var end = start
+                while (end < section.entries.size && section.entries[end].messageId == id) end++
+                return LocatedMessage(sectionIndex, start, end - start, messageIndex)
+            }
+        }
+        error("Chat timeline message $id has no chunks.")
+    }
+
+    private fun chunkStart(entries: List<HbTranscriptChunk>, id: String): Int? =
+        entries.indexOfFirst { it.messageId == id }.takeIf { it >= 0 }
+
+    /** Re-indexes expanded tools only when chunk positions or keys moved; identical keys share the map. */
+    private fun HbTimelineSection.withEntries(updated: PersistentList<HbTranscriptChunk>): HbTimelineSection {
+        if (updated == entries) return this
+        val hasMoved = updated.size != entries.size || updated.indices.any { updated[it].key != entries[it].key }
+        return if (hasMoved) {
+            val tools = persistentMapOf<String, Int>().builder().apply {
+                updated.forEachIndexed { index, chunk ->
+                    if (chunk.body is HbTranscriptBody.Tool) put(chunk.key, index)
+                }
+            }.build()
+            copy(entries = updated, toolEntries = tools)
+        } else {
+            copy(entries = updated)
+        }
+    }
+
+    private data class LocatedMessage(
+        val sectionIndex: Int,
+        val entryStart: Int,
+        val chunkCount: Int,
+        val messageIndex: Int,
+    )
 
     /** Chunks of the [ids] messages that end this timeline, in display order. */
     private fun trailingChunks(ids: Set<String>): Map<String, List<HbTranscriptChunk>> {
@@ -113,6 +235,9 @@ public class HbChatTimeline private constructor(
     /** Replaces the streaming tail without inspecting or rebuilding preceding messages. */
     public fun replaceLatest(message: HbChatMessage): HbChatTimeline {
         require(latestMessage?.id == message.id) { "replaceLatest requires the current latest message id." }
+        // Weaving can leave the latest message outside the tracked tail, for example after removing it; the
+        // cheap path is valid only while its chunks actually start there, otherwise relocation finds them.
+        if (!isTrackedTail(message.id)) return relocate(message.id, message)
         val currentSection = sections.last()
         val previousChunks = currentSection.entries.subList(latestEntryStart, currentSection.entries.size)
         val chunks = transcriptChunks(message, previousChunks).mapIndexed { index, chunk ->
