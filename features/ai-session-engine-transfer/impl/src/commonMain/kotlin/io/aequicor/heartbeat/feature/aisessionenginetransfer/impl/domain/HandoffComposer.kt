@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 
 /** Default size of the transcript carried into the target engine. */
 internal const val HANDOFF_BUDGET_CHARS = 60_000
@@ -52,8 +53,11 @@ internal fun SessionItem.approximateLength(): Int = render()?.length ?: 0
 
 private fun SessionItem.render(): String? = when (this) {
     is SessionItem.Message -> when (role) {
-        MessageRole.User -> parts.render()?.let { "User:\n$it" }
+        // Host directives were instructions for the previous engine, not words of the user.
+        MessageRole.User -> parts.render()?.let(::stripHostDirectives)?.takeIf { it.isNotBlank() }?.let { "User:\n$it" }
+
         MessageRole.Assistant -> parts.render()?.let { "Assistant:\n$it" }
+
         MessageRole.System -> null
     }
 

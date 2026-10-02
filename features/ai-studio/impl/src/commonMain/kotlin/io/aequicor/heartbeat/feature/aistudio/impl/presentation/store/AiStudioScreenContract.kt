@@ -95,6 +95,8 @@ data class AiStudioScreenState(
     val visibleAttachmentPreviews: ImmutableMap<String, PreviewVisibilityUi> = persistentMapOf(),
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
     val isAttachmentsEnabled: Boolean = false,
+    /** Whether the composer offers the `/remember` command. */
+    val isRememberEnabled: Boolean = false,
     val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),

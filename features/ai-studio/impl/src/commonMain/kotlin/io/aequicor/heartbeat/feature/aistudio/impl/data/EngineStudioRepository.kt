@@ -153,13 +153,14 @@ internal class EngineStudioRepository(
     private val configurations: StudioConfigurationController,
     private val preferences: StudioPreferences,
     private val conversations: StudioConversationCreation,
+    learning: StudioLearningPrompts,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess {
     private val log = Log.tag("EngineStudio")
-    private val nativeSession = StudioNativeSessionOperations(configurations)
+    private val nativeSession = StudioNativeSessionOperations(configurations, learning)
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
     private val deliveringActions = mutableSetOf<String>()
@@ -627,13 +628,13 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(CreateSessionRequest(target, workspace))
+                .create(CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(ResumeSessionRequest(target, workspace))
+                .resume(ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
@@ -801,7 +802,10 @@ internal class EngineStudioRepository(
 }
 
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
-private class StudioNativeSessionOperations(private val controller: StudioConfigurationController) {
+private class StudioNativeSessionOperations(
+    private val controller: StudioConfigurationController,
+    private val learning: StudioLearningPrompts,
+) {
     private val log = Log.tag("StudioNativeSessionOperations")
 
     suspend fun confirmConfiguration(
@@ -839,7 +843,8 @@ private class StudioNativeSessionOperations(private val controller: StudioConfig
         trust: TrustLevel?,
     ): TurnId {
         log.i { "Send the reserved native request" }
-        return active.submitStudioPrompt(request.prompt, reasoningEffort, trust, request.attachments, request.request)
+        val prompt = learning.prompt(request.prompt)
+        return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
     }
 
     suspend fun mirrorHistory(mirror: StudioHistoryMirror, id: String, history: SessionHistory, isFinal: Boolean) {

@@ -69,6 +69,8 @@
     <string name="composer_send">Отправить</string>
     <string name="composer_stop">Остановить</string>
     <string name="composer_add">Добавить</string>
+    <string name="composer_commands">Команды</string>
+    <string name="template_remember">Запомнить…</string>
     <string name="template_plan">Спланировать фичу</string>
     <string name="template_plan_prompt">Спланируй фичу: </string>
     <string name="template_tests">Написать тесты</string>

@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
@@ -94,7 +95,10 @@ private class NativeHistoryProjection(private val time: Instant) {
                 messages += StudioMessage.Prompt(
                     item.info.id.value,
                     time,
-                    item.parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning }.text(),
+                    // Host directives (a /remember request, learning hints) go to the engine, not the transcript.
+                    stripHostDirectives(
+                        item.parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning }.text(),
+                    ),
                     isTimestampKnown = false,
                     attachments = item.parts.mapNotNull {
                         when (it) {

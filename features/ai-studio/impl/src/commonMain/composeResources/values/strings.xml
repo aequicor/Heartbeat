@@ -69,6 +69,8 @@
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
     <string name="composer_add">Add</string>
+    <string name="composer_commands">Commands</string>
+    <string name="template_remember">Remember…</string>
     <string name="template_plan">Plan a feature</string>
     <string name="template_plan_prompt">Plan the feature: </string>
     <string name="template_tests">Write tests</string>

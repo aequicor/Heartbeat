@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
@@ -55,6 +56,17 @@ class StudioHistoryProjectionTest {
         val projected = assertIs<StudioMessage.Prompt>(listOf(attachmentOnly).toStudioMessages(now, false).single())
         assertEquals("", projected.text)
         assertEquals(listOf(image), projected.attachments)
+    }
+
+    @Test
+    fun `host directives sent with a prompt stay out of the transcript`() {
+        val item = SessionItem.Message(
+            info("prompt", 0),
+            MessageRole.User,
+            listOf(ContentPart.Text(withHostDirectives("/remember Use UTF-8", listOf("Call remember now")))),
+        )
+        val prompt = assertIs<StudioMessage.Prompt>(listOf(item).toStudioMessages(now, false).single())
+        assertEquals("/remember Use UTF-8", prompt.text)
     }
 
     @Test

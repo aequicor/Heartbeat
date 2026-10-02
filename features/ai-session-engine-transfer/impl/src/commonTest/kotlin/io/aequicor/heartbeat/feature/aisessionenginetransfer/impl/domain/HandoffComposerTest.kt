@@ -14,6 +14,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
+import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.impl.message
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.impl.text
 import kotlin.test.Test
@@ -37,6 +39,18 @@ class HandoffComposerTest {
         assertTrue(prompt.text.startsWith("You are continuing a conversation"))
         assertFalse("omitted" in prompt.text)
         assertFalse("incomplete" in prompt.text)
+    }
+
+    @Test
+    fun `host directives in user turns are not replayed to the next engine`() {
+        val prompt = compose(
+            text(0, MessageRole.User, withHostDirectives("/remember Use UTF-8", listOf("Call remember now"))),
+            text(1, MessageRole.User, hostDirective("Only a hint")),
+        )
+        assertTrue("User:\n/remember Use UTF-8" in prompt.text)
+        assertFalse("Call remember now" in prompt.text)
+        assertFalse("Only a hint" in prompt.text)
+        assertFalse("heartbeat-directive" in prompt.text)
     }
 
     @Test

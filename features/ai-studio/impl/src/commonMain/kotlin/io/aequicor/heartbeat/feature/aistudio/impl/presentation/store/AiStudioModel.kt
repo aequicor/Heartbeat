@@ -153,6 +153,7 @@ class AiStudioModel(
                 launch {
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
+                launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch {
                     machines.observe(AttachmentsMachineKey).collectLatest { ref ->
                         ref?.outputs?.collect { output ->
