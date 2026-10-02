@@ -16,7 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsO
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.di.scope.EngineConnectionsScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 import pro.respawn.flowmvi.api.MVIAction
 import pro.respawn.flowmvi.api.MVIIntent
 import pro.respawn.flowmvi.api.PipelineContext
@@ -72,6 +74,61 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
 
     /** Hides the change failure. */
     data object DismissError : EngineConnectionsScreenIntent
+
+    /** Engine management of the focused engine. */
+    sealed interface Engine : EngineConnectionsScreenIntent
+
+    /** A request the machine executes as an engine management command. */
+    sealed interface EngineRequest : Engine
+
+    /** An edit of local input (a launch draft, a sign-in code, a pending confirmation). */
+    sealed interface EngineInput : Engine
+
+    /** Switches the focused engine on or off in this profile. */
+    data class SetEngineEnabled(val isEnabled: Boolean) : EngineRequest
+
+    /** Inspects the installation and the CLI login. */
+    data object InspectEngine : EngineRequest
+
+    /** Looks up the newest release. */
+    data object CheckUpdates : EngineRequest
+
+    /** Stops idle runtimes so new sessions start with the current settings. */
+    data object RestartEngine : EngineRequest
+
+    /** Starts [action]; removals, unverified updates and sign-out are confirmed first. */
+    data class RequestEngineAction(val action: EngineActionUi, val method: LoginMethodUi = LoginMethodUi.Browser) :
+        EngineRequest
+
+    /** Confirms the action waiting for confirmation. */
+    data object ConfirmEngineAction : EngineRequest
+
+    /** Keeps things as they are. */
+    data object DismissEngineAction : EngineInput
+
+    /** Cancels the running job. */
+    data object CancelEngineJob : EngineRequest
+
+    /** Hides the outcome of the last job. */
+    data object DismissEngineJob : EngineRequest
+
+    /** Replaces the launch settings draft. */
+    data class EditLaunch(val draft: LaunchDraftUi) : EngineInput
+
+    /** Saves the draft when it has no errors. */
+    data object SaveLaunch : EngineRequest
+
+    /** Drops the draft and shows the saved settings. */
+    data object DiscardLaunch : EngineInput
+
+    /** Starts a draft with the engine's defaults; it applies once saved. */
+    data object ResetLaunch : EngineInput
+
+    /** Edits the code pasted from a sign-in page. */
+    data class EditLoginCode(val code: String) : EngineInput
+
+    /** Passes the pasted code to the signing-in CLI. */
+    data object SubmitLoginCode : EngineRequest
 }
 
 /** The settings space has no one-off screen actions. */
@@ -116,8 +173,14 @@ class EngineConnectionsModel(
     ) {
         when (intent) {
             is EngineConnectionsScreenIntent.SelectEngine -> updateState {
-                copy(selectedEngine = intent.id, selectedConnection = null, confirmDisconnect = null)
-                    .reflect(machine.state.value)
+                copy(
+                    selectedEngine = intent.id,
+                    selectedConnection = null,
+                    confirmDisconnect = null,
+                    launchDraft = null,
+                    loginCode = "",
+                    confirmAction = null,
+                ).reflect(machine.state.value)
             }
 
             is EngineConnectionsScreenIntent.SelectConnection -> updateState {
@@ -137,7 +200,51 @@ class EngineConnectionsModel(
             EngineConnectionsScreenIntent.DismissError -> sendTo(machine, EngineConnectionsIntent.Public.DismissError)
 
             is EngineConnectionsScreenIntent.Change -> apply(intent)
+
+            is EngineConnectionsScreenIntent.Engine -> manage(intent)
         }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        EngineConnectionsScreenState,
+        EngineConnectionsScreenIntent,
+        EngineConnectionsScreenAction,
+    >.manage(
+        intent: EngineConnectionsScreenIntent.Engine,
+    ) {
+        when (intent) {
+            is EngineConnectionsScreenIntent.EngineInput -> updateState { edit(intent).reflect(machine.state.value) }
+            is EngineConnectionsScreenIntent.EngineRequest -> request(intent)
+        }
+    }
+
+    // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
+    @Suppress("SuspendFunWithCoroutineScopeReceiver")
+    private suspend fun PipelineContext<
+        EngineConnectionsScreenState,
+        EngineConnectionsScreenIntent,
+        EngineConnectionsScreenAction,
+    >.request(
+        intent: EngineConnectionsScreenIntent.EngineRequest,
+    ) {
+        var screen = EngineConnectionsScreenState()
+        withState { screen = this }
+        if (intent is EngineConnectionsScreenIntent.RequestEngineAction && screen.needsConfirmation(intent.action)) {
+            updateState { copy(confirmAction = intent.action) }
+            return
+        }
+        val engine = screen.selectedEngine
+        val command = screen.commandFor(intent)
+        if (engine == null || command == null) {
+            log.w { "ignore ${intent::class.simpleName.orEmpty()} without an applicable engine command" }
+            return
+        }
+        val operation = ConnectionOperation.ManageEngine(EngineId(engine), command)
+        val result = sendTo(machine, EngineConnectionsIntent.Public.Apply(operation))
+        // Local input is cleared only once the machine took it; a rejected one stays to be sent again.
+        if (result == SendResult.Accepted) updateState { sent(intent) }
     }
 
     // PipelineContext is FlowMVI's pipeline receiver (a CoroutineScope); store DSL functions extend it the same way.
@@ -163,6 +270,76 @@ class EngineConnectionsModel(
         }
     }
 }
+
+/** Removals, an update replacing the verified bundled copy and sign-out ask first. */
+internal fun EngineConnectionsScreenState.needsConfirmation(action: EngineActionUi): Boolean = when (action) {
+    EngineActionUi.Uninstall, EngineActionUi.Logout -> true
+    EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
+    EngineActionUi.Install, EngineActionUi.Login -> false
+}
+
+/** The local input after [intent]. */
+internal fun EngineConnectionsScreenState.edit(intent: EngineConnectionsScreenIntent.EngineInput) = when (intent) {
+    is EngineConnectionsScreenIntent.EditLaunch -> copy(launchDraft = intent.draft)
+    EngineConnectionsScreenIntent.DiscardLaunch -> copy(launchDraft = null)
+    EngineConnectionsScreenIntent.ResetLaunch -> copy(launchDraft = LaunchDraftUi())
+    is EngineConnectionsScreenIntent.EditLoginCode -> copy(loginCode = intent.code)
+    EngineConnectionsScreenIntent.DismissEngineAction -> copy(confirmAction = null)
+}
+
+/** The local input once the machine accepted [intent]: what it sent is cleared. */
+private fun EngineConnectionsScreenState.sent(intent: EngineConnectionsScreenIntent.EngineRequest) = when (intent) {
+    EngineConnectionsScreenIntent.SaveLaunch -> copy(launchDraft = null)
+
+    EngineConnectionsScreenIntent.SubmitLoginCode -> copy(loginCode = "")
+
+    EngineConnectionsScreenIntent.ConfirmEngineAction -> copy(confirmAction = null)
+
+    is EngineConnectionsScreenIntent.SetEngineEnabled, EngineConnectionsScreenIntent.InspectEngine,
+    EngineConnectionsScreenIntent.CheckUpdates, EngineConnectionsScreenIntent.RestartEngine,
+    is EngineConnectionsScreenIntent.RequestEngineAction, EngineConnectionsScreenIntent.CancelEngineJob,
+    EngineConnectionsScreenIntent.DismissEngineJob,
+    -> this
+}
+
+/** The management command of an engine request, or null when the panel's state does not allow it. */
+internal fun EngineConnectionsScreenState.commandFor(
+    intent: EngineConnectionsScreenIntent.EngineRequest,
+): EngineCommand? {
+    if (panel == null) return null
+    return when (intent) {
+        is EngineConnectionsScreenIntent.SetEngineEnabled -> EngineCommand.SetEnabled(intent.isEnabled)
+
+        EngineConnectionsScreenIntent.InspectEngine -> EngineCommand.Inspect
+
+        EngineConnectionsScreenIntent.CheckUpdates -> EngineCommand.CheckForUpdates
+
+        EngineConnectionsScreenIntent.RestartEngine -> EngineCommand.Restart
+
+        EngineConnectionsScreenIntent.CancelEngineJob -> EngineCommand.Cancel
+
+        EngineConnectionsScreenIntent.DismissEngineJob -> EngineCommand.Dismiss
+
+        is EngineConnectionsScreenIntent.RequestEngineAction -> EngineCommand.Start(
+            intent.action.toAction(intent.method),
+        )
+
+        EngineConnectionsScreenIntent.ConfirmEngineAction -> confirmAction?.let { EngineCommand.Start(it.toAction()) }
+
+        EngineConnectionsScreenIntent.SaveLaunch -> launchCommand()
+
+        EngineConnectionsScreenIntent.SubmitLoginCode -> codeCommand()
+    }
+}
+
+/** Saves a changed draft without errors. */
+private fun EngineConnectionsScreenState.launchCommand(): EngineCommand? = panel?.launch
+    ?.takeIf { it.errors.isEmpty() && it.isDirty }
+    ?.let { EngineCommand.Configure(it.draft.toSettings()) }
+
+/** Passes a non-blank pasted code. */
+private fun EngineConnectionsScreenState.codeCommand(): EngineCommand? =
+    loginCode.trim().takeIf { it.isNotEmpty() }?.let { EngineCommand.AnswerLogin(LoginCode(it)) }
 
 /** Translates a change request into a machine operation against the focused engine and connection. */
 internal fun EngineConnectionsScreenState.operationFor(
