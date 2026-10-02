@@ -5,12 +5,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbIconButton
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
+import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -23,7 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchProblemUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LaunchUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_add
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_add_override
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_add_variable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_custom
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_defaults
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_discard
@@ -33,12 +36,14 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_executable_placeholder
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_home
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_home_placeholder
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_home_plain
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_key
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_overrides
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_remove
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_reset
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_save
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_title
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_unsaved
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_value
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_launch_variable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_problem_control
@@ -75,7 +80,11 @@ internal fun EngineLaunchForm(
     val draft = launch.draft
     HbColumn(modifier.fillMaxWidth().testTag("engine-launch"), gap = HbTheme.spacing.s) {
         val summary = stringResource(
-            if (draft == LaunchDraftUi()) Res.string.engine_launch_defaults else Res.string.engine_launch_custom,
+            when {
+                launch.isEditing && launch.isDirty -> Res.string.engine_launch_unsaved
+                launch.isCustomized -> Res.string.engine_launch_custom
+                else -> Res.string.engine_launch_defaults
+            },
         )
         HbSettingsRow(stringResource(Res.string.engine_launch_title), description = summary) {
             if (!launch.isEditing) {
@@ -87,7 +96,7 @@ internal fun EngineLaunchForm(
         if (launch.isEditing) {
             LaunchEditor(launch, isIdle, onIntent, Modifier.padding(horizontal = HbTheme.spacing.m))
         } else {
-            Problems(launch.warnings, Modifier.padding(horizontal = HbTheme.spacing.m))
+            Problems(launch.warnings, Modifier.padding(horizontal = HbTheme.spacing.m), HbTone.Warning)
         }
     }
 }
@@ -107,6 +116,7 @@ private fun LaunchEditor(
             EntryList(
                 stringResource(Res.string.engine_launch_overrides),
                 stringResource(Res.string.engine_launch_key),
+                stringResource(Res.string.engine_launch_add_override),
                 draft.configOverrides,
                 { edit(draft.copy(configOverrides = it)) },
                 "engine-launch-override",
@@ -117,6 +127,7 @@ private fun LaunchEditor(
             EntryList(
                 stringResource(Res.string.engine_launch_environment),
                 stringResource(Res.string.engine_launch_variable),
+                stringResource(Res.string.engine_launch_add_variable),
                 draft.environment,
                 { edit(draft.copy(environment = it)) },
                 "engine-launch-env",
@@ -155,7 +166,8 @@ private fun LaunchPaths(launch: LaunchUi, edit: (LaunchDraftUi) -> Unit) {
     }
     if (LaunchOptionUi.HomeDirectory in launch.options) {
         PathField(
-            stringResource(Res.string.engine_launch_home, launch.homeVariable.orEmpty()),
+            launch.homeVariable?.let { stringResource(Res.string.engine_launch_home, it) }
+                ?: stringResource(Res.string.engine_launch_home_plain),
             draft.homeDirectory,
             { edit(draft.copy(homeDirectory = it)) },
             stringResource(Res.string.engine_launch_home_placeholder),
@@ -192,6 +204,7 @@ private fun PathField(
 private fun EntryList(
     label: String,
     keyLabel: String,
+    addLabel: String,
     entries: ImmutableList<KeyValueUi>,
     onChange: (ImmutableList<KeyValueUi>) -> Unit,
     tag: String,
@@ -201,7 +214,6 @@ private fun EntryList(
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
         HbText(label, style = HbTheme.typography.label)
         val valueLabel = stringResource(Res.string.engine_launch_value)
-        val removeLabel = stringResource(Res.string.engine_launch_remove)
         entries.forEachIndexed { index, entry ->
             HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
                 HbTextField(
@@ -209,16 +221,18 @@ private fun EntryList(
                     { key -> onChange(entries.replaced(index, entry.copy(key = key))) },
                     Modifier.weight(1f).testTag("$tag-key:$index"),
                     placeholder = keyLabel,
+                    accessibleLabel = "$label: $keyLabel ${index + 1}",
                 )
                 HbTextField(
                     entry.value,
                     { value -> onChange(entries.replaced(index, entry.copy(value = value))) },
                     Modifier.weight(1f).testTag("$tag-value:$index"),
                     placeholder = valueLabel,
+                    accessibleLabel = "$label: $valueLabel ${index + 1}",
                 )
                 HbIconButton(
                     HbIcons.Trash,
-                    removeLabel,
+                    stringResource(Res.string.engine_launch_remove, index + 1),
                     { onChange(entries.filterIndexed { at, _ -> at != index }.toImmutableList()) },
                     Modifier.testTag("$tag-remove:$index"),
                 )
@@ -226,22 +240,25 @@ private fun EntryList(
             Problems(problems.filter { it.index == index }.toImmutableList())
         }
         Problems(problems.filter { it.index == null }.toImmutableList())
-        ActionButton(stringResource(Res.string.engine_launch_add), "$tag-add", enabled = true) {
+        ActionButton(addLabel, "$tag-add", enabled = true) {
             onChange((entries + KeyValueUi()).toImmutableList())
         }
     }
 }
 
+/**
+ * Messages of [problems] as banners: errors block saving ([HbTone.Danger]); file warnings do not ([HbTone.Warning]).
+ */
 @Composable
-private fun Problems(problems: ImmutableList<LaunchProblemUi>, modifier: Modifier = Modifier) {
+private fun Problems(
+    problems: ImmutableList<LaunchProblemUi>,
+    modifier: Modifier = Modifier,
+    tone: HbTone = HbTone.Danger,
+) {
     if (problems.isEmpty()) return
     HbColumn(modifier.fillMaxWidth(), gap = HbTheme.spacing.xxs) {
         problems.map { it.reason }.distinct().forEach { reason ->
-            HbText(
-                stringResource(problemText(reason)),
-                style = HbTheme.typography.caption,
-                color = HbTheme.colors.error,
-            )
+            HbBanner(stringResource(problemText(reason)), tone = tone)
         }
     }
 }

@@ -119,7 +119,7 @@ internal fun HbUnifiedMessageFooter(
 
 @Composable
 private fun MessageCopyButton(copyText: String, labels: HbToolLabels) {
-    HbCopyButton(copyText, labels.copyMessage, labels.messageCopied)
+    HbCopyButton(copyText, labels.copyMessage, labels.messageCopied, labels.error)
 }
 
 @Composable

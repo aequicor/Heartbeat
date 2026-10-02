@@ -29,12 +29,10 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
@@ -116,20 +114,6 @@ import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
-
-private val log = Log.tag("ConnectWizardScreen")
-
-/** Opens the provider page; a device without a browser must not crash the wizard. */
-private fun openCredentialsPage(uriHandler: UriHandler, page: String) {
-    log.i { "open provider credentials page" }
-    try {
-        uriHandler.openUri(page)
-    } catch (e: IllegalStateException) {
-        log.w(e) { "no application can open the provider page" }
-    } catch (e: IllegalArgumentException) {
-        log.w(e) { "provider page rejected by the platform" }
-    }
-}
 
 @Composable
 internal fun ConnectWizardScreen(
@@ -347,7 +331,7 @@ private fun MethodForm(
                     method,
                     isEnabled,
                     onIntent,
-                ) { openCredentialsPage(uriHandler, it) }
+                ) { openProviderPage(uriHandler, it) }
 
                 MethodKindUi.CliLogin -> Hint(stringResource(Res.string.wizard_cli_hint))
 

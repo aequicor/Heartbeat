@@ -60,9 +60,22 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                         CATALOG_COPY_SAMPLE,
                         hbString(HbString.CopyFilePath),
                         hbString(HbString.FilePathCopied),
+                        hbString(HbString.Failed),
                         Modifier.testTag("catalog-copy"),
                     )
-                    HbCopyButton("", hbString(HbString.CopyFilePath), hbString(HbString.FilePathCopied))
+                    HbCopyButton(
+                        CATALOG_COPY_SAMPLE,
+                        hbString(HbString.CopyFilePath),
+                        hbString(HbString.FilePathCopied),
+                        hbString(HbString.Failed),
+                        enabled = false,
+                    )
+                    HbCopyButton(
+                        "",
+                        hbString(HbString.CopyFilePath),
+                        hbString(HbString.FilePathCopied),
+                        hbString(HbString.Failed),
+                    )
                 }
                 if (state.hasActionFeedback) HbBadge(hbString(HbString.ActionFeedback), tone = HbTone.Success)
             }

@@ -14,12 +14,16 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.RuntimeUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_bundled_version
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_logout
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_logout_body
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_logout_title
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_revert
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_revert_body
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_revert_title
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_uninstall
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_uninstall_body
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_uninstall_title
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_update
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_update_body
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_confirm_update_title
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_install_failure_checksum
@@ -42,14 +46,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_logout
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_uninstall
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_job_update
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_latest
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_rejected
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_terminal
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_timed_out
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_unsupported
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_failure_untrusted
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_not_inspected
-import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_not_runnable
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_activating
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_browser
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_phase_cancelled
@@ -97,11 +99,9 @@ internal fun installationSummary(installation: InstallationUi): String {
     return listOfNotNull(
         stringResource(sourceText(source)),
         installation.version?.let { stringResource(Res.string.engine_version, it) },
-        stringResource(Res.string.engine_not_runnable).takeIf { !installation.isRunnable },
         installation.bundledVersion
             ?.takeIf { installation.support == InstallSupportUi.Bundled && source != InstallSourceUi.Bundled }
             ?.let { stringResource(Res.string.engine_bundled_version, it) },
-        installation.latest?.let { stringResource(Res.string.engine_latest, it) },
     ).joinToString(" · ")
 }
 
@@ -144,40 +144,51 @@ internal fun failureText(failure: ManagementFailureUi): String = when (failure) 
     is ManagementFailureUi.Login -> stringResource(loginFailureText(failure.reason))
 }
 
-/** Title and body of the confirmation of [action]. */
+/** Title, body and confirm label of the confirmation of [action]; null for actions that start without one. */
 @Composable
-internal fun confirmationTexts(action: EngineActionUi, panel: EnginePanelUi): Pair<String, String> {
+internal fun confirmationTexts(action: EngineActionUi, panel: EnginePanelUi): Triple<String, String, String>? {
     val isBundled = panel.installation.support == InstallSupportUi.Bundled
     return when (action) {
         EngineActionUi.Uninstall -> if (isBundled) {
-            stringResource(
-                Res.string.engine_confirm_revert_title,
-            ) to stringResource(Res.string.engine_confirm_revert_body)
+            Triple(
+                stringResource(Res.string.engine_confirm_revert_title),
+                stringResource(Res.string.engine_confirm_revert_body),
+                stringResource(Res.string.engine_confirm_revert),
+            )
         } else {
-            stringResource(Res.string.engine_confirm_uninstall_title) to
-                stringResource(Res.string.engine_confirm_uninstall_body)
+            Triple(
+                stringResource(Res.string.engine_confirm_uninstall_title),
+                stringResource(Res.string.engine_confirm_uninstall_body),
+                stringResource(Res.string.engine_confirm_uninstall),
+            )
         }
 
-        EngineActionUi.Update -> stringResource(Res.string.engine_confirm_update_title) to
-            stringResource(Res.string.engine_confirm_update_body, panel.installation.latest.orEmpty())
+        EngineActionUi.Update -> Triple(
+            stringResource(Res.string.engine_confirm_update_title),
+            stringResource(Res.string.engine_confirm_update_body, panel.installation.latest.orEmpty()),
+            stringResource(Res.string.engine_confirm_update),
+        )
 
-        EngineActionUi.Logout, EngineActionUi.Install, EngineActionUi.Login ->
-            stringResource(
-                Res.string.engine_confirm_logout_title,
-            ) to stringResource(Res.string.engine_confirm_logout_body)
+        EngineActionUi.Logout -> Triple(
+            stringResource(Res.string.engine_confirm_logout_title),
+            stringResource(Res.string.engine_confirm_logout_body),
+            stringResource(Res.string.engine_confirm_logout),
+        )
+
+        EngineActionUi.Install, EngineActionUi.Login -> null
     }
 }
 
-/** A size in KB, MB or GB with one decimal, e.g. "12.5 MB". */
+/** A size in KB, MB or GB with one decimal, e.g. "12.5 MB"; the resource places the decimal separator. */
 @Composable
 internal fun sizeText(bytes: Long): String {
     val (unit, value) = scaledSize(bytes)
     val units = listOf(Res.string.engine_size_kb, Res.string.engine_size_mb, Res.string.engine_size_gb)
-    return stringResource(units[unit], value)
+    return stringResource(units[unit], value.first, value.second)
 }
 
-/** [bytes] in the largest of KB, MB and GB that keeps the value at or above one: the unit index and "x.y". */
-internal fun scaledSize(bytes: Long): Pair<Int, String> {
+/** [bytes] in the largest of KB, MB and GB that keeps the value at or above one: the unit and (whole, tenths). */
+internal fun scaledSize(bytes: Long): Pair<Int, Pair<Long, Long>> {
     var value = bytes.toDouble() / KILOBYTE
     var unit = 0
     while (value >= KILOBYTE && unit < LAST_SIZE_UNIT) {
@@ -185,7 +196,7 @@ internal fun scaledSize(bytes: Long): Pair<Int, String> {
         unit++
     }
     val tenths = (value * TENTHS).toLong()
-    return unit to "${tenths / TENTHS}.${tenths % TENTHS}"
+    return unit to (tenths / TENTHS to tenths % TENTHS)
 }
 
 private fun sourceText(source: InstallSourceUi): StringResource = when (source) {

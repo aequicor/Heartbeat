@@ -3,9 +3,11 @@ package io.aequicor.heartbeat.feature.aiengine.connections.impl.ui
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbBanner
 import io.aequicor.heartbeat.ds.components.HbButton
@@ -37,6 +39,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_ki
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_cli
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_kind_no_auth
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.conn_retry
+import kotlinx.coroutines.CancellationException
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -140,3 +143,17 @@ internal fun FailurePanel(
         }
     }
 }
+
+/** Opens a provider page; a device without a browser, or a page the platform refuses, must not crash the screen. */
+internal fun openProviderPage(uriHandler: UriHandler, page: String) {
+    commonLog.i { "open provider page" }
+    try {
+        uriHandler.openUri(page)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        commonLog.w(e) { "provider page could not be opened" }
+    }
+}
+
+private val commonLog = Log.tag("ConnectionsCommon")

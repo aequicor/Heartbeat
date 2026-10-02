@@ -5,9 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.platform.testTag
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbCopyButton
 import io.aequicor.heartbeat.ds.components.HbSettingsRow
@@ -26,10 +24,12 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.stor
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.LoginUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.presentation.store.ManagementFailureUi
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.Res
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_copy_failed
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_code
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_code_copied
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_code_copy
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_code_label
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_code_placeholder
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_device
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_login_open_page
@@ -44,8 +44,6 @@ import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_logout
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.resources.engine_not_inspected
 import org.jetbrains.compose.resources.stringResource
-
-private val log = Log.tag("EngineLoginBlock")
 
 /**
  * CLI sign-in of the selected engine: the account, sign-in and sign-out, and while a sign-in runs the page to open,
@@ -113,7 +111,7 @@ private fun BrowserPrompt(url: String, userCode: String?, modifier: Modifier = M
     val uriHandler = LocalUriHandler.current
     HbColumn(modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.s) {
         ActionButton(stringResource(Res.string.engine_login_open_page), "engine-login-open", enabled = true) {
-            openSignInPage(uriHandler, url)
+            openProviderPage(uriHandler, url)
         }
         if (userCode != null) {
             HbRow(gap = HbTheme.spacing.s) {
@@ -123,6 +121,7 @@ private fun BrowserPrompt(url: String, userCode: String?, modifier: Modifier = M
                     userCode,
                     stringResource(Res.string.engine_login_code_copy),
                     stringResource(Res.string.engine_login_code_copied),
+                    stringResource(Res.string.engine_copy_failed),
                 )
             }
         }
@@ -137,26 +136,30 @@ private fun CodePrompt(
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
-    HbFlowRow(modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m)) {
-        if (url != null) {
-            ActionButton(stringResource(Res.string.engine_login_open_page), "engine-login-open", enabled = true) {
-                openSignInPage(uriHandler, url)
-            }
-        }
-        val placeholder = stringResource(Res.string.engine_login_code_placeholder)
+    val label = stringResource(Res.string.engine_login_code_label)
+    HbColumn(modifier.fillMaxWidth().padding(horizontal = HbTheme.spacing.m), gap = HbTheme.spacing.xs) {
+        HbText(label, style = HbTheme.typography.label)
         HbTextField(
             code,
             { onIntent(EngineConnectionsScreenIntent.EditLoginCode(it)) },
-            Modifier.testTag("engine-login-code"),
-            placeholder = placeholder,
+            Modifier.fillMaxWidth().testTag("engine-login-code"),
+            placeholder = stringResource(Res.string.engine_login_code_placeholder),
+            accessibleLabel = label,
             isSecret = true,
         )
-        ActionButton(
-            stringResource(Res.string.engine_login_submit),
-            "engine-login-submit",
-            enabled = code.isNotBlank(),
-            style = HbButtonStyle.Primary,
-        ) { onIntent(EngineConnectionsScreenIntent.SubmitLoginCode) }
+        HbFlowRow {
+            ActionButton(
+                stringResource(Res.string.engine_login_submit),
+                "engine-login-submit",
+                enabled = code.isNotBlank(),
+                style = HbButtonStyle.Primary,
+            ) { onIntent(EngineConnectionsScreenIntent.SubmitLoginCode) }
+            if (url != null) {
+                ActionButton(stringResource(Res.string.engine_login_open_page), "engine-login-open", enabled = true) {
+                    openProviderPage(uriHandler, url)
+                }
+            }
+        }
     }
 }
 
@@ -174,6 +177,7 @@ private fun TerminalCommand(command: String, modifier: Modifier = Modifier) {
                 command,
                 stringResource(Res.string.engine_login_terminal_copy),
                 stringResource(Res.string.engine_login_terminal_copied),
+                stringResource(Res.string.engine_copy_failed),
             )
         }
     }
@@ -187,16 +191,4 @@ private fun loginText(login: LoginUi): String = when (login) {
 
     is LoginUi.SignedIn -> login.account?.let { stringResource(Res.string.engine_login_signed_in_as, it) }
         ?: stringResource(Res.string.engine_login_signed_in)
-}
-
-/** Opens the provider's sign-in page; a device without a browser must not crash the panel. */
-private fun openSignInPage(uriHandler: UriHandler, url: String) {
-    log.i { "open sign-in page" }
-    try {
-        uriHandler.openUri(url)
-    } catch (e: IllegalStateException) {
-        log.w(e) { "no application can open the sign-in page" }
-    } catch (e: IllegalArgumentException) {
-        log.w(e) { "sign-in page rejected by the platform" }
-    }
 }

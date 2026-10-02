@@ -238,6 +238,8 @@ data class LaunchUi(
     val draft: LaunchDraftUi,
     val isEditing: Boolean,
     val isDirty: Boolean,
+    /** The saved settings differ from the engine's defaults. */
+    val isCustomized: Boolean,
     /** Errors of the draft; saving is disabled while there are any. */
     val errors: ImmutableList<LaunchProblemUi>,
     /** File checks of the saved settings; they never block saving. */
@@ -276,6 +278,7 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
             draft = edited,
             isEditing = draft != null,
             isDirty = edited.toSettings() != launch.settings,
+            isCustomized = !launch.settings.isDefault,
             errors = validateLaunchSettings(edited.toSettings(), spec.launch, platform).toUi(),
             warnings = launch.warnings.toUi(),
         )

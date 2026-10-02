@@ -9,8 +9,8 @@ import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -94,7 +94,7 @@ class EngineManagementUiTest {
 
         onNodeWithTag("engine-job-progress").assertExists()
         // Units are localized; the sizes are not.
-        onNodeWithText("4.0", substring = true).assertExists()
+        onNode(hasText("4.0", substring = true) or hasText("4,0", substring = true)).assertExists()
         onNodeWithTag("engine-check-updates").assertIsNotEnabled()
         onNodeWithTag("engine-job-cancel").performClick()
         runOnIdle {
@@ -210,8 +210,8 @@ class EngineManagementUiTest {
             JobPhaseUi.Activating, JobPhaseUi.Removing, JobPhaseUi.AwaitingBrowser("https://x", null),
             JobPhaseUi.AwaitingCode(null), JobPhaseUi.Succeeded, JobPhaseUi.Cancelled,
         ).forEach { PhaseTexts.getValue(it::class) }
-        assertEquals(0 to "512.0", scaledSize(524_288))
-        assertEquals(2 to "1.5", scaledSize(1_610_612_736))
+        assertEquals(0 to (512L to 0L), scaledSize(524_288))
+        assertEquals(2 to (1L to 5L), scaledSize(1_610_612_736))
     }
 
     private fun selected(codex: ManagedEngine): EngineConnectionsScreenState =

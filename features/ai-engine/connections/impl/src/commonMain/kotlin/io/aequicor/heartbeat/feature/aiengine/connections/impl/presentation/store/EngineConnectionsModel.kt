@@ -215,7 +215,11 @@ class EngineConnectionsModel(
         intent: EngineConnectionsScreenIntent.Engine,
     ) {
         when (intent) {
-            is EngineConnectionsScreenIntent.EngineInput -> updateState { edit(intent).reflect(machine.state.value) }
+            // Only a launch draft changes the panel (its errors); other input is local text or a flag.
+            is EngineConnectionsScreenIntent.EngineInput -> updateState {
+                if (intent.isLaunchEdit) edit(intent).reflect(machine.state.value) else edit(intent)
+            }
+
             is EngineConnectionsScreenIntent.EngineRequest -> request(intent)
         }
     }
@@ -277,6 +281,10 @@ internal fun EngineConnectionsScreenState.needsConfirmation(action: EngineAction
     EngineActionUi.Update -> panel?.installation?.support == InstallSupportUi.Bundled
     EngineActionUi.Install, EngineActionUi.Login -> false
 }
+
+private val EngineConnectionsScreenIntent.EngineInput.isLaunchEdit: Boolean
+    get() = this is EngineConnectionsScreenIntent.EditLaunch || this == EngineConnectionsScreenIntent.DiscardLaunch ||
+        this == EngineConnectionsScreenIntent.ResetLaunch
 
 /** The local input after [intent]. */
 internal fun EngineConnectionsScreenState.edit(intent: EngineConnectionsScreenIntent.EngineInput) = when (intent) {

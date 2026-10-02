@@ -184,7 +184,8 @@ private fun EnginesSection(
         stringResource(Res.string.settings_engines),
         modifier,
         trailingContent = {
-            if (state.selectedEngine != null) {
+            // With engine management the panel below inspects the engine; one such button is enough.
+            if (state.selectedEngine != null && state.panel == null) {
                 HbButton(
                     stringResource(Res.string.settings_probe),
                     { onIntent(EngineConnectionsScreenIntent.ProbeEngine) },
