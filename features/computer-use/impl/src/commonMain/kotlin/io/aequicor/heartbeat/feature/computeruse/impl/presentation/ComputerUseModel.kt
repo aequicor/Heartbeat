@@ -34,17 +34,17 @@ private typealias SettingsPipeline =
  * Host blockers presented beside the tool switch: a permission the user grants in the system settings gets its own
  * row with a button, everything else is localized help.
  */
-internal enum class BlockerUi {
-    UnsupportedPlatform,
-    ScreenRecordingPermission,
-    AccessibilityPermission,
-    ElevationRequired,
-    SessionLocked,
-    Headless,
+internal enum class BlockerUi(val permission: ComputerUsePermission?) {
+    UnsupportedPlatform(null),
+    ScreenRecordingPermission(ComputerUsePermission.ScreenRecording),
+    AccessibilityPermission(ComputerUsePermission.Accessibility),
+    ElevationRequired(null),
+    SessionLocked(null),
+    Headless(null),
     ;
 
     /** `true` when the user can grant it in the operating system settings. */
-    val isGrantable: Boolean get() = this == ScreenRecordingPermission || this == AccessibilityPermission
+    val isGrantable: Boolean get() = permission != null
 }
 
 /** Why the settings screen cannot show or keep the saved switch value. */
@@ -149,14 +149,7 @@ internal class ComputerUseModel(
 
     /** Only a grantable blocker reaches the profile's grant flow; the others have no settings page. */
     private fun grantPermission(blocker: BlockerUi) {
-        val permission = when (blocker) {
-            BlockerUi.ScreenRecordingPermission -> ComputerUsePermission.ScreenRecording
-
-            BlockerUi.AccessibilityPermission -> ComputerUsePermission.Accessibility
-
-            BlockerUi.UnsupportedPlatform, BlockerUi.ElevationRequired, BlockerUi.SessionLocked, BlockerUi.Headless ->
-                null
-        }
+        val permission = blocker.permission
         if (permission == null) {
             log.w { "no system settings page for blocker=$blocker" }
         } else {

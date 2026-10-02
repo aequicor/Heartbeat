@@ -11,6 +11,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
@@ -33,6 +34,9 @@ import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseSc
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.SettingsError
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.Res
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_load_failed
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_permission_accessibility
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_permission_open
+import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_permission_screen_recording
 import io.aequicor.heartbeat.feature.computeruse.impl.resources.computer_use_save_failed
 import kotlinx.collections.immutable.persistentListOf
 import org.jetbrains.compose.resources.stringResource
@@ -90,8 +94,14 @@ class ComputerUseUiTest {
     fun `missing permissions offer buttons that open their settings`() =
         runSkikoComposeUiTest(size = Size(420f, 800f)) {
             val intents = mutableListOf<ComputerUseScreenIntent>()
+            var openLabel = ""
+            var screenRecordingTitle = ""
+            var accessibilityTitle = ""
             setContent {
                 HbTheme {
+                    openLabel = stringResource(Res.string.computer_use_permission_open)
+                    screenRecordingTitle = stringResource(Res.string.computer_use_permission_screen_recording)
+                    accessibilityTitle = stringResource(Res.string.computer_use_permission_accessibility)
                     ComputerUseContent(
                         ComputerUseScreenState(
                             isEnabled = true,
@@ -108,11 +118,17 @@ class ComputerUseUiTest {
             }
             onNodeWithTag("computer-use-permissions")
                 .assertIsDisplayed()
+                .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.LiveRegion))
+            onNodeWithTag("computer-use-permission-ScreenRecordingPermission")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+            onNodeWithTag("computer-use-permission-AccessibilityPermission")
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
             onNodeWithTag("computer-use-blockers").assertDoesNotExist()
             onAllNodes(hasClickAction()).assertCountEquals(3)
-            onNodeWithTag("computer-use-grant-ScreenRecordingPermission").performClick()
-            onNodeWithTag("computer-use-grant-AccessibilityPermission").performClick()
+            onNodeWithTag("computer-use-grant-ScreenRecordingPermission")
+                .assertContentDescriptionEquals("$openLabel: $screenRecordingTitle").performClick()
+            onNodeWithTag("computer-use-grant-AccessibilityPermission")
+                .assertContentDescriptionEquals("$openLabel: $accessibilityTitle").performClick()
             runOnIdle {
                 assertEquals(
                     listOf<ComputerUseScreenIntent>(
@@ -122,6 +138,32 @@ class ComputerUseUiTest {
                     intents,
                 )
             }
+        }
+
+    @Test
+    fun `granting another permission preserves keyboard focus on the remaining permission`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            val state = mutableStateOf(
+                ComputerUseScreenState(
+                    isEnabled = true,
+                    isLoaded = true,
+                    blockers = persistentListOf(
+                        BlockerUi.ScreenRecordingPermission,
+                        BlockerUi.AccessibilityPermission,
+                    ),
+                ),
+            )
+            setContent { HbTheme { ComputerUseContent(state.value, {}, null) } }
+            onNodeWithTag("computer-use").performKeyInput { pressKey(Key.Tab) }
+            onNodeWithTag("computer-use-enabled").assertIsFocused().performKeyInput { pressKey(Key.Tab) }
+            onNodeWithTag("computer-use-grant-ScreenRecordingPermission")
+                .assertIsFocused().performKeyInput { pressKey(Key.Tab) }
+            onNodeWithTag("computer-use-grant-AccessibilityPermission").assertIsFocused()
+            runOnIdle {
+                state.value = state.value.copy(blockers = persistentListOf(BlockerUi.AccessibilityPermission))
+            }
+            onNodeWithTag("computer-use-grant-ScreenRecordingPermission").assertDoesNotExist()
+            onNodeWithTag("computer-use-grant-AccessibilityPermission").assertIsFocused()
         }
 
     @Test

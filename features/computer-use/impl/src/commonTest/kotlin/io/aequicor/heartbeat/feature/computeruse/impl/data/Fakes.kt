@@ -270,11 +270,15 @@ internal class FakeOsPermissions(
     var opened: List<ComputerUsePermission> = emptyList()
         private set
 
+    /** Optional suspending probe hook for cancellation/race tests. */
+    var onProbe: suspend () -> Unit = {}
+
     /** What [openSettings] reports; `false` simulates a host without the settings page. */
     var isSettingsOpenable: Boolean = true
 
     override suspend fun probe(): ComputerUseCapabilities {
         probes++
+        onProbe()
         return capabilities
     }
 

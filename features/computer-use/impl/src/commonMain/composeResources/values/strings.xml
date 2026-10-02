@@ -14,7 +14,7 @@
     <string name="computer_use_permission_screen_recording">Screen recording</string>
     <string name="computer_use_permission_accessibility">Accessibility</string>
     <string name="computer_use_permission_open">Open Settings</string>
-    <string name="computer_use_permission_open_description">Open System Settings: %1$s</string>
+    <string name="computer_use_permission_open_description">Open Settings: %1$s</string>
     <string name="computer_use_blocker_elevation">Windows running with administrator rights cannot be controlled.</string>
     <string name="computer_use_blocker_session_locked">Unlock the computer so the agent can see the screen.</string>
     <string name="computer_use_blocker_headless">Connect an active display so the agent can see the screen.</string>

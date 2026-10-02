@@ -6,16 +6,20 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineSpec
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.plus
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -23,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -40,7 +45,10 @@ class GuidedPermissionGrantsTest {
         advanceTimeBy(1.seconds)
         runCurrent()
         assertNull(fixture.guide.guide.value)
-        assertEquals(listOf<ComputerUseIntent>(ComputerUseIntent.Public.Retry), fixture.machine.sent)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
     }
 
     @Test
@@ -50,7 +58,10 @@ class GuidedPermissionGrantsTest {
         runCurrent()
         assertEquals(emptyList(), fixture.permissions.opened)
         assertNull(fixture.guide.guide.value)
-        assertEquals(listOf<ComputerUseIntent>(ComputerUseIntent.Public.Retry), fixture.machine.sent)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
     }
 
     @Test
@@ -87,7 +98,10 @@ class GuidedPermissionGrantsTest {
         fixture.permissions.capabilities = granted
         advanceTimeBy(1.seconds)
         runCurrent()
-        assertEquals(listOf<ComputerUseIntent>(ComputerUseIntent.Public.Retry), fixture.machine.sent)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
     }
 
     @Test
@@ -105,12 +119,20 @@ class GuidedPermissionGrantsTest {
             fixture.permissions.opened,
         )
         assertEquals(ComputerUsePermission.Accessibility, fixture.guide.guide.value)
-        // Only the replacing request's permission ends its guide.
-        fixture.permissions.capabilities = missing(ComputerUseBlocker.ScreenRecordingPermission)
+        // Granting only the old request must not hide or finish the replacement.
+        fixture.permissions.capabilities = missing(ComputerUseBlocker.AccessibilityPermission)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(ComputerUsePermission.Accessibility, fixture.guide.guide.value)
+        assertEquals(emptyList(), fixture.machine.sent)
+        fixture.permissions.capabilities = granted
         advanceTimeBy(1.seconds)
         runCurrent()
         assertNull(fixture.guide.guide.value)
-        assertEquals(listOf<ComputerUseIntent>(ComputerUseIntent.Public.Retry), fixture.machine.sent)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
     }
 
     @Test
@@ -141,7 +163,10 @@ class GuidedPermissionGrantsTest {
         assertEquals(emptyList(), fixture.machine.sent)
         fixture.machine.state.value = ComputerUseState.Ready(granted)
         runCurrent()
-        assertEquals(listOf<ComputerUseIntent>(ComputerUseIntent.Public.Retry), fixture.machine.sent)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
     }
 
     @Test
@@ -149,6 +174,106 @@ class GuidedPermissionGrantsTest {
         val fixture = Fixture(this, granted, initial = ComputerUseState.Idle)
         fixture.grants.request(ComputerUsePermission.ScreenRecording)
         runCurrent()
+        assertEquals(emptyList(), fixture.machine.sent)
+        assertEquals(0, fixture.permissions.probes)
+        assertEquals(emptyList(), fixture.permissions.opened)
+    }
+
+    @Test
+    fun `revoke cancels polling hides its guide and does not resume after enabling`() = runTest {
+        val fixture = Fixture(this, missing(ComputerUseBlocker.ScreenRecordingPermission))
+        fixture.grants.request(ComputerUsePermission.ScreenRecording)
+        runCurrent()
+        fixture.machine.state.value = ComputerUseState.Idle
+        runCurrent()
+        assertNull(fixture.guide.guide.value)
+        val probesAtRevoke = fixture.permissions.probes
+        fixture.machine.state.value = ComputerUseState.Ready(granted)
+        fixture.permissions.capabilities = granted
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(probesAtRevoke, fixture.permissions.probes)
+        assertEquals(emptyList(), fixture.machine.sent)
+    }
+
+    @Test
+    fun `a revoke output cancels a grant even when Idle was conflated with a new start`() = runTest {
+        val fixture = Fixture(this, missing(ComputerUseBlocker.AccessibilityPermission))
+        fixture.grants.request(ComputerUsePermission.Accessibility)
+        runCurrent()
+        fixture.machine.outputs.emit(ComputerUseOutput.Revoked)
+        fixture.machine.state.value = ComputerUseState.Checking
+        runCurrent()
+        assertNull(fixture.guide.guide.value)
+        val probesAtRevoke = fixture.permissions.probes
+        fixture.permissions.capabilities = granted
+        fixture.machine.state.value = ComputerUseState.Ready(granted)
+        advanceTimeBy(2.seconds)
+        runCurrent()
+        assertEquals(probesAtRevoke, fixture.permissions.probes)
+        assertEquals(emptyList(), fixture.machine.sent)
+    }
+
+    @Test
+    fun `revoke cancels the refresh waiting for a capture to end`() = runTest {
+        val fixture = Fixture(this, granted, initial = capture)
+        fixture.grants.request(ComputerUsePermission.Accessibility)
+        runCurrent()
+        fixture.machine.state.value = ComputerUseState.Idle
+        runCurrent()
+        fixture.machine.state.value = ComputerUseState.Ready(granted)
+        runCurrent()
+        assertEquals(emptyList(), fixture.machine.sent)
+    }
+
+    @Test
+    fun `a capture starting exactly before the refresh delays it until the capture ends`() = runTest {
+        val old = granted.copy(isInputAvailable = false)
+        val fixture = Fixture(this, granted, initial = ComputerUseState.Ready(old))
+        fixture.machine.beforeSend = {
+            fixture.machine.beforeSend = {}
+            fixture.machine.state.value = capture.copy(capabilities = old)
+        }
+        fixture.grants.request(ComputerUsePermission.Accessibility)
+        runCurrent()
+        assertEquals(capture.copy(capabilities = old), fixture.machine.state.value)
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Internal.PermissionsRefreshed(granted)),
+            fixture.machine.sent,
+        )
+        fixture.machine.state.value = ComputerUseState.Ready(old)
+        runCurrent()
+        assertEquals(ComputerUseState.Ready(granted), fixture.machine.state.value)
+        assertEquals(2, fixture.machine.sent.size)
+    }
+
+    @Test
+    fun `a replacement cancels a suspended old probe before showing its guide`() = runTest {
+        val fixture = Fixture(
+            this,
+            missing(ComputerUseBlocker.ScreenRecordingPermission, ComputerUseBlocker.AccessibilityPermission),
+        )
+        fixture.grants.request(ComputerUsePermission.ScreenRecording)
+        runCurrent()
+        var oldProbeCancelled = false
+        fixture.permissions.onProbe = {
+            fixture.permissions.onProbe = {}
+            try {
+                awaitCancellation()
+            } finally {
+                oldProbeCancelled = true
+            }
+        }
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        fixture.grants.request(ComputerUsePermission.Accessibility)
+        runCurrent()
+        assertTrue(oldProbeCancelled)
+        assertEquals(ComputerUsePermission.Accessibility, fixture.guide.guide.value)
+        fixture.permissions.capabilities = missing(ComputerUseBlocker.AccessibilityPermission)
+        advanceTimeBy(1.seconds)
+        runCurrent()
+        assertEquals(ComputerUsePermission.Accessibility, fixture.guide.guide.value)
         assertEquals(emptyList(), fixture.machine.sent)
     }
 
@@ -164,6 +289,13 @@ class GuidedPermissionGrantsTest {
         val grants = GuidedPermissionGrants(
             permissions,
             guide,
+            ComputerUseAccess(
+                FakeToggles(mapOf(ComputerUseEnabled.key to true)),
+                permissions,
+                RoutedComputerControlTest.FakeMachineRegistry(null),
+                TestDispatchers(StandardTestDispatcher(scope.testScheduler)),
+                FakeComputerUsePreferences(),
+            ),
             lazyOf(machine),
             TestComputerUseScope(scope.backgroundScope + profileJob),
         )
@@ -188,5 +320,20 @@ private class GrantMachine(initial: ComputerUseState) :
     override val outputs = MutableSharedFlow<ComputerUseOutput>()
     val sent = mutableListOf<ComputerUseIntent>()
 
-    override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted.also { sent += intent }
+    var beforeSend: suspend () -> Unit = {}
+
+    override suspend fun send(intent: ComputerUseIntent): SendResult {
+        beforeSend()
+        sent += intent
+        val transition = ComputerUseMachineSpec.resolve(state.value, intent) ?: return SendResult.Ignored
+        state.value = transition.to
+        return SendResult.Accepted
+    }
 }
+
+private val capture = ComputerUseState.Capturing(
+    CaptureSessionId("session"),
+    ComputerUseMode.Desktop(),
+    CaptureOwner.Panel,
+    granted,
+)

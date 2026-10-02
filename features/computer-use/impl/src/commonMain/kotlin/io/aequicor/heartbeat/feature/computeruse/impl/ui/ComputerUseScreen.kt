@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +65,7 @@ import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 import pro.respawn.flowmvi.dsl.collect
 
-/** Settings expose only the tool switch; the agent chooses its capture target, mode and frame quality. */
+/** Settings expose the tool switch and missing permissions; capture choices belong to the agent. */
 @Composable
 internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, modifier: Modifier = Modifier) {
     val state by produceState(ComputerUseScreenState(), model) {
@@ -75,8 +76,8 @@ internal fun ComputerUseScreen(model: ComputerUseModel, onBack: (() -> Unit)?, m
 
 /**
  * One settings row with a persistent tool switch. While the tool is on, each missing permission the user grants in
- * the system settings gets a row with a button that opens its page; other host blockers follow as a warning. Both
- * are polite live regions, so a screen reader announces what the agent is missing.
+ * the system settings gets a row with a button that opens its page; other host blockers follow as a warning.
+ * Permission rows and the warning are polite live regions, leaving shared instructions out of announcements.
  */
 @Composable
 internal fun ComputerUseContent(
@@ -172,35 +173,41 @@ private fun PermissionsSection(
 ) {
     HbSettingsSection(
         stringResource(Res.string.computer_use_section_permissions),
-        modifier.testTag("computer-use-permissions").semantics { liveRegion = LiveRegionMode.Polite },
+        modifier.testTag("computer-use-permissions"),
         description = stringResource(Res.string.computer_use_permissions_hint),
     ) {
         blockers.forEach { blocker ->
-            val title = stringResource(blocker.title() ?: return@forEach)
-            val openDescription = stringResource(Res.string.computer_use_permission_open_description, title)
-            HbSettingsRow(
-                title,
-                Modifier.fillMaxWidth().testTag("computer-use-permission-${blocker.name}"),
-                description = stringResource(blocker.resource()),
-            ) {
-                HbButton(
-                    stringResource(Res.string.computer_use_permission_open),
-                    { onIntent(ComputerUseScreenIntent.GrantPermission(blocker)) },
-                    Modifier.testTag("computer-use-grant-${blocker.name}")
-                        .semantics { contentDescription = openDescription },
-                    style = HbButtonStyle.Secondary,
-                    size = HbButtonSize.Small,
-                )
+            key(blocker) {
+                val title = stringResource(blocker.title())
+                val openDescription = stringResource(Res.string.computer_use_permission_open_description, title)
+                HbSettingsRow(
+                    title,
+                    Modifier.fillMaxWidth().testTag("computer-use-permission-${blocker.name}")
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    description = stringResource(blocker.resource()),
+                ) {
+                    HbButton(
+                        stringResource(Res.string.computer_use_permission_open),
+                        { onIntent(ComputerUseScreenIntent.GrantPermission(blocker)) },
+                        Modifier.testTag("computer-use-grant-${blocker.name}")
+                            .semantics { contentDescription = openDescription },
+                        style = HbButtonStyle.Secondary,
+                        size = HbButtonSize.Small,
+                    )
+                }
             }
         }
     }
 }
 
-/** Row title of a grantable permission, named as its system settings page names it; `null` for other blockers. */
-private fun BlockerUi.title(): StringResource? = when (this) {
+/** Permissions use their system settings page names; other blockers use their localized explanation. */
+private fun BlockerUi.title(): StringResource = when (this) {
     BlockerUi.ScreenRecordingPermission -> Res.string.computer_use_permission_screen_recording
+
     BlockerUi.AccessibilityPermission -> Res.string.computer_use_permission_accessibility
-    BlockerUi.UnsupportedPlatform, BlockerUi.ElevationRequired, BlockerUi.SessionLocked, BlockerUi.Headless -> null
+
+    BlockerUi.UnsupportedPlatform, BlockerUi.ElevationRequired, BlockerUi.SessionLocked, BlockerUi.Headless ->
+        resource()
 }
 
 private fun BlockerUi.resource(): StringResource = when (this) {

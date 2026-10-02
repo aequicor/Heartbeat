@@ -3,12 +3,15 @@ package io.aequicor.heartbeat.feature.computeruse.api
 import kotlinx.coroutines.flow.StateFlow
 
 /** Operating-system permission the user grants in the system settings, not in Heartbeat. */
-public enum class ComputerUsePermission {
+public enum class ComputerUsePermission(
+    /** Host capability blocker removed when the user grants this permission. */
+    public val blocker: ComputerUseBlocker,
+) {
     /** macOS Screen Recording: capture of the desktop and of other applications' windows. */
-    ScreenRecording,
+    ScreenRecording(ComputerUseBlocker.ScreenRecordingPermission),
 
     /** macOS Accessibility: mouse and keyboard input into other applications. */
-    Accessibility,
+    Accessibility(ComputerUseBlocker.AccessibilityPermission),
 }
 
 /**
@@ -21,6 +24,9 @@ public interface ComputerUsePermissionGuide {
     /** The permission being granted right now; `null` when no panel is shown. */
     public val guide: StateFlow<ComputerUsePermission?>
 
-    /** Closes the panel at the user's request; the feature keeps checking for the grant in the background. */
+    /**
+     * Closes the panel at the user's request; the feature keeps checking for the grant in the background.
+     * Called on the main thread, where the feature also changes the shown permission.
+     */
     public fun dismiss()
 }

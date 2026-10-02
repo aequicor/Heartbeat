@@ -12,11 +12,11 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.PermissionGuidePane
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.getAndUpdate
 
 /**
  * The one guide panel of the application. Profiles show and hide it as a [PermissionGuidePanel]; the desktop host
- * observes it as a [ComputerUsePermissionGuide] and reports the user closing the panel.
+ * observes it as a [ComputerUsePermissionGuide] and reports the user closing the panel. Panel mutations and
+ * lease disposal are confined to the main thread; the permission flow is safe to observe from any thread.
  */
 @SingleIn(AppScope::class)
 @ContributesBinding(AppScope::class, binding = binding<ComputerUsePermissionGuide>())
@@ -27,20 +27,27 @@ internal class DefaultComputerUsePermissionGuide :
     PermissionGuidePanel {
     private val log = Log.tag("ComputerUsePermissionGuide")
     private val current = MutableStateFlow<ComputerUsePermission?>(null)
+    private var activeLease: Any? = null
 
     override val guide: StateFlow<ComputerUsePermission?> = current.asStateFlow()
 
-    override fun show(permission: ComputerUsePermission) {
-        val previous = current.getAndUpdate { permission }
-        log.i { "permission guide shown permission=$permission replaced=${previous ?: "none"}" }
-    }
-
-    override fun hide(permission: ComputerUsePermission) {
-        if (current.compareAndSet(permission, null)) log.i { "permission guide hidden permission=$permission" }
+    override fun show(permission: ComputerUsePermission): AutoCloseable {
+        val lease = Any()
+        activeLease = lease
+        current.value = permission
+        log.i { "permission guide shown permission=$permission" }
+        return AutoCloseable {
+            if (activeLease === lease) {
+                activeLease = null
+                current.value = null
+                log.i { "permission guide hidden permission=$permission" }
+            }
+        }
     }
 
     override fun dismiss() {
-        val previous = current.getAndUpdate { null }
-        log.i { "permission guide closed by the user permission=${previous ?: "none"}" }
+        activeLease = null
+        current.value = null
+        log.i { "permission guide closed by the user" }
     }
 }

@@ -70,13 +70,16 @@ internal interface OsPermissions {
     suspend fun openSettings(permission: ComputerUsePermission): Boolean
 }
 
-/** The host's guide panel as the grant flow drives it; the host itself only observes and dismisses it. */
+/**
+ * The host's guide panel as the grant flow drives it; the host itself only observes and dismisses it.
+ * Showing and closing leases are confined to the main thread, like host dismissal.
+ */
 internal interface PermissionGuidePanel {
-    /** Shows the panel for [permission], replacing a panel for another one. */
-    fun show(permission: ComputerUsePermission)
-
-    /** Hides the panel only while it still shows [permission]: a newer request keeps its own panel. */
-    fun hide(permission: ComputerUsePermission)
+    /**
+     * Shows the panel for [permission]. Closing the returned lease hides only this request's panel, never a
+     * replacement, including one for the same permission from another profile.
+     */
+    fun show(permission: ComputerUsePermission): AutoCloseable
 }
 
 /** Guided grants of operating-system permissions; a grant outlives the screen that asked for it. */
