@@ -262,7 +262,12 @@ class EngineManagementService(
             val id = engine.descriptor.id
             log.i { "retire idle runtimes engine=${id.value} enabled=${engine.enablement.isEnabled}" }
             try {
-                runtimes.retire(id)
+                val expected = if (engine.enablement.isEnabled) {
+                    LaunchContext(engine.launch.settings, engine.installation.managed)
+                } else {
+                    null
+                }
+                runtimes.retire(id, expected)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: EngineException) {
@@ -415,7 +420,7 @@ class EngineManagementService(
         return this
     }
 
-    private fun ManagedEngine.needsRetirement(): Boolean = runtime.runtimes > 0 && runtime.activeTurns == 0 &&
+    private fun ManagedEngine.needsRetirement(): Boolean = runtime.runtimes > 0 &&
         (!enablement.isEnabled || runtime.isStale || runtime.hasExited)
 
     private fun refuse(reason: String): Nothing {
@@ -479,8 +484,8 @@ interface EngineRuntimes {
     /** Open handles and turns in flight per engine. */
     val sessions: Flow<Map<EngineId, SessionCounts>>
 
-    /** Stops the idle runtimes of [engine]. */
-    suspend fun retire(engine: EngineId): RetireOutcome
+    /** Stops idle runtimes of [engine]; a non-null [expected] preserves live runtimes already using that context. */
+    suspend fun retire(engine: EngineId, expected: LaunchContext? = null): RetireOutcome
 
     /** Disposes runtimes that shut themselves down. */
     suspend fun prune(): Int
@@ -491,7 +496,10 @@ class PooledEngineRuntimes(private val pool: RuntimePool, private val handles: A
     override val entries: StateFlow<List<RuntimeEntry>> get() = pool.entries
     override val sessions: Flow<Map<EngineId, SessionCounts>> get() = handles.summary
 
-    override suspend fun retire(engine: EngineId): RetireOutcome = pool.retire(engine)
+    override suspend fun retire(engine: EngineId, expected: LaunchContext?): RetireOutcome = pool.retire(
+        engine,
+        expected,
+    )
 
     override suspend fun prune(): Int = pool.prune()
 }

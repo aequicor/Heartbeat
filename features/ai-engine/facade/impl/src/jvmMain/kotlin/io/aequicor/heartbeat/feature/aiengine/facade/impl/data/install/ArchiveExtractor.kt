@@ -53,19 +53,24 @@ class ArchiveExtractor(private val limits: ExtractionLimits = ExtractionLimits()
     }
 
     private fun extractTar(archive: Path, strip: Int, root: Path, budget: Budget) {
-        GZIPInputStream(Files.newInputStream(archive).buffered()).use { stream ->
-            val reader = TarReader(stream)
-            generateSequence { reader.next() }.forEach { entry ->
-                budget.entry(entry.size)
-                budget.add(entry.size)
-                if (entry.type == TarEntryType.Special) refuse("special archive entry")
-                val target = stripped(entry.name, strip)?.let { safeTarget(root, it) } ?: return@forEach
-                if (entry.type == TarEntryType.Directory) {
-                    Files.createDirectories(target)
-                } else {
-                    write(target) { output -> reader.copyTo(output) }
-                    if (entry.mode and EXECUTE_BITS != 0) markExecutable(target)
-                }
+        Files.newInputStream(archive).buffered().use { input ->
+            GZIPInputStream(input).use { stream ->
+                extractTarEntries(TarReader(stream), strip, root, budget)
+            }
+        }
+    }
+
+    private fun extractTarEntries(reader: TarReader, strip: Int, root: Path, budget: Budget) {
+        generateSequence { reader.next() }.forEach { entry ->
+            budget.entry(entry.size)
+            budget.add(entry.size)
+            if (entry.type == TarEntryType.Special) refuse("special archive entry")
+            val target = stripped(entry.name, strip)?.let { safeTarget(root, it) } ?: return@forEach
+            if (entry.type == TarEntryType.Directory) {
+                Files.createDirectories(target)
+            } else {
+                write(target) { output -> reader.copyTo(output) }
+                if (entry.mode and EXECUTE_BITS != 0) markExecutable(target)
             }
         }
     }

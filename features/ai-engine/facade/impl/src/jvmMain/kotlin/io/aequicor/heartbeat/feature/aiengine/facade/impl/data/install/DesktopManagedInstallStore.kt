@@ -15,7 +15,8 @@ import kotlin.time.Clock
 
 /**
  * Desktop managed copies. Executables are machine-local: on Windows they live in `%LOCALAPPDATA%` (never in the
- * roaming `%APPDATA%` of the other app data), which the MSI removes on uninstall; on macOS next to the app data.
+ * roaming `%APPDATA%` of the other app data), which the Windows installer removes on uninstall;
+ * on macOS next to the app data.
  */
 @Inject
 @SingleIn(AppScope::class)

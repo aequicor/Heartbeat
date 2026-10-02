@@ -40,6 +40,19 @@ import kotlin.test.assertTrue
 
 class StudioContinuabilityTest {
     @Test
+    fun `a failed close retains the handle until retry releases it`() = runTest {
+        val handle = ContinuitySession(ActiveSessionState.Closing())
+        handle.closeFailure = IllegalStateException("close failed")
+        val handles = mutableMapOf<String, ActiveSession>("chat" to handle)
+        kotlin.test.assertFailsWith<IllegalStateException> { handles.live("chat") }
+        assertEquals(handle, handles["chat"])
+        handle.closeFailure = null
+        assertNull(handles.live("chat"))
+        assertEquals(2, handle.closes)
+        assertTrue(handles.isEmpty())
+    }
+
+    @Test
     fun `a live handle keeps its conversation continuable without probing the stored session`() = runTest {
         val facade = ContinuityFacade(isResumable = false)
         val probes = StudioContinuability(facade) { ContinuitySession(ActiveSessionState.Ready()) }
@@ -80,7 +93,7 @@ class StudioContinuabilityTest {
     }
 
     @Test
-    fun `a released handle is dropped so the conversation resumes instead of reusing it`() {
+    fun `a released handle is dropped so the conversation resumes instead of reusing it`() = runTest {
         val open = ContinuitySession(ActiveSessionState.Ready())
         val closed = ContinuitySession(ActiveSessionState.Closed)
         val handles = mutableMapOf<String, ActiveSession>("open" to open, "closed" to closed)
@@ -158,11 +171,15 @@ private class ContinuityStored(ref: SessionRef, isResumable: Boolean) : EngineSe
 }
 
 private class ContinuitySession(initial: ActiveSessionState) : ActiveSession {
+    var closeFailure: Exception? = null
+    var closes = 0
     override val ref = StoredRef
     override val route: ExecutionRoute get() = error("Continuability never reads the route")
     override val state = MutableStateFlow(initial)
     override val features: EngineFeatures get() = error("Continuability never resolves handle features")
     override suspend fun close() {
+        closes++
+        closeFailure?.let { throw it }
         state.value = ActiveSessionState.Closed
     }
 }

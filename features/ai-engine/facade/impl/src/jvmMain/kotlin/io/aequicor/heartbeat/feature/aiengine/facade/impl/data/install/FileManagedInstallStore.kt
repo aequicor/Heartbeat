@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallS
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.StagedInstall
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -89,56 +91,85 @@ class FileManagedInstallStore(
         val token = Uuid.random().toHexString().take(TOKEN_LENGTH)
         val download = directory.resolve(DOWNLOADS).resolve("$token.part")
         val staging = directory.resolve(STAGING).resolve(token)
-        var isStaged = false
+        var lease: FileLock? = null
+        var isHandedOver = false
         try {
             withContext(io) {
                 storage { Files.createDirectories(download.parent) }
                 storage { Files.createDirectories(staging) }
+                lease = acquire(staging, LEASE)
             }
             downloader.download(plan, download) { bytes, total -> progress(InstallStep.Downloading(bytes, total)) }
             progress(InstallStep.Verified)
             progress(InstallStep.Unpacking)
             val executable = withContext(io) { unpack(plan, download, staging) }
+            val candidate = ManagedInstall(plan.version, executable.toString(), clock.now())
+            withContext(NonCancellable) { withContext(io) { deleteQuietly(download) } }
+            currentCoroutineContext().ensureActive()
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
-            isStaged = true
-            StagedInstall(engine, ManagedInstall(plan.version, executable.toString(), clock.now()), token, plan.sha256)
+            val staged = StagedInstall(engine, candidate, token, plan.sha256) {
+                release(lease)
+                deleteQuietly(staging.resolve(LEASE))
+            }
+            isHandedOver = true
+            staged
         } finally {
-            // Removals must run even when the caller was cancelled; an unpacked tree may take a while.
-            withContext(NonCancellable) { removeLeftovers(download, staging.takeUnless { isStaged }) }
+            if (!isHandedOver) {
+                // Own the lease until the candidate actually reaches the caller, including dispatch cancellation.
+                withContext(NonCancellable) {
+                    removeFailedStage(lease, download, staging)
+                }
+            }
         }
     }
 
-    private suspend fun removeLeftovers(download: Path, staging: Path?) = withContext(io) {
+    private suspend fun removeFailedStage(lease: FileLock?, download: Path, staging: Path) = withContext(io) {
+        release(lease)
         deleteQuietly(download)
-        staging?.let(::deleteTree)
+        deleteTree(staging)
     }
 
     override suspend fun activate(staged: StagedInstall): ManagedInstall = locked(staged.engine) { directory ->
-        val installed = withContext(io) { switchTo(directory, staged) }
-        installs.update { it + (staged.engine to installed) }
-        log.i { "managed copy activated engine=${staged.engine.value} version=${installed.version}" }
-        installed
-    }
-
-    override suspend fun discard(staged: StagedInstall) {
-        locked(staged.engine) { directory ->
-            withContext(io) { deleteTree(directory.resolve(STAGING).resolve(staged.token)) }
-            log.i { "staged copy discarded engine=${staged.engine.value}" }
+        withContext(NonCancellable + io) {
+            staged.release()
+            val installed = switchTo(directory, staged)
+            installs.update { it + (staged.engine to installed) }
+            log.i { "managed copy activated engine=${staged.engine.value} version=${installed.version}" }
+            installed
         }
     }
 
+    override suspend fun discard(staged: StagedInstall) {
+        try {
+            locked(staged.engine) { directory ->
+                withContext(NonCancellable + io) {
+                    staged.release()
+                    deleteTree(directory.resolve(STAGING).resolve(staged.token))
+                }
+                log.i { "staged copy discarded engine=${staged.engine.value}" }
+            }
+        } finally {
+            // A competing engine operation may refuse discard; the abandoned candidate must remain sweepable.
+            withContext(NonCancellable) { releaseStaged(staged) }
+        }
+    }
+
+    private suspend fun releaseStaged(staged: StagedInstall) = withContext(io) { staged.release() }
+
     override suspend fun uninstall(engine: EngineId) {
         locked(engine) { directory ->
-            val active = withContext(io) { readRecord(directory) }
-            if (active != null) {
-                moveToTrash(directory, directory.resolve(VERSIONS).resolve(active.directory))
-                withContext(io) {
-                    storage { Files.deleteIfExists(directory.resolve(ACTIVE)) }
-                    sweep(directory)
+            withContext(NonCancellable + io) {
+                val active = readRecord(directory)
+                if (active != null) {
+                    moveToTrash(directory, directory.resolve(VERSIONS).resolve(active.directory))
+                    withContext(io) {
+                        storage { Files.deleteIfExists(directory.resolve(ACTIVE)) }
+                        sweep(directory)
+                    }
                 }
+                installs.update { it - engine }
+                log.i { "managed copy removed engine=${engine.value} wasInstalled=${active != null}" }
             }
-            installs.update { it - engine }
-            log.i { "managed copy removed engine=${engine.value} wasInstalled=${active != null}" }
         }
     }
 
@@ -213,8 +244,29 @@ class FileManagedInstallStore(
         directory.resolve(VERSIONS).takeIf(Files::isDirectory)?.let { versions ->
             children(versions).filter { it.fileName.toString() != active }.forEach { putAside(directory, it) }
         }
-        listOf(TRASH, STAGING, DOWNLOADS).map(directory::resolve).filter(Files::isDirectory).forEach { folder ->
+        listOf(TRASH, DOWNLOADS).map(directory::resolve).filter(Files::isDirectory).forEach { folder ->
             children(folder).forEach(::deleteTree)
+        }
+        directory.resolve(STAGING).takeIf(Files::isDirectory)?.let { folder ->
+            children(folder).filter(::isAbandoned).forEach(::deleteTree)
+        }
+    }
+
+    /** A candidate stays leased between download and activation, including while another profile refreshes. */
+    private fun isAbandoned(staging: Path): Boolean = synchronized(processLocks) {
+        try {
+            val file = staging.toRealPath().resolve(LEASE)
+            if (file in processLocks) return@synchronized false
+            if (!Files.exists(file)) return@synchronized true
+            FileChannel.open(file, StandardOpenOption.WRITE).use { channel ->
+                channel.tryLock()?.use { true } ?: false
+            }
+        } catch (e: OverlappingFileLockException) {
+            log.w(e.withoutDetails()) { "staged copy is being checked in this process" }
+            false
+        } catch (e: IOException) {
+            log.w(e.withoutDetails()) { "staged copy lease could not be checked; files are kept" }
+            false
         }
     }
 
@@ -234,16 +286,32 @@ class FileManagedInstallStore(
 
     private fun readRecord(directory: Path): ActiveRecord? {
         val file = directory.resolve(ACTIVE)
-        if (!Files.isRegularFile(file)) return null
+        if (!Files.exists(file)) return null
         return try {
-            RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file))
+            RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file)).also { record ->
+                validateRecord(directory, record)
+            }
         } catch (e: SerializationException) {
-            log.w(e.withoutDetails()) { "active managed copy record is malformed; ignored" }
-            null
+            throw recordFailure(e)
         } catch (e: IOException) {
-            log.w(e.withoutDetails()) { "active managed copy record could not be read; ignored" }
-            null
+            throw recordFailure(e)
         }
+    }
+
+    private fun validateRecord(directory: Path, record: ActiveRecord) {
+        val version = directory.resolve(VERSIONS).resolve(record.directory).normalize()
+        val isName = record.directory !in setOf("", ".", "..") &&
+            record.directory.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }
+        if (!isName || version.parent != directory.resolve(VERSIONS).normalize() || Files.isSymbolicLink(version)) {
+            log.w { "managed copy record points outside its version folder" }
+            throw installFailure(InstallFailureReason.Storage)
+        }
+        safeTarget(version, record.executable)
+    }
+
+    private fun recordFailure(error: Exception): ManagementException {
+        log.w(error.withoutDetails()) { "active managed copy record could not be read; files are kept" }
+        return installFailure(InstallFailureReason.Storage, error.withoutDetails())
     }
 
     private fun writeRecord(directory: Path, record: ActiveRecord) {
@@ -283,32 +351,55 @@ class FileManagedInstallStore(
 
     private suspend fun <T> holding(engine: EngineId, block: suspend (Path) -> T): T {
         val directory = root.resolve(engine.value)
-        val lock = withContext(io) { acquire(directory) }
+        var acquired: FileLock? = null
         return try {
+            withContext(io) { acquire(directory).also { acquired = it } }
             block(directory)
         } finally {
-            lock.channel().use { lock.release() }
+            release(acquired)
         }
     }
 
     /** The cross-process lock of [directory]; another Heartbeat process holding it makes the copy in use. */
-    private fun acquire(directory: Path): FileLock {
+    private fun acquire(directory: Path, name: String = LOCK): FileLock = synchronized(processLocks) {
         storage { Files.createDirectories(directory) }
-        val channel = storage {
-            FileChannel.open(directory.resolve(LOCK), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
-        }
-        val lock = try {
-            channel.tryLock()
-        } catch (e: OverlappingFileLockException) {
-            log.w(e.withoutDetails()) { "managed copies are locked in this process" }
-            null
-        }
-        if (lock == null) {
-            channel.close()
-            log.w { "managed copies are being changed by another Heartbeat process" }
+        val file = storage { directory.toRealPath().resolve(name) }
+        if (file in processLocks) {
+            log.w { "managed copies are locked in this process" }
             throw installFailure(InstallFailureReason.FilesInUse)
         }
-        return lock
+        val channel = storage {
+            FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
+        }
+        var isLocked = false
+        val lock = try {
+            val acquired = try {
+                storage { channel.tryLock() }
+            } catch (e: OverlappingFileLockException) {
+                log.w(e.withoutDetails()) { "managed copies are locked in this process" }
+                null
+            }
+            isLocked = acquired != null
+            if (acquired != null) processLocks[file] = acquired
+            acquired ?: run {
+                log.w { "managed copies are being changed by another Heartbeat process" }
+                throw installFailure(InstallFailureReason.FilesInUse)
+            }
+        } finally {
+            if (!isLocked) storage { channel.close() }
+        }
+        lock
+    }
+
+    private fun release(lock: FileLock?) {
+        if (lock == null) return
+        synchronized(processLocks) {
+            try {
+                storage { lock.channel().close() }
+            } finally {
+                processLocks.entries.removeAll { it.value == lock }
+            }
+        }
     }
 
     // The file system message names the user's paths: only the kind of failure travels on, so it is not the cause.
@@ -343,8 +434,12 @@ class FileManagedInstallStore(
     )
 
     private companion object {
+        // POSIX can release all locks on an inode when any channel of that inode closes. Never open a second
+        // channel for a file locked by another store in this JVM, including short-lived sweep probes.
+        val processLocks = mutableMapOf<Path, FileLock>()
         const val ACTIVE = "active.json"
         const val LOCK = ".lock"
+        const val LEASE = ".lease"
         const val VERSIONS = "versions"
         const val STAGING = "staging"
         const val DOWNLOADS = "downloads"

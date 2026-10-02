@@ -26,6 +26,7 @@ import kotlin.test.assertTrue
 
 class CodexLoginTest {
     private val wires = mutableListOf<FakeWire>()
+    private var afterOpen: () -> Unit = {}
     private val prompts = mutableListOf<LoginPrompt>()
     private val session = object : LoginSession {
         override fun prompt(prompt: LoginPrompt) {
@@ -44,6 +45,17 @@ class CodexLoginTest {
     )
 
     private val wire: FakeWire get() = wires.last()
+
+    @Test
+    fun `cancellation immediately after opening the app-server releases its wire`() = runTest {
+        lateinit var request: kotlinx.coroutines.Deferred<LoginState>
+        afterOpen = { request.cancel() }
+        request = async(start = kotlinx.coroutines.CoroutineStart.LAZY) { logins().status(LaunchContext()) }
+        request.start()
+        runCurrent()
+        assertTrue(request.isCancelled)
+        assertTrue(wire.isClosed)
+    }
 
     @Test
     fun `a browser sign-in shows OpenAI's page and returns the ChatGPT account`() = runTest {
@@ -129,7 +141,7 @@ class CodexLoginTest {
         }
         val transport = object : CodexTransport {
             override suspend fun open(): CodexWire = error("unused")
-            override suspend fun open(launch: LaunchContext): CodexWire = appServer()
+            override suspend fun open(launch: LaunchContext): CodexWire = appServer().also { afterOpen() }
             override suspend fun available(): EngineAvailability = EngineAvailability.Available
         }
         return CodexLogin(transport, dispatchers)

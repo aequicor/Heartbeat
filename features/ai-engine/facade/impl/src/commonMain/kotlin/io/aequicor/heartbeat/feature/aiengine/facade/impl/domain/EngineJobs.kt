@@ -104,8 +104,14 @@ class EngineJobs(
         try {
             outcome = perform(engine, action)
         } finally {
-            withContext(NonCancellable) { finish(engine, outcome) }
+            withContext(NonCancellable) {
+                finish(engine, outcome)
+                inspectAfterJob(engine)
+            }
         }
+    }
+
+    private suspend fun inspectAfterJob(engine: EngineId) {
         try {
             hooks.changed(engine)
         } catch (e: CancellationException) {
@@ -160,8 +166,11 @@ class EngineJobs(
             phase(engine, JobPhase.Activating)
             // Idle runtimes release the copy they run (Windows locks it); a busy one keeps it until its turn ends.
             runtimes.retire(engine)
-            installs.activate(staged)
-            isActivated = true
+            // Commit the file switch and the published state together, even if Cancel arrives meanwhile.
+            withContext(NonCancellable) {
+                installs.activate(staged)
+                isActivated = true
+            }
         } finally {
             if (!isActivated) withContext(NonCancellable) { installs.discard(staged) }
         }
@@ -174,7 +183,7 @@ class EngineJobs(
             log.w { "managed copy is used by a running turn engine=${engine.value}" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
         }
-        installs.uninstall(engine)
+        withContext(NonCancellable) { installs.uninstall(engine) }
     }
 
     private suspend fun login(engine: EngineId, action: EngineAction.Login) {
@@ -197,13 +206,21 @@ class EngineJobs(
             log.w { "sign-in timed out engine=${engine.value}" }
             throw ManagementException(ManagementFailure.Login(LoginFailureReason.TimedOut))
         }
-        if (signedIn is LoginState.SignedIn) hooks.signedIn(engine)
+        if (signedIn !is LoginState.SignedIn) {
+            log.w { "sign-in did not establish an account engine=${engine.value}" }
+            throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
+        }
+        hooks.signedIn(engine)
         runtimes.retire(engine)
     }
 
     private suspend fun logout(engine: EngineId) {
         phase(engine, JobPhase.Preparing)
-        manager(engine).logout(launch.context(engine))
+        val state = manager(engine).logout(launch.context(engine))
+        if (state != LoginState.SignedOut) {
+            log.w { "sign-out did not clear the account engine=${engine.value}" }
+            throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
+        }
         runtimes.retire(engine)
     }
 

@@ -47,6 +47,23 @@ class EngineManagementStorageTest {
     )
 
     @Test
+    fun `a failed managed copy refresh preserves saved launch settings`() = runTest {
+        val flags = Flags(mapOf(EngineManagementEnabled to true))
+        val preferences = MemoryEnginePreferences(ProfileEnginePreferences(launch = mapOf(engine to settings)))
+        val installs = Installs(emptyMap())
+        installs.failure = io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException(
+            io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure.Install(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason.Storage,
+            ),
+        )
+        val config = ProfileLaunchConfig(flags, preferences, installs)
+        assertEquals(LaunchContext(settings), config.context(engine))
+        installs.failure = null
+        assertEquals(LaunchContext(settings), config.context(engine))
+        assertEquals(1, installs.refreshes)
+    }
+
+    @Test
     fun `preferences round trip and default launch settings are not stored`() = runTest {
         val store = MemoryStore()
         val storage = EngineManagementStorage(store)
@@ -131,10 +148,12 @@ class EngineManagementStorageTest {
 
     private class Installs(val loaded: Map<EngineId, ManagedInstall>) : ManagedInstallStore {
         var refreshes = 0
+        var failure: Exception? = null
         override val state = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
 
         override suspend fun refresh() {
             refreshes++
+            failure?.let { throw it }
             state.value = loaded
         }
 

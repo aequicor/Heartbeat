@@ -19,7 +19,10 @@ interface ManagedInstallStore {
     /** Reads the active copies from disk and removes leftovers of interrupted operations. */
     suspend fun refresh()
 
-    /** Downloads, verifies and unpacks [plan] for [engine] without activating it. */
+    /**
+     * Downloads, verifies and unpacks [plan] for [engine] without activating it. The returned candidate stays leased
+     * across refreshes until the caller activates or discards it, including after cancellation of its check run.
+     */
     suspend fun stage(engine: EngineId, plan: InstallPlan, progress: suspend (InstallStep) -> Unit): StagedInstall
 
     /** Makes [staged] the active copy of its engine and removes the previous one. */
@@ -38,6 +41,8 @@ data class StagedInstall(
     val candidate: ManagedInstall,
     internal val token: String,
     internal val sha256: String,
+    /** Releases the candidate's cross-process lease, under the engine lock, before moving or discarding it. */
+    internal val release: () -> Unit = {},
 ) {
     override fun toString(): String = "StagedInstall(engine=${engine.value}, version=${candidate.version})"
 }

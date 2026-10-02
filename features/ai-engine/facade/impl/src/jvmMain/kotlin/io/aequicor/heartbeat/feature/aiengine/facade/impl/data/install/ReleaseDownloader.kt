@@ -16,6 +16,7 @@ import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
@@ -69,8 +70,12 @@ class ReleaseDownloader(
         withContext(io) { requireSpace(target.parent, expected) }
         val channel = response.bodyAsChannel()
         val digest = MessageDigest.getInstance("SHA-256")
-        val output = withContext(io) { storage { Files.newOutputStream(target, StandardOpenOption.CREATE_NEW) } }
+        var opened: OutputStream? = null
         val total = try {
+            // Capture inside the dispatcher block: cancellation can discard its return value.
+            val output = withContext(io) {
+                storage { Files.newOutputStream(target, StandardOpenOption.CREATE_NEW) }.also { opened = it }
+            }
             stream(channel, expected) { buffer, read, received ->
                 // Hashing and writing stay off the caller's (main) thread; progress is reported on it.
                 withContext(io) {
@@ -81,7 +86,7 @@ class ReleaseDownloader(
             }
         } finally {
             // A single close: quick on any thread, and it must run even when cancelled.
-            storage { output.close() }
+            opened?.let { output -> storage { output.close() } }
         }
         if (expected != null && total != expected) fail(InstallFailureReason.SizeMismatch)
         if (HexFormat.of().formatHex(digest.digest()) != plan.sha256) {

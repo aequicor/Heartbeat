@@ -69,6 +69,56 @@ class EngineJobsTest {
     private val settings = LaunchSettings(executable = "/custom/cli", homeDirectory = "/home/cli")
 
     @Test
+    fun `a sign-out that leaves the account signed in fails without retiring runtimes`() = runTest {
+        manager.logoutResult = LoginState.SignedIn("account")
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Logout)
+        runCurrent()
+        assertEquals(
+            JobPhase.Failed(ManagementFailure.Login(LoginFailureReason.Rejected)),
+            jobs.jobs.value.getValue(engine).phase,
+        )
+        assertTrue(runtimes.retired.isEmpty())
+    }
+
+    @Test
+    fun `activation finishes consistently when Cancel arrives during its commit`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        installs.onActivate = {
+            entered.complete(Unit)
+            finish.await()
+        }
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertTrue(entered.isCompleted)
+        assertEquals(listOf(engine), runtimes.retired)
+        jobs.cancel(engine)
+        runCurrent()
+        finish.complete(Unit)
+        runCurrent()
+        assertEquals(listOf("2.0.0"), installs.activated)
+        assertEquals(0, installs.discarded)
+        assertEquals(listOf(engine), hooks.changed)
+        assertEquals("2.0.0", installs.state.value.getValue(engine).version)
+    }
+
+    @Test
+    fun `an inspection hook failure does not lose the completed job or prevent another job`() = runTest {
+        hooks.failure = IllegalStateException("inspection crashed")
+        val jobs = jobs()
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+        jobs.dismiss(engine)
+        hooks.failure = null
+        jobs.start(engine, EngineAction.Install)
+        runCurrent()
+        assertEquals(JobPhase.Succeeded, jobs.jobs.value.getValue(engine).phase)
+    }
+
+    @Test
     fun `an install checks the staged copy before activating it`() = runTest {
         val jobs = jobs()
 
@@ -184,6 +234,7 @@ class EngineJobsTest {
 
         assertEquals(JobPhase.Cancelled, jobs.jobs.value.getValue(engine).phase)
         assertEquals(1, installs.discarded)
+        assertEquals(listOf(engine), hooks.changed)
         assertEquals(emptyList(), installs.activated)
         jobs.dismiss(engine)
         assertEquals(emptyMap(), jobs.jobs.value)
@@ -202,6 +253,8 @@ class EngineJobsTest {
 }
 
 private class JobManager : EngineManager {
+    var logoutResult: LoginState = LoginState.SignedOut
+    override suspend fun logout(launch: LaunchContext): LoginState = logoutResult
     var reportedVersion = "2.0.0"
     var isInspectHanging = false
     var isLoginHanging = false
@@ -252,6 +305,7 @@ private class JobInstalls : ManagedInstallStore {
     var staged = 0
     var discarded = 0
     var uninstalled = 0
+    var onActivate: suspend () -> Unit = {}
     override val state = MutableStateFlow(emptyMap<EngineId, ManagedInstall>())
 
     override suspend fun refresh() = Unit
@@ -275,7 +329,9 @@ private class JobInstalls : ManagedInstallStore {
     }
 
     override suspend fun activate(staged: StagedInstall): ManagedInstall {
+        onActivate()
         activated += staged.candidate.version
+        state.value = state.value + (staged.engine to staged.candidate)
         return staged.candidate
     }
 
@@ -294,17 +350,22 @@ private class JobRuntimes : EngineRuntimes {
     override val entries = MutableStateFlow(emptyList<RuntimeEntry>())
     override val sessions = emptyFlow<Map<EngineId, SessionCounts>>()
 
-    override suspend fun retire(engine: EngineId): RetireOutcome = RetireOutcome(0, busy).also { retired += engine }
+    override suspend fun retire(engine: EngineId, expected: LaunchContext?): RetireOutcome = RetireOutcome(
+        0,
+        busy,
+    ).also { retired += engine }
 
     override suspend fun prune(): Int = 0
 }
 
 private class RecordingHooks : JobHooks {
+    var failure: Exception? = null
     val changed = mutableListOf<EngineId>()
     val signedIn = mutableListOf<EngineId>()
 
     override suspend fun changed(engine: EngineId) {
         changed += engine
+        failure?.let { throw it }
     }
 
     override suspend fun signedIn(engine: EngineId) {

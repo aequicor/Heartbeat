@@ -12,10 +12,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -46,10 +51,29 @@ class RuntimePool(
     private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, Pooled>()
     private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
     private val published = MutableStateFlow(emptyList<RuntimeEntry>())
+    private val hasLiveRuntimes = MutableStateFlow(false)
     private var isClosed = false
 
-    /** Pooled runtimes; one that shut itself down stays listed until it is replaced, pruned or retired. */
+    /**
+     * Pooled runtimes; observers receive native exit changes within one second. An exited runtime stays listed
+     * until it is replaced, pruned or retired. Sampling stops when there are no observers.
+     */
     val entries: StateFlow<List<RuntimeEntry>> = published.asStateFlow()
+
+    init {
+        // EngineRuntime exposes a Boolean, so sample while diagnostics has observers; no timer when unobserved.
+        context.scope.launch(context.io) {
+            combine(published.subscriptionCount, hasLiveRuntimes) { observers, live -> observers > 0 && live }
+                .distinctUntilChanged().collectLatest { isObserved ->
+                    if (isObserved) {
+                        while (isActive) {
+                            delay(RUNTIME_CHECK_MILLIS)
+                            mutex.withLock { publish() }
+                        }
+                    }
+                }
+        }
+    }
 
     /** Runtime of the checked [resolved] route, created on first use. */
     suspend fun runtime(resolved: ResolvedRoute): EngineRuntime {
@@ -65,14 +89,16 @@ class RuntimePool(
     /**
      * Retires every idle runtime of [engine]. A runtime with an accepted turn is kept and counted as busy: the
      * caller retries once it is idle. A runtime that shut itself down is disposed whatever its handles report.
+     * When [expected] is supplied, live runtimes already using that context are preserved.
      */
-    suspend fun retire(engine: EngineId): RetireOutcome {
+    suspend fun retire(engine: EngineId, expected: LaunchContext? = null): RetireOutcome {
         val keys = mutex.withLock { runtimes.keys.filter { it.first == engine } }
         var retired = 0
         var busy = 0
         keys.forEach { key ->
             locked(key) {
                 val current = mutex.withLock { runtimes[key] } ?: return@locked
+                if (expected != null && !current.runtime.isClosed && current.launch == expected) return@locked
                 if (current.runtime.isClosed) {
                     dispose(current, key)
                     retired++
@@ -227,10 +253,14 @@ class RuntimePool(
 
     /** Called under [mutex]. */
     private fun publish() {
-        published.value = runtimes.map { (key, pooled) ->
+        val next = runtimes.map { (key, pooled) ->
             RuntimeEntry(key.first, key.second, pooled.startedAt, pooled.runtime.isClosed, pooled.launch)
         }
-        log.d { "pooled runtimes count=${runtimes.size}" }
+        if (next != published.value) {
+            published.value = next
+            log.d { "pooled runtimes count=${runtimes.size}" }
+        }
+        hasLiveRuntimes.value = next.any { !it.isClosed }
     }
 
     private fun ensureOpen(engine: EngineId) {
@@ -265,6 +295,10 @@ class RuntimePool(
         } catch (e: Exception) {
             log.w(e) { "runtime close failed engine=${runtime.identity.engine.value}" }
         }
+    }
+
+    private companion object {
+        const val RUNTIME_CHECK_MILLIS = 1_000L
     }
 }
 

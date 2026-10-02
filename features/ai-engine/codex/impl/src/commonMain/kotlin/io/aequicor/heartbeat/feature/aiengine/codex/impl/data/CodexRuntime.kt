@@ -44,6 +44,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
+import kotlin.concurrent.Volatile
 
 internal class CodexRuntime(
     override val identity: RuntimeIdentity,
@@ -92,6 +93,8 @@ internal class CodexRuntime(
     private var isUsageAccountTrusted = false
     private var usageAccountEpoch = 0L
     private var usageAccountId: String? = null
+
+    @Volatile
     override var isClosed = false
         private set
     private var cleanup: DisposableHandle? = null

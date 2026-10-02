@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.hostOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -102,12 +104,17 @@ internal class CodexLogin(private val transport: CodexTransport, private val dis
     private suspend fun <T> connected(launch: LaunchContext, block: suspend (CodexRpc) -> T): T =
         withContext(dispatchers.main) {
             val connection = Job()
-            val rpc = CodexRpc(transport.open(launch), CoroutineScope(coroutineContext + connection))
+            var opened: CodexWire? = null
+            var owned: CodexRpc? = null
             try {
+                // The transport can create a process before cancellation discards its dispatcher result.
+                val wire = withContext(NonCancellable) { transport.open(launch).also { opened = it } }
+                currentCoroutineContext().ensureActive()
+                val rpc = CodexRpc(wire, CoroutineScope(coroutineContext + connection)).also { owned = it }
                 rpc.initialize()
                 block(rpc)
             } finally {
-                rpc.close()
+                if (owned != null) owned.close() else opened?.close()
                 connection.cancel()
             }
         }

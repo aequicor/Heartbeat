@@ -58,9 +58,12 @@ internal fun ActiveSession.isReleased(): Boolean =
  * The open handle of conversation [id]. A runtime retired under an idle conversation (rotated key, engine restart)
  * closes its handle: the released handle is dropped, so the caller resumes the stored session instead of reusing it.
  */
-internal fun MutableMap<String, ActiveSession>.live(id: String): ActiveSession? {
+internal suspend fun MutableMap<String, ActiveSession>.live(id: String): ActiveSession? {
     val handle = get(id) ?: return null
     if (!handle.isReleased()) return handle
+    // Closing(failure) still owns the native attachment; close must succeed before a replacement is opened.
+    if (handle.state.value is ActiveSessionState.Closing) handle.close()
+    check(handle.state.value == ActiveSessionState.Closed) { "Native handle has not finished closing" }
     remove(id)
     releasedLog.i { "Released native handle dropped; the conversation resumes its stored session" }
     return null

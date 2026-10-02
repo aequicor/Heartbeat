@@ -13,7 +13,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +45,36 @@ class RuntimePoolTest {
             { engine, source -> retiredHandles += engine to source },
             { launch },
         )
+    }
+
+    @Test
+    fun `diagnostics observes a runtime that exits without changing the pool`() = runTest {
+        val pool = pool()
+        pool.runtime(route(managedKey()))
+        val observer = backgroundScope.launch { pool.entries.collect {} }
+        runCurrent()
+        runtimes.single().isClosed = true
+        advanceTimeBy(1_001)
+        runCurrent()
+        assertTrue(pool.entries.value.single().isClosed)
+        observer.cancel()
+    }
+
+    @Test
+    fun `reconciliation retires stale idle sources while preserving busy and current ones`() = runTest {
+        val pool = pool()
+        val active = managedKey("src_busy")
+        pool.runtime(route(active))
+        pool.runtime(route(managedKey("src_idle")))
+        busy += active.info.id
+        launch = LaunchContext(LaunchSettings(homeDirectory = "/new"))
+        pool.runtime(route(managedKey("src_fresh")))
+        assertEquals(RetireOutcome(1, 1), pool.retire(TestEngine, launch))
+        assertEquals(setOf("src_busy", "src_fresh"), pool.entries.value.map { it.source.value }.toSet())
+        busy.clear()
+        assertEquals(RetireOutcome(1, 0), pool.retire(TestEngine, launch))
+        assertEquals("src_fresh", pool.entries.value.single().source.value)
+        assertEquals(0, runtimes.last().closes)
     }
 
     @Test

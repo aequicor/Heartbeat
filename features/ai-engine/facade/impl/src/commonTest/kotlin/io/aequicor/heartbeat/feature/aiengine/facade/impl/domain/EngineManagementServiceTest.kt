@@ -60,6 +60,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
@@ -89,6 +90,36 @@ class EngineManagementServiceTest {
     private val runtimes = FakeRuntimes()
     private val installs = FakeInstalls()
     private var launchContext = LaunchContext()
+
+    @Test
+    fun `reconciliation survives an unexpected runtime exception and handles the next state`() = runTest {
+        val service = service()
+        runCurrent()
+        runtimes.failure = IllegalStateException("runtime crashed")
+        runtimes.entries.value = listOf(RuntimeEntry(cliId, AuthSourceId("s1"), Instant.fromEpochSeconds(1), true))
+        runCurrent()
+        assertTrue(service.state.value.engine(cliId).runtime.hasExited)
+        runtimes.failure = null
+        runtimes.sessions.value = mapOf(cliId to SessionCounts(1, 0))
+        runCurrent()
+        assertFalse(service.state.value.engine(cliId).runtime.hasExited)
+        assertEquals(listOf(cliId, cliId), runtimes.retired)
+    }
+
+    @Test
+    fun `managed copies wait until management is enabled and unsupported engines cannot restart`() = runTest {
+        flags.management.value = false
+        val service = service()
+        runCurrent()
+        assertEquals(0, installs.refreshes)
+        flags.management.value = true
+        runCurrent()
+        assertEquals(1, installs.refreshes)
+        assertRefused { service.execute(mobileId, EngineCommand.Restart) }
+        flags.engines.getValue(cliId).value = false
+        runCurrent()
+        assertRefused { service.execute(cliId, EngineCommand.Restart) }
+    }
 
     @Test
     fun `management off is the off state and refuses commands`() = runTest {
@@ -229,7 +260,7 @@ class EngineManagementServiceTest {
     }
 
     @Test
-    fun `idle runtimes of switched off, stale or exited engines are stopped, busy ones never`() = runTest {
+    fun `reconciliation delegates per-source busy checks even when the engine has active turns`() = runTest {
         val service = service()
         runCurrent()
         val stale = RuntimeEntry(cliId, AuthSourceId("s1"), Instant.fromEpochSeconds(1), isClosed = false)
@@ -237,8 +268,8 @@ class EngineManagementServiceTest {
         runtimes.entries.value = listOf(stale)
         preferences.update { it.copy(launch = mapOf(cliId to LaunchSettings(executable = "/opt/new"))) }
         runCurrent()
-        assertTrue(service.state.value.engine(cliId).runtime.isStale)
-        assertEquals(emptyList(), runtimes.retired)
+        assertFalse(service.state.value.engine(cliId).runtime.isStale)
+        assertEquals(listOf(cliId), runtimes.retired)
 
         runtimes.sessions.value = mapOf(cliId to SessionCounts(open = 1, activeTurns = 0))
         runCurrent()
@@ -330,14 +361,16 @@ private class FakeCatalog : EngineCatalog {
 }
 
 private class FakeRuntimes : EngineRuntimes {
+    var failure: Exception? = null
     val retired = mutableListOf<EngineId>()
     var prunes = 0
     var busy = 0
     override val entries = MutableStateFlow(emptyList<RuntimeEntry>())
     override val sessions = MutableStateFlow(emptyMap<EngineId, SessionCounts>())
 
-    override suspend fun retire(engine: EngineId): RetireOutcome {
+    override suspend fun retire(engine: EngineId, expected: LaunchContext?): RetireOutcome {
         retired += engine
+        failure?.let { throw it }
         entries.value = entries.value.filterNot { it.engine == engine }
         return RetireOutcome(retired = 0, busy = busy)
     }

@@ -9,11 +9,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import java.nio.channels.FileChannel
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.util.concurrent.TimeUnit
 import kotlin.io.path.exists
 import kotlin.io.path.isExecutable
 import kotlin.io.path.listDirectoryEntries
@@ -38,6 +40,92 @@ class FileManagedInstallStoreTest {
     @AfterTest
     fun cleanUp() {
         root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `cancellation on return from acquiring the file lock still releases it`() = runTest {
+        lateinit var request: kotlinx.coroutines.Deferred<Unit>
+        val dispatcher = afterDispatch(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)) {
+            if (root.resolve("codex/.lock").exists()) request.cancel()
+        }
+        request = async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            store(dispatcher).stage(engine, plan("1.0.0")) {}
+            Unit
+        }
+        request.start()
+        request.join()
+        assertTrue(request.isCancelled)
+        FileChannel.open(root.resolve("codex/.lock"), StandardOpenOption.WRITE).use { channel ->
+            kotlin.test.assertNotNull(channel.tryLock()).use { }
+        }
+    }
+
+    @Test
+    fun `refresh in another store preserves a candidate being checked`() = runTest {
+        val first = store()
+        val staged = first.stage(engine, plan("2.0.0")) {}
+        store().refresh()
+        assertTrue(Path.of(staged.candidate.executable).exists())
+        val lease = root.resolve("codex/staging/${staged.token}/.lease")
+        assertFalse(canLockFromAnotherProcess(lease), "same-JVM refresh must preserve the native lease")
+        assertEquals("2.0.0", first.activate(staged).version)
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `discard releases the stage lease even when another engine operation refuses its lock`() = runTest {
+        val first = store()
+        val staged = first.stage(engine, plan("1.0.0")) {}
+        FileChannel.open(root.resolve("codex/.lock"), StandardOpenOption.WRITE).use { channel ->
+            channel.lock().use {
+                assertInstallFailure(InstallFailureReason.FilesInUse) { first.discard(staged) }
+            }
+        }
+        assertFalse(root.resolve("codex/staging/${staged.token}/.lease").exists())
+        store().refresh()
+        assertFalse(Path.of(staged.candidate.executable).exists())
+    }
+
+    private fun canLockFromAnotherProcess(file: Path): Boolean {
+        val program = root.resolve("LockProbe.java")
+        program.writeText(LOCK_PROBE)
+        val binary = if (isPosix) "java" else "java.exe"
+        val java = Path.of(System.getProperty("java.home"), "bin", binary).toString()
+        val process = ProcessBuilder(java, program.toString(), file.toString()).redirectErrorStream(true).start()
+        return try {
+            assertTrue(process.waitFor(30, TimeUnit.SECONDS))
+            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
+            assertEquals(0, process.exitValue(), output)
+            output.toBooleanStrict()
+        } finally {
+            process.destroyForcibly()
+        }
+    }
+
+    @Test
+    fun `a malformed active record preserves the installed executable`() = runTest {
+        val first = store()
+        val installed = first.activate(first.stage(engine, plan("1.0.0")) {})
+        root.resolve("codex/active.json").writeText("broken json")
+        assertInstallFailure(InstallFailureReason.Storage) { store().refresh() }
+        assertTrue(Path.of(installed.executable).exists())
+    }
+
+    @Test
+    fun `uninstall and update refuse a record pointing to an external directory`() = runTest {
+        val first = store()
+        val installed = first.activate(first.stage(engine, plan("1.0.0")) {})
+        val external = Files.createDirectories(root.resolve("external"))
+        external.resolve("keep.txt").writeText("keep")
+        val record = root.resolve("codex/active.json")
+        val version = Path.of(installed.executable).parent.parent.fileName.toString()
+        record.writeText(record.readText().replace(version, external.toString().replace("\\", "\\\\")))
+        assertInstallFailure(InstallFailureReason.Storage) { first.uninstall(engine) }
+        val staged = first.stage(engine, plan("2.0.0")) {}
+        assertInstallFailure(InstallFailureReason.Storage) { first.activate(staged) }
+        first.discard(staged)
+        assertEquals("keep", external.resolve("keep.txt").readText())
+        assertTrue(Path.of(installed.executable).exists())
     }
 
     @Test
@@ -162,7 +250,7 @@ class FileManagedInstallStoreTest {
         record.writeText(record.readText().replace("bin/codex", "../../../outside"))
 
         val restarted = store()
-        restarted.refresh()
+        assertInstallFailure(InstallFailureReason.InvalidArchive) { restarted.refresh() }
 
         assertEquals(emptyMap(), restarted.state.value)
     }
@@ -185,16 +273,16 @@ class FileManagedInstallStoreTest {
         assertEquals("1.0.0", store.state.value.getValue(engine).version)
     }
 
-    private fun store(): FileManagedInstallStore {
+    private fun store(io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO): FileManagedInstallStore {
         val client = releaseClient { request ->
             val bytes = releases[request.url.encodedPath]
             if (bytes == null) respond("", HttpStatusCode.NotFound) else respond(bytes, HttpStatusCode.OK)
         }
         return FileManagedInstallStore(
             root,
-            ReleaseDownloader(client, Dispatchers.IO),
+            ReleaseDownloader(client, io),
             ArchiveExtractor(),
-            Dispatchers.IO,
+            io,
             clock,
         )
     }
@@ -225,3 +313,17 @@ class FileManagedInstallStoreTest {
 
     private val isPosix = "posix" in root.fileSystem.supportedFileAttributeViews()
 }
+
+private const val LOCK_PROBE = """
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+class LockProbe {
+    public static void main(String[] args) throws Exception {
+        try (var channel = FileChannel.open(Path.of(args[0]), StandardOpenOption.WRITE);
+             var lock = channel.tryLock()) {
+            System.out.println(lock != null);
+        }
+    }
+}
+"""

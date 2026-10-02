@@ -9,6 +9,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
@@ -38,6 +39,22 @@ class ReleaseDownloaderTest {
     @AfterTest
     fun cleanUp() {
         workspace.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `cancellation on return from opening the output removes the partial file`() = runTest {
+        lateinit var request: kotlinx.coroutines.Deferred<Unit>
+        val dispatcher = afterDispatch(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)) {
+            if (target.exists()) request.cancel()
+        }
+        request = async(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+            ReleaseDownloader(releaseClient { respond(bytes, HttpStatusCode.OK) }, dispatcher)
+                .download(plan, target) { _, _ -> }
+        }
+        request.start()
+        request.join()
+        kotlin.test.assertTrue(request.isCancelled)
+        assertFalse(target.exists())
     }
 
     @Test

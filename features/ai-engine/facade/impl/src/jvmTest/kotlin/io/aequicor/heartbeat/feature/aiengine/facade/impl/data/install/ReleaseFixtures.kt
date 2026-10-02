@@ -106,3 +106,19 @@ internal fun zip(vararg entries: Pair<String, String>): ByteArray = ByteArrayOut
         }
     }
 }.toByteArray()
+
+/** Runs the callback after the IO block, before its caller is resumed on the test scheduler. */
+internal fun afterDispatch(
+    delegate: kotlinx.coroutines.CoroutineDispatcher,
+    after: () -> Unit,
+): kotlinx.coroutines.CoroutineDispatcher = object : kotlinx.coroutines.CoroutineDispatcher() {
+    override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) {
+        delegate.dispatch(
+            context,
+            Runnable {
+                block.run()
+                after()
+            },
+        )
+    }
+}
