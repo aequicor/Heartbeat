@@ -8,7 +8,7 @@
 ; Removing a leftover MSI of an earlier Heartbeat keeps the data too, see DisarmRetiredMsiCleanup.
 
 #if Ver < EncodeVer(6, 6, 0)
-  #error Inno Setup 6.6 or newer is required: update it or point the heartbeat.innoSetupDir Gradle property to it
+  #error Inno Setup 6.6 or newer is required: update it or point the heartbeat.innoSetupDir Gradle property to a newer one
 #endif
 
 #define AppName "Heartbeat"
@@ -93,7 +93,8 @@ end;
 // Earlier Heartbeat versions were MSI packages that remembered the data folders under HKCU\Software\Aequicor\Heartbeat
 // and removed them with WiX RemoveFolderEx when the MSI was uninstalled, which would also wipe this installation's
 // data. Point the MSI at a folder that never exists: RemoveFolderEx skips a missing folder, while an empty value would
-// fail the MSI uninstall.
+// fail the MSI uninstall. Only the account Setup runs as is covered: an all-users install confirmed with another
+// administrator's credentials leaves the logged-on user's MSI values as they were.
 procedure DisarmRetiredMsiCleanup(const ValueName: String);
 begin
   if RegValueExists(HKEY_CURRENT_USER, RetiredMsiKey, ValueName) then
