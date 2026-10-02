@@ -2,12 +2,11 @@ package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.foundation.draganddrop.dragAndDropSource
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -20,9 +19,12 @@ import com.sun.jna.NativeLibrary
 import com.sun.jna.NativeLong
 import com.sun.jna.Pointer
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.ds.tokens.HbSpacing
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.platform.shared.ComputerUsePermissionGuidePanel
+import io.aequicor.heartbeat.platform.shared.computerUsePermissionGuideTitle
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -31,7 +33,6 @@ import java.awt.GraphicsEnvironment
 import java.awt.Point
 import java.awt.Rectangle
 import java.awt.Toolkit
-import java.util.concurrent.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
@@ -48,86 +49,125 @@ import java.awt.Window as AwtWindow
 internal fun ComputerUsePermissionGuideWindow(
     permission: ComputerUsePermission,
     io: CoroutineDispatcher,
+    capturePresentation: ComputerUseCapturePresentation,
     onClose: () -> Unit,
 ) {
-    val log = remember { Log.tag("PermissionGuideWindow") }
-    val cocoa = remember { MacWindowAccess() }
-    val target by produceState<GrantTarget?>(null, cocoa) {
-        value = withContext(io) { MacGrantTargets(cocoa).resolve() }
-    }
-    val resolved = target ?: return
-    val tracker = remember(cocoa) { MacSettingsWindowTracker(cocoa) }
-    val panel = remember { createGuideWindow() }
-    var isPlaced by remember { mutableStateOf(false) }
-    // Placement runs out here: effects inside the window start only with its composition, and it must be placed
-    // before it is first shown.
-    LaunchedEffect(tracker, panel) {
-        followSettingsWindow(tracker, panel, io) { isShown ->
-            if (isShown != isPlaced) log.d { "permission guide panel shown=$isShown" }
-            isPlaced = isShown
+    val setup by produceState<PermissionGuideSetup?>(null, io) {
+        value = withContext(io) {
+            permissionGuideOrNull("initialize the application tile") {
+                val cocoa = MacWindowAccess()
+                MacGrantTargets(cocoa).resolve()?.let { target ->
+                    PermissionGuideSetup(cocoa, target, MacSettingsWindowTracker(cocoa))
+                }
+            }
         }
     }
+    val resolved = setup ?: return
+    val title = computerUsePermissionGuideTitle()
+    val panel = remember { createGuideWindow(title) }
+    val presentation = remember(panel) {
+        val native = DesktopCapturePresentation(panel, ComputerUseScreenOverlay(panel))
+        PermissionGuidePresentation(native, native::close)
+    }
+    DisposableEffect(presentation, capturePresentation) {
+        val registration = permissionGuideOrNull("register capture exclusion") {
+            capturePresentation.register(presentation)
+        }
+        if (registration == null) presentation.close()
+        onDispose {
+            try {
+                presentation.close()
+            } finally {
+                registration?.close()
+            }
+        }
+    }
+    // Placement starts outside the window composition, before the panel is first shown.
+    LaunchedEffect(resolved, panel, presentation, io) {
+        val gap = HbSpacing().l.value.roundToInt()
+        followSettingsWindow(
+            bounds = { withContext(io) { resolved.tracker.bounds() } },
+            place = { settings ->
+                panel.location = permissionGuideLocation(settings, usableArea(settings), panel.size, gap)
+            },
+            onShown = presentation::place,
+        )
+    }
     Window(
-        visible = isPlaced,
+        visible = presentation.isShown,
         create = { panel },
         dispose = ComposeWindow::dispose,
         // A displayable window lays its content out while still hidden, so it is shown already measured.
         update = { window ->
             if (!window.isDisplayable) {
                 window.pack()
-                cocoa.preventActivation(window.title)
+                resolved.cocoa.preventActivation(window.title)
             }
         },
     ) {
         val density = LocalDensity.current
-        ComputerUsePermissionGuidePanel(
-            permission,
-            resolved.name,
-            resolved.icon,
-            onClose,
-            // The window follows the panel's measured size; AWT sizes windows in points, which equal dp here.
-            Modifier.onSizeChanged { size ->
-                val measured = with(density) {
-                    Dimension(size.width.toDp().value.roundToInt(), size.height.toDp().value.roundToInt())
-                }
-                if (window.size != measured) window.size = measured
-            },
-            tileModifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
-                .dragAndDropSource { offset -> resolved.dragData(offset) },
-        )
+        HbTheme {
+            ComputerUsePermissionGuidePanel(
+                permission,
+                resolved.target.name,
+                resolved.target.icon,
+                onClose,
+                // The window follows the panel's measured size; AWT sizes windows in points, which equal dp here.
+                Modifier.onSizeChanged { size ->
+                    val measured = with(density) {
+                        Dimension(size.width.toDp().value.roundToInt(), size.height.toDp().value.roundToInt())
+                    }
+                    if (window.size != measured) window.size = measured
+                },
+                tileModifier = Modifier.pointerHoverIcon(PointerIcon.Hand)
+                    .dragAndDropSource { offset -> resolved.target.dragData(offset) },
+            )
+        }
     }
 }
 
-/** Keeps [panel] attached to the System Settings window until cancelled; [onShown] says whether to show it. */
-private suspend fun followSettingsWindow(
-    tracker: MacSettingsWindowTracker,
-    panel: ComposeWindow,
-    io: CoroutineDispatcher,
+/** Tracks placement until cancellation; a native failure hides the guide and ends only this optional task. */
+internal suspend fun followSettingsWindow(
+    bounds: suspend () -> Rectangle?,
+    place: (Rectangle?) -> Unit,
     onShown: (Boolean) -> Unit,
-): Nothing {
-    val gap = HbSpacing().l.value.roundToInt()
+) {
     var hasSeenSettings = false
     var waited = 0.milliseconds
     while (true) {
-        val settings = withContext(io) { tracker.bounds() }
-        hasSeenSettings = hasSeenSettings || settings != null
-        val isShown = settings != null || (!hasSeenSettings && waited >= SETTINGS_WAIT)
-        if (isShown) panel.location = permissionGuideLocation(settings, usableArea(settings), panel.size, gap)
-        onShown(isShown)
+        val isSuccessful = permissionGuideOrNull("follow System Settings") {
+            val settings = bounds()
+            hasSeenSettings = hasSeenSettings || settings != null
+            val isShown = settings != null || (!hasSeenSettings && waited >= SETTINGS_WAIT)
+            if (isShown) place(settings)
+            onShown(isShown)
+            true
+        } ?: false
+        if (!isSuccessful) {
+            onShown(false)
+            return
+        }
         delay(TRACKING_INTERVAL)
         waited += TRACKING_INTERVAL
     }
 }
 
+private data class PermissionGuideSetup(
+    val cocoa: MacWindowAccess,
+    val target: GrantTarget,
+    val tracker: MacSettingsWindowTracker,
+)
+
 /** A utility window gets an `NSPanel` peer; the type must be set before the window becomes displayable. */
-private fun createGuideWindow(): ComposeWindow = ComposeWindow().apply {
+private fun createGuideWindow(title: String): ComposeWindow = ComposeWindow().apply {
     type = AwtWindow.Type.UTILITY
-    title = GUIDE_TITLE
+    this.title = title
     isUndecorated = true
     isTransparent = true
     isAlwaysOnTop = true
     isResizable = false
     focusableWindowState = false
+    isAutoRequestFocus = false
 }
 
 /**
@@ -136,17 +176,12 @@ private fun createGuideWindow(): ComposeWindow = ComposeWindow().apply {
  * title must be unique among the application's windows.
  */
 private fun MacWindowAccess.preventActivation(title: String) {
-    val log = Log.tag("PermissionGuideWindow")
-    try {
+    permissionGuideOrNull("make the panel non-activating") {
         onMainThread {
             val panel = window(title)
             send(panel, "setStyleMask:", NativeLong(number(panel, "styleMask") or NON_ACTIVATING_PANEL))
-            log.d { "permission guide panel is non-activating" }
+            Log.tag("PermissionGuideWindow").d { "permission guide panel is non-activating" }
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.w(e) { "permission guide panel stays activating" }
     }
 }
 
@@ -259,9 +294,6 @@ private class MacSettingsWindowTracker(private val cocoa: MacWindowAccess) {
         )
     }
 }
-
-// Unique among the application's windows, so the native panel can be found by it; the panel has no title bar.
-private const val GUIDE_TITLE = "Heartbeat permission guide"
 
 // NSWindowStyleMaskNonactivatingPanel
 private const val NON_ACTIVATING_PANEL = 1L shl 7

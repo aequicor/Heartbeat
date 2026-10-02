@@ -14,10 +14,7 @@ import java.awt.datatransfer.UnsupportedFlavorException
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.IOException
-import java.util.concurrent.CancellationException
 import javax.imageio.ImageIO
-import javax.imageio.ImageReader
 
 /** The application a macOS privacy permission is granted to, as the guide's draggable tile shows it. */
 internal class GrantTarget(private val file: File, val name: String, val icon: ByteArray?) {
@@ -75,58 +72,77 @@ internal class MacGrantTargets(private val cocoa: MacWindowAccess) {
     private fun describe(target: File): GrantTarget {
         var name = target.name.removeSuffix(APP_SUFFIX)
         var tiff: ByteArray? = null
-        try {
+        permissionGuideOrNull("load the application name and icon") {
             // Autoreleased results are drained by the pool onMainThread wraps around this block.
             cocoa.onMainThread {
                 val path = cocoa.pointer(objcClass("NSString"), "stringWithUTF8String:", target.path)
                 val files = cocoa.pointer(objcClass("NSFileManager"), "defaultManager")
                 name = cocoa.pointer(cocoa.pointer(files, "displayNameAtPath:", path), "UTF8String").getString(0, UTF8)
                 val workspace = cocoa.pointer(objcClass("NSWorkspace"), "sharedWorkspace")
-                val data = cocoa.pointer(cocoa.pointer(workspace, "iconForFile:", path), "TIFFRepresentation")
-                tiff = cocoa.pointer(data, "bytes").getByteArray(0, cocoa.number(data, "length").toInt())
+                tiff = boundedIcon(cocoa.pointer(workspace, "iconForFile:", path))
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "application name and icon are unavailable" }
         }
-        return GrantTarget(target, name, tiff?.let(::iconPng))
+        return GrantTarget(target, name, tiff?.let(::permissionGuideIconPng))
     }
 
     private fun objcClass(name: String): Pointer =
         checkNotNull(lookUpClass.invokePointer(arrayOf(name))) { "Cocoa class $name is missing" }
 
-    /** Encodes the largest representation that still fits [ICON_MAX_PX], so the tile stays sharp on Retina. */
-    private fun iconPng(tiff: ByteArray): ByteArray? = try {
+    /**
+     * Exports only an existing bitmap that fits the tile. NSImage.TIFFRepresentation serializes every image
+     * representation (tens of MB for some app icons) on AppKit's main thread. Icons without a bounded bitmap use
+     * the generic tile instead of allocating a full-size raster or invoking an unsupported TIFF selector.
+     */
+    private fun boundedIcon(image: Pointer): ByteArray? {
+        val bitmapClass = objcClass("NSBitmapImageRep")
+        val representations = cocoa.objects(cocoa.pointer(image, "representations"))
+            .filter { cocoa.boolean(it, "isKindOfClass:", bitmapClass) }
+        val sizes = representations.map { representation ->
+            cocoa.number(representation, "pixelsWide") to cocoa.number(representation, "pixelsHigh")
+        }
+        val selected = permissionGuideIconIndex(sizes) ?: return null
+        val data = cocoa.pointer(representations[selected], "TIFFRepresentation")
+        val length = cocoa.number(data, "length")
+        check(length in 1..ICON_MAX_BYTES) { "Application icon exceeds the encoded size limit" }
+        return cocoa.pointer(data, "bytes").getByteArray(0, length.toInt())
+    }
+
+    private companion object {
+        const val LIB_SYSTEM = "/usr/lib/libSystem.B.dylib"
+        const val RESPONSIBLE_PID = "responsibility_get_pid_responsible_for_pid"
+        const val UTF8 = "UTF-8"
+    }
+}
+
+/** Selects a bounded native bitmap before encoding; invalid or oversized representations are never exported. */
+internal fun permissionGuideIconIndex(sizes: List<Pair<Long, Long>>): Int? = sizes.indices
+    .filter { sizes[it].first in 1..ICON_MAX_PX && sizes[it].second in 1..ICON_MAX_PX }
+    .maxByOrNull { sizes[it].first * sizes[it].second }
+
+/** Converts one bounded bitmap off the AppKit thread; codec and native failures keep the generic tile. */
+internal fun permissionGuideIconPng(tiff: ByteArray): ByteArray? =
+    permissionGuideOrNull("convert the application icon") {
+        check(tiff.size <= ICON_MAX_BYTES) { "Application icon exceeds the encoded size limit" }
         ImageIO.createImageInputStream(ByteArrayInputStream(tiff))?.use { input ->
-            val reader = ImageIO.getImageReaders(input).asSequence().firstOrNull() ?: return null
+            val reader = ImageIO.getImageReaders(input).asSequence().firstOrNull() ?: return@use null
             try {
                 reader.input = input
-                val image = reader.read(reader.bestIndex())
+                check(reader.getWidth(0) in 1..ICON_MAX_PX && reader.getHeight(0) in 1..ICON_MAX_PX) {
+                    "Application icon exceeds the pixel size limit"
+                }
+                val image = reader.read(0)
                 ByteArrayOutputStream().use { output ->
-                    ImageIO.write(image, "png", output)
+                    check(ImageIO.write(image, "png", output)) { "No PNG encoder is available" }
                     output.toByteArray()
                 }
             } finally {
                 reader.dispose()
             }
         }
-    } catch (e: IOException) {
-        log.w(e) { "application icon could not be converted" }
-        null
     }
 
-    private fun ImageReader.bestIndex(): Int = (0 until getNumImages(true))
-        .filter { getWidth(it) <= ICON_MAX_PX }
-        .maxByOrNull(::getWidth) ?: 0
-
-    private companion object {
-        const val LIB_SYSTEM = "/usr/lib/libSystem.B.dylib"
-        const val RESPONSIBLE_PID = "responsibility_get_pid_responsible_for_pid"
-        const val ICON_MAX_PX = 128
-        const val UTF8 = "UTF-8"
-    }
-}
+private const val ICON_MAX_PX = 128L
+private const val ICON_MAX_BYTES = 1_048_576L
 
 /** The innermost `.app` bundle holding [executable], or `null` for a bare command-line tool. */
 internal fun applicationBundle(executable: File): File? =

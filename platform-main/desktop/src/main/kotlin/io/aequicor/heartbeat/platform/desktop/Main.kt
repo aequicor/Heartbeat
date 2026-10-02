@@ -84,7 +84,12 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
         }
         val guidedPermission = permissionGuide
         if (isMacHost && guidedPermission != null) {
-            ComputerUsePermissionGuideWindow(guidedPermission, graph.dispatchers.io, graph.permissionGuide::dismiss)
+            ComputerUsePermissionGuideWindow(
+                guidedPermission,
+                graph.dispatchers.io,
+                graph.capturePresentation,
+                graph.permissionGuide::dismiss,
+            )
         }
     }
 }

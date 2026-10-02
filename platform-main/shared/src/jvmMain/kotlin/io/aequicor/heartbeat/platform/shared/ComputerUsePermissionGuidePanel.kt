@@ -31,13 +31,14 @@ import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_close
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_instruction
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_screen_recording
 import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_tile
+import io.aequicor.heartbeat.platform.shared.resources.computer_use_guide_title
 import org.jetbrains.compose.resources.stringResource
 
 /**
  * Panel guiding a macOS permission grant: the user drags the application tile into the list on the open System
  * Settings page. The desktop host owns the window, the drag gesture ([tileModifier]) and the application shown on
  * the tile, which is the one macOS attributes the permission to; this only draws them. Without an encoded
- * [appIcon] the tile shows a generic icon.
+ * [appIcon] the tile shows a generic icon. The host supplies [HbTheme] so the panel follows its theme.
  */
 @Composable
 fun ComputerUsePermissionGuidePanel(
@@ -48,35 +49,33 @@ fun ComputerUsePermissionGuidePanel(
     modifier: Modifier = Modifier,
     tileModifier: Modifier = Modifier,
 ) {
-    HbTheme {
-        HbCard(
-            modifier.width(HbTheme.dimensions.computerUsePermissionGuideWidth).testTag("computer-use-guide"),
-            contentPadding = HbTheme.spacing.l,
-        ) {
-            HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
-                HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
-                    HbColumn(Modifier.weight(1f), gap = HbTheme.spacing.xxs) {
-                        HbText(
-                            stringResource(permission.title()),
-                            Modifier.semantics { heading() },
-                            style = HbTheme.typography.label.copy(fontWeight = FontWeight.SemiBold),
-                        )
-                        HbText(
-                            stringResource(Res.string.computer_use_guide_instruction, appName),
-                            style = HbTheme.typography.caption,
-                            color = HbTheme.colors.textSecondary,
-                        )
-                    }
-                    HbIconButton(
-                        HbIcons.Close,
-                        stringResource(Res.string.computer_use_guide_close),
-                        onClose,
-                        Modifier.testTag("computer-use-guide-close"),
-                        size = HbTheme.dimensions.compactControlHeight,
+    HbCard(
+        modifier.width(HbTheme.dimensions.computerUsePermissionGuideWidth).testTag("computer-use-guide"),
+        contentPadding = HbTheme.spacing.l,
+    ) {
+        HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.m) {
+            HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.s) {
+                HbColumn(Modifier.weight(1f), gap = HbTheme.spacing.xxs) {
+                    HbText(
+                        stringResource(permission.title()),
+                        Modifier.semantics { heading() },
+                        style = HbTheme.typography.label.copy(fontWeight = FontWeight.SemiBold),
+                    )
+                    HbText(
+                        stringResource(Res.string.computer_use_guide_instruction, appName),
+                        style = HbTheme.typography.caption,
+                        color = HbTheme.colors.textSecondary,
                     )
                 }
-                ApplicationTile(appName, appIcon, tileModifier)
+                HbIconButton(
+                    HbIcons.Close,
+                    stringResource(Res.string.computer_use_guide_close),
+                    onClose,
+                    Modifier.testTag("computer-use-guide-close"),
+                    size = HbTheme.dimensions.compactControlHeight,
+                )
             }
+            ApplicationTile(appName, appIcon, tileModifier)
         }
     }
 }
@@ -90,8 +89,8 @@ private fun ApplicationTile(appName: String, appIcon: ByteArray?, modifier: Modi
         modifier.fillMaxWidth()
             .hbSurface(HbTheme.colors.surfaceElevated, HbTheme.shapes.small)
             .padding(horizontal = HbTheme.spacing.m, vertical = HbTheme.spacing.s)
-            .clearAndSetSemantics { contentDescription = description }
-            .testTag("computer-use-guide-tile"),
+            .testTag("computer-use-guide-tile")
+            .clearAndSetSemantics { contentDescription = description },
         gap = HbTheme.spacing.m,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -109,8 +108,22 @@ private fun ComputerUsePermission.title() = when (this) {
     ComputerUsePermission.Accessibility -> Res.string.computer_use_guide_accessibility
 }
 
+/** Localized title shared by the Compose window and its native macOS panel. */
+@Composable
+fun computerUsePermissionGuideTitle(): String = stringResource(Res.string.computer_use_guide_title)
+
 @Preview
 @Composable
-private fun ComputerUsePermissionGuidePanelPreview() {
-    ComputerUsePermissionGuidePanel(ComputerUsePermission.ScreenRecording, "Heartbeat", null, {})
+private fun ComputerUsePermissionGuidePanelLightPreview() {
+    HbTheme(darkTheme = false) {
+        ComputerUsePermissionGuidePanel(ComputerUsePermission.ScreenRecording, "Heartbeat", null, {})
+    }
+}
+
+@Preview
+@Composable
+private fun ComputerUsePermissionGuidePanelDarkPreview() {
+    HbTheme(darkTheme = true) {
+        ComputerUsePermissionGuidePanel(ComputerUsePermission.Accessibility, "IntelliJ IDEA", null, {})
+    }
 }

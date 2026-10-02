@@ -2,6 +2,7 @@
     <string name="computer_use_working">Агент работает с компьютером</string>
     <string name="computer_use_stop">Остановить</string>
     <string name="computer_use_stop_description">Остановить агента</string>
+    <string name="computer_use_guide_title">Разрешения Heartbeat</string>
     <string name="computer_use_guide_screen_recording">Разрешите запись экрана</string>
     <string name="computer_use_guide_accessibility">Разрешите универсальный доступ</string>
     <string name="computer_use_guide_instruction">Перетащите %1$s в список в Системных настройках и включите переключатель.</string>

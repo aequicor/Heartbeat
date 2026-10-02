@@ -2,6 +2,7 @@
     <string name="computer_use_working">Agent is using your computer</string>
     <string name="computer_use_stop">Stop</string>
     <string name="computer_use_stop_description">Stop the agent</string>
+    <string name="computer_use_guide_title">Heartbeat permissions</string>
     <string name="computer_use_guide_screen_recording">Allow screen recording</string>
     <string name="computer_use_guide_accessibility">Allow accessibility access</string>
     <string name="computer_use_guide_instruction">Drag %1$s into the list in System Settings, then turn its switch on.</string>
