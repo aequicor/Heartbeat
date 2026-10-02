@@ -8,7 +8,7 @@
 ; Removing a leftover MSI of an earlier Heartbeat keeps the data too, see DisarmRetiredMsiCleanup.
 
 #if Ver < EncodeVer(6, 6, 0)
-  #error Inno Setup 6.6 or newer is required: update it or point the heartbeat.innoSetupDir Gradle property to a newer one
+  #error Inno Setup 6.6 or newer is required: update it or set heartbeat.innoSetupDir to a newer ISCC.exe folder
 #endif
 
 #define AppName "Heartbeat"
