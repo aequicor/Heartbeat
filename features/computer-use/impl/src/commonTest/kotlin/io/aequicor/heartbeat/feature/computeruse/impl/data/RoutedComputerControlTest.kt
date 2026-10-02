@@ -297,12 +297,17 @@ class RoutedComputerControlTest {
     @Test
     fun `public input on a stuck device times out at its own limit and cancels the session`() = runTest {
         val fixture = fixture(isRoutingEnabled = true)
+        var isDeviceReached = false
+        fixture.injector.onInput = { isDeviceReached = true }
         fixture.injector.awaitInput = CompletableDeferred()
         val click = InputAction.Click(FramePoint(5.0, 5.0))
         val started = testScheduler.currentTime
         assertEquals(InputOutcome.Rejected(ComputerUseFailure.Timeout), fixture.control.input(click))
         assertEquals(inputWaitLimitMillis(click), testScheduler.currentTime - started)
-        assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref!!.sent.last())
+        assertTrue(isDeviceReached)
+        assertTrue(fixture.injector.applied.isEmpty())
+        val cancelled = assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref!!.sent.last())
+        assertEquals(fixture.session, cancelled.session)
     }
 
     @Test
