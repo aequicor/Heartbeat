@@ -26,7 +26,7 @@ class ComputerUseScreenOverlayTest {
         EventQueue.invokeAndWait {
             val foreground = User32.INSTANCE.GetForegroundWindow()
             val owner = JFrame()
-            val overlay = ComputerUseScreenOverlay(owner)
+            val overlay = ComputerUseScreenOverlay()
             try {
                 overlay.show(
                     listOf(Rectangle(0, 0, 320, 200)),

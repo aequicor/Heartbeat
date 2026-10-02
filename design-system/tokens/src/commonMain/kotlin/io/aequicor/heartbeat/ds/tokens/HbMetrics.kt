@@ -74,7 +74,10 @@ data class HbDimensions(
     /** Readable compact session pinned to the screen edge during agent computer use. */
     val computerUseSessionWidth: Dp = 420.dp,
     /** Inward shadow marking the perimeter of a desktop controlled by the agent. */
-    val computerUseShadowWidth: Dp = 20.dp,
+    val computerUseShadowWidth: Dp = 40.dp,
+    /** Size and outline of the agent's native pointer marker. */
+    val computerUsePointerSize: Dp = 24.dp,
+    val computerUsePointerStroke: Dp = 2.dp,
     val compactBreakpoint: Dp = 720.dp,
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,
@@ -216,6 +219,9 @@ data class HbDimensions(
 /** Animation timing; consumers may opt out of decorative movement. */
 @Immutable
 data class HbMotion(
+    /** Safety indication remains visible even when reduced motion disables these pulses. */
+    val computerUseStartMillis: Int = 600,
+    val computerUseInputMillis: Int = 300,
     val fastMillis: Int = 120,
     val normalMillis: Int = 220,
     val slowMillis: Int = 360,

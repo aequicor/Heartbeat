@@ -19,59 +19,73 @@ import java.util.UUID
 import java.util.concurrent.CancellationException
 import javax.swing.JDialog
 import javax.swing.JPanel
+import javax.swing.Timer
 import kotlin.math.roundToInt
 
+/** Colors and timing originate in design tokens; reduced motion keeps the base indication visible. */
+internal data class OverlayPulse(
+    val start: Color,
+    val input: Color,
+    val startMillis: Int,
+    val inputMillis: Int,
+    val isReducedMotion: Boolean,
+)
+
 /**
- * Shows the explicitly requested screen-control shadow, using appearance supplied by design tokens.
- * Monitor bounds and shadow width use AWT logical pixels, including on Retina displays.
- * Native mouse pass-through is configured before a window is shown; a failed configuration leaves
- * the overlay hidden rather than placing an input-blocking window over the user's computer.
+ * Desktop-only monitor perimeters in AWT logical coordinates (including Retina and negative origins).
+ * Independent top-level peers stay visible while the session's owned window tree is hidden for pointer input.
+ * Screenshot leases hide them without recreating peers; pulse ticks only repaint the existing component.
  */
-internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseable {
+internal class ComputerUseScreenOverlay : AutoCloseable {
     private val log = Log.tag("ComputerUseScreenOverlay")
     private val windows = mutableListOf<JDialog>()
     private var appearance: OverlayAppearance? = null
     private var requestedAppearance: OverlayAppearance? = null
     private var suppressionCount = 0
     private var isClosed = false
-    private val nativePassThrough by lazy {
-        when {
-            Platform.isMac() -> MacOverlayPassThrough()
-            Platform.isWindows() -> WindowsOverlayPassThrough()
-            else -> error("Screen-control overlays require macOS or Windows")
-        }
-    }
+    private val nativePassThrough by lazy { overlayPassThrough() }
+    private var pulseStart = 0L
+    private var pulseMillis = 0
+    private var pulseColor: Color? = null
+    private val timer = Timer(16) { repaintPulse() }
 
-    fun show(monitors: List<Rectangle>, color: Color, shadowWidth: Int) {
-        val next = OverlayAppearance(monitors.map(::Rectangle), color, shadowWidth)
-        onEventThread {
+    fun show(
+        monitors: List<Rectangle>,
+        color: Color,
+        shadowWidth: Int,
+        pulse: OverlayPulse? = null,
+        session: String? = null,
+    ) {
+        val next = OverlayAppearance(monitors.map(::Rectangle), color, shadowWidth, pulse, session)
+        onOverlayThread {
             requestedAppearance = next
             applyRequestedAppearance()
         }
     }
 
-    fun hide() {
-        onEventThread {
-            requestedAppearance = null
-            applyRequestedAppearance()
-        }
+    fun pulseInput() = onOverlayThread {
+        appearance?.pulse?.let { pulse(it.input, it.inputMillis) }
     }
 
-    override fun close() {
-        onEventThread {
-            isClosed = true
-            requestedAppearance = null
-            disposeWindows()
-        }
+    fun hide() = onOverlayThread {
+        requestedAppearance = null
+        applyRequestedAppearance()
     }
 
-    /** Defers shadow updates while native windows are hidden for a screenshot, without disposing their peers. */
+    override fun close() = onOverlayThread {
+        isClosed = true
+        requestedAppearance = null
+        disposeWindows()
+    }
+
+    /** Balanced screenshot suppression; later show/hide requests are applied before restoration. */
     fun pauseForCapture(): AutoCloseable {
-        check(EventQueue.isDispatchThread()) { "Capture presentation must run on the AWT event thread" }
+        check(EventQueue.isDispatchThread())
         suppressionCount++
+        windows.forEach { it.isVisible = false }
         var isReleased = false
         return AutoCloseable {
-            check(EventQueue.isDispatchThread()) { "Capture presentation must restore on the AWT event thread" }
+            check(EventQueue.isDispatchThread())
             if (!isReleased) {
                 isReleased = true
                 suppressionCount--
@@ -85,24 +99,45 @@ internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseab
         val requested = requestedAppearance
         if (requested == null) {
             disposeWindows()
-        } else if (requested != appearance) {
+        } else {
             val current = appearance
             val isSameGeometry = current != null && windows.isNotEmpty() &&
                 current.monitors == requested.monitors && current.shadowWidth == requested.shadowWidth
-            if (isSameGeometry) recolor(requested) else showOnEventThread(requested)
+            if (!isSameGeometry) {
+                showOnEventThread(requested)
+            } else {
+                appearance = requested
+                if (current.session != requested.session) {
+                    requested.pulse?.let { pulse(it.start, it.startMillis) }
+                }
+                repaintPulse()
+                windows.filterNot { it.isVisible }.forEach { showOverlayWindow(it, nativePassThrough) }
+            }
         }
     }
 
-    /** A theme change repaints the existing windows; only a new monitor layout recreates them. */
-    private fun recolor(next: OverlayAppearance) {
-        windows.forEach { window ->
-            // The window background stays fully transparent; only the painted perimeter carries the color.
-            window.contentPane = PerimeterShadow(next.color, next.shadowWidth)
-            window.validate()
-            window.repaint()
-        }
-        appearance = next
-        log.d { "Screen-control shadow recolored on ${windows.size} displays" }
+    private fun pulse(color: Color, millis: Int) {
+        if (appearance?.pulse?.isReducedMotion == true || millis <= 0) return
+        pulseStart = System.nanoTime()
+        pulseMillis = millis
+        pulseColor = color
+        repaintPulse()
+        timer.start()
+    }
+
+    private fun repaintPulse() {
+        val current = appearance ?: return
+        val elapsed = (System.nanoTime() - pulseStart) / 1_000_000.0
+        val isFinished = elapsed >= pulseMillis || current.pulse?.isReducedMotion == true
+        val color = overlayPulseColor(
+            current.color,
+            pulseColor ?: current.color,
+            elapsed,
+            pulseMillis,
+            current.pulse?.isReducedMotion == true,
+        )
+        windows.forEach { (it.contentPane as PerimeterShadow).setShadowColor(color) }
+        if (isFinished) timer.stop()
     }
 
     private fun showOnEventThread(next: OverlayAppearance) {
@@ -110,15 +145,15 @@ internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseab
         if (next.shadowWidth <= 0 || next.monitors.isEmpty()) return
         try {
             next.monitors.filter { it.width > 0 && it.height > 0 }.forEach { monitor ->
-                val window = createWindow(monitor, next)
+                val window = newOverlayWindow("overlay").apply {
+                    contentPane = PerimeterShadow(next.color, next.shadowWidth)
+                    bounds = monitor
+                }
                 windows.add(window)
-                window.addNotify()
-                nativePassThrough.configure(window)
-                window.isVisible = true
-                // AWT may adjust native styles when showing the peer. Reapply and verify them.
-                nativePassThrough.configure(window)
+                showOverlayWindow(window, nativePassThrough)
             }
             appearance = next
+            next.pulse?.let { pulse(it.start, it.startMillis) }
             log.i { "Screen-control shadow shown on ${windows.size} displays" }
         } catch (e: CancellationException) {
             disposeWindows()
@@ -132,55 +167,68 @@ internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseab
         }
     }
 
-    private fun createWindow(monitor: Rectangle, next: OverlayAppearance): JDialog = JDialog(owner).apply {
-        title = "Heartbeat computer-use overlay ${UUID.randomUUID()}"
-        isUndecorated = true
-        isResizable = false
-        type = Window.Type.POPUP
-        focusableWindowState = false
-        isAutoRequestFocus = false
-        isAlwaysOnTop = true
-        background = Color(next.color.red, next.color.green, next.color.blue, 0)
-        rootPane.putClientProperty("Window.shadow", false)
-        rootPane.putClientProperty("Window.hidesOnDeactivate", false)
-        rootPane.putClientProperty("apple.awt.windowAccessibilityElement", false)
-        contentPane = PerimeterShadow(next.color, next.shadowWidth)
-        bounds = monitor
-    }
-
     private fun disposeWindows() {
-        val isShowing = windows.isNotEmpty()
+        timer.stop()
         windows.forEach(Window::dispose)
         windows.clear()
         appearance = null
-        if (isShowing) log.i { "Screen-control shadow hidden" }
-    }
-
-    private fun onEventThread(action: () -> Unit) {
-        if (EventQueue.isDispatchThread()) action() else EventQueue.invokeLater(action)
+        pulseColor = null
+        pulseMillis = 0
     }
 }
 
-private data class OverlayAppearance(val monitors: List<Rectangle>, val color: Color, val shadowWidth: Int)
+private data class OverlayAppearance(
+    val monitors: List<Rectangle>,
+    val color: Color,
+    val shadowWidth: Int,
+    val pulse: OverlayPulse?,
+    val session: String?,
+)
+
+/** Deterministic pulse envelope; the base opacity is the lower bound even after motion has ended. */
+internal fun overlayPulseColor(
+    base: Color,
+    peak: Color,
+    elapsedMillis: Double,
+    durationMillis: Int,
+    isReducedMotion: Boolean,
+): Color {
+    val remaining = if (durationMillis > 0 && !isReducedMotion) {
+        (1.0 - elapsedMillis / durationMillis).coerceIn(0.0, 1.0)
+    } else {
+        0.0
+    }
+    return Color(
+        base.red,
+        base.green,
+        base.blue,
+        (base.alpha + (peak.alpha - base.alpha) * remaining).roundToInt(),
+    )
+}
 
 /** A ring-based inward fade keeps the entire middle transparent and avoids overlapping corner alpha. */
-private class PerimeterShadow(private val color: Color, private val shadowWidth: Int) : JPanel() {
+internal class PerimeterShadow(private var shadowColor: Color, private val shadowWidth: Int) : JPanel() {
     init {
         isOpaque = false
         isFocusable = false
+    }
+
+    fun setShadowColor(color: Color) {
+        shadowColor = color
+        repaint()
     }
 
     override fun paintComponent(graphics: Graphics) {
         val canvas = graphics.create() as Graphics2D
         try {
             canvas.composite = AlphaComposite.Src
-            canvas.color = Color(color.red, color.green, color.blue, 0)
+            canvas.color = Color(0, 0, 0, 0)
             canvas.fillRect(0, 0, width, height)
             val thickness = minOf(shadowWidth, width / 2, height / 2)
             repeat(thickness) { inset ->
                 val fade = 1f - inset.toFloat() / thickness
-                val alpha = (color.alpha * fade * fade).roundToInt()
-                canvas.color = Color(color.red, color.green, color.blue, alpha)
+                val alpha = (shadowColor.alpha * fade * fade).roundToInt()
+                canvas.color = Color(shadowColor.red, shadowColor.green, shadowColor.blue, alpha)
                 canvas.drawRect(inset, inset, width - inset * 2 - 1, height - inset * 2 - 1)
             }
         } finally {
@@ -189,7 +237,39 @@ private class PerimeterShadow(private val color: Color, private val shadowWidth:
     }
 }
 
-private fun interface OverlayPassThrough {
+internal fun onOverlayThread(action: () -> Unit) {
+    if (EventQueue.isDispatchThread()) action() else EventQueue.invokeLater(action)
+}
+
+internal fun newOverlayWindow(kind: String): JDialog = JDialog(null as Window?).apply {
+    title = "Heartbeat computer-use $kind ${UUID.randomUUID()}"
+    isUndecorated = true
+    isResizable = false
+    type = Window.Type.POPUP
+    focusableWindowState = false
+    isAutoRequestFocus = false
+    isAlwaysOnTop = true
+    background = Color(0, 0, 0, 0)
+    rootPane.putClientProperty("Window.shadow", false)
+    rootPane.putClientProperty("Window.hidesOnDeactivate", false)
+    rootPane.putClientProperty("apple.awt.windowAccessibilityElement", false)
+}
+
+internal fun showOverlayWindow(window: JDialog, native: OverlayPassThrough) {
+    window.addNotify()
+    native.configure(window)
+    window.isVisible = true
+    // AWT may alter native styles during show: reapply and verify after the peer becomes visible.
+    native.configure(window)
+}
+
+internal fun overlayPassThrough(): OverlayPassThrough = when {
+    Platform.isMac() -> MacOverlayPassThrough()
+    Platform.isWindows() -> WindowsOverlayPassThrough()
+    else -> error("Computer-use indicators require macOS or Windows")
+}
+
+internal fun interface OverlayPassThrough {
     fun configure(window: JDialog)
 }
 

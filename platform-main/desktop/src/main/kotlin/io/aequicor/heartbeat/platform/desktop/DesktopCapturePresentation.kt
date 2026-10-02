@@ -12,6 +12,7 @@ import com.sun.jna.platform.win32.WinDef.HWND
 import com.sun.jna.platform.win32.WinUser
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseSuppressionReason
 import java.awt.Dialog
 import java.awt.EventQueue
 import java.awt.Frame
@@ -25,7 +26,8 @@ import java.util.concurrent.FutureTask
 import javax.swing.JFrame
 
 /**
- * Hides the session and its owned native windows only for the duration of pixel capture.
+ * Hides the session and its owned native windows during pixel capture or pointer input.
+ * Independent indicators are suppressed only for pixel capture and stay visible during input.
  * Java window visibility stays unchanged, preserving Compose composition, window state and capture
  * registration. Restoration neither activates a window nor resurrects a disposed presentation.
  */
@@ -45,20 +47,22 @@ internal class DesktopCapturePresentation(private val window: JFrame, private va
         }
     }
 
-    override fun suppress(): AutoCloseable {
+    override fun suppress(): AutoCloseable = suppress(ComputerUseSuppressionReason.CapturePixels)
+
+    override fun suppress(reason: ComputerUseSuppressionReason): AutoCloseable {
         checkEventThread()
         check(!isClosed) { "The capture presentation was disposed" }
         if (suppressionCount == 0) {
-            val pause = overlay.pauseForCapture()
+            val pause = if (reason == ComputerUseSuppressionReason.CapturePixels) overlay.pauseForCapture() else null
             var isSuppressed = false
             try {
                 nativeSuppression = suppressor.suppress(window)
                 shadowPause = pause
                 isSuppressed = true
             } finally {
-                if (!isSuppressed) pause.close()
+                if (!isSuppressed) pause?.close()
             }
-            log.d { "Session and shadow hidden for computer-use pixels" }
+            log.d { "Session presentation suppressed reason=$reason" }
         }
         suppressionCount++
         var isReleased = false
