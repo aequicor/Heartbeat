@@ -38,7 +38,6 @@ import io.aequicor.heartbeat.ds.components.HbPanel
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
 import io.aequicor.heartbeat.ds.components.hbAttachmentInput
-import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.layouts.hbVerticalScroll
@@ -117,8 +116,8 @@ private fun StudioWorkspace(
         focus.beforeIntent(intent, state)
         onIntent(intent)
     }
-    HbBoxWithConstraints(Modifier.fillMaxSize()) {
-        val availableWidth = maxWidth
+    StudioViewport(Modifier.fillMaxSize()) { viewport ->
+        val availableWidth = viewport.width
         val dimensions = HbTheme.dimensions
         val studio = HbTheme.dimensions
         val sidebarWidth by animateDpAsState(
