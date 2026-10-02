@@ -26,7 +26,8 @@ public object CodexEngine {
  * login, credential helper or account switching is performed. Android/iOS report UnsupportedPlatform.
  *
  * [executable] names a native executable (not a .cmd/.bat wrapper on Windows). The default `codex` also discovers
- * standard macOS app-bundled and CLI installations when absent from PATH. Explicit paths are never replaced.
+ * standard macOS app-bundled and CLI installations, and the Windows desktop app's native CLI cache under
+ * `%LOCALAPPDATA%/OpenAI/Codex/bin`, when absent from PATH. Explicit paths are never replaced.
  * Null [homeDirectory] selects
  * the CLI's normal home. [workspaces] resolves opaque application workspace ids to absolute local directories.
  * [source] and [location] identify exactly this installation within the current Heartbeat profile.

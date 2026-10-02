@@ -35,8 +35,7 @@ class CodexExecutableTest {
     }
 
     @Test
-    fun `non-mac platforms keep normal process resolution`() {
-        assertEquals("codex", resolve(osName = "Windows 11", available = setOf(CHATGPT_CLI)))
+    fun `other platforms keep normal process resolution`() {
         assertEquals("codex", resolve(osName = "Linux", available = setOf(CHATGPT_CLI)))
     }
 
@@ -48,9 +47,9 @@ class CodexExecutableTest {
     private fun resolve(
         configured: String = "codex",
         osName: String = "Mac OS X",
-        path: String? = listOf("/usr/bin", "/bin").joinToString(File.pathSeparator),
+        path: String? = "/usr/bin:/bin",
         available: Set<String>,
-    ): String = resolveCodexExecutable(configured, osName, path, "/users/test") {
+    ): String = resolveCodexExecutable(configured, osName, path, "/users/test", localAppData = null) {
         it.invariantSeparatorsPath in available
     }.replace(File.separatorChar, '/')
 
