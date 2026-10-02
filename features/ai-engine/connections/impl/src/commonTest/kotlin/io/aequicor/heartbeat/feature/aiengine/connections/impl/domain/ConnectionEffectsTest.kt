@@ -14,17 +14,22 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.NewConnection
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.ApiKeyMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeAuthSources
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineFacade
+import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeEngineManagement
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.FakeModelSelections
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.KoogId
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.OllamaMethod
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.RecordingScope
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.engineInfo
 import io.aequicor.heartbeat.feature.aiengine.connections.impl.modelInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,7 +47,8 @@ class ConnectionEffectsTest {
     private val facade = FakeEngineFacade()
     private val sources = FakeAuthSources()
     private val selections = FakeModelSelections()
-    private val services = EngineServices(facade, sources)
+    private val management = FakeEngineManagement()
+    private val services = EngineServices(facade, sources, management)
     private val wizard = ConnectWizardEffects(services, selections)
     private val settings = EngineConnectionsEffects(services, selections)
     private val wizardScope = RecordingScope<ConnectWizardIntent>()
@@ -196,6 +202,23 @@ class ConnectionEffectsTest {
         assertEquals(2, snapshot.models.getValue(binding).models.size)
         assertEquals(1, snapshot.sources.size)
         assertTrue(observer.isActive)
+    }
+
+    @Test
+    fun `engine management reaches the snapshot and receives the panel's commands`() = runTest {
+        backgroundScope.launch { settings.handle(EngineConnectionsEffect.Observe, settingsScope) }
+        runCurrent()
+        val managed = EngineManagementState(isEnabled = true, platform = EnginePlatform.DesktopMacOs)
+        management.state.value = managed
+        runCurrent()
+
+        val snapshot = assertIs<EngineConnectionsIntent.Internal.Snapshot>(settingsScope.intents.last()).snapshot
+        assertEquals(managed, snapshot.management)
+
+        val install = ConnectionOperation.ManageEngine(KoogId, EngineCommand.Start(EngineAction.Install))
+        settings.handle(EngineConnectionsEffect.Execute(install), settingsScope)
+        assertEquals(listOf(KoogId to install.command), management.commands)
+        assertEquals(EngineConnectionsIntent.Internal.Applied, settingsScope.intents.last())
     }
 
     @Test

@@ -8,7 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState.Idle
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.connection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.TestData.koog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginCode
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlin.test.Test
 
@@ -35,6 +37,26 @@ class EngineConnectionsMachineTest {
         )
         spec.assertIgnored(Active(snapshot, pending = disconnect), Public.Apply(disconnect))
         spec.assertTransition(Active(snapshot, pending = disconnect), Internal.Applied, Active(snapshot))
+    }
+
+    @Test
+    fun `engine management commands are changes like any other and a code is passed again only on retry`() {
+        val code = ConnectionOperation.ManageEngine(koog.descriptor.id, EngineCommand.AnswerLogin(LoginCode("abc")))
+        spec.assertTransition(
+            Active(snapshot),
+            Public.Apply(code),
+            Active(snapshot, pending = code),
+            effects = listOf(EngineConnectionsEffect.Execute(code)),
+        )
+        val failed = Active(snapshot, failed = FailedOperation(code, failure))
+        spec.assertTransition(Active(snapshot, pending = code), Internal.ApplyFailed(failure), failed)
+        spec.assertTransition(failed, Internal.Snapshot(snapshot), failed)
+        spec.assertTransition(
+            failed,
+            Public.RetryFailed,
+            Active(snapshot, pending = code),
+            effects = listOf(EngineConnectionsEffect.Execute(code)),
+        )
     }
 
     @Test

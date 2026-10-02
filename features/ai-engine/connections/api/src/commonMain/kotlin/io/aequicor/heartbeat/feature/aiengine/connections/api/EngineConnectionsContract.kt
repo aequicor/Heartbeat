@@ -9,9 +9,11 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalogSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -19,12 +21,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 /**
  * Everything the settings space shows: engines with their bindings, the sources those bindings use,
  * cached models of every binding and the user's model choice. Reading it never triggers discovery.
+ * [management] lists every registered engine with its switch, installation, login, launch settings and running
+ * job; it is [EngineManagementState.Off] while engine management is off.
  */
 public data class ConnectionsSnapshot(
     val engines: List<EngineInfo>,
     val sources: List<AuthSource>,
     val models: Map<EngineBindingId, ModelCatalogSnapshot>,
     val selection: ModelSelection,
+    val management: EngineManagementState = EngineManagementState.Off,
 )
 
 /** A change requested in the settings space; one runs at a time. */
@@ -49,6 +54,12 @@ public sealed interface ConnectionOperation {
 
     /** Sets or clears the profile default model. */
     public data class SetDefaultModel(val target: EngineTarget?) : ConnectionOperation
+
+    /**
+     * Applies an engine management [command]. Long work (a download, a browser sign-in) is a job owned by the
+     * facade: the operation completes once the job started, and its progress arrives with the next snapshots.
+     */
+    public data class ManageEngine(val engine: EngineId, val command: EngineCommand) : ConnectionOperation
 }
 
 /** An operation that failed, kept until retried or dismissed. */
@@ -144,7 +155,8 @@ public object EngineConnectionsMachineKey :
  * | Active | RetryLoad | has load failure | stay | Observe |
  *
  * Changes and observation failures use `stay`, so neither cancels the other while it runs.
- * Failed changes are never replayed automatically: a disconnect or a model refresh may have partially completed.
+ * Failed changes are never replayed automatically: a disconnect or a model refresh may have partially completed,
+ * and a sign-in code is passed again only through RetryFailed.
  */
 public val EngineConnectionsMachineSpec:
     MachineSpec<EngineConnectionsState, EngineConnectionsIntent, EngineConnectionsEffect, EngineConnectionsOutput> =

@@ -45,8 +45,13 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
     private fun snapshots(): Flow<ConnectionsSnapshot> {
         val facade = services.facade
         return facade.engines.state.flatMapLatest { engines ->
-            combine(cachedModels(engines), services.sources.state, selections.observe()) { models, sources, selection ->
-                ConnectionsSnapshot(engines, sources, models, selection)
+            combine(
+                cachedModels(engines),
+                services.sources.state,
+                selections.observe(),
+                services.management.state,
+            ) { models, sources, selection, management ->
+                ConnectionsSnapshot(engines, sources, models, selection, management)
             }
         }
     }
@@ -94,6 +99,12 @@ class EngineConnectionsEffects(private val services: EngineServices, private val
             is ConnectionOperation.SetDefaultModel -> {
                 log.i { "set default model present=${operation.target != null}" }
                 selections.update { it.withDefault(operation.target) }
+            }
+
+            is ConnectionOperation.ManageEngine -> {
+                val command = operation.command::class.simpleName.orEmpty()
+                log.i { "manage engine=${operation.engine.value} command=$command" }
+                services.management.execute(operation.engine, operation.command)
             }
         }
     }
