@@ -70,8 +70,9 @@ private class AwtInputDriver(private val robot: Robot) : DesktopInputDriver {
 }
 
 /**
- * Injects serialized actions on the IO dispatcher. Every loop observes cancellation, and every pressed key or
- * button is released in finally, including failures and the kill switch. Text is validated in its entirety
+ * Injects serialized actions on the IO dispatcher. Device creation, progress callbacks and every loop observe
+ * cancellation before input continues, and every pressed key or button is released in finally, including
+ * failures and the kill switch. Text is validated in its entirety
  * before the first event, so a rejected character cannot leave a partially typed command behind.
  *
  * Text uses US keyboard key positions; unsupported characters are refused instead of silently dropped.
@@ -88,35 +89,52 @@ internal class DesktopInputInjector(
     override val isAvailable: Boolean get() = devices.isAvailable
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome =
-        withContext(dispatchers.io) {
-            mutex.withLock {
-                currentCoroutineContext().ensureActive()
-                val driver = driver() ?: return@withLock InputOutcome.Rejected(ComputerUseFailure.Unavailable)
-                try {
-                    when (action) {
-                        is InputAction.MoveTo -> pointer(driver, action.point, map)
-                        is InputAction.Click -> click(driver, action, map)
-                        is InputAction.Drag -> drag(driver, action, map)
-                        is InputAction.Scroll -> scroll(driver, action, map)
-                        is InputAction.Type -> type(driver, action.text)
-                        is InputAction.Key -> combination(driver, action.keys)
-                    }.also { currentCoroutineContext().ensureActive() }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log.w(e) { "input injection failed action=${action::class.simpleName.orEmpty()}" }
-                    InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        applyObserved(action, map) { }
+
+    override suspend fun applyObserved(
+        action: InputAction,
+        map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome = withContext(dispatchers.io) {
+        mutex.withLock {
+            currentCoroutineContext().ensureActive()
+            val driver = driver() ?: return@withLock InputOutcome.Rejected(ComputerUseFailure.Unavailable)
+            currentCoroutineContext().ensureActive()
+            var hasStarted = false
+            val progress: suspend (ScreenPoint?) -> Unit = { point ->
+                if (point != null || !hasStarted) {
+                    hasStarted = true
+                    onProgress(point)
                 }
+                currentCoroutineContext().ensureActive()
+            }
+            try {
+                when (action) {
+                    is InputAction.MoveTo -> pointer(driver, action.point, map, progress)
+                    is InputAction.Click -> click(driver, action, map, progress)
+                    is InputAction.Drag -> drag(driver, action, map, progress)
+                    is InputAction.Scroll -> scroll(driver, action, map, progress)
+                    is InputAction.Type -> type(driver, action.text, progress)
+                    is InputAction.Key -> combination(driver, action.keys, progress)
+                }.also { currentCoroutineContext().ensureActive() }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "input injection failed action=${action::class.simpleName.orEmpty()}" }
+                InputOutcome.Rejected(ComputerUseFailure.InputRejected)
             }
         }
+    }
 
-    private fun pointer(
+    private suspend fun pointer(
         driver: DesktopInputDriver,
         point: FramePoint,
         map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
         val target = map(point) ?: return outside()
         driver.move(target)
+        onProgress(target)
         driver.idle()
         return InputOutcome.Applied
     }
@@ -125,10 +143,12 @@ internal class DesktopInputInjector(
         driver: DesktopInputDriver,
         action: InputAction.Click,
         map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
         val target = map(action.point) ?: return outside()
         val mask = mask(action.button)
         driver.move(target)
+        onProgress(target)
         repeat(action.count.coerceIn(1, MAX_CLICKS)) {
             currentCoroutineContext().ensureActive()
             try {
@@ -146,11 +166,13 @@ internal class DesktopInputInjector(
         driver: DesktopInputDriver,
         action: InputAction.Drag,
         map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
         val from = map(action.from) ?: return outside()
         val to = map(action.to) ?: return outside()
         val mask = mask(action.button)
         driver.move(from)
+        onProgress(from)
         try {
             driver.pressButton(mask)
             for (step in 1..DRAG_STEPS) {
@@ -158,6 +180,7 @@ internal class DesktopInputInjector(
                 val x = from.x + (to.x - from.x) * step / DRAG_STEPS
                 val y = from.y + (to.y - from.y) * step / DRAG_STEPS
                 driver.move(ScreenPoint(x, y))
+                onProgress(ScreenPoint(x, y))
                 driver.pause()
             }
         } finally {
@@ -167,22 +190,28 @@ internal class DesktopInputInjector(
         return InputOutcome.Applied
     }
 
-    private fun scroll(
+    private suspend fun scroll(
         driver: DesktopInputDriver,
         action: InputAction.Scroll,
         map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
         val target = map(action.point) ?: return outside()
         // AWT exposes only the vertical wheel. Refuse horizontal input instead of scrolling the wrong axis.
         if (action.deltaX != 0) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         driver.move(target)
+        onProgress(target)
         val notches = action.deltaY / WHEEL_NOTCH_PX
         if (notches != 0) driver.wheel(notches)
         driver.idle()
         return InputOutcome.Applied
     }
 
-    private suspend fun type(driver: DesktopInputDriver, text: String): InputOutcome {
+    private suspend fun type(
+        driver: DesktopInputDriver,
+        text: String,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome {
         if (text.length > MAX_TYPED_CHARS) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         val keys = text.map { typedKey(it) }
         if (keys.any { it == null }) {
@@ -192,26 +221,34 @@ internal class DesktopInputInjector(
         for (key in keys.filterNotNull()) {
             currentCoroutineContext().ensureActive()
             val codes = if (key.isShifted) listOf(KeyEvent.VK_SHIFT, key.code) else listOf(key.code)
-            pressKeys(driver, codes)
+            pressKeys(driver, codes, onProgress)
             driver.pause()
         }
         driver.idle()
         return InputOutcome.Applied
     }
 
-    private suspend fun combination(driver: DesktopInputDriver, keys: List<String>): InputOutcome {
+    private suspend fun combination(
+        driver: DesktopInputDriver,
+        keys: List<String>,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome {
         if (keys.isEmpty()) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         val codes = keys.map { namedKey(it) }
         if (codes.any { it == KeyEvent.VK_UNDEFINED }) {
             log.w { "key combination refused: unknown key name count=${keys.size}" }
             return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         }
-        pressKeys(driver, codes)
+        pressKeys(driver, codes, onProgress)
         driver.idle()
         return InputOutcome.Applied
     }
 
-    private suspend fun pressKeys(driver: DesktopInputDriver, codes: List<Int>) {
+    private suspend fun pressKeys(
+        driver: DesktopInputDriver,
+        codes: List<Int>,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ) {
         val pressed = mutableListOf<Int>()
         try {
             for (code in codes) {
@@ -219,6 +256,7 @@ internal class DesktopInputInjector(
                 // Remember before the native call: it may post the event and then throw.
                 pressed += code
                 driver.pressKey(code)
+                onProgress(null)
             }
         } finally {
             pressed.asReversed().forEach { releaseKey(driver, it) }

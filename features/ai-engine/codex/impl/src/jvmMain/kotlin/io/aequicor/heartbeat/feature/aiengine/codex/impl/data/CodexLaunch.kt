@@ -32,6 +32,7 @@ internal data class CodexHost(
     val osArch: String = System.getProperty("os.arch").orEmpty(),
     val path: String? = System.getenv("PATH"),
     val userHome: String = System.getProperty("user.home").orEmpty(),
+    val localAppData: String? = System.getenv("LOCALAPPDATA"),
     val isExecutable: (File) -> Boolean = { it.isFile && it.canExecute() },
 ) {
     val isWindows: Boolean get() = osName.startsWith("Windows")
@@ -122,21 +123,33 @@ private fun systemCodex(host: CodexHost): Triple<String, InstallSource, Boolean>
     if (host.isWindows) windowsCodex(host) else posixCodex(host)
 
 private fun posixCodex(host: CodexHost): Triple<String, InstallSource, Boolean> {
-    val found = resolveCodexExecutable(DEFAULT_COMMAND, host.osName, host.path, host.userHome, host.isExecutable)
+    val found = host.discover()
     val isFound = found != DEFAULT_COMMAND || pathEntries(host).any { host.isExecutable(File(it, DEFAULT_COMMAND)) }
     return Triple(found, if (isFound) InstallSource.System else InstallSource.Missing, isFound)
 }
 
-/** npm installs only a `.cmd` shim: arguments passed through cmd.exe are not safe, so it is shown, not started. */
+/**
+ * A native `codex.exe` on PATH or in the Codex desktop app's CLI cache. npm installs only a `.cmd` shim: arguments
+ * passed through cmd.exe are not safe, so it is shown, not started.
+ */
 private fun windowsCodex(host: CodexHost): Triple<String, InstallSource, Boolean> {
-    val exe = pathEntries(host).map { File(it, "codex.exe") }.firstOrNull(host.isExecutable)
+    val exe = host.discover().takeIf { it != DEFAULT_COMMAND }
     val shim = pathEntries(host).map { File(it, "codex.cmd") }.firstOrNull { it.isFile }
     return when {
-        exe != null -> Triple(exe.path, InstallSource.System, true)
+        exe != null -> Triple(exe, InstallSource.System, true)
         shim != null -> Triple(shim.path, InstallSource.System, false)
         else -> Triple(DEFAULT_COMMAND, InstallSource.Missing, false)
     }
 }
+
+private fun CodexHost.discover(): String = resolveCodexExecutable(
+    DEFAULT_COMMAND,
+    osName = osName,
+    path = path,
+    userHome = userHome,
+    localAppData = localAppData,
+    isExecutable = isExecutable,
+)
 
 private fun pathEntries(host: CodexHost): List<String> =
     host.path.orEmpty().split(if (host.isWindows) ';' else ':').filter(String::isNotBlank)

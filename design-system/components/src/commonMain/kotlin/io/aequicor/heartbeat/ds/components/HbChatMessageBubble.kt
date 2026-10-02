@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * Selectable message supporting role, tone, width, placement and complete content replacement.
  * A supplied [content] slot replaces only the body, preserving its author and status header.
  * [contentPadding] lets adjoining prepared payload segments share a continuous reading surface.
+ * [onToolAction] receives the pressed action of a tool call rendered by the bubble itself.
  */
 @Composable
 public fun HbChatMessageBubble(
@@ -38,6 +39,7 @@ public fun HbChatMessageBubble(
     toolLabels: HbToolLabels = HbToolLabels(),
     onLinkClick: ((String) -> Unit)? = null,
     contentPadding: PaddingValues? = null,
+    onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     content: (@Composable () -> Unit)? = null,
 ) {
     val palette = tonePalette(if (message.status == HbMessageStatus.Error) HbTone.Danger else message.appearance.tone)
@@ -55,7 +57,17 @@ public fun HbChatMessageBubble(
                 },
             gap = HbTheme.spacing.s,
         ) {
-            BubbleBody(message, foreground, streamingLabel, showHeader, showStatus, toolLabels, onLinkClick, content)
+            BubbleBody(
+                message,
+                foreground,
+                streamingLabel,
+                showHeader,
+                showStatus,
+                toolLabels,
+                onLinkClick,
+                onToolAction,
+                content,
+            )
         }
     }
 }
@@ -108,7 +120,9 @@ private fun Modifier.messageBubbleDecoration(
     contentPadding: PaddingValues?,
 ): Modifier {
     val isUnified = message.appearance.isUnified
-    val surface = if (isUnified) {
+    val surface = if (message.isHostEntry) {
+        this
+    } else if (isUnified) {
         hbUnifiedMessageSurface(background, showHeader, showStatus)
     } else {
         messageBubbleSurface(background, showHeader, showStatus, isReadingSurface)
@@ -138,15 +152,16 @@ private fun BubbleBody(
     showStatus: Boolean,
     toolLabels: HbToolLabels,
     onLinkClick: ((String) -> Unit)?,
+    onToolAction: (HbToolCall, HbToolAction) -> Unit,
     content: (@Composable () -> Unit)?,
 ) {
     val bodyModifier = if (message.appearance.isUnified) Modifier.hbUnifiedBodyIndent() else Modifier
     HbColumn(gap = HbTheme.spacing.s) {
-        if (showHeader && message.appearance.isAuthorVisible) {
+        if (showHeader && message.appearance.isAuthorVisible && !message.isHostEntry) {
             if (message.appearance.isUnified) HbUnifiedMessageHeader(message) else MessageHeader(message, foreground)
         }
         HbColumn(bodyModifier, gap = HbTheme.spacing.s) {
-            MessageContent(message, foreground, toolLabels, onLinkClick, content)
+            MessageContent(message, foreground, toolLabels, onLinkClick, onToolAction, content)
             MessageFooter(message, showStatus, streamingLabel, toolLabels, foreground)
         }
     }
@@ -160,7 +175,7 @@ private fun MessageFooter(
     labels: HbToolLabels,
     foreground: Color,
 ) {
-    if (!showStatus) return
+    if (!showStatus || message.isHostEntry) return
     if (message.appearance.isUnified) {
         HbUnifiedMessageFooter(message, streamingLabel, labels)
     } else {
@@ -210,6 +225,7 @@ private fun MessageContent(
     foreground: Color,
     labels: HbToolLabels,
     onLinkClick: ((String) -> Unit)?,
+    onToolAction: (HbToolCall, HbToolAction) -> Unit,
     content: (@Composable () -> Unit)?,
 ) {
     SelectionContainer {
@@ -230,6 +246,7 @@ private fun MessageContent(
                                 part.call,
                                 labels = labels,
                                 onLinkClick = onLinkClick,
+                                onAction = { onToolAction(part.call, it) },
                             )
                         }
                     }
@@ -242,7 +259,14 @@ private fun MessageContent(
     if (content == null && message.parts.isEmpty() && message.toolCalls.isNotEmpty()) {
         HbColumn {
             message.toolCalls.forEach { tool ->
-                key(tool.id) { HbToolCallView(toolCall = tool, labels = labels, onLinkClick = onLinkClick) }
+                key(tool.id) {
+                    HbToolCallView(
+                        toolCall = tool,
+                        labels = labels,
+                        onLinkClick = onLinkClick,
+                        onAction = { onToolAction(tool, it) },
+                    )
+                }
             }
         }
     }

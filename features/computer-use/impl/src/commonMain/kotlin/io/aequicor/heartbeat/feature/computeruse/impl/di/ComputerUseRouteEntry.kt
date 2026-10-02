@@ -15,20 +15,18 @@ import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.computeruse.impl.presentation.ComputerUseComponent
-import io.aequicor.heartbeat.feature.computeruse.impl.ui.ComputerUseFrameDecoder
 import io.aequicor.heartbeat.feature.computeruse.impl.ui.ComputerUseUiComponent
 
-/** The computer use control panel; a profile route, so it is reachable from the settings window and the studio. */
+/** Computer use settings, reachable as a profile route from the settings window and the studio. */
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
 @Inject
 internal class ComputerUseRouteEntry(
     private val factory: ComputerUseComponent.Factory,
     private val scopes: ScopeFactory,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
-    private val decoder: ComputerUseFrameDecoder,
 ) : RouteEntry<ComputerUseRoute>(ComputerUseRoute::class, ComputerUseRoute.serializer()) {
     override fun create(route: ComputerUseRoute, context: ComponentContext, navigator: Navigator): NavComponent {
         val screen = context.retainedScope(scopes, profile, name = "computer-use")
-        return ComputerUseUiComponent(factory.create(context, navigator, screen), decoder, route.isEmbedded)
+        return ComputerUseUiComponent(factory.create(context, navigator, screen), route.isEmbedded)
     }
 }

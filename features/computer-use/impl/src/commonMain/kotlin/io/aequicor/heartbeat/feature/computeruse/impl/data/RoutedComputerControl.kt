@@ -55,6 +55,9 @@ internal class RoutedComputerControl(
     override suspend fun windows(): List<WindowTarget> =
         if (access.probe().isWindowCaptureAvailable) coordinator.targets() else emptyList()
 
+    override suspend fun resolveWindow(id: io.aequicor.heartbeat.feature.computeruse.api.WindowId): WindowTarget? =
+        if (access.probe().isWindowCaptureAvailable) coordinator.resolveTarget(id) else null
+
     override suspend fun capture(request: CaptureRequest): CaptureResult {
         val failure = access.captureFailure()
         if (failure != null) return CaptureResult(failure = failure)
@@ -98,7 +101,12 @@ internal class RoutedComputerControl(
             ?: return@coroutineScope ComputerUseOutput.Rejected(ComputerUseFailure.Unavailable)
         val requestId = Uuid.random().toString()
         val awaited = async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.mapNotNull { output -> output.answer(requestId) }.first()
+            machine.outputs.mapNotNull { output ->
+                output.answer(
+                    requestId,
+                    capture.session,
+                )
+            }.first()
         }
         var isAccepted = false
         var hasAnswer = false
@@ -131,7 +139,9 @@ internal class RoutedComputerControl(
         val session = access.active()?.session
         val closed = session?.let {
             async(start = CoroutineStart.UNDISPATCHED) {
-                machine.outputs.first { output -> output == ComputerUseOutput.SessionClosed(session) }
+                machine.outputs.first { output ->
+                    output is ComputerUseOutput.SessionClosed && output.session == session
+                }
             }
         }
         try {
@@ -157,18 +167,24 @@ internal class RoutedComputerControl(
         log.i { "computer use operation cancelled session=$session result=$sent" }
     }
 
-    private fun ComputerUseOutput.answer(requestId: String): ComputerUseOutput? = when (this) {
-        is ComputerUseOutput.InputApplied -> takeIf { this.requestId == requestId }
+    private fun ComputerUseOutput.answer(requestId: String, session: CaptureSessionId): ComputerUseOutput? =
+        when (this) {
+            is ComputerUseOutput.InputApplied -> takeIf { this.requestId == requestId }
 
-        is ComputerUseOutput.Rejected -> takeIf { this.requestId == requestId }
+            is ComputerUseOutput.Rejected -> takeIf { this.requestId == requestId }
 
-        is ComputerUseOutput.FrameReady -> takeIf { this.requestId == requestId }
+            is ComputerUseOutput.FrameReady -> takeIf { this.requestId == requestId }
 
-        is ComputerUseOutput.CaptureChanged, ComputerUseOutput.Revoked ->
-            ComputerUseOutput.Rejected(ComputerUseFailure.Unavailable)
+            is ComputerUseOutput.CaptureChanged, ComputerUseOutput.Revoked -> null
 
-        is ComputerUseOutput.SessionClosed, is ComputerUseOutput.PermissionRequired -> null
-    }
+            is ComputerUseOutput.SessionClosed -> if (this.session == session) {
+                ComputerUseOutput.Rejected(reason ?: ComputerUseFailure.Unavailable)
+            } else {
+                null
+            }
+
+            is ComputerUseOutput.PermissionRequired -> null
+        }
 
     private fun ComputerUseOutput.captureAnswer(): CaptureResult = when (this) {
         is ComputerUseOutput.FrameReady -> CaptureResult(reference = capture, master = master, tiles = tiles)

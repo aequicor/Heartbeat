@@ -8,6 +8,9 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.navigation.RootNavHostFactory
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.core.statemachine.MachineRegistry
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermissionGuide
 
 /**
  * Application-wide dependency graph (AppScope) as seen by the platform entry points.
@@ -17,6 +20,15 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
  * Each platform declares `<Platform>HeartbeatGraph : HeartbeatGraph` with the annotation.
  */
 interface HeartbeatGraph {
+    /** Coordinates exclusion of native session windows from computer-use screenshots and input. */
+    val capturePresentation: ComputerUseCapturePresentation
+
+    /** The macOS permission grant the desktop host guides with a draggable application tile. */
+    val permissionGuide: ComputerUsePermissionGuide
+
+    /** Running feature machines; the root observes computer use to present an agent's session. */
+    val machines: MachineRegistry
+
     /** Dispatchers for the entry points (e.g. creating the root component on the main thread). */
     val dispatchers: DispatcherProvider
 

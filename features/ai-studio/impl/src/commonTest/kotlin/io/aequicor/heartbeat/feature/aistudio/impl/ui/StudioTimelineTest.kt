@@ -1,7 +1,12 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import io.aequicor.heartbeat.ds.components.HbChatMessage
+import io.aequicor.heartbeat.ds.components.HbChatRole
+import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessagePart
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
+import io.aequicor.heartbeat.ds.components.HbToolCall
+import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FailureUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
@@ -10,6 +15,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotSame
 import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -109,6 +115,48 @@ class StudioTimelineTest {
         val translated = cache.update(listOf(prompt), labels.copy(you = "Вы"))
         assertEquals("Вы", translated.messages.single().author)
     }
+
+    @Test
+    fun `worktree cards stay last while the answer before them streams incrementally`() {
+        val cache = TimelineCache()
+        val cards = listOf(card("worktree:chat"), card("build:compile"))
+        val first = cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards)
+        assertEquals(listOf("m1", "m2", "worktree:chat", "build:compile"), first.messages.map { it.id })
+        assertSame(first, cache.update(listOf(prompt, reply("partial", isStreaming = true)), labels, cards))
+
+        val streamed = cache.update(listOf(prompt, reply("partial answer", isStreaming = true)), labels, cards)
+        assertSame(first.messages.first(), streamed.messages.first())
+        assertEquals("partial answer", streamed.messages[1].text)
+        assertEquals(cards, streamed.messages.takeLast(2))
+
+        val finished = listOf(prompt, reply("partial answer", isStreaming = false), stopped("m3", 4))
+        val appended = cache.update(finished, labels, cards.take(1))
+        assertEquals(listOf("m1", "m2", "m3", "worktree:chat"), appended.messages.map { it.id })
+        assertEquals(listOf("m1", "m2", "m3"), cache.update(finished, labels).messages.map { it.id })
+    }
+
+    @Test
+    fun `a transcript without messages shows only its worktree cards`() {
+        val cache = TimelineCache()
+        val grouped = labels.copy(isGroupedByDate = true)
+        val cards = listOf(card("worktree:pane-7"))
+        val timeline = cache.update(emptyList(), grouped, cards)
+        assertEquals(listOf("worktree:pane-7"), timeline.messages.map { it.id })
+        assertEquals(HbChatRole.System, timeline.messages.single().role)
+        assertSame(timeline, cache.update(emptyList(), grouped, cards))
+        val translated = cache.update(emptyList(), grouped.copy(section = "Сессия"), cards)
+        assertNotSame(timeline, translated)
+        assertEquals(cards, translated.messages)
+    }
+
+    private fun card(id: String) = HbChatMessage(
+        id,
+        "Studio",
+        "",
+        role = HbChatRole.System,
+        kind = HbMessageKind.Tool,
+        parts = persistentListOf(HbMessagePart.Tool(HbToolCall(id, id, kind = HbToolKind.Worktree))),
+    )
 
     private fun reply(text: String, isStreaming: Boolean) =
         MessageUi.Reply("m2", Instant.fromEpochSeconds(1), text, persistentListOf(), isStreaming)

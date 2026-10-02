@@ -52,6 +52,22 @@ class CodexLaunchTest {
         } finally {
             npm.toFile().deleteRecursively()
         }
+        val desktopApp = Files.createTempDirectory("codex-desktop")
+        try {
+            val cached = File(desktopApp.toFile(), "OpenAI/Codex/bin/build").apply { mkdirs() }.resolve("codex.exe")
+            cached.writeText("exe")
+            val noPath = host(
+                osName = "Windows 11",
+                localAppData = desktopApp.toString(),
+                available = setOf(cached.path),
+            )
+            assertEquals(
+                cached.path to InstallSource.System,
+                resolveCodexLaunch(LaunchContext(), config, noPath).let { it.executable to it.source },
+            )
+        } finally {
+            desktopApp.toFile().deleteRecursively()
+        }
         val wrapper = resolveCodexLaunch(LaunchContext(LaunchSettings(executable = "C:\\codex.bat")), config, windows)
         assertFalse(wrapper.isRunnable)
         assertFalse(resolveCodexLaunch(LaunchContext(), config.copy(executable = "C:\\codex.cmd"), windows).isRunnable)
@@ -140,5 +156,6 @@ class CodexLaunchTest {
         osArch: String = "aarch64",
         path: String? = null,
         available: Set<String> = emptySet(),
-    ) = CodexHost(osName, osArch, path, "/Users/test") { it.path in available }
+        localAppData: String? = null,
+    ) = CodexHost(osName, osArch, path, "/Users/test", localAppData) { it.path in available }
 }

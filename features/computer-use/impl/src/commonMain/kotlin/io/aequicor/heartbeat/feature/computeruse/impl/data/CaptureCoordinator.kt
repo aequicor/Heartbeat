@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRequest
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureResult
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseInputActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
@@ -49,6 +50,7 @@ internal sealed interface CaptureOutcome {
  * derived from it, and every caller-supplied point is mapped back through the frame the caller received. Input
  * outside the captured area is refused instead of clamped, so an agent cannot click something it never saw.
  */
+@Suppress("TooManyFunctions") // One coordinator serializes all operations on the single active capture.
 internal class CaptureCoordinator(
     private val capturer: ScreenCapturer,
     private val windows: WindowCatalog,
@@ -69,11 +71,7 @@ internal class CaptureCoordinator(
     suspend fun open(session: CaptureSessionId, mode: ComputerUseMode): ComputerUseFailure? =
         withContext(dispatchers.io) {
             operations.withLock {
-                if (mode is ComputerUseMode.Window &&
-                    mode.isClientAreaOnly
-                ) {
-                    return@withLock ComputerUseFailure.ModeNotAllowed
-                }
+                capturer.failure(mode)?.let { return@withLock it }
                 val bounds = capturer.currentBounds(mode) ?: return@withLock ComputerUseFailure.TargetClosed
                 val previous = active
                 if (previous != null) cache.forgetSession(previous.session)
@@ -142,9 +140,13 @@ internal class CaptureCoordinator(
         if (!windows.isAvailable) {
             emptyList()
         } else {
-            runLogged("window enumeration") { windows.list() }.orEmpty()
+            runLogged("window enumeration") { windows.list() }.orEmpty().filterNot { it.isSelfOwned }
         }
     }
+
+    /** Explicit lookup preserves the distinction between a host-owned target and a closed target. */
+    suspend fun resolveTarget(id: io.aequicor.heartbeat.feature.computeruse.api.WindowId): WindowTarget? =
+        withContext(dispatchers.io) { windows.resolve(id) }
 
     /** The current screen rectangle of the captured area; `null` when nothing is captured. */
     suspend fun currentBounds(): ScreenBounds? = mutex.withLock { active?.bounds }
@@ -221,13 +223,14 @@ internal class CaptureCoordinator(
         expectedCapture: CaptureId? = null,
         isFrameBound: Boolean = false,
         guard: suspend () -> ComputerUseFailure? = { null },
+        onProgress: suspend (CaptureSessionId, ComputerUseInputActivity) -> Unit = { _, _ -> },
     ): InputOutcome = withContext(dispatchers.io) {
         operations.withLock {
             val failure = guard()
             if (failure != null) {
                 InputOutcome.Rejected(failure)
             } else {
-                applyInput(action, expectedCapture, isFrameBound, guard)
+                applyInput(action, expectedCapture, isFrameBound, guard, onProgress)
             }
         }
     }
@@ -237,32 +240,90 @@ internal class CaptureCoordinator(
         expectedCapture: CaptureId?,
         isFrameBound: Boolean,
         guard: suspend () -> ComputerUseFailure?,
+        onProgress: suspend (CaptureSessionId, ComputerUseInputActivity) -> Unit,
     ): InputOutcome {
         val session = active ?: return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
-        if ((isFrameBound || expectedCapture != null) && session.preview?.id != expectedCapture) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        }
+        val failure = inputFailure(session, expectedCapture, isFrameBound, guard)
+        if (failure != null) return InputOutcome.Rejected(failure)
         val bounds = capturer.currentBounds(session.mode)
             ?: return InputOutcome.Rejected(ComputerUseFailure.TargetClosed)
         val capturedBounds = session.previewBounds
         if (capturedBounds != null && !bounds.hasSameSize(capturedBounds)) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+            return InputOutcome.Rejected(ComputerUseFailure.TargetResized)
         }
         val frames = mutex.withLock {
             session.bounds = bounds
             Frames(session.masterReference, session.preview)
         }
-        val mode = session.mode
-        if (mode is ComputerUseMode.Window && !activate(mode.target)) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        }
         if (!injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
-        guard()?.let { return InputOutcome.Rejected(it) }
-        val outcome = runLogged("input injection") { injector.apply(action, map) }
+        var hasStarted = false
+        val outcome = guard()?.let(InputOutcome::Rejected)
+            ?: runLogged("input injection") {
+                injector.applyObserved(action, map) { point ->
+                    val activity = recordProgress(session, bounds, point, isFirst = !hasStarted)
+                    hasStarted = true
+                    onProgress(session.session, activity)
+                }
+            }
             ?: InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        log.i { "input outcome=${outcome::class.simpleName.orEmpty()} action=${action::class.simpleName.orEmpty()}" }
+        log.i {
+            "input session=${session.session} outcome=${outcome::class.simpleName.orEmpty()} " +
+                "reason=${(outcome as? InputOutcome.Rejected)?.reason?.name.orEmpty()} action=${action::class.simpleName.orEmpty()}"
+        }
         return outcome
+    }
+
+    private suspend fun recordProgress(
+        session: ActiveCapture,
+        authorizedBounds: ScreenBounds,
+        point: ScreenPoint?,
+        isFirst: Boolean,
+    ): ComputerUseInputActivity {
+        val current = capturer.currentBounds(session.mode)
+        val isValidSize = current?.hasSameSize(authorizedBounds) == true
+        val isForeground = (session.mode as? ComputerUseMode.Window)?.let {
+            windows.isForeground(it.target)
+        } == true
+        return mutex.withLock {
+            val previous = session.inputActivity
+            val local = if (current != null && isValidSize && point != null) {
+                FramePoint((point.x - current.x).toDouble(), (point.y - current.y).toDouble())
+            } else {
+                null
+            }
+            val pointer = if (isValidSize) local ?: previous.pointer else null
+            previous.copy(
+                bounds = current ?: previous.bounds,
+                pointer = pointer,
+                isPointerVisible = isForeground && pointer != null,
+                sequence = previous.sequence + if (isFirst) 1 else 0,
+                revision = previous.revision + 1,
+            ).also { session.inputActivity = it }
+        }
+    }
+
+    private suspend fun inputFailure(
+        session: ActiveCapture,
+        expectedCapture: CaptureId?,
+        isFrameBound: Boolean,
+        guard: suspend () -> ComputerUseFailure?,
+    ): ComputerUseFailure? {
+        if ((isFrameBound || expectedCapture != null) && session.preview?.id != expectedCapture) {
+            return ComputerUseFailure.StaleFrame
+        }
+        return capturer.failure(
+            session.mode,
+        ) ?: activationFailure(session.mode) ?: guard() ?: capturer.failure(session.mode)
+    }
+
+    private suspend fun activationFailure(mode: ComputerUseMode): ComputerUseFailure? {
+        if (mode !is ComputerUseMode.Window) return null
+        val outcome = runLogged("window activation") {
+            windows.activationFailure(mode.target, mode.isClientAreaOnly)?.let(InputOutcome::Rejected)
+                ?: InputOutcome.Applied
+        } ?: InputOutcome.Rejected(ComputerUseFailure.ActivationFailed)
+        return (outcome as? InputOutcome.Rejected)?.reason
     }
 
     private suspend fun masterFrame(
@@ -272,6 +333,30 @@ internal class CaptureCoordinator(
     ): StoredMaster? {
         val cached = if (isFresh) null else cachedMaster(session)
         return cached ?: captureMaster(session, isCursorIncluded)
+    }
+
+    /**
+     * Observes geometry without activating the target or waiting behind a long input action. Snapshot/revision
+     * fencing prevents a slow native observation from overwriting a newer movement or replacement session.
+     */
+    suspend fun observeActivity(sessionId: CaptureSessionId): ComputerUseInputActivity? = withContext(dispatchers.io) {
+        val snapshot = mutex.withLock {
+            active?.takeIf { it.session == sessionId }?.let { it to it.inputActivity }
+        } ?: return@withContext null
+        val (session, previous) = snapshot
+        val bounds = capturer.currentBounds(session.mode)
+        val hasSizeChanged = bounds != null && previous.bounds?.let { !bounds.hasSameSize(it) } == true
+        val point = if (hasSizeChanged) null else previous.pointer
+        val window = session.mode as? ComputerUseMode.Window
+        val isVisible = bounds != null && point != null && window != null && windows.isForeground(window.target)
+        val next = previous.copy(bounds = bounds ?: previous.bounds, pointer = point, isPointerVisible = isVisible)
+        mutex.withLock {
+            if (active !== session) return@withLock null
+            if (session.inputActivity.revision == previous.revision && next != previous) {
+                session.inputActivity = next.copy(revision = previous.revision + 1)
+            }
+            session.inputActivity
+        }
     }
 
     /** The stored master frame of this session, re-decoded when its buffer was evicted. */
@@ -290,15 +375,23 @@ internal class CaptureCoordinator(
         } else {
             runLogged(
                 "frame capture",
-            ) { capturer.capture(session.mode, null, isCursorIncluded) }
+            ) { capturer.capture(session.mode, null, isCursorIncluded && session.mode is ComputerUseMode.Desktop) }
         }
-        val pixels = raw?.pixels
+        val pixels = raw?.let { frame ->
+            if (session.mode is ComputerUseMode.Window && isCursorIncluded) {
+                val activity = mutex.withLock { session.inputActivity }
+                val pointer = activity.pointer.takeIf { activity.bounds?.hasSameSize(frame.bounds) == true }
+                capturer.markPointer(frame, pointer).pixels
+            } else {
+                frame.pixels
+            }
+        }
         val stored = pixels?.let { storeMaster(session, it) }
         if (pixels == null || stored == null) return null
-        cache.put(stored.reference, pixels, bounds)
+        cache.put(stored.reference, pixels, raw.bounds)
         mutex.withLock {
             session.masterReference = stored.reference
-            session.bounds = bounds ?: session.bounds
+            session.bounds = raw.bounds
             session.frameCount++
         }
         return StoredMaster(stored.reference, pixels)
@@ -313,6 +406,7 @@ internal class CaptureCoordinator(
     )
 
     private suspend fun rejected(session: ActiveCapture): CaptureOutcome.Rejected {
+        capturer.failure(session.mode)?.let { return CaptureOutcome.Rejected(it) }
         val stillThere = runLogged("bounds probe") { capturer.currentBounds(session.mode) }
         return CaptureOutcome.Rejected(
             if (stillThere == null) ComputerUseFailure.TargetClosed else ComputerUseFailure.CaptureFailed,
@@ -426,9 +520,6 @@ internal class CaptureCoordinator(
     private fun ScreenBounds.hasSameSize(other: ScreenBounds): Boolean =
         widthPx == other.widthPx && heightPx == other.heightPx
 
-    private suspend fun activate(target: WindowTarget): Boolean =
-        runLogged("window activation") { windows.activate(target) } ?: false
-
     private suspend fun nextSequence(): Long = mutex.withLock { sequence++ }
 
     private suspend fun <T> runLogged(operation: String, block: suspend () -> T): T? = try {
@@ -451,6 +542,7 @@ internal class CaptureCoordinator(
         var crop: CaptureRef? = null,
         var frameCount: Long = 0L,
         var previewBounds: ScreenBounds? = null,
+        var inputActivity: ComputerUseInputActivity = ComputerUseInputActivity(),
     )
 
     private data class StoredMaster(val reference: CaptureRef, val pixels: PixelGrid)

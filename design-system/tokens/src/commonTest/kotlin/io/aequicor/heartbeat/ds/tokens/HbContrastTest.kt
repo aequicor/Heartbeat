@@ -8,6 +8,16 @@ import kotlin.test.assertTrue
 
 class HbContrastTest {
     @Test
+    fun `agent pointer outline contrasts with its fill in both desktop themes`() {
+        listOf(HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
+            assertTrue(
+                contrastRatio(colors.computerUsePointerOutline, colors.computerUsePointer) >= 4.5f,
+                "Agent pointer outline fails contrast (dark=${colors.isDark})",
+            )
+        }
+    }
+
+    @Test
     fun `console roles remain readable on opaque dark surfaces in both themes`() {
         listOf(HbColors.Light, HbColors.Dark, HbColors.DesktopLight, HbColors.DesktopDark).forEach { colors ->
             assertEquals(1f, colors.consoleSurface.alpha)

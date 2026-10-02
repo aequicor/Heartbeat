@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.platform.desktop
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.toPainter
 import androidx.compose.ui.input.key.Key
@@ -36,6 +38,7 @@ import javax.swing.SwingUtilities
 fun main(arguments: Array<String>) {
     if (runPackagedBuildWorker(arguments)) return
     if (handleWindowRuntimeProbe(arguments)) return
+    if (handleComputerUseIndicatorProbe(arguments)) return
     launchHeartbeat(isDevelopment = false)
 }
 
@@ -44,19 +47,30 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
     val classes = checkoutClasses()
     // Launches from the checkout's compiled classes log from DEBUG up; any jar, installed or not, logs as release.
     // `heartbeat.trace` (system property or HEARTBEAT_TRACE) adds the VERBOSE level for deep debugging.
-    Log.init(isDebug = isDevelopment || classes.getOrNull() != null, isTrace = isTraceRequested())
+    val sink = initializeDesktopLogging(isDevelopment || classes.getOrNull() != null, isTraceRequested())
+    try {
+        launchLoggedHeartbeat(isDevelopment, classes)
+    } finally {
+        sink?.close()
+    }
+}
+
+private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>) {
     val log = Log.tag("Desktop")
     classes.onFailure { log.w(it) { "Entry point location is unknown; treating the launch as packaged" } }
     classes.getOrNull()?.let(::attachLocalPiRuntime)
     val applicationIcons = runOnUiThread { loadDesktopIcons().also(::configureDockIcon) }
     val lifecycle = LifecycleRegistry()
+    val graph = runOnUiThread { createHeartbeatGraph(isDevelopment) }
     val root = runOnUiThread {
-        createAppRoot(DefaultComponentContext(lifecycle), createHeartbeatGraph(isDevelopment))
+        createAppRoot(DefaultComponentContext(lifecycle), graph)
     }
     val dimensions = HbDimensions()
     application {
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
+        val computerUse by root.computerUse.collectAsState()
+        val permissionGuide by graph.permissionGuide.guide.collectAsState()
         LifecycleController(lifecycle, windowState)
         Window(
             onCloseRequest = {
@@ -67,6 +81,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
             title = "Heartbeat",
             icon = icon,
             state = windowState,
+            alwaysOnTop = computerUse.isActive,
             onPreviewKeyEvent = { event -> openSettingsOnShortcut(event, root) },
         ) {
             DisposableEffect(window) {
@@ -74,6 +89,16 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
                 onDispose { }
             }
             DesktopWindowContent(windowState) { App(root) }
+            DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
+        }
+        val guidedPermission = permissionGuide
+        if (isMacHost && guidedPermission != null) {
+            ComputerUsePermissionGuideWindow(
+                guidedPermission,
+                graph.dispatchers.io,
+                graph.capturePresentation,
+                graph.permissionGuide::dismiss,
+            )
         }
     }
 }

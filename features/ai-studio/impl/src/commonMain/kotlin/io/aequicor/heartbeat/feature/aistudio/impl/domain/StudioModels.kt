@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -35,6 +36,8 @@ data class StudioSession(
     val modelId: String? = null,
     val isContinuable: Boolean = true,
     val isWorktree: Boolean = false,
+    /** Native identity used to locate the existing conversation of a computer-use capture owner. */
+    val nativeSession: SessionRef? = null,
 )
 
 /** Projects and sessions shown in the sidebar. */

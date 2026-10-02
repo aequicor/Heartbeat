@@ -148,6 +148,30 @@ class HbChatTimelineTest {
         assertTrue(originalSection.toolEntries.keys.all { it.startsWith("message:") })
     }
 
+    @Test
+    fun `host tail entries reuse their prepared chunks while the history before them streams`() {
+        val section = HbChatSection("session", "Session")
+        val stream = HbChatMessage("stream", "Agent", "Start", status = HbMessageStatus.Streaming)
+        val card = toolMessage("card").copy(role = HbChatRole.System)
+        val history = HbChatTimeline.Empty.append(section, stream)
+        val first = history.appendTail(section, listOf(card))
+        assertEquals(listOf("stream", "card"), first.messages.map { it.id })
+
+        val streamed = history.replaceLatest(stream.copy(text = "Start with another token"))
+            .appendTail(section, listOf(card), previous = first)
+        assertEquals(listOf("stream", "card"), streamed.messages.map { it.id })
+        assertSame(first.sections.single().entries.last(), streamed.sections.single().entries.last())
+
+        val call = card.toolCalls.single()
+        val changed = card.copy(toolCalls = persistentListOf(call.copy(status = HbToolStatus.Error)))
+        val updated = history.appendTail(section, listOf(changed), previous = streamed)
+        val before = streamed.sections.single().entries.last { it.body is HbTranscriptBody.Tool }.body
+        val after = updated.sections.single().entries.last { it.body is HbTranscriptBody.Tool }.body
+        assertEquals(HbToolStatus.Error, (after as HbTranscriptBody.Tool).call.status)
+        assertSame((before as HbTranscriptBody.Tool).rows, after.rows)
+        assertSame(history, history.appendTail(section, emptyList(), previous = updated))
+    }
+
     private fun toolMessage(id: String): HbChatMessage = HbChatMessage(
         id,
         "Agent",

@@ -1,17 +1,16 @@
 package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.booleanKey
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.SendResult
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseAgentTools
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseDesktopInput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseNativeRouting
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseWindowMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
@@ -50,9 +49,6 @@ class ComputerUseIntegrationTest {
     fun `every computer use toggle is registered and disabled by default`() = runTest {
         val declared = listOf(
             ComputerUseEnabled,
-            ComputerUseWindowMode,
-            ComputerUseDesktopInput,
-            ComputerUseAgentTools,
             ComputerUseNativeRouting,
         )
         declared.forEach { toggle ->
@@ -77,7 +73,11 @@ class ComputerUseIntegrationTest {
     @Test
     fun `the profile starts the machine once the feature is enabled`() = runTest {
         toggles.toggleControl.setOverride(ComputerUseEnabled, true)
-        app.profileSessions.open(ProfileId("computer-use-on"))
+        val profile = app.profileSessions.open(ProfileId("computer-use-on"))
+        assertNull(app.machines.find(ComputerUseMachineKey))
+        val settings = (profile.graph as TestStorageAccessors).stores
+            .keyValue(KeyValueSpec("computer_use", areValuesLogged = true))
+        settings.set(booleanKey("enabled"), true)
         val machine = bounded("computer use machine") {
             app.machines.observe(ComputerUseMachineKey).first { it != null }
         }
@@ -91,8 +91,8 @@ class ComputerUseIntegrationTest {
                 state is ComputerUseState.Failed,
             "unexpected state after the probe: $state",
         )
-        assertEquals(SendResult.Accepted, machine.send(ComputerUseIntent.Public.Revoke))
-        bounded("computer use revoke") { machine.state.first { it is ComputerUseState.Idle } }
+        settings.set(booleanKey("enabled"), false)
+        bounded("profile switch revokes computer use") { machine.state.first { it is ComputerUseState.Idle } }
         app.profileSessions.close()
         assertNull(app.machines.find(ComputerUseMachineKey))
     }

@@ -56,7 +56,7 @@ lint/            detekt-rules — собственный набор правил
 > `core:datastore:{api,impl}` (key-value + БД фич, владельцы app/profile, удержание записей),
 > `core:secrets:{api,impl}` (защищённые секреты профиля и ссылки), `core:feature-toggles:{api,impl}` (тоглы, реестр, локальные переопределения, `FeatureToggleControl`).
 > `features:ai-engine:{facade:{api,impl},pi:{api,impl}}` — встроенный движок Pi по умолчанию только на Desktop (Windows/macOS)
-> (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; MSI при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/main.wxs`)
+> (бинарь Pi вшит в дистрибутив задачей `preparePiRuntime`, данные — в каталоге приложения `<app data>/engines/pi`; установщик Windows на Inno Setup (`packageInnoSetup`) при удалении чистит данные пользователя — `platform-main/desktop/packaging/windows/heartbeat.iss`)
 > за тоглами `ai.engines` + `ai.pi` (вендорные ключи и OpenAI-/Anthropic-совместимые серверы — `CompatibleProtocol` в `facade:api`), изменяющие вызовы инструментов — по уровню доверия хода (`TrustLevel` в `facade:api`: спрашивать / авто-правки / полное доверие, выбор в композере ai-studio), иначе после подтверждения пользователя;
 > на Android/iOS — заглушка «не поддерживается».
 > Дизайн-система: `design-system:{tokens,adaptive,theme,resources,layouts,components,catalog}`;
@@ -68,15 +68,23 @@ lint/            detekt-rules — собственный набор правил
 > `features:computer-use:{api,impl}` — управление компьютером для тестирования и отладки приложений (только Desktop Windows/macOS):
 > два режима захвата (весь рабочий стол и отдельное окно), master-кадр с кропами и тайлами в нативном разрешении, сжатие кадра под
 > токен-бюджет агента (пресеты, JPEG/PNG, gray/indexed с дизерингом, лестница снижений под лимит байтов), ввод мышью и клавиатурой
-> только внутри захваченной области и только после явного разрешения (kill-switch `Revoke`), hosted-инструменты `computer_*`
-> и контракты `EngineFeature` (`computer.host` у хоста, `computer.control` у движка с роутером native → host);
-> тоглы `computer_use.*` (по умолчанию false), панель — профильный маршрут `computer-use`.
+> только внутри захваченной области, hosted-инструменты `computer_*` и контракты `EngineFeature` (`computer.host` у хоста,
+> `computer.control` у движка с роутером native → host). Доступ агента — один переключатель профиля (по умолчанию выключен,
+> маршрут `computer-use` в настройках): агент сам выбирает режим и цель, ввод вооружается одобренным вызовом через гейт
+> доверия, захват принадлежит ходу агента и освобождается в конце хода; выключение отзывает захват (`Revoke`) и без
+> открытого экрана. Во время захвата Desktop закрепляет окно сессии у правого края поверх окон с кнопкой «Стоп»
+> (интент `StopAgent`), а при захвате рабочего стола — тенью по периметру экранов. В оконном режиме отдельный маркер
+> показывает движения агента. Снимок скрывает окно и индикаторы; ввод мышью скрывает только окно сессии.
+> Недостающие права macOS (запись экрана, универсальный доступ) выдаются из настроек: кнопка открывает
+> страницу System Settings и плавающую панель с плиткой приложения для перетаскивания в список; фича опрашивает права
+> и после выдачи перепроверяет машину; тоглы `computer_use.enabled`
+> и `computer_use.native_routing` (по умолчанию false).
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
 
 1. **Зависимости**: `feature:impl` → только `api` других фич. От любого `…:impl` (фич и `core`) зависит только `:platform-main:di-bundle` (проверяет `build-logic` через `heartbeat.detekt`, подключённый ко всем модулям). `core` не знает о `features` и `design-system`. `feature:api` без Compose/UI.
-2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)`. Никаких прямых ссылок на классы `impl`. Исключение для сервисных контрактов и SPI `features:ai-engine` — `.claude/rules/feature-api.md`.
+2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)`. Никаких прямых ссылок на классы `impl`. Исключения для сервисных контрактов, SPI и координации с хостом перечислены в `.claude/rules/feature-api.md`.
 3. **UI-состояние** — FlowMVI-стор в `impl`. Машина = бизнес-флоу фичи, стор = состояние экрана. Стор не дублирует состояние машины, а отражает его (`reflect` из `core:state-machine:flowmvi-ext`).
 4. **Навигация** — только Decompose через `core:navigation`: фичи открывают друг друга `Navigator.navigate(Route)`, маршруты — `@Serializable @SerialName` в `api`, `RouteEntry` в реестре своего скоупа (`binding<ProfileRouteBinding>()` / `AppRouteBinding`), результаты — `ResultContract`. Никаких navigation-compose и ссылок на чужие компоненты.
 5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@GraphExtension`). Граф — только в `platform-main:di-bundle`; скоупы app → profile → feature → screen, граф фичи — через `retainedGraph` (`core:di:ext`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.

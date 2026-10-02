@@ -85,6 +85,13 @@ public interface AgentToolContribution {
 
     /** Executes after authorization; mutable handlers atomically validate [AgentToolContext.authorization]. */
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
+
+    /**
+     * Releases resources owned by this exact turn after the dispatcher revoked and awaited its tool calls.
+     * Implementations must bound it in time and log a cleanup they cannot confirm instead of failing the finished
+     * turn; the dispatcher only isolates failures, it does not time contributions out.
+     */
+    public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
 }
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */

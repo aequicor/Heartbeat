@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -189,6 +191,79 @@ class CapturePipelineTest {
 class CaptureCoordinatorTest {
 
     @Test
+    fun `progress localizes a moved window and observing focus does not wait behind input`() = runTest {
+        val fixture = fixture()
+        fixture.injector.isProgressReported = true
+        fixture.coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
+        fixture.coordinator.capture(CaptureRequest())
+        fixture.injector.onInput = {
+            fixture.capturer.bounds = fixture.capturer.bounds!!.copy(x = 20, y = 25)
+        }
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val action = async {
+            fixture.coordinator.input(InputAction.MoveTo(FramePoint(20.0, 10.0)), onProgress = { _, activity ->
+                assertEquals(FramePoint(10.0, 5.0), activity.pointer)
+                entered.complete(Unit)
+                release.await()
+            })
+        }
+        entered.await()
+        fixture.windows.isTargetForeground = false
+        assertEquals(false, fixture.coordinator.observeActivity(Session)?.isPointerVisible)
+        release.complete(Unit)
+        assertEquals(InputOutcome.Applied, action.await())
+        assertEquals(FramePoint(10.0, 5.0), fixture.coordinator.observeActivity(Session)?.pointer)
+    }
+
+    @Test
+    fun `agent pointer follows moved bounds but clears on resize and session change`() = runTest {
+        val fixture = fixture()
+        val coordinator = fixture.coordinator
+        fixture.injector.isProgressReported = true
+        coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
+        coordinator.capture(CaptureRequest())
+        assertNull(coordinator.observeActivity(Session)?.pointer)
+        coordinator.input(InputAction.MoveTo(FramePoint(20.0, 10.0)))
+        val first = assertNotNull(coordinator.observeActivity(Session))
+        assertEquals(FramePoint(20.0, 10.0), first.pointer)
+        assertTrue(first.isPointerVisible)
+        fixture.capturer.bounds = fixture.capturer.bounds!!.copy(x = -500, y = -200)
+        val moved = assertNotNull(coordinator.observeActivity(Session))
+        assertEquals(first.pointer, moved.pointer)
+        assertEquals(-500, moved.bounds?.x)
+        assertEquals(first.sequence, moved.sequence)
+        fixture.windows.isTargetForeground = false
+        assertEquals(false, coordinator.observeActivity(Session)?.isPointerVisible)
+        fixture.windows.isTargetForeground = true
+        fixture.capturer.bounds = fixture.capturer.bounds!!.copy(widthPx = 220)
+        assertNull(coordinator.observeActivity(Session)?.pointer)
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.TargetResized),
+            coordinator.input(InputAction.MoveTo(FramePoint(20.0, 10.0))),
+        )
+        coordinator.open(CaptureSessionId("replacement"), Desktop)
+        assertNull(coordinator.observeActivity(Session))
+    }
+
+    @Test
+    fun `a stale frame is refused without another injection`() = runTest {
+        val fixture = fixture()
+        fixture.coordinator.open(Session, Desktop)
+        val first = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result.reference!!
+        fixture.coordinator.capture(CaptureRequest())
+        assertEquals(
+            InputOutcome.Rejected(ComputerUseFailure.StaleFrame),
+            fixture.coordinator.input(
+                InputAction.Click(FramePoint(10.0, 10.0)),
+                first.id,
+                isFrameBound = true,
+            ),
+        )
+        assertTrue(fixture.injector.applied.isEmpty())
+    }
+
+    @Test
     fun `capture stores a master and returns a reduced preview`() = runTest {
         val fixture = fixture()
         fixture.coordinator.open(Session, Desktop)
@@ -347,7 +422,7 @@ class CaptureCoordinatorTest {
         fixture.coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
         fixture.windows.isActivationAllowed = false
         val outcome = fixture.coordinator.input(InputAction.Click(FramePoint(1.0, 1.0)))
-        assertEquals(ComputerUseFailure.InputRejected, assertIs<InputOutcome.Rejected>(outcome).reason)
+        assertEquals(ComputerUseFailure.ActivationFailed, assertIs<InputOutcome.Rejected>(outcome).reason)
         assertTrue(fixture.injector.applied.isEmpty())
     }
 

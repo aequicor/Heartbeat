@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
+import io.aequicor.heartbeat.ds.components.HbChatMessage
 import io.aequicor.heartbeat.ds.components.HbChatRole
+import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessagePart
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbToolBlock
+import io.aequicor.heartbeat.ds.components.HbToolCall
+import io.aequicor.heartbeat.ds.components.HbToolKind
 import io.aequicor.heartbeat.ds.components.HbToolStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.FeedbackFailureUi
@@ -179,6 +183,42 @@ class StudioFeedbackTimelineTest {
         val tool = message.toolCalls.single()
         assertEquals("", tool.summary)
         assertEquals("literal *output*", assertIs<HbToolBlock.Console>(tool.blocks.single()).text)
+    }
+
+    @Test
+    fun `worktree cards follow a feedback answer without changing its tool`() {
+        val cache = TimelineCache()
+        val answer = reply(
+            FeedbackUi(FeedbackParameterUi.Model, FeedbackOutcomeUi.Pending, value = "model-b"),
+            ToolStatusUi.Running,
+        )
+        val card = HbChatMessage(
+            "worktree:chat",
+            "Studio",
+            "",
+            role = HbChatRole.System,
+            kind = HbMessageKind.Tool,
+            parts = persistentListOf(
+                HbMessagePart.Tool(HbToolCall("worktree:chat", "Worktree", kind = HbToolKind.Worktree)),
+            ),
+        )
+        val first = cache.update(listOf(answer), labels, listOf(card))
+        assertEquals(listOf("feedback:operation", "worktree:chat"), first.messages.map { it.id })
+        assertEquals(HbToolStatus.Running, first.messages.first().toolCalls.single().status)
+
+        val applied = answer.copy(
+            tools = persistentListOf(
+                answer.tools.single().copy(
+                    status = ToolStatusUi.Done,
+                    feedback = answer.tools.single().feedback!!.copy(outcome = FeedbackOutcomeUi.Applied),
+                ),
+            ),
+        )
+        val updated = cache.update(listOf(applied), labels, listOf(card))
+        assertEquals(listOf("feedback:operation", "worktree:chat"), updated.messages.map { it.id })
+        assertEquals(HbToolStatus.Complete, updated.messages.first().toolCalls.single().status)
+        assertEquals(card, updated.messages.last())
+        assertEquals(listOf("feedback:operation"), cache.update(listOf(applied), labels).messages.map { it.id })
     }
 
     private fun reply(feedback: FeedbackUi, status: ToolStatusUi): MessageUi.Reply {

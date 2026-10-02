@@ -13,5 +13,14 @@ paths:
 - Android: `defaultComponentContext()` в `Activity`; не держи ссылки на `Activity` в графе.
 - Desktop: `LifecycleController` + `runOnUiThread` для создания root-компонента; определение ОС → `PlatformUi.Fluent` (Windows) / `PlatformUi.MacOs` (macOS) / `Material` (прочие).
 - iOS: `IosHeartbeatHost` в `platform-main:shared` (iosMain) держит root на `ApplicationLifecycle` и отдаёт `viewController()`; его хранит `AppDelegate`. Swift-код в `platform-main/ios/` — минимальный.
-- Никакой бизнес-логики и UI фич — только сборка.
+- Никакой бизнес-логики и UI фич — только сборка. Исключение — хром сессии агента computer-use: root наблюдает
+  `ComputerUseMachineKey` и один раз выводит студию вперёд при захвате агентом, `App` рисует плашку сессии с кнопкой
+  «Стоп», desktop закрепляет окно у края, скрывает его на время снимка и ввода мышью, а при захвате рабочего стола
+  рисует тень по периметру экранов. Решения остаются у фичи: что
+  показывать — `computerUseActivity()` из `computer-use:api`, остановка — интент `StopAgent` машины; хост только
+  отображает и пересылает. Так же устроен гид выдачи прав macOS: пока `ComputerUsePermissionGuide.guide` из графа
+  называет разрешение, desktop показывает у окна System Settings неактивирующую панель (`ComputerUsePermissionGuidePanel`
+  из `shared`) с плиткой приложения, которому macOS выдаёт право (ответственный процесс: в разработке — IDE или
+  терминал), и перетаскиванием этой плитки в список; закрытие — `dismiss()`. Когда показывать и скрывать гид,
+  решает фича.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

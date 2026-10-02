@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
@@ -79,8 +80,9 @@ internal class UnsupportedOsPermissions : OsPermissions {
         )
     }
 
-    override suspend fun openSettings(blocker: ComputerUseBlocker) {
-        log.i { "no system settings page on this platform blocker=$blocker" }
+    override suspend fun openSettings(permission: ComputerUsePermission): Boolean {
+        log.i { "no system settings page on this platform permission=$permission" }
+        return false
     }
 }
 

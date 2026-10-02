@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ReplyPartU
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ToolUi
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 
@@ -91,25 +92,36 @@ internal fun fill(template: String, vararg args: Any): String = args.foldIndexed
 
 /**
  * Keeps the prepared timeline of one pane. Streaming replaces only the latest message and new entries are
- * appended; anything else (another session, new labels) rebuilds the timeline.
+ * appended; anything else (another session, new labels) rebuilds the timeline. Host-owned tail entries
+ * (worktree cards) follow the history in its latest section, as current state rather than dated entries: each
+ * update appends them to the cached history, reusing their prepared rows, so a changing card never rebuilds the
+ * transcript and streaming before the cards stays incremental.
  * [update] is idempotent: repeating it with the same input returns the same timeline, so a discarded
  * composition that already advanced the cache cannot desynchronize it from the committed one.
  */
 internal class TimelineCache {
     private var messages: List<MessageUi> = emptyList()
     private var labels: TimelineLabels? = null
-    private var timeline: HbChatTimeline = HbChatTimeline.Empty
+    private var history: HbChatTimeline = HbChatTimeline.Empty
+    private var tail: List<HbChatMessage> = emptyList()
+    private var timeline: HbChatTimeline? = null
 
-    fun update(next: List<MessageUi>, nextLabels: TimelineLabels): HbChatTimeline {
+    fun update(
+        next: List<MessageUi>,
+        nextLabels: TimelineLabels,
+        nextTail: List<HbChatMessage> = emptyList(),
+    ): HbChatTimeline {
+        val previous = history
+        val isSameLabels = labels == nextLabels
         val sections = sectionsFor(next, nextLabels)
-        val isSameSource = labels == nextLabels && next.size >= messages.size && messages.isNotEmpty()
+        val isSameSource = isSameLabels && next.size >= messages.size && messages.isNotEmpty()
         val keptPrefix = if (isSameSource) messages.size - 1 else 0
         val isIncremental = isSameSource &&
             next[keptPrefix].id == messages.last().id &&
             (0 until keptPrefix).all { next[it] == messages[it] }
-        timeline = if (isIncremental) {
+        history = if (isIncremental) {
             val latest = next[keptPrefix]
-            var updated = if (latest == messages.last()) timeline else timeline.replaceLatest(latest.toHb(nextLabels))
+            var updated = if (latest == messages.last()) history else history.replaceLatest(latest.toHb(nextLabels))
             for (index in messages.size until next.size) {
                 updated = updated.append(
                     sections[index],
@@ -124,7 +136,18 @@ internal class TimelineCache {
         }
         messages = next
         labels = nextLabels
-        return timeline
+        val composed = timeline?.takeIf { history === previous && isSameLabels && nextTail == tail }
+            ?: history.appendTail(sections.lastOrNull() ?: tailSection(nextLabels), nextTail, previous = timeline)
+        timeline = composed
+        tail = nextTail
+        return composed
+    }
+
+    /** Host entries of an empty transcript stay in the session group, or under no date heading. */
+    private fun tailSection(labels: TimelineLabels): HbChatSection = if (labels.isGroupedByDate) {
+        HbChatSection("tail", "", isDate = true)
+    } else {
+        HbChatSection("session", labels.section)
     }
 
     private fun sectionsFor(messages: List<MessageUi>, labels: TimelineLabels): List<HbChatSection> {
@@ -152,15 +175,19 @@ internal class TimelineCache {
     }
 }
 
-/** The prepared timeline of [messages], updated incrementally while the same session streams. */
+/**
+ * The prepared timeline of [messages] followed by host-owned [tail] entries, updated incrementally while the
+ * same session streams.
+ */
 @Composable
 internal fun rememberStudioTimeline(
     sessionId: String,
     messages: ImmutableList<MessageUi>,
     labels: TimelineLabels,
+    tail: ImmutableList<HbChatMessage> = persistentListOf(),
 ): HbChatTimeline {
     val cache = remember(sessionId) { TimelineCache() }
-    return remember(cache, messages, labels) { cache.update(messages, labels) }
+    return remember(cache, messages, labels, tail) { cache.update(messages, labels, tail) }
 }
 
 internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this) {
@@ -241,7 +268,7 @@ private fun ReplyPartUi.toHb(labels: TimelineLabels, isStreaming: Boolean): HbMe
             title = labels.reasoning,
             status = if (isStreaming) HbToolStatus.Running else HbToolStatus.Complete,
             summary = text.lineSequence().firstOrNull().orEmpty(),
-            blocks = listOf(HbToolBlock.Markdown("reasoning:$id", text)).toImmutableList(),
+            blocks = listOf(HbToolBlock.Markdown("reasoning-text:$id", text)).toImmutableList(),
             kind = HbToolKind.Reasoning,
         ),
     )
