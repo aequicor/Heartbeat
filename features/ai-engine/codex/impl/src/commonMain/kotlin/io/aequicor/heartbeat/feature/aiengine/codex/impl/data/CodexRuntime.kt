@@ -388,7 +388,8 @@ internal class CodexRuntime(
                 put("inputSchema", spec.inputSchema)
             }
         }
-        return declarations to host.tools.instructions(workspace)
+        val instructions = host.tools.instructions(workspace)
+        return declarations to if (declarations.isEmpty()) instructions else codexHostedInstructions(instructions)
     }
 
     private suspend fun event(message: JsonObject) {
