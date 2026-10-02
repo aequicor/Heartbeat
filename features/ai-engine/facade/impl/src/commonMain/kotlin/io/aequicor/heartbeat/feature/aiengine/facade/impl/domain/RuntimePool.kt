@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
@@ -11,11 +12,15 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Instant
 
 /**
  * Profile pool of native runtimes, one per engine and source across workspaces. A changed source revision
@@ -24,6 +29,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * Idle handles still open on the old runtime are closed through [retireHandles] before it stops, so no handle
  * outlives its runtime. Retirement and creation are serialized per engine and source, so a hanging close of one
  * source never blocks runtimes of others. After [closeAll] the pool refuses new runtimes with ProfileClosed.
+ *
+ * A runtime that shut itself down ([EngineRuntime.isClosed]: a crashed process, a changed account) can run nothing:
+ * it is disposed without the Busy check and replaced on the next request, and [prune] disposes it on demand.
+ * [retire] stops the idle runtimes of one engine (an engine switched off, changed launch settings, a restart).
  */
 class RuntimePool(
     private val context: FacadeContext,
@@ -32,9 +41,13 @@ class RuntimePool(
 ) {
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
-    private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, EngineRuntime>()
+    private val runtimes = mutableMapOf<Pair<EngineId, AuthSourceId>, Pooled>()
     private val keyLocks = mutableMapOf<Pair<EngineId, AuthSourceId>, Mutex>()
+    private val published = MutableStateFlow(emptyList<RuntimeEntry>())
     private var isClosed = false
+
+    /** Pooled runtimes; one that shut itself down stays listed until it is replaced, pruned or retired. */
+    val entries: StateFlow<List<RuntimeEntry>> = published.asStateFlow()
 
     /** Runtime of the checked [resolved] route, created on first use. */
     suspend fun runtime(resolved: ResolvedRoute): EngineRuntime {
@@ -47,14 +60,66 @@ class RuntimePool(
         return keyLock.withLock { replace(resolved, key) }
     }
 
+    /**
+     * Retires every idle runtime of [engine]. A runtime with an accepted turn is kept and counted as busy: the
+     * caller retries once it is idle. A runtime that shut itself down is disposed whatever its handles report.
+     */
+    suspend fun retire(engine: EngineId): RetireOutcome {
+        val keys = mutex.withLock { runtimes.keys.filter { it.first == engine } }
+        var retired = 0
+        var busy = 0
+        keys.forEach { key ->
+            locked(key) {
+                val current = mutex.withLock { runtimes[key] } ?: return@locked
+                if (current.runtime.isClosed) {
+                    dispose(current, key)
+                    retired++
+                } else if (retireIdle(current, key)) {
+                    retired++
+                } else {
+                    busy++
+                }
+            }
+        }
+        log.i { "retire engine=${engine.value} retired=$retired busy=$busy" }
+        return RetireOutcome(retired, busy)
+    }
+
+    /** Disposes runtimes that shut themselves down; live runtimes are kept. Returns how many were disposed. */
+    suspend fun prune(): Int {
+        val closed = mutex.withLock { runtimes.filterValues { it.runtime.isClosed }.keys.toList() }
+        var disposed = 0
+        closed.forEach { key ->
+            locked(key) {
+                val current = mutex.withLock { runtimes[key] }
+                if (current != null && current.runtime.isClosed) {
+                    dispose(current, key)
+                    disposed++
+                }
+            }
+        }
+        if (disposed > 0) log.i { "pruned exited runtimes count=$disposed" }
+        return disposed
+    }
+
+    private suspend fun <T> locked(key: Pair<EngineId, AuthSourceId>, block: suspend () -> T): T {
+        val keyLock = mutex.withLock { keyLocks.getOrPut(key) { Mutex() } }
+        return keyLock.withLock { block() }
+    }
+
     private suspend fun replace(resolved: ResolvedRoute, key: Pair<EngineId, AuthSourceId>): EngineRuntime {
         val identity = resolved.identity
         val current = mutex.withLock {
             ensureOpen(identity.engine)
             runtimes[key]
         }
-        if (current != null && current.identity == identity) return current
-        if (current != null) retire(current, key)
+        if (current != null && current.runtime.isClosed) {
+            dispose(current, key)
+        } else if (current != null && current.runtime.identity == identity) {
+            return current.runtime
+        } else if (current != null) {
+            retire(current, key)
+        }
         mutex.withLock { ensureOpen(identity.engine) }
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
         val created = create(resolved)
@@ -65,7 +130,15 @@ class RuntimePool(
         }
         // Registration must not be cancelled between creation and the pool, or the runtime would leak.
         val isStored = withContext(NonCancellable) {
-            mutex.withLock { if (isClosed) false else true.also { runtimes[key] = created } }
+            mutex.withLock {
+                if (isClosed) {
+                    false
+                } else {
+                    runtimes[key] = Pooled(created, context.clock.now())
+                    publish()
+                    true
+                }
+            }
         }
         if (!isStored) {
             log.w { "runtime started during profile shutdown engine=${identity.engine.value}" }
@@ -102,19 +175,58 @@ class RuntimePool(
         }
     }
 
-    private suspend fun retire(current: EngineRuntime, key: Pair<EngineId, AuthSourceId>) {
+    private suspend fun retire(current: Pooled, key: Pair<EngineId, AuthSourceId>) {
         val (engine, source) = key
         if (hasActiveTurn(engine, source)) {
             log.w { "runtime busy, not retired engine=${engine.value} source=${source.value}" }
             fail(EngineFailure.Session(SessionFailureReason.Busy))
         }
         log.i { "retire runtime engine=${engine.value} source=${source.value}" }
-        retireHandles(engine, source)
+        unregister(current, key)
+    }
+
+    /** Retires [current] unless a turn is in flight on it, including one that started meanwhile. */
+    private suspend fun retireIdle(current: Pooled, key: Pair<EngineId, AuthSourceId>): Boolean {
+        if (hasActiveTurn(key.first, key.second)) return false
+        return try {
+            retire(current, key)
+            true
+        } catch (e: EngineException) {
+            if (e.failure != EngineFailure.Session(SessionFailureReason.Busy)) throw e
+            log.w(e) { "runtime became busy before it was retired engine=${key.first.value}" }
+            false
+        }
+    }
+
+    /** A runtime that shut itself down runs nothing, so its handles are closed even if they still report a turn. */
+    private suspend fun dispose(current: Pooled, key: Pair<EngineId, AuthSourceId>) {
+        val (engine, source) = key
+        log.i { "dispose exited runtime engine=${engine.value} source=${source.value}" }
+        unregister(current, key)
+    }
+
+    private suspend fun unregister(current: Pooled, key: Pair<EngineId, AuthSourceId>) {
+        retireHandles(key.first, key.second)
         // Only the caller that unregisters the runtime closes it, so a concurrent closeAll never closes it twice.
         val isOwned = withContext(NonCancellable) {
-            mutex.withLock { (runtimes[key] === current).also { if (it) runtimes.remove(key) } }
+            mutex.withLock {
+                (runtimes[key] === current).also { isOwned ->
+                    if (isOwned) {
+                        runtimes.remove(key)
+                        publish()
+                    }
+                }
+            }
         }
-        if (isOwned) withContext(NonCancellable) { closeQuietly(current) }
+        if (isOwned) withContext(NonCancellable) { closeQuietly(current.runtime) }
+    }
+
+    /** Called under [mutex]. */
+    private fun publish() {
+        published.value = runtimes.map { (key, pooled) ->
+            RuntimeEntry(key.first, key.second, pooled.startedAt, pooled.runtime.isClosed)
+        }
+        log.d { "pooled runtimes count=${runtimes.size}" }
     }
 
     private fun ensureOpen(engine: EngineId) {
@@ -128,7 +240,10 @@ class RuntimePool(
     suspend fun closeAll() {
         val all = mutex.withLock {
             isClosed = true
-            runtimes.values.toList().also { runtimes.clear() }
+            runtimes.values.map { it.runtime }.also {
+                runtimes.clear()
+                publish()
+            }
         }
         log.i { "close runtimes count=${all.size}" }
         // Already unregistered: every one is closed even if shutdown is cancelled midway. Each close runs in its own
@@ -148,3 +263,12 @@ class RuntimePool(
         }
     }
 }
+
+/** One pooled runtime and when the pool started it. */
+private data class Pooled(val runtime: EngineRuntime, val startedAt: Instant)
+
+/** A pooled runtime of [engine] and [source]; [isClosed] tells it shut itself down and awaits replacement. */
+data class RuntimeEntry(val engine: EngineId, val source: AuthSourceId, val startedAt: Instant, val isClosed: Boolean)
+
+/** Runtimes [RuntimePool.retire] stopped and the busy ones it kept. */
+data class RetireOutcome(val retired: Int, val busy: Int)

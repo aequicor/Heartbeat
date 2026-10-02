@@ -100,7 +100,7 @@ internal class ClaudeRuntime(
 
     /** Number of sessions this runtime still keeps for attach and lookup. */
     internal val retainedSessions: Int get() = sessions.size
-    val isClosed: Boolean get() = !owner.isActive
+    override val isClosed: Boolean get() = !owner.isActive
 
     @Volatile
     private var closeFailure: EngineFailure = EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)

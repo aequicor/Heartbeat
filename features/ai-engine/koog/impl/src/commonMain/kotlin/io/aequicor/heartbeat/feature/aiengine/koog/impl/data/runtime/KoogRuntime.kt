@@ -57,7 +57,7 @@ internal class KoogRuntime(
     private val log = Log.tag("KoogRuntime")
     private val mutex = Mutex()
     private val sessions = mutableMapOf<SessionRef, KoogNativeSession>()
-    var isClosed = false
+    override var isClosed = false
         private set
     override val features: EngineFeatures = KoogFeatures(CreatesSessions to this, AttachesSessions to this)
 

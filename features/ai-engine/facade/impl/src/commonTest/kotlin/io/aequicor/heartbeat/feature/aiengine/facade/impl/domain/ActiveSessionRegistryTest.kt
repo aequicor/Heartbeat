@@ -1,6 +1,20 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -70,5 +84,43 @@ class ActiveSessionRegistryTest {
         waiter.join()
 
         assertEquals(0, registry.lockCount())
+    }
+
+    @Test
+    fun `summary counts open handles and turns in flight per engine`() = runTest {
+        val registry = ActiveSessionRegistry()
+        val running = CountedHandle(TestEngine, ActiveSessionState.Running(CountedTurn))
+        registry.add(CountedHandle(TestEngine, ActiveSessionState.Ready()))
+        registry.add(running)
+        registry.add(CountedHandle(OtherEngine, ActiveSessionState.Ready()))
+
+        assertEquals(
+            mapOf(TestEngine to SessionCounts(open = 2, activeTurns = 1), OtherEngine to SessionCounts(1, 0)),
+            registry.summary.first(),
+        )
+
+        running.close()
+        assertEquals(SessionCounts(open = 1, activeTurns = 0), registry.summary.first()[TestEngine])
+        registry.remove(running)
+        assertEquals(SessionCounts(open = 1, activeTurns = 0), registry.summary.first()[TestEngine])
+    }
+
+    @Test
+    fun `summary is empty without open handles`() = runTest {
+        assertEquals(emptyMap(), ActiveSessionRegistry().summary.first())
+    }
+}
+
+private val OtherEngine = EngineId("other")
+private val CountedTurn = Turn(TurnId("turn"), null, EngineTarget(TestEngine, EngineBindingId("b"), ModelId("m")))
+
+private class CountedHandle(engine: EngineId, initial: ActiveSessionState) : ActiveSession {
+    override val ref = sessionRef("counted")
+    override val route = ExecutionRoute(engine, EngineBindingId("b"), AuthSourceId("s"), AuthRevision.Known("r1"))
+    override val state = MutableStateFlow(initial)
+    override val features: EngineFeatures = NoEngineFeatures
+
+    override suspend fun close() {
+        state.value = ActiveSessionState.Closed
     }
 }

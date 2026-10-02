@@ -92,7 +92,7 @@ internal class CodexRuntime(
     private var isUsageAccountTrusted = false
     private var usageAccountEpoch = 0L
     private var usageAccountId: String? = null
-    var isClosed = false
+    override var isClosed = false
         private set
     private var cleanup: DisposableHandle? = null
     init {

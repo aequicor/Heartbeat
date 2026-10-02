@@ -114,6 +114,12 @@ public interface EngineRuntime {
     /** Runtime operations use the same capability contracts as facade handles. */
     public val features: EngineFeatures
 
+    /**
+     * Whether the runtime shut itself down (a crashed process, a changed account) and can run nothing more.
+     * The pool replaces such a runtime on the next request instead of handing it out again. Never blocks.
+     */
+    public val isClosed: Boolean get() = false
+
     /** Releases runtime resources at profile shutdown or idle eviction; reconciles active turns before shutdown. */
     public suspend fun close()
 }

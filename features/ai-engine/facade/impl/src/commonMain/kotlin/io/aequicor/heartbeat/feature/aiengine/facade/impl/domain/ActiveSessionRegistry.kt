@@ -15,8 +15,15 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -32,6 +39,20 @@ class ActiveSessionRegistry : BindingUsage {
     private val handles = MutableStateFlow(emptyList<ActiveSession>())
     private val guard = Mutex()
     private val locks = mutableMapOf<SessionRef, SessionLock>()
+
+    /** Open handles and turns in flight per engine; follows every handle's state, closed handles excluded. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val summary: Flow<Map<EngineId, SessionCounts>> = handles.flatMapLatest { open ->
+        if (open.isEmpty()) {
+            flowOf(emptyMap())
+        } else {
+            combine(open.map { handle -> handle.state.map { state -> handle.route.engine to state } }) { states ->
+                states.filter { (_, state) -> state != ActiveSessionState.Closed }
+                    .groupBy({ it.first }, { it.second })
+                    .mapValues { (_, live) -> SessionCounts(live.size, live.count { it.activeTurn() != null }) }
+            }
+        }
+    }.distinctUntilChanged()
 
     /** Number of per-session locks currently held or awaited; exposed for leak tests. */
     internal suspend fun lockCount(): Int = guard.withLock { locks.size }
@@ -103,6 +124,9 @@ class ActiveSessionRegistry : BindingUsage {
         var users = 0
     }
 }
+
+/** Handles of one engine that are still open and how many of them execute a turn. */
+data class SessionCounts(val open: Int, val activeTurns: Int)
 
 /** Profile-wide rules shared by every handle: toggles, route rechecks, cross-handle serialization and ids. */
 class SessionPolicy(
