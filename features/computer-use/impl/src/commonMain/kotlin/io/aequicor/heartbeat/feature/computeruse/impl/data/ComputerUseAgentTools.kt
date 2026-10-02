@@ -102,7 +102,8 @@ internal class ComputerUseAgentTools(
             "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
             "you pass space:\"master\", \"normalized\" or \"screen\". computer_type types up to " +
-            "$MAX_TYPED_CHARS characters per call (newline is Enter, tab is Tab); split longer text. On Windows it " +
+            "$MAX_TYPED_CHARS UTF-16 code units per call (an emoji counts as two; newline is Enter, tab is Tab); " +
+            "split longer text. On Windows it " +
             "carries exact characters independent of the keyboard layout; on macOS it uses US key positions and " +
             "refuses other characters with UnsupportedCharacter. computer_key accepts named keys including win; " +
             "$WHEEL_NOTCH_PX pixels of computer_scroll deltaY are one wheel notch, at most $MAX_WHEEL_NOTCHES " +
@@ -862,7 +863,8 @@ internal class ComputerUseAgentTools(
             ),
             AgentToolSpec(
                 TYPE_TOOL,
-                "Type text into the focused control of the captured area, at most $MAX_TYPED_CHARS characters.",
+                "Type text into the focused control of the captured area, at most $MAX_TYPED_CHARS UTF-16 code units " +
+                    "(an emoji counts as two).",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{"text":{"type":"string","maxLength":$MAX_TYPED_CHARS}},
                        "required":["text"],"additionalProperties":false}""",

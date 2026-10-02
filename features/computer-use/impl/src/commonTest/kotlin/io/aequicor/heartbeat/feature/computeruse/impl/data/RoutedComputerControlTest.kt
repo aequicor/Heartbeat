@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.BASE_WAIT_MILLIS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -291,6 +292,17 @@ class RoutedComputerControlTest {
         device.complete(Unit)
         assertEquals(InputOutcome.Applied, pending.await())
         assertEquals(listOf<InputAction>(text), fixture.injector.applied)
+    }
+
+    @Test
+    fun `public input on a stuck device times out at its own limit and cancels the session`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        fixture.injector.awaitInput = CompletableDeferred()
+        val click = InputAction.Click(FramePoint(5.0, 5.0))
+        val started = testScheduler.currentTime
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.Timeout), fixture.control.input(click))
+        assertEquals(inputWaitLimitMillis(click), testScheduler.currentTime - started)
+        assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref!!.sent.last())
     }
 
     @Test

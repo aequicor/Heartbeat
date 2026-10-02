@@ -24,8 +24,8 @@ internal object WindowsTextBackend {
     /**
      * Injects every UTF-16 code unit as one press-release pair in a single `SendInput` call, so surrogate pairs
      * arrive as two characters. `false` when the system inserted fewer events than requested; some of them may
-     * already have arrived. `SendInput` does not report UIPI blocking: text sent to an elevated window is reported
-     * as typed although it never arrives.
+     * already have arrived. UIPI blocking of an elevated window either refuses the call without naming the cause or
+     * reports the text as typed although it never arrives.
      */
     fun type(text: String): Boolean {
         val library = user32 ?: return false
@@ -53,7 +53,8 @@ internal object WindowsTextBackend {
     } catch (e: Exception) {
         log.w(e) { "native library user32 is unavailable" }
         null
-    } catch (e: UnsatisfiedLinkError) {
+    } catch (e: LinkageError) {
+        // UnsatisfiedLinkError on a failed load, NoClassDefFoundError when JNA itself failed to initialize earlier.
         log.w(e) { "native library user32 cannot be linked" }
         null
     }

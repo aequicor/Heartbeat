@@ -251,7 +251,10 @@ internal class DesktopInputInjector(
         text: String,
         onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
-        if (text.length > MAX_TYPED_CHARS) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        if (text.length > MAX_TYPED_CHARS) {
+            log.w { "typed text refused: over the limit chars=${text.length}" }
+            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        }
         val segments = textSegments(text)
         // The driver either carries every character itself or none of them: validate the whole text before
         // the first event, so a rejected character cannot leave a partially typed command behind.

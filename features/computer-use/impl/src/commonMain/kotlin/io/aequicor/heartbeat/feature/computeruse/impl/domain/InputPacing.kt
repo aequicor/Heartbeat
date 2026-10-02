@@ -13,8 +13,9 @@ internal const val MAX_WHEEL_NOTCHES = 40
 internal const val MAX_CLICKS = 3
 
 /**
- * Characters of one typed text, for the hosted tools and the engine router alike. Bounds how long one call holds the
- * input device (well under a minute on the slow key-code path), so long text arrives in steps the agent can verify.
+ * UTF-16 code units of one typed text (an emoji counts as two), for the hosted tools and the engine router alike.
+ * Bounds how long one call holds the input device, about a minute at worst on the slow key-code path, so long text
+ * arrives in steps the agent can verify.
  */
 internal const val MAX_TYPED_CHARS = 1_000
 
