@@ -43,6 +43,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +62,22 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class RoutedComputerControlTest {
+
+    @Test
+    fun `host capture preserves a session failure and ignores an old close`() = runTest {
+        val fixture = fixture()
+        val machine = fixture.registry.ref!!
+        machine.effectHandler = null
+        val pending = async { fixture.control.capture(CaptureRequest()) }
+        runCurrent()
+        machine.events.emit(
+            ComputerUseOutput.SessionClosed(CaptureSessionId("older"), ComputerUseFailure.ActivationFailed),
+        )
+        runCurrent()
+        assertFalse(pending.isCompleted)
+        machine.ownMachine.send(ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed, Session))
+        assertEquals(ComputerUseFailure.TargetClosed, pending.await().failure)
+    }
 
     @Test
     fun `the host serves captures while native routing is off`() = runTest {

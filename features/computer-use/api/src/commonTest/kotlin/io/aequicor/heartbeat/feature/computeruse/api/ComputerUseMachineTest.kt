@@ -12,6 +12,29 @@ import kotlin.test.assertFalse
 class ComputerUseMachineTest {
 
     @Test
+    fun `input progress is fenced by session and monotonic revision`() {
+        val activity = ComputerUseInputActivity(pointer = FramePoint(12.0, 20.0), revision = 4)
+        val state = capturing.copy(inputActivity = activity)
+        ComputerUseMachineSpec.assertIgnored(
+            state,
+            ComputerUseIntent.Internal.InputProgress(CaptureSessionId("old"), activity.copy(revision = 5)),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            state,
+            ComputerUseIntent.Internal.InputProgress(session, activity.copy(revision = 3)),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = state,
+            intent = ComputerUseIntent.Internal.InputProgress(session, activity.copy(revision = 5)),
+            to = state.copy(inputActivity = activity.copy(revision = 5)),
+        )
+        ComputerUseMachineSpec.assertIgnored(
+            ComputerUseState.Idle,
+            ComputerUseIntent.Internal.InputProgress(session, activity),
+        )
+    }
+
+    @Test
     fun `start from Idle probes availability`() {
         ComputerUseMachineSpec.assertTransition(
             from = ComputerUseState.Idle,
@@ -458,6 +481,7 @@ class ComputerUseMachineTest {
             from = capturing.copy(isOpen = false),
             intent = ComputerUseIntent.Internal.CaptureOpened(session),
             to = capturing,
+            effects = listOf(ComputerUseEffect.ObserveCapture(session)),
         )
         ComputerUseMachineSpec.assertIgnored(
             capturing,

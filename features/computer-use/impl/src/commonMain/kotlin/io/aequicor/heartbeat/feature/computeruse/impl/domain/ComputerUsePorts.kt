@@ -36,6 +36,9 @@ internal interface ScreenCapturer {
 
     /** Explains a native geometry refusal before any presentation is hidden. */
     suspend fun failure(mode: ComputerUseMode): ComputerUseFailure? = null
+
+    /** Adds a capture-local agent marker to a window raster; never samples the user's mouse. */
+    fun markPointer(frame: RawFrame, point: FramePoint?): RawFrame = frame
 }
 
 /** Enumerates and activates capturable windows. */
@@ -70,6 +73,13 @@ internal interface InputInjector {
      * point leaves the captured area, which the implementation must report as a refusal.
      */
     suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome
+
+    /** Reports actual native pointer steps; null reports keyboard input without moving the pointer. */
+    suspend fun applyObserved(
+        action: InputAction,
+        map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome = apply(action, map)
 }
 
 /** Operating system permissions and platform support. */

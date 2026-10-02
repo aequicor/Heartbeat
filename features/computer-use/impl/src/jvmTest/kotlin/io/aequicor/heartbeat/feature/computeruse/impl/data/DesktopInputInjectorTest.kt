@@ -18,6 +18,25 @@ import kotlin.test.assertTrue
 
 class DesktopInputInjectorTest {
     @Test
+    fun `drag progress contains every point already sent to the driver`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val progress = mutableListOf<ScreenPoint?>()
+        val outcome = injector.applyObserved(
+            InputAction.Drag(FramePoint(-100.0, 10.0), FramePoint(20.0, 130.0)),
+            { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+        ) { point ->
+            progress += point
+            assertEquals(progress.size, driver.movements)
+        }
+        assertEquals(InputOutcome.Applied, outcome)
+        assertEquals(ScreenPoint(-100, 10), progress.first())
+        assertEquals(ScreenPoint(20, 130), progress.last())
+        assertTrue(progress.size > 2)
+        assertTrue(driver.heldButtons.isEmpty())
+    }
+
+    @Test
     fun `unsupported text is rejected before the first input event`() = runTest {
         val driver = RecordingDriver()
         val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))

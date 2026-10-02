@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
@@ -54,7 +55,13 @@ internal class DesktopWindowCatalog(private val platform: PlatformInfo, private 
         }
     }
 
-    override suspend fun resolve(id: WindowId): WindowTarget? = list().firstOrNull { it.id == id }
+    override suspend fun resolve(id: WindowId): WindowTarget? = withContext(dispatchers.io) {
+        when (platform.host) {
+            HostPlatform.Windows -> guarded("window lookup") { WindowsScreenBackend.resolve(id) }
+            HostPlatform.MacOs -> guarded("window lookup") { MacOsScreenBackend.resolve(id) }
+            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> null
+        }
+    }
 
     override suspend fun activate(target: WindowTarget): Boolean = withContext(dispatchers.io) {
         when (platform.host) {
@@ -143,6 +150,10 @@ internal class DesktopScreenCapturer(
                 is ComputerUseMode.Desktop -> captureScreen(bounds)
                 is ComputerUseMode.Window -> captureWindow(mode, bounds)
             } ?: return@withContext null
+            if (mode is ComputerUseMode.Window && currentBounds(mode) != bounds) {
+                log.w { "window geometry changed during pixel capture" }
+                return@withContext null
+            }
             val isPointerMarked = isCursorIncluded && (mode !is ComputerUseMode.Desktop || mode.isCursorIncluded)
             val marked = if (isPointerMarked) {
                 val pointer = guarded("pointer position") { MouseInfo.getPointerInfo()?.location }
@@ -170,6 +181,14 @@ internal class DesktopScreenCapturer(
         }
         return image?.toGrid()
     }
+
+    override fun markPointer(frame: RawFrame, point: FramePoint?): RawFrame = frame.copy(
+        pixels = pointerMarker(
+            frame.pixels,
+            frame.bounds,
+            point?.let { ScreenPoint(frame.bounds.x + it.x.toInt(), frame.bounds.y + it.y.toInt()) },
+        ),
+    )
 
     private suspend fun captureWindow(mode: ComputerUseMode.Window, bounds: ScreenBounds): PixelGrid? {
         val native = when (platform.host) {
@@ -315,7 +334,13 @@ internal class DesktopOsPermissions(
             val area = device.defaultConfiguration.bounds
             MonitorInfo(
                 id = MonitorId(device.getIDstring()),
-                bounds = ScreenBounds(area.x, area.y, area.width.coerceAtLeast(1), area.height.coerceAtLeast(1)),
+                bounds = ScreenBounds(
+                    area.x,
+                    area.y,
+                    area.width.coerceAtLeast(1),
+                    area.height.coerceAtLeast(1),
+                    device.defaultConfiguration.defaultTransform.scaleX,
+                ),
                 isPrimary = device == primary,
             )
         }

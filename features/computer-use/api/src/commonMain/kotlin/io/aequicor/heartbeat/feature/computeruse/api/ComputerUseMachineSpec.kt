@@ -19,7 +19,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | ArmInput | input is available and no authorization binding | stay(armed) | |
  * | Ready | BeginCapture | the mode is supported, the owner is not stopped | Capturing | OpenCapture, CaptureChanged |
  * | Ready | OwnerReleased | owner was stopped | stay(stopped-owner) | |
- * | Capturing | CaptureOpened | matching session | stay(open) | |
+ * | Capturing | CaptureOpened | matching session | stay(open) | ObserveCapture |
+ * | Capturing | InputProgress | matching session, newer revision | stay(activity) | |
  * | Capturing | ArmInput | input available, matching binding and owner | stay(armed) | |
  * | Capturing | Capture | host open, matching session and owner | stay | CaptureFrame |
  * | Capturing | Crop | host open, region in master, session and owner match | stay | ProduceCrop |
@@ -119,6 +120,12 @@ public val ComputerUseMachineSpec: MachineSpec<
     state<ComputerUseState.Capturing> {
         on<ComputerUseIntent.Internal.CaptureOpened>(guard = { state.session == intent.session }) {
             stay { state.copy(isOpen = true) }
+            effect { ComputerUseEffect.ObserveCapture(state.session) }
+        }
+        on<ComputerUseIntent.Internal.InputProgress>(guard = {
+            state.session == intent.session && state.isOpen && intent.activity.revision >= state.inputActivity.revision
+        }) {
+            stay { state.copy(inputActivity = intent.activity) }
         }
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
@@ -257,6 +264,8 @@ public val ComputerUseMachineSpec: MachineSpec<
                 ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.CaptureFailed, effect.session)
 
             is ComputerUseEffect.CloseCapture -> null
+
+            is ComputerUseEffect.ObserveCapture -> null
 
             is ComputerUseEffect.CaptureFrame ->
                 ComputerUseIntent.Internal.Rejected(ComputerUseFailure.CaptureFailed, effect.requestId)

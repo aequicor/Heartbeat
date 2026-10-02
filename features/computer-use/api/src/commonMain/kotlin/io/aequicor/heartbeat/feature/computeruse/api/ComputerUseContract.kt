@@ -43,6 +43,8 @@ public sealed interface ComputerUseState : MachineState {
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
         public val isOpen: Boolean = false,
+        /** Actual input feedback and current target geometry, independent of the settings screen. */
+        public val inputActivity: ComputerUseInputActivity = ComputerUseInputActivity(),
         /** Agent turns the user stopped while capturing; carried into Ready, see [Ready.stoppedOwners]. */
         public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
@@ -159,6 +161,12 @@ public sealed interface ComputerUseIntent : MachineIntent {
         /** The host opened this session; capture/input may now run. */
         public data class CaptureOpened(public val session: CaptureSessionId) : Internal
 
+        /** Native input or target observation; a replaced session's feedback is ignored. */
+        public data class InputProgress(
+            public val session: CaptureSessionId,
+            public val activity: ComputerUseInputActivity,
+        ) : Internal
+
         /** The host can work; [capabilities] drive every later guard. */
         public data class Available(public val capabilities: ComputerUseCapabilities) : Internal
 
@@ -212,6 +220,9 @@ public sealed interface ComputerUseEffect : MachineEffect {
     /** Opens the capture device for [mode] of [session]; leaving the capturing state cancels it. */
     public data class OpenCapture(public val mode: ComputerUseMode, public val session: CaptureSessionId) :
         ComputerUseEffect
+
+    /** Observes target moves, resizing and focus while this session remains open. */
+    public data class ObserveCapture(public val session: CaptureSessionId) : ComputerUseEffect
 
     /** Releases the capture device. */
     public data class CloseCapture(

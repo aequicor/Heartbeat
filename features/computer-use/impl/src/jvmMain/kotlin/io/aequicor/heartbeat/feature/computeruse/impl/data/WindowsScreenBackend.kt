@@ -53,17 +53,19 @@ internal object WindowsScreenBackend {
         return found
     }
 
-    /** The current rectangle of a window; `null` when it was closed or has no area. */
-    fun bounds(id: WindowId): ScreenBounds? {
+    /** Direct lookup checks the PID before visibility/title filters, including hidden host-owned peers. */
+    fun resolve(id: WindowId): WindowTarget? {
         val library = user32 ?: return null
-        val handle = handle(id) ?: return null
-        val rect = NativeRect()
-        if (!library.GetWindowRect(handle, rect)) return null
-        val width = rect.right - rect.left
-        val height = rect.bottom - rect.top
-        if (width <= 0 || height <= 0) return null
-        return ScreenBounds(rect.left, rect.top, width, height, scale(library, handle))
+        val hwnd = handle(id) ?: return null
+        val pid = processId(library, hwnd)
+        if (pid.toLong() == ProcessHandle.current().pid()) {
+            return WindowTarget(id, "Heartbeat", "", ScreenBounds(0, 0, 1, 1), isSelfOwned = true)
+        }
+        return describe(library, hwnd)
     }
+
+    /** Geometry uses AWT user coordinates; PrintWindow's bitmap keeps its original physical resolution. */
+    fun bounds(id: WindowId): ScreenBounds? = resolve(id)?.bounds
 
     /** Brings a window to the front so that injected input reaches it. */
     suspend fun activate(id: WindowId): Boolean {
@@ -99,14 +101,19 @@ internal object WindowsScreenBackend {
         val width = rect.right - rect.left
         val height = rect.bottom - rect.top
         if (width <= 0 || height <= 0) return null
+        val displays = windowsDisplays()
+        val nativeBounds = ScreenBounds(rect.left, rect.top, width, height, scale(library, hwnd))
+        val userBounds = windowsUserBounds(nativeBounds, displays) ?: return null
         return WindowTarget(
             id = WindowId(Pointer.nativeValue(hwnd).toString()),
             application = applicationOf(library, hwnd) ?: title,
             title = title,
-            bounds = ScreenBounds(rect.left, rect.top, width, height, scale(library, hwnd)),
+            bounds = userBounds,
             isMinimized = library.IsIconic(hwnd),
             isSelfOwned = processId(library, hwnd).toLong() == ProcessHandle.current().pid(),
-            clientBounds = windowsClientBounds(library, hwnd, scale(library, hwnd)),
+            clientBounds = windowsClientBounds(library, hwnd, scale(library, hwnd))?.let {
+                windowsUserBounds(it, displays, requiresSingleDisplay = true)
+            },
         )
     }
 

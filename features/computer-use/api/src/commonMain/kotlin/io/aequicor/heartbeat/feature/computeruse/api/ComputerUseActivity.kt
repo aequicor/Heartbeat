@@ -8,6 +8,20 @@ public data class ComputerUseActivity(
     public val screens: List<ComputerUseScreenBounds> = emptyList(),
     /** The agent turn holding the capture; the host stops it with [ComputerUseIntent.Public.StopAgent]. */
     public val owner: CaptureOwner.Agent? = null,
+    public val session: CaptureSessionId? = null,
+    /** Live native input feedback, fenced to the active capture session. */
+    public val input: ComputerUseInputActivity = ComputerUseInputActivity(),
+)
+
+/** Host-coordinate feedback; the pointer is relative to [bounds], not to a preview or the user's mouse. */
+public data class ComputerUseInputActivity(
+    public val bounds: ScreenBounds? = null,
+    public val pointer: FramePoint? = null,
+    public val isPointerVisible: Boolean = false,
+    /** Increments once when an action first reaches the native input driver. */
+    public val sequence: Long = 0L,
+    /** Monotonic feedback revision; rejects a delayed observation after a newer pointer step. */
+    public val revision: Long = 0L,
 )
 
 /** Monitor bounds in the coordinates the host reported in [MonitorInfo.bounds], including negative origins. */
@@ -29,5 +43,11 @@ public fun ComputerUseState.computerUseActivity(): ComputerUseActivity {
                 ComputerUseScreenBounds(bounds.x, bounds.y, bounds.widthPx, bounds.heightPx)
             }
     }
-    return ComputerUseActivity(isActive = true, screens = screens, owner = agent)
+    return ComputerUseActivity(
+        isActive = true,
+        screens = screens,
+        owner = agent,
+        session = capture.session,
+        input = capture.inputActivity,
+    )
 }

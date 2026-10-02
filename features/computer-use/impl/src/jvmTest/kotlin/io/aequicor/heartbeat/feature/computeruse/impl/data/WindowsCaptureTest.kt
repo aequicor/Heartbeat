@@ -1,9 +1,15 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
+import com.sun.jna.Native
+import com.sun.jna.Platform
 import com.sun.jna.Pointer
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
+import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import kotlinx.coroutines.test.runTest
+import java.awt.EventQueue
+import java.awt.GraphicsEnvironment
 import java.lang.reflect.Proxy
+import javax.swing.JFrame
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -11,6 +17,35 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WindowsCaptureTest {
+    @Test
+    fun `direct lookup recognizes a hidden untitled host peer`() {
+        if (!Platform.isWindows() || GraphicsEnvironment.isHeadless()) return
+        EventQueue.invokeAndWait {
+            val window = JFrame()
+            try {
+                window.addNotify()
+                val id = WindowId(Pointer.nativeValue(Native.getWindowPointer(window)).toString())
+                assertTrue(WindowsScreenBackend.resolve(id)?.isSelfOwned == true)
+            } finally {
+                window.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `native coordinates map around monitor origins without double HiDPI scaling`() {
+        val displays = listOf(ScreenBounds(0, 0, 1600, 900, 1.5), ScreenBounds(-2560, -100, 1280, 720, 2.0))
+        assertEquals(
+            ScreenBounds(200, 100, 800, 400, 1.5),
+            windowsUserBounds(ScreenBounds(300, 150, 1200, 600), displays, true),
+        )
+        assertEquals(
+            ScreenBounds(-2460, 0, 500, 300, 2.0),
+            windowsUserBounds(ScreenBounds(-2360, 100, 1000, 600), displays, true),
+        )
+        assertNull(windowsUserBounds(ScreenBounds(-50, 0, 500, 300), displays, true))
+    }
+
     @Test
     fun `client capture uses the native client flag and screen origin`() {
         val fixture = Fixture()

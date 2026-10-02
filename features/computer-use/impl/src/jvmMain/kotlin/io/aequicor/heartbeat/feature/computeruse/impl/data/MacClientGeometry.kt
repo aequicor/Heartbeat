@@ -19,6 +19,8 @@ internal class MacClientGeometry(private val ax: ApplicationServicesLib, private
         return try {
             val app = ax.AXUIElementCreateApplication(pid) ?: return null
             try {
+                val timeoutResult = ax.AXUIElementSetMessagingTimeout(app, AX_TIMEOUT_SECONDS)
+                check(timeoutResult == 0) { "AX messaging timeout unavailable nativeError=$timeoutResult" }
                 attribute(app, "AXWindows") { windows ->
                     val matches = elements(windows).filter { rectangle(it) == window }
                     val match = matches.singleOrNull() ?: return@attribute null
@@ -92,6 +94,7 @@ internal class MacClientGeometry(private val ax: ApplicationServicesLib, private
     }
 
     private companion object {
+        const val AX_TIMEOUT_SECONDS = 0.1f
         const val POINT_TYPE = 1
         const val SIZE_TYPE = 2
         const val DOUBLE_BYTES = 8L

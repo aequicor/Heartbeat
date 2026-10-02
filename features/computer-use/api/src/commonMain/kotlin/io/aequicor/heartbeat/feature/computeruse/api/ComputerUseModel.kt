@@ -26,8 +26,8 @@ public value class CaptureSessionId(public val value: String)
  *
  * @property x left edge, in virtual-desktop pixels; negative on monitors left of the primary one.
  * @property y top edge, in virtual-desktop pixels.
- * @property widthPx width in physical pixels; positive.
- * @property heightPx height in physical pixels; positive.
+ * @property widthPx width in host coordinate units (logical points on Retina/HiDPI); positive.
+ * @property heightPx height in host coordinate units; positive.
  * @property scale monitor scale factor the rectangle was measured with; `1.0` when unknown.
  */
 public data class ScreenBounds(

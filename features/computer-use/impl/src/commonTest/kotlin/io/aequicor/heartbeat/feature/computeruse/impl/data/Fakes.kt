@@ -133,6 +133,8 @@ internal class FakeWindowCatalog(
     var activations: Int = 0
         private set
     var isActivationAllowed: Boolean = true
+    var isTargetForeground: Boolean = true
+    override suspend fun isForeground(target: WindowTarget): Boolean = isTargetForeground
 
     override suspend fun list(): List<WindowTarget> = targets
 
@@ -150,6 +152,17 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
     val points = mutableListOf<ScreenPoint>()
     var refusal: ComputerUseFailure? = null
     var onInput: () -> Unit = {}
+    var isProgressReported: Boolean = false
+
+    override suspend fun applyObserved(
+        action: InputAction,
+        map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome {
+        val outcome = apply(action, map)
+        if (outcome == InputOutcome.Applied && isProgressReported) onProgress(action.firstPoint()?.let(map))
+        return outcome
+    }
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         onInput()

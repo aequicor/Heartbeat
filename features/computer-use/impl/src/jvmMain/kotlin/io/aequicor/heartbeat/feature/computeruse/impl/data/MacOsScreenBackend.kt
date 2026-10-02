@@ -68,11 +68,38 @@ internal object MacOsScreenBackend {
         return found
     }
 
+    /** Direct CGWindowID lookup includes off-screen peers, so own-process rejection precedes presentation hiding. */
+    fun resolve(id: WindowId): WindowTarget? {
+        val identifier = id.value.toIntOrNull() ?: return null
+        val list = info(INCLUDE_WINDOW, identifier) ?: return null
+        return try {
+            entries(list).singleOrNull()?.let { entry ->
+                val found = keys ?: return@let null
+                if (number(entry, found.ownerPid).toLong() == ProcessHandle.current().pid()) {
+                    WindowTarget(id, "Heartbeat", "", ScreenBounds(0, 0, 1, 1), isSelfOwned = true)
+                } else {
+                    describe(entry)
+                }
+            }
+        } finally {
+            release(list)
+        }
+    }
+
     /** The current rectangle of a window; `null` when it is gone or off-screen. */
-    fun bounds(id: WindowId): ScreenBounds? = windows().firstOrNull { it.id == id }?.bounds
+    fun bounds(id: WindowId): ScreenBounds? = resolve(id)?.bounds
 
     /** `true` when this window is the frontmost normal window; macOS input reaches only that one. */
-    fun isFrontmost(id: WindowId): Boolean = windows().firstOrNull()?.id == id
+    fun isFrontmost(id: WindowId): Boolean {
+        val found = keys ?: return false
+        val list = info() ?: return false
+        return try {
+            val first = entries(list).firstOrNull { number(it, found.layer).toInt() == NORMAL_LAYER }
+            first != null && number(first, found.number).toLong().toString() == id.value
+        } finally {
+            release(list)
+        }
+    }
 
     /** Renders one window into pixels with the system capture tool; `null` on refusal or timeout. */
     suspend fun capture(id: WindowId, clientBounds: ScreenBounds? = null): PixelGrid? {
@@ -157,10 +184,10 @@ internal object MacOsScreenBackend {
         }
     }
 
-    private fun info(): Pointer? {
+    private fun info(options: Int = ON_SCREEN_EXCLUDING_DESKTOP, id: Int = NULL_WINDOW): Pointer? {
         val library = graphics ?: return null
         return try {
-            library.CGWindowListCopyWindowInfo(ON_SCREEN_EXCLUDING_DESKTOP, NULL_WINDOW)
+            library.CGWindowListCopyWindowInfo(options, id)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -211,7 +238,7 @@ internal object MacOsScreenBackend {
             application = owner ?: title.orEmpty(),
             title = title.orEmpty(),
             bounds = bounds,
-            isMinimized = false,
+            isMinimized = value(entry, found.onScreen)?.let { foundation?.CFBooleanGetValue(it) != true } ?: true,
             isSelfOwned = isSelfOwned,
             clientBounds = if (isSelfOwned) null else clientGeometry?.bounds(processId, bounds),
         )
@@ -310,6 +337,7 @@ internal object MacOsScreenBackend {
         null
     }
 
+    private const val INCLUDE_WINDOW = 8
     private const val ON_SCREEN_EXCLUDING_DESKTOP = 1 or 16
     private const val NULL_WINDOW = 0
     private const val NORMAL_LAYER = 0
@@ -342,6 +370,7 @@ internal interface CoreGraphicsLib : Library {
 internal interface CoreFoundationLib : Library {
     fun CFGetTypeID(value: Pointer): Long
     fun CFArrayGetTypeID(): Long
+    fun CFBooleanGetValue(value: Pointer): Boolean
     fun CFArrayGetCount(array: Pointer): Long
     fun CFArrayGetValueAtIndex(array: Pointer, index: Long): Pointer?
     fun CFDictionaryGetValue(dictionary: Pointer, key: Pointer): Pointer?
@@ -357,6 +386,7 @@ internal interface CoreFoundationLib : Library {
 internal interface ApplicationServicesLib : Library {
     fun AXIsProcessTrusted(): Boolean
     fun AXUIElementCreateApplication(pid: Int): Pointer?
+    fun AXUIElementSetMessagingTimeout(element: Pointer, timeoutInSeconds: Float): Int
     fun AXUIElementCopyAttributeValue(
         element: Pointer,
         attribute: Pointer,
@@ -382,6 +412,7 @@ internal class WindowKeys(foundation: CoreFoundationLib) {
     /** `kCGWindowOwnerName`: the owning application. */
     val owner: Pointer? = global(WINDOW_OWNER_KEY)
     val ownerPid: Pointer? = global("kCGWindowOwnerPID")
+    val onScreen: Pointer? = global("kCGWindowIsOnscreen")
 
     /** `kCGWindowLayer`: normal application windows are layer zero. */
     val layer: Pointer? = global(WINDOW_LAYER_KEY)

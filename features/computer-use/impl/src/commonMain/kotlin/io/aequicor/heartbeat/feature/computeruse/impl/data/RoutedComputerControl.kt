@@ -101,7 +101,13 @@ internal class RoutedComputerControl(
             ?: return@coroutineScope ComputerUseOutput.Rejected(ComputerUseFailure.Unavailable)
         val requestId = Uuid.random().toString()
         val awaited = async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.mapNotNull { output -> output.answer(requestId) }.first()
+            machine.outputs.mapNotNull { output ->
+                output.answer(
+                    requestId,
+                    capture.session,
+                    machine.state.value,
+                )
+            }.first()
         }
         var isAccepted = false
         var hasAnswer = false
@@ -160,17 +166,29 @@ internal class RoutedComputerControl(
         log.i { "computer use operation cancelled session=$session result=$sent" }
     }
 
-    private fun ComputerUseOutput.answer(requestId: String): ComputerUseOutput? = when (this) {
+    private fun ComputerUseOutput.answer(
+        requestId: String,
+        session: CaptureSessionId,
+        state: ComputerUseState,
+    ): ComputerUseOutput? = when (this) {
         is ComputerUseOutput.InputApplied -> takeIf { this.requestId == requestId }
 
         is ComputerUseOutput.Rejected -> takeIf { this.requestId == requestId }
 
         is ComputerUseOutput.FrameReady -> takeIf { this.requestId == requestId }
 
-        is ComputerUseOutput.CaptureChanged, ComputerUseOutput.Revoked ->
-            ComputerUseOutput.Rejected(ComputerUseFailure.Unavailable)
+        is ComputerUseOutput.CaptureChanged, ComputerUseOutput.Revoked -> {
+            val failed = (state as? ComputerUseState.Failed)?.takeIf { it.session == session }
+            ComputerUseOutput.Rejected(failed?.reason ?: ComputerUseFailure.Unavailable)
+        }
 
-        is ComputerUseOutput.SessionClosed, is ComputerUseOutput.PermissionRequired -> null
+        is ComputerUseOutput.SessionClosed -> if (this.session == session) {
+            ComputerUseOutput.Rejected(reason ?: ComputerUseFailure.Unavailable)
+        } else {
+            null
+        }
+
+        is ComputerUseOutput.PermissionRequired -> null
     }
 
     private fun ComputerUseOutput.captureAnswer(): CaptureResult = when (this) {

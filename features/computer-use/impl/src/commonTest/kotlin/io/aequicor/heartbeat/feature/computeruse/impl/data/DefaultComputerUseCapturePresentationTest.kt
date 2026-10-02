@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseSuppressionReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.awaitCancellation
@@ -17,6 +18,33 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DefaultComputerUseCapturePresentationTest {
+    @Test
+    fun `pointer suppression keeps its reason for controllers registered mid action`() = runTest {
+        val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
+        val reasons = mutableListOf<ComputerUseSuppressionReason>()
+        val indicator = object : ComputerUsePresentation {
+            override fun suppress(): AutoCloseable = error("A reason must be provided")
+            override fun suppress(reason: ComputerUseSuppressionReason): AutoCloseable {
+                reasons += reason
+                return AutoCloseable { }
+            }
+        }
+        presentation.register(indicator)
+        presentation.withoutPresentation(ComputerUseSuppressionReason.PointerInput) {
+            val late = presentation.register(indicator)
+            late.close()
+        }
+        presentation.withoutPresentation { }
+        assertEquals(
+            listOf(
+                ComputerUseSuppressionReason.PointerInput,
+                ComputerUseSuppressionReason.PointerInput,
+                ComputerUseSuppressionReason.CapturePixels,
+            ),
+            reasons,
+        )
+    }
+
     @Test
     fun `capture sees no app windows and restores their original visibility after success or failure`() = runTest {
         val presentation = DefaultComputerUseCapturePresentation(TestDispatchers(StandardTestDispatcher(testScheduler)))
