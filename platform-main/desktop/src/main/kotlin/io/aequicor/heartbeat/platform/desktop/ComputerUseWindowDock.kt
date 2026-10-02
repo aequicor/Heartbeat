@@ -74,8 +74,13 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
     private suspend fun pin(session: DockedSession, width: Int, height: Int) {
         val isAlreadyFloating = session.placement == WindowPlacement.Floating && !session.isMinimized
         if (!isAlreadyFloating) log.d { "Agent capture: leaving ${session.describe()} before pinning the session" }
+        val placedBounds = window.bounds
         requestFloating()
         awaitWindow("leave ${session.describe()}", TRANSITION_TIMEOUT, ::isFloating)
+        if (session.placement != WindowPlacement.Floating) {
+            // macOS reports floating before its unzoom animation starts: wait for the frame to leave the old one.
+            awaitWindow("shrink from ${session.placement}", TRANSITION_TIMEOUT) { window.bounds != placedBounds }
+        }
         session.floatingBounds = if (isAlreadyFloating) window.bounds else awaitSettledBounds()
         val target = computerUseSessionBounds(window.workArea, width, height)
         requestBounds(target)
@@ -100,8 +105,13 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
             awaitWindow("return to ${session.placement}", TRANSITION_TIMEOUT) {
                 window.placement == session.placement
             }
+            // Zoom and fullscreen animate; the next session must not read the window halfway through.
+            awaitSettledBounds()
         }
-        if (session.isMinimized) window.state.isMinimized = true
+        if (session.isMinimized) {
+            window.state.isMinimized = true
+            awaitWindow("minimize again", TRANSITION_TIMEOUT) { window.isMinimized }
+        }
         log.i { "Agent capture ended: window restored to ${session.describe()}" }
     }
 
@@ -135,7 +145,7 @@ internal class ComputerUseWindowDock(private val window: DockableWindow) {
         if (!isConfirmed) log.w { "Session window did not $step in time; continuing from its current state" }
     }
 
-    /** Leaving fullscreen animates on macOS: the floating bounds count once consecutive reads agree. */
+    /** Placement changes animate on macOS: the bounds count once consecutive reads agree. */
     private suspend fun awaitSettledBounds(): Rectangle {
         var settled = window.bounds
         val isSettled = withTimeoutOrNull(TRANSITION_TIMEOUT) {

@@ -413,12 +413,16 @@ internal class MacWindowAccess {
     private fun runOnMainRunLoop(task: FutureTask<Unit>) {
         val finished = CountDownLatch(1)
         val work = Runnable {
-            // The run loop drains autorelease pools only in AppKit's modes, not in AWTRunLoopMode.
-            val pool = poolPush.invokePointer(emptyArray())
             try {
-                task.run()
+                // The run loop drains autorelease pools only in AppKit's modes, not in AWTRunLoopMode.
+                val pool = poolPush.invokePointer(emptyArray())
+                try {
+                    task.run()
+                } finally {
+                    poolPop.invokeVoid(arrayOf(pool))
+                }
             } finally {
-                poolPop.invokeVoid(arrayOf(pool))
+                // Releases the event thread even if the pool calls themselves fail.
                 finished.countDown()
             }
         }

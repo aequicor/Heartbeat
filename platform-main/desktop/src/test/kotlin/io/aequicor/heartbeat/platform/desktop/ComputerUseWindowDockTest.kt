@@ -112,6 +112,23 @@ class ComputerUseWindowDockTest {
         assertEquals(NORMAL, window.floatingBounds)
     }
 
+    @Test
+    fun `minimized window stays minimized when a new session starts during its restore`() = runTest {
+        val window = FakeWindow(NORMAL, WindowPlacement.Floating, isMinimized = true)
+        val dock = ComputerUseWindowDock(window)
+        val first = launch { dock.holdPinned(WIDTH, HEIGHT) }
+        advanceUntilIdle()
+        first.cancel()
+        val second = launch { dock.holdPinned(WIDTH, HEIGHT) }
+        advanceUntilIdle()
+        window.settle()
+        assertEquals(DOCKED, window.bounds)
+        second.cancelAndJoin()
+        window.settle()
+        assertTrue(window.isMinimized)
+        assertEquals(NORMAL, window.floatingBounds)
+    }
+
     private companion object {
         const val WIDTH = 420
         const val HEIGHT = 900

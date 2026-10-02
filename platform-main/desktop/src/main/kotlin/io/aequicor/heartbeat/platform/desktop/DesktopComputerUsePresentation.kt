@@ -58,7 +58,7 @@ internal fun DesktopComputerUsePresentation(
                 dimensions.computerUseShadowWidth.value.toInt(),
             )
         }
-        // show() replaces the appearance in place and an ended activity has no screens; close() below disposes it.
+        // show() recolors in place and recreates windows only for a new monitor layout; close() below disposes them.
         onDispose { }
     }
     DisposableEffect(overlay) { onDispose { overlay.close() } }

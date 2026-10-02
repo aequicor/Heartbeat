@@ -86,8 +86,23 @@ internal class ComputerUseScreenOverlay(private val owner: Window) : AutoCloseab
         if (requested == null) {
             disposeWindows()
         } else if (requested != appearance) {
-            showOnEventThread(requested)
+            val current = appearance
+            val isSameGeometry = current != null && windows.isNotEmpty() &&
+                current.monitors == requested.monitors && current.shadowWidth == requested.shadowWidth
+            if (isSameGeometry) recolor(requested) else showOnEventThread(requested)
         }
+    }
+
+    /** A theme change repaints the existing windows; only a new monitor layout recreates them. */
+    private fun recolor(next: OverlayAppearance) {
+        windows.forEach { window ->
+            window.background = Color(next.color.red, next.color.green, next.color.blue, 0)
+            window.contentPane = PerimeterShadow(next.color, next.shadowWidth)
+            window.validate()
+            window.repaint()
+        }
+        appearance = next
+        log.d { "Screen-control shadow recolored on ${windows.size} displays" }
     }
 
     private fun showOnEventThread(next: OverlayAppearance) {
@@ -205,7 +220,7 @@ private class WindowsOverlayPassThrough : OverlayPassThrough {
     }
 }
 
-/** Cocoa work runs on its main queue, without depending on private AWT peer/native pointer layouts. */
+/** Cocoa work runs on the AppKit main thread, without depending on private AWT peer/native pointer layouts. */
 private class MacOverlayPassThrough : OverlayPassThrough {
     private val cocoa = MacWindowAccess()
 
