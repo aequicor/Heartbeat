@@ -31,8 +31,7 @@ public data class InstallPlan(
 ) {
     init {
         require(version.isNotBlank() && version.none { it == '/' || it == '\\' }) { "Invalid release version" }
-        require(url.startsWith("https://")) { "Releases are downloaded over https only" }
-        require(hostOf(url) in allowedHosts) { "Release URL outside the allowed hosts" }
+        require(isTrustedReleaseUrl(url, allowedHosts)) { "Releases are downloaded over https from allowed hosts" }
         require(Sha256.matches(sha256)) { "SHA-256 must be 64 lowercase hex characters" }
         require(size == null || size > 0) { "Invalid release size" }
         require(isSafeRelativePath(executable)) { "Executable must be a relative path inside the release" }
@@ -99,10 +98,18 @@ public fun sha256FromSums(sums: String, asset: String): String? {
     return matches.singleOrNull()
 }
 
-/** Host of an https [url], lowercased; empty when there is none. */
-public fun hostOf(url: String): String =
-    url.substringAfter("://", "").substringBefore('/').substringBefore('?').substringBefore('#')
-        .substringAfterLast('@').substringBefore(':').lowercase()
+/**
+ * Host of an https [url], lowercased; empty when there is none. An authority with user info, a backslash, an escape or
+ * anything but a plain host name and port has no host, because browsers and clients disagree about where it points.
+ */
+public fun hostOf(url: String): String {
+    val authority = url.substringAfter("://", "").takeWhile { it != '/' && it != '?' && it != '#' }
+    return Authority.matchEntire(authority)?.groupValues?.get(1)?.lowercase().orEmpty()
+}
+
+/** Whether [url] may be downloaded: https on one of [allowedHosts]. Check it before building an [InstallPlan]. */
+public fun isTrustedReleaseUrl(url: String, allowedHosts: Set<String>): Boolean =
+    url.startsWith("https://") && hostOf(url) in allowedHosts
 
 private fun isSafeRelativePath(path: String): Boolean =
     path.isNotBlank() && !path.startsWith('/') && '\\' !in path && ':' !in path &&
@@ -110,4 +117,5 @@ private fun isSafeRelativePath(path: String): Boolean =
 
 private const val SHA256_PREFIX = "sha256:"
 private val Sha256 = Regex("[0-9a-f]{64}")
+private val Authority = Regex("([A-Za-z0-9.-]+)(?::[0-9]{1,5})?")
 private val Whitespace = Regex("\\s+")

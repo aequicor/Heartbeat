@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.DeveloperFlags
@@ -18,6 +19,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferenc
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEnginePreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -106,13 +108,24 @@ class ProfileLaunchConfig(
         if (!toggles.get(EngineManagementEnabled)) return LaunchContext()
         mutex.withLock {
             if (!isLoaded) {
-                installs.refresh()
+                load()
                 isLoaded = true
             }
         }
         val context = LaunchContext(preferences.load().launchOf(engine), installs.state.value[engine])
         log.d { "launch context engine=${engine.value} $context" }
         return context
+    }
+
+    /** Unreadable copies leave the engines on their other installations instead of failing every start. */
+    private suspend fun load() {
+        try {
+            installs.refresh()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: ManagementException) {
+            log.w(e) { "managed copies could not be read; engines start without them" }
+        }
     }
 }
 

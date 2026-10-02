@@ -98,6 +98,12 @@ class HttpReleaseFeeds(private val client: HttpClient, private val maxBytes: Int
     }
 }
 
+/**
+ * This failure without its message: file system and parser messages name the user's paths, which are never logged.
+ * Only the kind of failure is kept.
+ */
+internal fun Throwable.withoutDetails(): Throwable = IllegalStateException(this::class.simpleName ?: "Failure")
+
 /** A management failure of an installation step. */
 internal fun installFailure(reason: InstallFailureReason, cause: Throwable? = null): ManagementException =
     ManagementException(ManagementFailure.Install(reason), cause)

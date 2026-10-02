@@ -4,11 +4,14 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.StagedInstall
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +40,9 @@ import kotlin.uuid.Uuid
  * [ManagedInstallStore] in [root]: `<engine>/versions/<version>-<sha8>` holds activated copies, `active.json` names
  * the active one (written to a temporary file and moved into place), `staging` and `downloads` hold work in
  * progress, and `trash` holds copies being removed. Operations of one engine are serialized in this process and
- * across Heartbeat processes by a file lock. A copy still used by a running process (Windows) stays in `trash`
- * until a later sweep removes it. Paths and URLs are never logged.
+ * across Heartbeat processes by a file lock; a refresh sweeps leftovers only of engines it can lock. A replaced copy
+ * that a running process still uses (Windows) stays where it is and is swept once nothing uses it. Paths and URLs
+ * are never logged, and neither are file system messages, which contain them.
  */
 class FileManagedInstallStore(
     private val root: Path,
@@ -55,18 +59,26 @@ class FileManagedInstallStore(
     override val state: StateFlow<Map<EngineId, ManagedInstall>> = installs.asStateFlow()
 
     override suspend fun refresh() {
-        val found = withContext(io) {
-            if (!Files.isDirectory(root)) return@withContext emptyMap()
-            val engines = Files.list(root).use { children -> children.filter(Files::isDirectory).toList() }
-            engines.mapNotNull { directory ->
-                val engine = directory.fileName.toString().takeIf { EngineName.matches(it) }?.let(::EngineId)
-                    ?: return@mapNotNull null
-                sweep(directory)
-                readActive(directory)?.let { engine to it }
-            }.toMap()
+        val engines = withContext(io) {
+            if (!Files.isDirectory(root)) return@withContext emptyList()
+            storage { Files.list(root).use { children -> children.filter(Files::isDirectory).toList() } }
+                .mapNotNull { directory -> directory.fileName.toString().takeIf { EngineName.matches(it) } }
+                .map(::EngineId)
         }
-        installs.value = found
-        log.i { "managed installs read count=${found.size}" }
+        var skipped = 0
+        engines.forEach { engine ->
+            // An engine changed right now (here or by another process) keeps its state and its files.
+            val isRead = tryLocked(engine) { directory ->
+                val active = withContext(io) {
+                    sweep(directory)
+                    readActive(directory)
+                }
+                installs.update { if (active == null) it - engine else it + (engine to active) }
+            }
+            if (!isRead) skipped++
+        }
+        installs.update { current -> current.filterKeys { it in engines } }
+        log.i { "managed installs read count=${installs.value.size} skipped=$skipped" }
     }
 
     override suspend fun stage(
@@ -91,10 +103,14 @@ class FileManagedInstallStore(
             isStaged = true
             StagedInstall(engine, ManagedInstall(plan.version, executable.toString(), clock.now()), token, plan.sha256)
         } finally {
-            // Blocking file removals: quick, and they must run even when the caller was cancelled.
-            deleteQuietly(download)
-            if (!isStaged) deleteTree(staging)
+            // Removals must run even when the caller was cancelled; an unpacked tree may take a while.
+            withContext(NonCancellable) { removeLeftovers(download, staging.takeUnless { isStaged }) }
         }
+    }
+
+    private suspend fun removeLeftovers(download: Path, staging: Path?) = withContext(io) {
+        deleteQuietly(download)
+        staging?.let(::deleteTree)
     }
 
     override suspend fun activate(staged: StagedInstall): ManagedInstall = locked(staged.engine) { directory ->
@@ -151,11 +167,23 @@ class FileManagedInstallStore(
         storage { Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE) }
         val installedAt = clock.now()
         writeRecord(directory, ActiveRecord(staged.candidate.version, name, relative, sha256, installedAt))
+        // The new copy is active from here on; the previous one is removed now or, while still in use, later.
         if (previous != null && previous.directory != name) {
-            moveToTrash(directory, directory.resolve(VERSIONS).resolve(previous.directory))
+            putAside(directory, directory.resolve(VERSIONS).resolve(previous.directory))
         }
-        sweep(directory)
         return ManagedInstall(staged.candidate.version, target.resolve(relative).toString(), installedAt)
+    }
+
+    /** Moves a copy that is no longer active to the trash in one attempt; one still in use is swept later. */
+    private fun putAside(directory: Path, path: Path) {
+        if (!Files.exists(path)) return
+        try {
+            Files.createDirectories(directory.resolve(TRASH))
+            val trashed = directory.resolve(TRASH).resolve(Uuid.random().toHexString())
+            Files.move(path, trashed, StandardCopyOption.ATOMIC_MOVE)
+        } catch (e: IOException) {
+            log.w(e.withoutDetails()) { "replaced managed copy is still in use; it is removed later" }
+        }
     }
 
     /** Moves [path] aside; a copy a running process still uses (Windows) is retried, then reported as in use. */
@@ -168,19 +196,29 @@ class FileManagedInstallStore(
                 Files.move(path, trash.resolve(Uuid.random().toHexString()), StandardCopyOption.ATOMIC_MOVE)
                 return@withContext
             } catch (e: FileSystemException) {
-                log.w(e) { "managed copy is in use attempt=${attempt + 1}" }
+                log.w(e.withoutDetails()) { "managed copy is in use attempt=${attempt + 1}" }
                 delay(MOVE_RETRY_MILLIS)
             }
         }
         throw installFailure(InstallFailureReason.FilesInUse)
     }
 
-    /** Removes interrupted downloads, staged copies and trashed copies; what is still in use stays for later. */
+    /**
+     * Removes interrupted downloads, staged copies, trashed copies and copies no record names any more (a replaced
+     * copy that was in use when it was replaced). Each copy is first moved to the trash, which fails while a process
+     * still uses it (Windows), so a running copy is never deleted half-way; it stays for a later sweep.
+     */
     private fun sweep(directory: Path) {
+        val active = readRecord(directory)?.directory
+        directory.resolve(VERSIONS).takeIf(Files::isDirectory)?.let { versions ->
+            children(versions).filter { it.fileName.toString() != active }.forEach { putAside(directory, it) }
+        }
         listOf(TRASH, STAGING, DOWNLOADS).map(directory::resolve).filter(Files::isDirectory).forEach { folder ->
-            Files.list(folder).use { children -> children.toList() }.forEach(::deleteTree)
+            children(folder).forEach(::deleteTree)
         }
     }
+
+    private fun children(folder: Path): List<Path> = storage { Files.list(folder).use { it.toList() } }
 
     private fun readActive(directory: Path): ManagedInstall? {
         val record = readRecord(directory) ?: return null
@@ -200,10 +238,10 @@ class FileManagedInstallStore(
         return try {
             RecordJson.decodeFromString(ActiveRecord.serializer(), Files.readString(file))
         } catch (e: SerializationException) {
-            log.w(e) { "active managed copy record is malformed; ignored" }
+            log.w(e.withoutDetails()) { "active managed copy record is malformed; ignored" }
             null
         } catch (e: IOException) {
-            log.w(e) { "active managed copy record could not be read; ignored" }
+            log.w(e.withoutDetails()) { "active managed copy record could not be read; ignored" }
             null
         }
     }
@@ -224,14 +262,32 @@ class FileManagedInstallStore(
     private suspend fun <T> locked(engine: EngineId, block: suspend (Path) -> T): T {
         require(EngineName.matches(engine.value)) { "Engine id cannot name a folder" }
         val mutex = guard.withLock { locks.getOrPut(engine) { Mutex() } }
-        return mutex.withLock {
-            val directory = root.resolve(engine.value)
-            val lock = withContext(io) { acquire(directory) }
-            try {
-                block(directory)
-            } finally {
-                lock.channel().use { lock.release() }
-            }
+        return mutex.withLock { holding(engine, block) }
+    }
+
+    /** Runs [block] when nobody changes [engine] right now, here or in another process; false otherwise. */
+    private suspend fun tryLocked(engine: EngineId, block: suspend (Path) -> Unit): Boolean {
+        val mutex = guard.withLock { locks.getOrPut(engine) { Mutex() } }
+        if (!mutex.tryLock()) return false
+        return try {
+            holding(engine, block)
+            true
+        } catch (e: ManagementException) {
+            if (e.failure != ManagementFailure.Install(InstallFailureReason.FilesInUse)) throw e
+            log.w(e) { "managed copies are being changed elsewhere; left as they are engine=${engine.value}" }
+            false
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun <T> holding(engine: EngineId, block: suspend (Path) -> T): T {
+        val directory = root.resolve(engine.value)
+        val lock = withContext(io) { acquire(directory) }
+        return try {
+            block(directory)
+        } finally {
+            lock.channel().use { lock.release() }
         }
     }
 
@@ -244,7 +300,7 @@ class FileManagedInstallStore(
         val lock = try {
             channel.tryLock()
         } catch (e: OverlappingFileLockException) {
-            log.w(e) { "managed copies are locked in this process" }
+            log.w(e.withoutDetails()) { "managed copies are locked in this process" }
             null
         }
         if (lock == null) {
@@ -255,18 +311,20 @@ class FileManagedInstallStore(
         return lock
     }
 
+    // The file system message names the user's paths: only the kind of failure travels on, so it is not the cause.
+    @Suppress("SwallowedException")
     private fun <T> storage(block: () -> T): T = try {
         block()
     } catch (e: IOException) {
-        log.w(e) { "managed copy files could not be written" }
-        throw installFailure(InstallFailureReason.Storage, e)
+        log.w(e.withoutDetails()) { "managed copy files could not be written" }
+        throw installFailure(InstallFailureReason.Storage, e.withoutDetails())
     }
 
     private fun deleteQuietly(path: Path) {
         try {
             Files.deleteIfExists(path)
         } catch (e: IOException) {
-            log.w(e) { "temporary release file could not be removed" }
+            log.w(e.withoutDetails()) { "temporary release file could not be removed" }
         }
     }
 

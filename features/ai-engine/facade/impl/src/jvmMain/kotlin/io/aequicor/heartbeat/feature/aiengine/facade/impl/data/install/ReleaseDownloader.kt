@@ -72,11 +72,15 @@ class ReleaseDownloader(
         val output = withContext(io) { storage { Files.newOutputStream(target, StandardOpenOption.CREATE_NEW) } }
         val total = try {
             stream(channel, expected) { buffer, read, received ->
-                digest.update(buffer, 0, read)
-                withContext(io) { storage { output.write(buffer, 0, read) } }
+                // Hashing and writing stay off the caller's (main) thread; progress is reported on it.
+                withContext(io) {
+                    digest.update(buffer, 0, read)
+                    storage { output.write(buffer, 0, read) }
+                }
                 progress(received, expected)
             }
         } finally {
+            // A single close: quick on any thread, and it must run even when cancelled.
             storage { output.close() }
         }
         if (expected != null && total != expected) fail(InstallFailureReason.SizeMismatch)
@@ -123,18 +127,20 @@ class ReleaseDownloader(
         }
     }
 
+    // The file system message names the user's paths: only the kind of failure travels on, so it is not the cause.
+    @Suppress("SwallowedException")
     private fun <T> storage(block: () -> T): T = try {
         block()
     } catch (e: IOException) {
-        log.w(e) { "release file could not be written" }
-        throw installFailure(InstallFailureReason.Storage, e)
+        log.w(e.withoutDetails()) { "release file could not be written" }
+        throw installFailure(InstallFailureReason.Storage, e.withoutDetails())
     }
 
     private fun deleteQuietly(path: Path) {
         try {
             Files.deleteIfExists(path)
         } catch (e: IOException) {
-            log.w(e) { "partial release file could not be removed" }
+            log.w(e.withoutDetails()) { "partial release file could not be removed" }
         }
     }
 

@@ -45,9 +45,11 @@ class ArchiveExtractor(private val limits: ExtractionLimits = ExtractionLimits()
     /** A damaged archive or a repeated entry is an invalid archive; anything else could not be written. */
     private fun unpackFailure(error: IOException): Exception {
         val isInvalid = error is ZipException || error is FileAlreadyExistsException
-        log.w(error) { if (isInvalid) "release archive is damaged" else "release archive could not be unpacked" }
+        log.w(error.withoutDetails()) {
+            if (isInvalid) "release archive is damaged" else "release archive could not be unpacked"
+        }
         val reason = if (isInvalid) InstallFailureReason.InvalidArchive else InstallFailureReason.Storage
-        return installFailure(reason, error)
+        return installFailure(reason, error.withoutDetails())
     }
 
     private fun extractTar(archive: Path, strip: Int, root: Path, budget: Budget) {

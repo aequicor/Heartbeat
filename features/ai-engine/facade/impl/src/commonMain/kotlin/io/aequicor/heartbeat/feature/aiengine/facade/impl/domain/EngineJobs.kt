@@ -106,7 +106,13 @@ class EngineJobs(
         } finally {
             withContext(NonCancellable) { finish(engine, outcome) }
         }
-        hooks.changed(engine)
+        try {
+            hooks.changed(engine)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "engine could not be inspected after the job engine=${engine.value}" }
+        }
     }
 
     private suspend fun perform(engine: EngineId, action: EngineAction): JobPhase = try {
@@ -152,12 +158,13 @@ class EngineJobs(
                 throw ManagementException(ManagementFailure.Install(InstallFailureReason.VersionMismatch))
             }
             phase(engine, JobPhase.Activating)
+            // Idle runtimes release the copy they run (Windows locks it); a busy one keeps it until its turn ends.
+            runtimes.retire(engine)
             installs.activate(staged)
             isActivated = true
         } finally {
             if (!isActivated) withContext(NonCancellable) { installs.discard(staged) }
         }
-        runtimes.retire(engine)
     }
 
     private suspend fun uninstall(engine: EngineId) {

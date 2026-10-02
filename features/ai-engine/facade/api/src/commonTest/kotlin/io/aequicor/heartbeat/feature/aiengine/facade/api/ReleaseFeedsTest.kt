@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginPrompt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.hostOf
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.isTrustedReleaseUrl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.sha256FromSums
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -83,11 +84,14 @@ class ReleaseFeedsTest {
     }
 
     @Test
-    fun `hosts are read without credentials ports or paths`() {
+    fun `hosts are read without ports or paths and ambiguous authorities have none`() {
         assertEquals("github.com", hostOf(url))
         assertEquals("downloads.claude.ai", hostOf("https://Downloads.Claude.AI:443/claude-code-releases/stable"))
-        assertEquals("evil.example.com", hostOf("https://github.com@evil.example.com/file"))
+        assertEquals("", hostOf("https://github.com@evil.example.com/file"))
+        assertEquals("", hostOf("https://evil.example\\@auth.openai.com/x"))
+        assertEquals("", hostOf("https://auth.openai.com%2eevil.example/x"))
         assertEquals("", hostOf("not a url"))
+        assertFalse(isTrustedReleaseUrl("http://github.com/file", setOf("github.com")))
     }
 
     @Test

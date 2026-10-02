@@ -78,6 +78,45 @@ class FileManagedInstallStoreTest {
 
         assertEquals("codex 1.1.0", Path.of(updated.executable).readText())
         assertEquals(1, root.resolve("codex/versions").listDirectoryEntries().size)
+        // A busy runtime may still run the replaced copy: it is deleted by the next refresh, not right away.
+        assertEquals(1, root.resolve("codex/trash").listDirectoryEntries().size)
+        store().refresh()
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `a replaced copy that cannot be moved aside stays until a later refresh`() = runTest {
+        val store = store()
+        store.activate(store.stage(engine, plan("1.0.0")) {})
+        // A file where the trash folder belongs makes moving the previous copy fail, as a copy in use does on Windows.
+        root.resolve("codex/trash").also { it.toFile().deleteRecursively() }.writeText("blocked")
+
+        val updated = store.activate(store.stage(engine, plan("1.1.0")) {})
+
+        assertEquals(mapOf(engine to updated), store.state.value)
+        assertEquals(2, root.resolve("codex/versions").listDirectoryEntries().size)
+        root.resolve("codex/trash").toFile().delete()
+        val restarted = store()
+        restarted.refresh()
+        assertEquals("1.1.0", restarted.state.value.getValue(engine).version)
+        assertEquals(1, root.resolve("codex/versions").listDirectoryEntries().size)
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `a refresh leaves the files of an engine another process is changing`() = runTest {
+        val store = store()
+        store.activate(store.stage(engine, plan("1.0.0")) {})
+        Files.createDirectories(root.resolve("codex/staging/in-progress"))
+        FileChannel.open(root.resolve("codex/.lock"), StandardOpenOption.WRITE).use { channel ->
+            channel.lock().use {
+                val other = store()
+                other.refresh()
+                assertTrue(root.resolve("codex/staging/in-progress").exists())
+                assertEquals(emptyMap(), other.state.value)
+            }
+        }
+        store().refresh()
         assertNoLeftovers()
     }
 

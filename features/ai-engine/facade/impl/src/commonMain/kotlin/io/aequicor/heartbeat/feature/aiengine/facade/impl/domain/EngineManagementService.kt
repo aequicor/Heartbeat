@@ -52,6 +52,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -127,7 +128,7 @@ class EngineManagementService(
             EngineCommand.Inspect -> inspect(current.requireAction(EngineActionKind.Inspect))
             EngineCommand.CheckForUpdates -> checkForUpdates(current.requireAction(EngineActionKind.CheckForUpdates))
             is EngineCommand.Configure -> configure(current.requireAction(EngineActionKind.Configure), command.settings)
-            EngineCommand.Restart -> restart(engine)
+            EngineCommand.Restart -> restart(current.requireRestartable().descriptor.id)
             is EngineCommand.Start -> jobs.start(engine, current.requireStart(command.action))
             EngineCommand.Cancel -> jobs.cancel(engine)
             EngineCommand.Dismiss -> jobs.dismiss(engine)
@@ -243,7 +244,9 @@ class EngineManagementService(
         }
     }
 
+    /** Reads Heartbeat's copies once engine management is on; while it is off, their files are left untouched. */
     private suspend fun loadInstalls() {
+        flags.management().first { it }
         try {
             installs.refresh()
         } catch (e: CancellationException) {
@@ -264,6 +267,9 @@ class EngineManagementService(
                 throw e
             } catch (e: EngineException) {
                 log.w(e) { "idle runtimes could not be retired engine=${id.value}" }
+            } catch (e: Exception) {
+                // Reconciliation keeps running for the profile whatever one runtime does when it stops.
+                log.e(e) { "idle runtimes failed to stop engine=${id.value}" }
             }
         }
     }
@@ -400,6 +406,14 @@ class EngineManagementService(
 
     private fun ManagedEngine.requireAction(action: EngineActionKind): ManagedEngine =
         takeIf { action in actions() } ?: refuse("$action does not apply engine=${descriptor.id.value}")
+
+    /** Restarting needs a runnable engine without a job; a turn in flight is answered with Busy by the restart. */
+    private fun ManagedEngine.requireRestartable(): ManagedEngine {
+        val isRunnable = enablement.reasons.all { it == DisabledReason.DisabledByUser }
+        val isJobRunning = job?.phase?.isFinished == false
+        if (!isRunnable || isJobRunning) refuse("restart does not apply engine=${descriptor.id.value}")
+        return this
+    }
 
     private fun ManagedEngine.needsRetirement(): Boolean = runtime.runtimes > 0 && runtime.activeTurns == 0 &&
         (!enablement.isEnabled || runtime.isStale || runtime.hasExited)
