@@ -386,6 +386,10 @@ public sealed interface ManagementFailure {
     }
 }
 
+/** A management step failed with [failure]; a job reports it as [JobPhase.Failed]. */
+public class ManagementException(public val failure: ManagementFailure, cause: Throwable? = null) :
+    Exception(failure.toString(), cause)
+
 /** Installation failures. */
 public enum class InstallFailureReason {
     /** No release was published. */

@@ -14,6 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -43,8 +46,13 @@ public class EngineRegistration(
      * automatically instead of waiting for the user.
      */
     public val modelCatalogRevision: Int = 0,
+    /** What the engine management panel may manage; static, never IO. */
+    public val management: ManagementSpec = ManagementSpec(),
+    /** Installation and CLI sign-in of the adapter; required when [management] installs or signs in a CLI. */
+    public val manager: Lazy<EngineManager>? = null,
 ) {
     init {
+        require(manager != null || !management.needsManager()) { "Managed installation or CLI login needs a manager" }
         require(sessionSources.all { it.source.engine == descriptor.id }) { "Foreign engine session source" }
         require(
             sessionSources.map { it.source.id }.distinct().size == sessionSources.size,
@@ -143,3 +151,6 @@ public fun validateEngineRegistrations(registrations: Collection<EngineRegistrat
         }
     }
 }
+
+private fun ManagementSpec.needsManager(): Boolean =
+    install != InstallSupport.BuiltIn || login == LoginSupport.Cli || login == LoginSupport.CliWithDeviceCode
