@@ -37,6 +37,12 @@ paths:
 профильный `ResourceResolver` в `ai-engine/facade/api`, который разрешает только зарегистрированные
 идентификаторы текущего профиля. IO и нативные диалоги остаются в `attachments/impl`.
 
+`features/computer-use/api` дополнительно содержит app-scope `ComputerUseCapturePresentation` и
+`ComputerUsePresentation`: координацию временного скрытия окон приложения на время снимка и ввода.
+Окна регистрирует только `platform-main`, контракт без IO и UI; захват и ввод по-прежнему идут через
+`ComputerUseMachineKey`. Чистая функция `computerUseActivity()` выводит из состояния машины, что хост
+показывает во время захвата агентом (`ComputerUseActivity`).
+
 `features/ai-engine/facade/api` содержит UI-независимые сервисные интерфейсы каталога, сессий,
 истории, capabilities и SPI адаптеров, а также чистую машину активной сессии. Это явное исключение
 из ограничения состава обычного feature:api. Движок объявляет способы подключения
