@@ -143,6 +143,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Room / DataStore / репозитории | `data-storage` |
 | HTTP | `network` |
 | Агенты, инструменты, LLM-провайдеры | `ai-koog` |
+| Управление компьютером инструментами `computer_*` (захват, ввод, расшифровка отказов) | `computer-use` |
 | Логирование, аудит логов | `logging` |
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |

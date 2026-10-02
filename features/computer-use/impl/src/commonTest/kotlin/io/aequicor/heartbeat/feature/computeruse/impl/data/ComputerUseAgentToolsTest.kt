@@ -38,6 +38,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -51,7 +53,9 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -286,6 +290,32 @@ class ComputerUseAgentToolsTest {
         assertEquals("CaptureEnded", reply.text)
         assertTrue(fixture.machine.sent.last() is ComputerUseIntent.Public.Capture)
         assertEquals(newer, fixture.machine.state.value)
+    }
+
+    @Test
+    fun `input waits as long as its action needs before timing out`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        fixture.machine.isReplyEnabled = false
+        val text = "a".repeat(MAX_TYPED_CHARS)
+        val args = buildJsonObject { put("text", text) }
+        val approved = fixture.approved("computer_type", args)
+        val started = testScheduler.currentTime
+        val reply = fixture.tools.execute(approved, "computer_type", args)
+        assertEquals("InputTimedOut", reply.text)
+        assertEquals(inputWaitLimitMillis(InputAction.Type(text)), testScheduler.currentTime - started)
+        assertEquals(ComputerUseIntent.Public.CancelSession(Session, Owner), fixture.machine.sent.last())
+    }
+
+    @Test
+    fun `the type tool declares its length limit and refuses longer text`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val spec = fixture.tools.specifications(null).first { it.name == "computer_type" }
+        val text = spec.inputSchema.getValue("properties").jsonObject.getValue("text").jsonObject
+        assertEquals(MAX_TYPED_CHARS, text.getValue("maxLength").jsonPrimitive.int)
+        val args = buildJsonObject { put("text", "a".repeat(MAX_TYPED_CHARS + 1)) }
+        val reply = fixture.tools.execute(fixture.approved("computer_type", args), "computer_type", args)
+        assertEquals("InvalidAction", reply.text)
+        assertTrue(fixture.machine.appliedActions.isEmpty())
     }
 
     @Test

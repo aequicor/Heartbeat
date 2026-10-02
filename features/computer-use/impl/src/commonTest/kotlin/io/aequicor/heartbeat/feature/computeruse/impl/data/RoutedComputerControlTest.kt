@@ -38,6 +38,9 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.NativeCapture
 import io.aequicor.heartbeat.feature.computeruse.api.NativeComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.VisionBudget
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.BASE_WAIT_MILLIS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -51,6 +54,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -274,6 +278,36 @@ class RoutedComputerControlTest {
         assertNotNull(input.requestId)
         assertEquals(0, fixture.native.calls)
         assertEquals(listOf<InputAction>(InputAction.Type("hello")), fixture.injector.applied)
+    }
+
+    @Test
+    fun `public input waits as long as its action needs`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        val device = CompletableDeferred<Unit>()
+        fixture.injector.awaitInput = device
+        val text = InputAction.Type("a".repeat(MAX_TYPED_CHARS))
+        val pending = async { fixture.control.input(text) }
+        advanceTimeBy(BASE_WAIT_MILLIS + 1)
+        assertFalse(pending.isCompleted)
+        device.complete(Unit)
+        assertEquals(InputOutcome.Applied, pending.await())
+        assertEquals(listOf<InputAction>(text), fixture.injector.applied)
+    }
+
+    @Test
+    fun `public input on a stuck device times out at its own limit and cancels the session`() = runTest {
+        val fixture = fixture(isRoutingEnabled = true)
+        var isDeviceReached = false
+        fixture.injector.onInput = { isDeviceReached = true }
+        fixture.injector.awaitInput = CompletableDeferred()
+        val click = InputAction.Click(FramePoint(5.0, 5.0))
+        val started = testScheduler.currentTime
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.Timeout), fixture.control.input(click))
+        assertEquals(inputWaitLimitMillis(click), testScheduler.currentTime - started)
+        assertTrue(isDeviceReached)
+        assertTrue(fixture.injector.applied.isEmpty())
+        val cancelled = assertIs<ComputerUseIntent.Public.CancelSession>(fixture.registry.ref!!.sent.last())
+        assertEquals(fixture.session, cancelled.session)
     }
 
     @Test
