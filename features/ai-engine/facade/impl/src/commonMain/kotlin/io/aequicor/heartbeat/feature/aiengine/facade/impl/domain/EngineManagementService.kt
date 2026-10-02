@@ -1,9 +1,12 @@
 package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Compatibility
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineActionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
@@ -24,6 +27,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
@@ -86,10 +90,24 @@ class EngineManagementService(
     private val installs: ManagedInstallStore,
     private val launch: EngineLaunchConfig,
     private val feeds: ReleaseFeeds,
+    connections: CliConnections,
     private val context: FacadeContext,
 ) : EngineManagement {
     private val log = Log.tag("EngineManagement")
     private val inspections = MutableStateFlow(emptyMap<EngineId, Inspection>())
+    private val jobs = EngineJobs(
+        registry,
+        installs,
+        launch,
+        feeds,
+        runtimes,
+        context,
+        object : JobHooks {
+            override suspend fun changed(engine: EngineId) = reinspect(engine)
+
+            override suspend fun signedIn(engine: EngineId) = connections.refresh(engine)
+        },
+    )
 
     override val state: StateFlow<EngineManagementState> = flags.management()
         .flatMapLatest { isOn -> if (isOn) managed() else flowOf(EngineManagementState.Off) }
@@ -106,17 +124,14 @@ class EngineManagementService(
             ?: refuse("engine management is off or the engine is unknown engine=${engine.value}")
         when (command) {
             is EngineCommand.SetEnabled -> setEnabled(engine, command.isEnabled)
-
             EngineCommand.Inspect -> inspect(current.requireAction(EngineActionKind.Inspect))
-
             EngineCommand.CheckForUpdates -> checkForUpdates(current.requireAction(EngineActionKind.CheckForUpdates))
-
             is EngineCommand.Configure -> configure(current.requireAction(EngineActionKind.Configure), command.settings)
-
             EngineCommand.Restart -> restart(engine)
-
-            is EngineCommand.Start, EngineCommand.Cancel, EngineCommand.Dismiss, is EngineCommand.AnswerLogin ->
-                refuse("jobs are not available engine=${engine.value}")
+            is EngineCommand.Start -> jobs.start(engine, current.requireStart(command.action))
+            EngineCommand.Cancel -> jobs.cancel(engine)
+            EngineCommand.Dismiss -> jobs.dismiss(engine)
+            is EngineCommand.AnswerLogin -> jobs.answer(engine, command.code)
         }
     }
 
@@ -143,6 +158,12 @@ class EngineManagementService(
             all + (id to inspected.copy(installation = installation))
         }
         log.i { "engine inspected engine=${id.value} source=${inspected.installation.current?.source ?: "unknown"}" }
+    }
+
+    /** Inspects again after a job; the finished job may still be shown, so the action check is skipped. */
+    private suspend fun reinspect(engine: EngineId) {
+        val current = state.value.engines.firstOrNull { it.descriptor.id == engine } ?: return
+        if (current.enablement.reasons.all { it == DisabledReason.DisabledByUser }) inspect(current)
     }
 
     private suspend fun inspectWith(manager: EngineManager, launchContext: LaunchContext): Inspection {
@@ -262,11 +283,20 @@ class EngineManagementService(
             runtimes.entries,
             runtimes.sessions,
         ) { flagged, chosen, managed, pooled, sessions -> Inputs(flagged, chosen, managed, pooled, sessions) }
-        return combine(local, bindings, catalog.state, inspections) { inputs, saved, listed, inspected ->
+        return combine(
+            local,
+            bindings,
+            catalog.state,
+            inspections,
+            jobs.jobs,
+        ) { inputs, saved, listed, inspected, run ->
             EngineManagementState(
                 isEnabled = true,
                 platform = registry.platform,
-                engines = registry.all.map { engine(it, inputs, saved, listed, inspected[it.descriptor.id]) },
+                engines = registry.all.map { registration ->
+                    val id = registration.descriptor.id
+                    engine(registration, inputs, saved, listed, inspected[id]).copy(job = run[id])
+                },
             )
         }
     }
@@ -354,6 +384,20 @@ class EngineManagementService(
         Bounded(failure = ManagementFailure.Engine(EngineFailure.Unknown()))
     }
 
+    private fun ManagedEngine.requireStart(action: EngineAction): EngineAction {
+        val kind = when (action) {
+            EngineAction.Install -> EngineActionKind.Install
+            EngineAction.Update -> EngineActionKind.Update
+            EngineAction.Uninstall -> EngineActionKind.Uninstall
+            is EngineAction.Login -> EngineActionKind.Login
+            EngineAction.Logout -> EngineActionKind.Logout
+        }
+        requireAction(kind)
+        val isDeviceCode = action is EngineAction.Login && action.method == LoginMethod.DeviceCode
+        if (isDeviceCode && spec.login != LoginSupport.CliWithDeviceCode) refuse("no device code sign-in")
+        return action
+    }
+
     private fun ManagedEngine.requireAction(action: EngineActionKind): ManagedEngine =
         takeIf { action in actions() } ?: refuse("$action does not apply engine=${descriptor.id.value}")
 
@@ -384,6 +428,32 @@ class EngineManagementService(
 
     private companion object {
         const val ADAPTER_TIMEOUT_MILLIS = 15_000L
+    }
+}
+
+/** Connections that use an engine's CLI login; after a sign-in they refresh their source revision. */
+fun interface CliConnections {
+    /** Refreshes the CLI-login connections of [engine]; best effort, failures are logged. */
+    suspend fun refresh(engine: EngineId)
+}
+
+/** [CliConnections] that reconnect each CLI-login binding of the engine, which re-reads its account revision. */
+class RefreshingCliConnections(private val bindings: EngineBindingsService, private val sources: AuthSources) :
+    CliConnections {
+    private val log = Log.tag("CliConnections")
+
+    override suspend fun refresh(engine: EngineId) {
+        bindings.state.value.filter { it.engine == engine }.forEach { binding ->
+            if (sources.get(binding.authSource) !is AuthSource.CliLogin) return@forEach
+            try {
+                bindings.connect(engine, binding.authSource, binding.priority)
+                log.i { "CLI connection refreshed engine=${engine.value} binding=${binding.id.value}" }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: EngineException) {
+                log.w(e) { "CLI connection could not be refreshed engine=${engine.value}" }
+            }
+        }
     }
 }
 

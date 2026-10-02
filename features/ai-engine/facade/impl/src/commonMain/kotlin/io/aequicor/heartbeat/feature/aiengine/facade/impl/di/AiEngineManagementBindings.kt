@@ -6,6 +6,7 @@ import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.ToggleEngineFlags
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install.HttpReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.CliConnections
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineBindingsService
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineFlags
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineManagementService
@@ -22,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRuntimes
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.FacadeContext
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.PooledEngineRuntimes
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RefreshingCliConnections
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.RuntimePool
 import io.ktor.client.HttpClient
 
@@ -36,6 +39,11 @@ object AiEngineManagementBindings {
     /** Developer flags engine management reads. */
     @Provides
     fun flags(toggles: FeatureToggles): EngineFlags = ToggleEngineFlags(toggles)
+
+    /** CLI-login connections refreshed after a sign-in. */
+    @Provides
+    fun connections(bindings: EngineBindingsService, sources: AuthSources): CliConnections =
+        RefreshingCliConnections(bindings, sources)
 
     /** Pooled runtimes and open handles of the profile. */
     @Provides
@@ -58,6 +66,7 @@ object AiEngineManagementBindings {
         installs: ManagedInstallStore,
         launch: EngineLaunchConfig,
         feeds: ReleaseFeeds,
+        connections: CliConnections,
         context: FacadeContext,
     ): EngineManagementService = EngineManagementService(
         registry,
@@ -69,6 +78,7 @@ object AiEngineManagementBindings {
         installs,
         launch,
         feeds,
+        connections,
         context,
     )
 

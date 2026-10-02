@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthOwnerId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.DisabledReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -28,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedEngine
@@ -58,6 +60,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -244,6 +247,23 @@ class EngineManagementServiceTest {
     }
 
     @Test
+    fun `a job starts only where its action applies and shows on the engine`() = runTest {
+        val service = service()
+        runCurrent()
+
+        assertRefused { service.execute(builtInId, EngineCommand.Start(EngineAction.Install)) }
+        assertRefused { service.execute(cliId, EngineCommand.Start(EngineAction.Login(LoginMethod.DeviceCode))) }
+        assertRefused { service.execute(cliId, EngineCommand.Dismiss) }
+
+        service.execute(cliId, EngineCommand.Start(EngineAction.Install))
+        runCurrent()
+
+        val job = assertNotNull(service.state.value.engine(cliId).job)
+        assertEquals(EngineAction.Install, job.action)
+        assertTrue(job.phase.isFinished)
+    }
+
+    @Test
     fun `the managed copy is read once at start and shown with the installation`() = runTest {
         val copy = ManagedInstall("1.0.0", "/data/cli", Instant.fromEpochSeconds(5))
         installs.loaded = mapOf(cliId to copy)
@@ -264,6 +284,7 @@ class EngineManagementServiceTest {
         installs,
         EngineLaunchConfig { launchContext },
         UnusedFeeds,
+        CliConnections { },
         facadeContext(),
     )
 
