@@ -287,13 +287,14 @@ class RoutedComputerControlTest {
     @Test
     fun `the tools are published only when the profile and feature are enabled`() = runTest {
         val fixture = fixture()
+        val stoppedTurns = ComputerUseStoppedTurns()
         val tools = ComputerUseAgentTools(
             fixture.registry,
             fixture.toggles,
             fixture.control,
-            ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope)),
+            ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope), stoppedTurns),
             fixture.preferences,
-            ComputerUseStoppedTurns(),
+            stoppedTurns,
         )
         assertTrue(tools.specifications(null).isNotEmpty())
         fixture.preferences.setEnabled(false)
@@ -306,13 +307,14 @@ class RoutedComputerControlTest {
     @Test
     fun `a tool call without a finished probe reports the host as unavailable`() = runTest {
         val fixture = fixture()
+        val stoppedTurns = ComputerUseStoppedTurns()
         val tools = ComputerUseAgentTools(
             fixture.registry,
             fixture.toggles,
             fixture.control,
-            ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope)),
+            ComputerUseCaptureLifecycle(fixture.registry, TestComputerUseScope(backgroundScope), stoppedTurns),
             fixture.preferences,
-            ComputerUseStoppedTurns(),
+            stoppedTurns,
         )
         val result = tools.execute(
             fixture.context,

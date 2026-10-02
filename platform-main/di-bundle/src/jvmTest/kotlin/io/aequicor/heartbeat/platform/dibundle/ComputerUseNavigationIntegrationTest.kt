@@ -61,6 +61,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import io.aequicor.heartbeat.feature.welcome.api.WelcomeRoute as ProductionWelcomeRoute
 
 /** Real root navigation with a controlled computer-use machine; route components still come from Metro. */
@@ -138,6 +139,27 @@ class ComputerUseNavigationIntegrationTest {
         assertEquals(listOf<Route>(settings, AiStudioRoute), process.host.routes)
         assertIs<RootChild.Profile>(process.root.slot.value.child?.instance)
         assertEquals(true, process.root.computerUse.value.isActive)
+    }
+
+    @Test
+    fun `stop asks computer use to stop the capturing agent and sends nothing without one`() = runNavigationTest {
+        val process = Process()
+        advanceUntilIdle()
+        process.root.stopComputerUse()
+        runCurrent()
+        process.registry.computer.state.value = capture.copy(owner = CaptureOwner.Panel, isOpen = true)
+        runCurrent()
+        process.root.stopComputerUse()
+        runCurrent()
+        assertTrue(process.registry.computer.sent.isEmpty())
+        process.registry.computer.state.value = capture
+        runCurrent()
+        process.root.stopComputerUse()
+        runCurrent()
+        assertEquals(
+            listOf<ComputerUseIntent>(ComputerUseIntent.Public.StopAgent(owner)),
+            process.registry.computer.sent,
+        )
     }
 
     private inner class Process(
@@ -230,5 +252,10 @@ private class NavigationComputerMachine(initial: ComputerUseState) :
     override val state = MutableStateFlow(initial)
     override val outputs = MutableSharedFlow<ComputerUseOutput>()
 
-    override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted
+    val sent = mutableListOf<ComputerUseIntent>()
+
+    override suspend fun send(intent: ComputerUseIntent): SendResult {
+        sent += intent
+        return SendResult.Accepted
+    }
 }

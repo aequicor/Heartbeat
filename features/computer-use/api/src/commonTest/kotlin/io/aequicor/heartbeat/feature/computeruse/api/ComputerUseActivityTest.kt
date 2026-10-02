@@ -28,6 +28,7 @@ class ComputerUseActivityTest {
             ComputerUseActivity(
                 true,
                 listOf(ComputerUseScreenBounds(-1920, 0, 1920, 1080), ComputerUseScreenBounds(0, 0, 1440, 900)),
+                owner,
             ),
             capture.computerUseActivity(),
         )

@@ -23,6 +23,8 @@ public sealed interface ComputerUseState : MachineState {
         public val targets: List<WindowTarget> = emptyList(),
         public val isInputArmed: Boolean = false,
         public val lastPreview: CaptureRef? = null,
+        /** Agent turns the user stopped; they cannot open a capture again until their turn ends. */
+        public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
     /** One capture session is open; its master frames are addressable by [CaptureId]. */
@@ -38,6 +40,8 @@ public sealed interface ComputerUseState : MachineState {
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
         public val isOpen: Boolean = false,
+        /** Agent turns the user stopped; they cannot take this capture over or open another one. */
+        public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
     /** The session ended because of an error; [Public.Retry][ComputerUseIntent.Public.Retry] probes again. */
@@ -67,7 +71,10 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val session: CaptureSessionId,
         ) : Public
 
-        /** Replaces the captured target of the running session; its master frames become unreachable. */
+        /**
+         * Replaces the captured target of the running session; its master frames become unreachable. A named
+         * [owner] must already own the session: a capture is never handed over to another turn.
+         */
         public data class SwitchMode(
             public val mode: ComputerUseMode,
             public val session: CaptureSessionId,
@@ -78,7 +85,10 @@ public sealed interface ComputerUseIntent : MachineIntent {
         /** Ends the running session, disarms input and purges its master frames. */
         public data object EndCapture : Public
 
-        /** Ends the running session when it belongs to [owner]; another owner's session is untouched. */
+        /**
+         * The owner's turn ended: ends the running session when it belongs to [owner] and forgets a stop of that
+         * turn; another owner's session is untouched.
+         */
         public data class OwnerReleased(public val owner: CaptureOwner) : Public
 
         /**
@@ -89,38 +99,45 @@ public sealed interface ComputerUseIntent : MachineIntent {
             public val isArmed: Boolean,
             public val expectedSession: CaptureSessionId? = null,
             public val expectedCapture: CaptureId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Captures one frame of the running session. */
+        /** Captures one frame of the running session; a named [expectedOwner] must own it. */
         public data class Capture(
             public val request: CaptureRequest,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Cuts a region out of a stored master frame of the running session. */
+        /** Cuts a region out of a stored master frame of the running session; a named [expectedOwner] must own it. */
         public data class Crop(
             public val request: CropRequest,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Applies one input action; rejected unless input is armed and the mode allows it. */
+        /** Applies one input action; rejected unless input is armed, the mode allows it and the binding matches. */
         public data class Input(
             public val action: InputAction,
             public val requestId: String? = null,
             public val expectedSession: CaptureSessionId? = null,
             public val expectedCapture: CaptureId? = null,
+            public val expectedOwner: CaptureOwner? = null,
         ) : Public
 
-        /** Cancels only the named session, fencing late tool timeouts from newer sessions. */
-        public data class CancelSession(public val session: CaptureSessionId) : Public
+        /** Cancels only the named session, fencing late tool timeouts from newer sessions and other owners. */
+        public data class CancelSession(
+            public val session: CaptureSessionId,
+            public val expectedOwner: CaptureOwner? = null,
+        ) : Public
 
         /**
-         * The user stops the agent that owns the named session: its capture ends and that turn may not use computer
-         * tools again, while its other tools keep working. A stale stop cannot end a newer session.
+         * The user stops [owner]'s agent turn: its capture ends, and the turn can neither open another capture nor
+         * use computer tools again while its other tools keep working. A turn stopped between captures is barred too.
          */
-        public data class StopAgent(public val session: CaptureSessionId) : Public
+        public data class StopAgent(public val owner: CaptureOwner.Agent) : Public
 
         /** Kill switch: stops everything from any state and returns to [ComputerUseState.Idle]. */
         public data object Revoke : Public

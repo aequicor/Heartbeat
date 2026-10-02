@@ -157,7 +157,7 @@ internal class ComputerUseAgentTools(
         requests.withLock {
             try {
                 if (!isEnabled()) return@withLock failure("Disabled")
-                if (stoppedTurns.isStopped(CaptureOwner.Agent(context.session, context.turn))) {
+                if (stoppedTurns.isStopped(context.owner())) {
                     log.w { "computer tool refused: the user stopped this turn name=$name" }
                     return@withLock failure("StoppedByUser")
                 }
@@ -176,9 +176,7 @@ internal class ComputerUseAgentTools(
 
     /** The dispatcher already revoked this turn's calls; the lifecycle guards cleanup on its own. */
     override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
-        val owner = CaptureOwner.Agent(session, turn)
-        lifecycle.finishTurn(owner)
-        stoppedTurns.forget(owner)
+        lifecycle.finishTurn(CaptureOwner.Agent(session, turn))
     }
 
     private suspend fun dispatch(
@@ -200,8 +198,10 @@ internal class ComputerUseAgentTools(
         context: AgentToolContext,
     ): Boolean {
         val state = machine.state.value as? ComputerUseState.Capturing ?: return false
-        return state.owner != CaptureOwner.Agent(context.session, context.turn)
+        return state.owner != context.owner()
     }
+
+    private fun AgentToolContext.owner(): CaptureOwner.Agent = CaptureOwner.Agent(session, turn)
 
     private suspend fun dispatchOwned(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
@@ -212,8 +212,8 @@ internal class ComputerUseAgentTools(
         STATUS_TOOL -> status()
         WINDOWS_TOOL -> windows()
         CAPTURE_TOOL -> capture(machine, context, arguments)
-        SCREENSHOT_TOOL -> screenshot(machine, arguments)
-        ZOOM_TOOL -> zoom(machine, arguments)
+        SCREENSHOT_TOOL -> screenshot(machine, arguments, context.owner())
+        ZOOM_TOOL -> zoom(machine, arguments, context.owner())
         CLICK_TOOL -> input(machine, context, click(arguments), name)
         DRAG_TOOL -> input(machine, context, drag(arguments), name)
         SCROLL_TOOL -> input(machine, context, scroll(arguments), name)
@@ -284,7 +284,7 @@ internal class ComputerUseAgentTools(
     ): AgentToolResult {
         val mode = mode(arguments) ?: return failure("InvalidMode")
         val session = CaptureSessionId(Uuid.random().toString())
-        val owner = CaptureOwner.Agent(context.session, context.turn)
+        val owner = context.owner()
         val intent = when (machine.state.value) {
             is ComputerUseState.Capturing -> ComputerUseIntent.Public.SwitchMode(
                 mode,
@@ -306,7 +306,7 @@ internal class ComputerUseAgentTools(
             log.w { "capture refused result=$sent" }
             failure("CaptureRefused")
         } else {
-            openedCapture(machine, arguments, session)
+            openedCapture(machine, arguments, session, owner)
         }
     }
 
@@ -314,22 +314,30 @@ internal class ComputerUseAgentTools(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         arguments: JsonObject,
         session: CaptureSessionId,
+        owner: CaptureOwner.Agent,
     ): AgentToolResult {
         var isCompleted = false
         try {
-            val opened = withTimeoutOrNull(CAPTURE_TIMEOUT_MILLIS) {
-                machine.state.first { it is ComputerUseState.Capturing && it.session == session && it.isOpen }
+            // A stopped or replaced session never opens; its closure ends the wait as well.
+            val settled = withTimeoutOrNull(CAPTURE_TIMEOUT_MILLIS) {
+                machine.state.first { it !is ComputerUseState.Capturing || it.session != session || it.isOpen }
             }
-            if (opened == null) {
-                machine.send(ComputerUseIntent.Public.CancelSession(session))
-                return failure("CaptureTimedOut")
+            val result = when {
+                settled == null -> {
+                    machine.send(ComputerUseIntent.Public.CancelSession(session, owner))
+                    failure("CaptureTimedOut")
+                }
+
+                settled !is ComputerUseState.Capturing || settled.session != session ->
+                    failure(if (stoppedTurns.isStopped(owner)) "StoppedByUser" else "CaptureEnded")
+
+                else -> screenshot(machine, arguments, owner)
             }
-            val result = screenshot(machine, arguments)
             isCompleted = true
             return result
         } finally {
             if (!isCompleted) {
-                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session)) }
+                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session, owner)) }
             }
         }
     }
@@ -337,6 +345,7 @@ internal class ComputerUseAgentTools(
     private suspend fun screenshot(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         arguments: JsonObject,
+        owner: CaptureOwner.Agent,
     ): AgentToolResult {
         val state = machine.state.value as? ComputerUseState.Capturing ?: return failure("NotCapturing")
         val region = region(arguments)
@@ -352,7 +361,7 @@ internal class ComputerUseAgentTools(
         )
         return frame(
             machine,
-            ComputerUseIntent.Public.Capture(request, expectedSession = state.session),
+            ComputerUseIntent.Public.Capture(request, expectedSession = state.session, expectedOwner = owner),
             request.encoding,
         )
     }
@@ -360,6 +369,7 @@ internal class ComputerUseAgentTools(
     private suspend fun zoom(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         arguments: JsonObject,
+        owner: CaptureOwner.Agent,
     ): AgentToolResult {
         val state = machine.state.value as? ComputerUseState.Capturing ?: return failure("NotCapturing")
         val master = state.master ?: return failure("NoMasterFrame")
@@ -380,7 +390,7 @@ internal class ComputerUseAgentTools(
         }
         return frame(
             machine,
-            ComputerUseIntent.Public.Crop(request, expectedSession = state.session),
+            ComputerUseIntent.Public.Crop(request, expectedSession = state.session, expectedOwner = owner),
             request.encoding,
         )
     }
@@ -476,7 +486,8 @@ internal class ComputerUseAgentTools(
         val session = authorizedSession(context) ?: return failure("CaptureChangedSinceApproval")
         val capture = context.authorization?.binding?.split(':')?.getOrNull(1)
             ?.takeIf { it.isNotEmpty() }?.let(::CaptureId)
-        val armed = machine.send(ComputerUseIntent.Public.ArmInput(true, session, capture))
+        val owner = context.owner()
+        val armed = machine.send(ComputerUseIntent.Public.ArmInput(true, session, capture, owner))
         if (armed != SendResult.Accepted) {
             val state = machine.state.value
             val reason = if (state is ComputerUseState.Capturing && !state.capabilities.isInputAvailable) {
@@ -493,6 +504,7 @@ internal class ComputerUseAgentTools(
                 action,
                 expectedSession = session,
                 expectedCapture = capture,
+                expectedOwner = owner,
             ),
         )
             ?: return failure("InputTimedOut")
@@ -522,7 +534,7 @@ internal class ComputerUseAgentTools(
             machine.outputs.first { it is ComputerUseOutput.SessionClosed && it.session == session }
         }
         try {
-            val sent = machine.send(ComputerUseIntent.Public.CancelSession(session))
+            val sent = machine.send(ComputerUseIntent.Public.CancelSession(session, context.owner()))
             if (sent != SendResult.Accepted) return@coroutineScope failure("CaptureChangedSinceApproval")
             if (withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) { closed.await() } == null) {
                 failure("CleanupTimedOut")

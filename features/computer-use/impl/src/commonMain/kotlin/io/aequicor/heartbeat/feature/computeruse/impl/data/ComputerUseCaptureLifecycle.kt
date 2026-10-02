@@ -31,6 +31,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 internal class ComputerUseCaptureLifecycle(
     private val machines: MachineRegistry,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val stoppedTurns: ComputerUseStoppedTurns,
 ) {
     private val log = Log.tag("ComputerUseCaptureLifecycle")
     private val guard = Mutex()
@@ -62,26 +63,47 @@ internal class ComputerUseCaptureLifecycle(
     }
 
     /**
-     * Releases only this owner's active capture and awaits all its already-ending capture sessions within one
-     * shared deadline. An unconfirmed closure is logged and forgotten, so a lost acknowledgement neither fails the
-     * finished turn nor keeps its waiters alive. A cancelled caller keeps the waiters for a retry.
+     * The owner's turn ended: releases its active capture, forgets a stop of that turn and awaits all its
+     * already-ending capture sessions within one shared deadline. Waiting happens outside the profile-wide guard,
+     * so other turns' barriers and captures do not queue behind it. An unconfirmed closure is logged and
+     * forgotten; a cancelled caller keeps the waiters for a retry.
      */
-    suspend fun finishTurn(owner: CaptureOwner.Agent): Unit = guard.withLock {
-        val cleanups = ownerCaptures.getOrPut(owner) { mutableListOf() }
-        val machine = machines.find(ComputerUseMachineKey)
-        val state = machine?.state?.value as? ComputerUseState.Capturing
-        if (state?.owner == owner) {
-            if (cleanups.none { it.session == state.session }) cleanups += pendingCleanup(machine, state.session)
-            val result = machine.send(ComputerUseIntent.Public.OwnerReleased(owner))
-            log.i { "agent turn released computer capture result=$result" }
+    suspend fun finishTurn(owner: CaptureOwner.Agent) {
+        val awaited = guard.withLock {
+            val cleanups = ownerCaptures.getOrPut(owner) { mutableListOf() }
+            val machine = machines.find(ComputerUseMachineKey)
+            val state = machine?.state?.value
+            val capture = state as? ComputerUseState.Capturing
+            if (capture?.owner == owner && cleanups.none { it.session == capture.session }) {
+                cleanups += pendingCleanup(machine, capture.session)
+            }
+            if (capture?.owner == owner || owner in state.stoppedOwners()) {
+                val result = machine?.send(ComputerUseIntent.Public.OwnerReleased(owner)) ?: SendResult.Ignored
+                log.i { "agent turn released its computer capture and stop result=$result" }
+            }
+            cleanups.toList()
         }
-        val isConfirmed = withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { cleanups.forEach { it.closed.await() } } != null
+        val isConfirmed = withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { awaited.forEach { it.closed.await() } } != null
         if (!isConfirmed) {
-            val pending = cleanups.filterNot { it.closed.isCompleted }
+            val pending = awaited.filterNot { it.closed.isCompleted }
             log.w { "agent turn capture cleanup was not confirmed in time sessions=${pending.size}" }
             pending.forEach { it.closed.cancel() }
         }
-        ownerCaptures.remove(owner)
+        guard.withLock {
+            val remaining = ownerCaptures[owner]?.apply { removeAll(awaited) }
+            if (remaining.isNullOrEmpty()) ownerCaptures.remove(owner)
+        }
+        stoppedTurns.forget(owner)
+    }
+
+    private fun ComputerUseState?.stoppedOwners(): Set<CaptureOwner.Agent> = when (this) {
+        is ComputerUseState.Ready -> stoppedOwners
+
+        is ComputerUseState.Capturing -> stoppedOwners
+
+        ComputerUseState.Idle, ComputerUseState.Checking, is ComputerUseState.Unavailable,
+        is ComputerUseState.Failed, null,
+        -> emptySet()
     }
 
     private fun pendingCleanup(

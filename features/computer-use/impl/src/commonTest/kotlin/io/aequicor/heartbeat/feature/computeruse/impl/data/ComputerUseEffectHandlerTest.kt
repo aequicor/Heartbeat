@@ -350,7 +350,7 @@ class ComputerUseEffectHandlerTest {
     }
 
     @Test
-    fun `stopping an agent is recorded before the effect suspends`() = runTest {
+    fun `stopping an agent records only that turn as stopped`() = runTest {
         val fixture = fixture()
         val owner = CaptureOwner.Agent(SessionRef(EngineId("pi"), SessionSourceId("local"), "chat"), TurnId("turn"))
         fixture.run(ComputerUseEffect.StopOwner(owner))

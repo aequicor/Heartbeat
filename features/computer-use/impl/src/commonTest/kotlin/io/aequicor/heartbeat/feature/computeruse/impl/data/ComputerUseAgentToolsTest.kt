@@ -77,7 +77,7 @@ class ComputerUseAgentToolsTest {
         val reply = fixture.tools.execute(approved, "computer_type", args)
         assertFalse(reply.isError)
         assertEquals(
-            ComputerUseIntent.Public.ArmInput(true, Session, Frame.id),
+            ComputerUseIntent.Public.ArmInput(true, Session, Frame.id, Owner),
             fixture.machine.sent.first(),
         )
         assertEquals(listOf<InputAction>(InputAction.Type("hello")), fixture.machine.appliedActions)
@@ -284,7 +284,7 @@ class ComputerUseAgentToolsTest {
     }
 
     @Test
-    fun `switching capture transfers ownership to the native turn`() = runTest {
+    fun `switching capture keeps it with the owning native turn`() = runTest {
         val fixture = Fixture(this, Capturing)
         val lifetime = Job()
         val context = fixture.context.copy(lifetime = lifetime)
@@ -438,7 +438,7 @@ class ComputerUseAgentToolsTest {
         val approved = fixture.approved("computer_release", EmptyArguments)
         val call = async { fixture.tools.execute(approved, "computer_release", EmptyArguments) }
         runCurrent()
-        assertEquals(ComputerUseIntent.Public.CancelSession(Session), fixture.machine.sent.single())
+        assertEquals(ComputerUseIntent.Public.CancelSession(Session, Owner), fixture.machine.sent.single())
         fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(CaptureSessionId("unrelated-session")))
         runCurrent()
         assertFalse(call.isCompleted)
@@ -512,6 +512,7 @@ class ComputerUseAgentToolsTest {
         val again = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
         runCurrent()
         assertTrue(again.isCompleted)
+        again.await()
     }
 
     @Test
@@ -536,11 +537,49 @@ class ComputerUseAgentToolsTest {
         val call = async { fixture.tools.execute(fixture.context, "computer_screenshot", EmptyArguments) }
         runCurrent()
         assertFalse(call.isCompleted)
-        fixture.machine.send(ComputerUseIntent.Public.StopAgent(Session))
+        fixture.machine.send(ComputerUseIntent.Public.StopAgent(Owner))
         runCurrent()
         assertTrue(call.isCompleted)
         assertEquals("CaptureEnded", call.await().text)
         assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
+    }
+
+    @Test
+    fun `a capture racing the stop of its turn is refused by the machine`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities, stoppedOwners = setOf(Owner)))
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val reply = fixture.tools.execute(
+            fixture.approved("computer_capture", arguments),
+            "computer_capture",
+            arguments,
+        )
+        assertEquals("CaptureRefused", reply.text)
+        assertTrue(fixture.machine.state.value is ComputerUseState.Ready)
+    }
+
+    @Test
+    fun `waiting for one turn's cleanup does not hold up another turn's barrier`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val waiting = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        assertFalse(waiting.isCompleted)
+        val other = async { fixture.tools.finishTurn(fixture.context.session, TurnId("other-turn")) }
+        runCurrent()
+        assertTrue(other.isCompleted)
+        other.await()
+        fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(Session))
+        runCurrent()
+        waiting.await()
+    }
+
+    @Test
+    fun `the end of a stopped turn forgets its stop on every path`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities, stoppedOwners = setOf(Owner)))
+        fixture.stoppedTurns.stop(Owner)
+        fixture.tools.finishTurn(fixture.context.session, fixture.context.turn)
+        assertFalse(fixture.stoppedTurns.isStopped(Owner))
+        assertEquals(ComputerUseIntent.Public.OwnerReleased(Owner), fixture.machine.sent.single())
+        assertEquals(ComputerUseState.Ready(Capabilities), fixture.machine.state.value)
     }
 
     private class Fixture(scope: TestScope, initial: ComputerUseState) {
@@ -559,7 +598,7 @@ class ComputerUseAgentToolsTest {
                 override suspend fun input(action: InputAction) = InputOutcome.Applied
                 override suspend fun revoke() = Unit
             },
-            ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope)),
+            ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope), stoppedTurns),
             preferences,
             stoppedTurns,
         )

@@ -23,7 +23,6 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.api.computerUseActivity
 import io.aequicor.heartbeat.platform.dibundle.HeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.ProfileNavigation
@@ -95,8 +94,9 @@ class HeartbeatRoot(
                     foregroundCaptureOwner = null
                     updateComputerUse(ComputerUseActivity())
                     machine?.state?.collect { state ->
-                        updateComputerUse(state.computerUseActivity())
-                        showComputerUseSession(state)
+                        val activity = state.computerUseActivity()
+                        updateComputerUse(activity)
+                        showComputerUseSession(activity)
                     }
                 }
         }
@@ -108,8 +108,8 @@ class HeartbeatRoot(
         mutableComputerUse.value = activity
     }
 
-    private fun showComputerUseSession(state: ComputerUseState) {
-        val owner = (state as? ComputerUseState.Capturing)?.owner as? CaptureOwner.Agent
+    private fun showComputerUseSession(activity: ComputerUseActivity) {
+        val owner = activity.owner
         if (owner == null || owner == foregroundCaptureOwner) {
             foregroundCaptureOwner = owner
             return
@@ -126,13 +126,13 @@ class HeartbeatRoot(
     /** Asks computer use to stop the agent that owns the current capture; the machine decides what that ends. */
     fun stopComputerUse() {
         log.i { "root: stop computer use requested" }
-        val capture = graph.machines.find(ComputerUseMachineKey)?.state?.value as? ComputerUseState.Capturing
-        if (capture == null || capture.owner !is CaptureOwner.Agent) {
+        val owner = mutableComputerUse.value.owner
+        if (owner == null) {
             log.w { "root: no agent capture to stop" }
             return
         }
         scope.launch {
-            val result = graph.machines.send(ComputerUseMachineKey, ComputerUseIntent.Public.StopAgent(capture.session))
+            val result = graph.machines.send(ComputerUseMachineKey, ComputerUseIntent.Public.StopAgent(owner))
             log.i { "root: stop computer use result=$result" }
         }
     }
@@ -182,7 +182,7 @@ class HeartbeatRoot(
             // After process death the restored child has no graph yet, so attach without losing its saved state.
             if (session != null) (slot.value.child?.instance as? RootChild.Profile)?.attach(session)
             applyPendingLink()
-            graph.machines.find(ComputerUseMachineKey)?.state?.value?.let(::showComputerUseSession)
+            showComputerUseSession(mutableComputerUse.value)
         }
     }
 

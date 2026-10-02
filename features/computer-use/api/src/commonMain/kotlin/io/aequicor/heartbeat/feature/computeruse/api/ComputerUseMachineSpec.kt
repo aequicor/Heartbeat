@@ -17,23 +17,28 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | RefreshTargets | | stay | EnumerateWindows |
  * | Ready | TargetsLoaded | | stay(targets) | |
  * | Ready | ArmInput | input is available and no authorization binding | stay(armed) | |
- * | Ready | BeginCapture | capabilities support the mode | Capturing | OpenCapture, CaptureChanged |
+ * | Ready | BeginCapture | the mode is supported, the owner is not stopped | Capturing | OpenCapture, CaptureChanged |
+ * | Ready | StopAgent | owner not stopped yet | stay(stopped+owner) | StopOwner |
+ * | Ready | OwnerReleased | owner was stopped | stay(stopped-owner) | |
  * | Capturing | CaptureOpened | matching session | stay(open) | |
- * | Capturing | ArmInput | input available and matching authorization binding | stay(armed) | |
- * | Capturing | Capture | host open | stay | CaptureFrame |
- * | Capturing | Crop | master exists and holds the region | stay | ProduceCrop |
- * | Capturing | Input | armed, the mode allows input, matching binding | stay | ApplyInput |
+ * | Capturing | ArmInput | input available, matching binding and owner | stay(armed) | |
+ * | Capturing | Capture | host open, matching session and owner | stay | CaptureFrame |
+ * | Capturing | Crop | master holds the region, matching session and owner | stay | ProduceCrop |
+ * | Capturing | Input | armed, the mode allows input, matching binding and owner | stay | ApplyInput |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1) | FrameReady |
  * | Capturing | CropProduced | | stay(lastCrop) | FrameReady |
  * | Capturing | InputApplied | | stay | InputApplied output |
- * | Capturing | SwitchMode | supported mode | Capturing (re-entered) | CloseCapture(old), OpenCapture, CaptureChanged |
+ * | Capturing | SwitchMode | supported mode, same owner | Capturing (re-entered) | CloseCapture(old), OpenCapture, |
+ * | | | | | CaptureChanged |
  * | Capturing | EndCapture | | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | OwnerReleased | same owner | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
+ * | Capturing | OwnerReleased | another owner that was stopped | stay(stopped-owner) | |
  * | Capturing | CaptureLost | | Failed | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | Rejected / Failed | | stay | Rejected output |
  * | Capturing | RefreshTargets / TargetsLoaded | | stay(targets) | EnumerateWindows |
- * | Capturing | CancelSession | matching session | Idle | keyed cleanup, Revoked |
- * | Capturing | StopAgent | agent session | Ready(disarmed) | StopOwner, CloseCapture, PurgeMasters, CaptureChanged |
+ * | Capturing | CancelSession | matching session and owner | Idle | keyed cleanup, Revoked |
+ * | Capturing | StopAgent | same owner | Ready(disarmed, stopped+owner) | StopOwner, CloseCapture, PurgeMasters, |
+ * | | | | | CaptureChanged(null) |
  * | any | SessionClosed | | stay | SessionClosed output |
  * | any | Revoke | | Idle | CloseCapture, PurgeMasters, Revoked |
  *
@@ -89,7 +94,9 @@ public val ComputerUseMachineSpec: MachineSpec<
         }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
-        on<ComputerUseIntent.Public.BeginCapture>(guard = { state.capabilities.supports(intent.mode) }) {
+        on<ComputerUseIntent.Public.BeginCapture>(guard = {
+            state.capabilities.supports(intent.mode) && !state.stoppedOwners.isStopped(intent.owner)
+        }) {
             goto<ComputerUseState.Capturing> {
                 ComputerUseState.Capturing(
                     session = intent.session,
@@ -97,10 +104,18 @@ public val ComputerUseMachineSpec: MachineSpec<
                     owner = intent.owner,
                     capabilities = state.capabilities,
                     targets = state.targets,
+                    stoppedOwners = state.stoppedOwners,
                 )
             }
             effect { ComputerUseEffect.OpenCapture(intent.mode, intent.session) }
             output { ComputerUseOutput.CaptureChanged(intent.mode) }
+        }
+        on<ComputerUseIntent.Public.StopAgent>(guard = { !state.stoppedOwners.isStopped(intent.owner) }) {
+            stay { state.copy(stoppedOwners = state.stoppedOwners + intent.owner) }
+            effect { ComputerUseEffect.StopOwner(intent.owner) }
+        }
+        on<ComputerUseIntent.Public.OwnerReleased>(guard = { state.stoppedOwners.isStopped(intent.owner) }) {
+            stay { state.copy(stoppedOwners = state.stoppedOwners.without(intent.owner)) }
         }
     }
     state<ComputerUseState.Capturing> {
@@ -110,17 +125,19 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Public.RefreshTargets> { effect { ComputerUseEffect.EnumerateWindows } }
         on<ComputerUseIntent.Internal.TargetsLoaded> { stay { state.copy(targets = intent.targets) } }
         on<ComputerUseIntent.Public.ArmInput>(guard = {
-            state.capabilities.isInputAvailable && state.matchesBinding(intent.expectedSession, intent.expectedCapture)
+            state.capabilities.isInputAvailable && state.isOwnedBy(intent.expectedOwner) &&
+                state.matchesBinding(intent.expectedSession, intent.expectedCapture)
         }) {
             stay { state.copy(isInputArmed = intent.isArmed) }
         }
         on<ComputerUseIntent.Public.Capture>(guard = {
-            state.isOpen && (intent.expectedSession == null || intent.expectedSession == state.session)
+            state.isOpen && state.isOwnedBy(intent.expectedOwner) &&
+                (intent.expectedSession == null || intent.expectedSession == state.session)
         }) {
             effect { ComputerUseEffect.CaptureFrame(intent.request, intent.requestId) }
         }
         on<ComputerUseIntent.Public.Crop>(guard = {
-            state.isOpen && state.canCrop(intent.request) &&
+            state.isOpen && state.canCrop(intent.request) && state.isOwnedBy(intent.expectedOwner) &&
                 (intent.expectedSession == null || intent.expectedSession == state.session)
         }) {
             effect { ComputerUseEffect.ProduceCrop(intent.request, intent.requestId) }
@@ -128,38 +145,42 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Public.Input>(
             guard = {
                 state.isOpen && state.isInputArmed && state.capabilities.allowsInput(state.mode) &&
+                    state.isOwnedBy(intent.expectedOwner) &&
                     state.matchesBinding(intent.expectedSession, intent.expectedCapture)
             },
         ) { effect { ComputerUseEffect.ApplyInput(intent.action, intent.requestId, state.lastPreview?.id) } }
         on<ComputerUseIntent.Public.SwitchMode>(guard = {
-            state.capabilities.supports(intent.mode) &&
+            state.capabilities.supports(intent.mode) && state.isOwnedBy(intent.owner) &&
                 (intent.expectedSession == null || intent.expectedSession == state.session)
         }) {
             goto<ComputerUseState.Capturing> {
                 ComputerUseState.Capturing(
                     session = intent.session,
                     mode = intent.mode,
-                    owner = intent.owner ?: state.owner,
+                    owner = state.owner,
                     capabilities = state.capabilities,
                     targets = state.targets,
                     isInputArmed = false,
+                    stoppedOwners = state.stoppedOwners,
                 )
             }
             effect { ComputerUseEffect.CloseCapture(state.session) }
             effect { ComputerUseEffect.OpenCapture(intent.mode, intent.session) }
             output { ComputerUseOutput.CaptureChanged(intent.mode) }
         }
-        on<ComputerUseIntent.Public.CancelSession>(guard = { state.session == intent.session }) {
+        on<ComputerUseIntent.Public.CancelSession>(guard = {
+            state.session == intent.session && state.isOwnedBy(intent.expectedOwner)
+        }) {
             goto<ComputerUseState.Idle> { ComputerUseState.Idle }
             effect { ComputerUseEffect.CloseCapture(state.session) }
             effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.Revoked }
         }
-        on<ComputerUseIntent.Public.StopAgent>(guard = {
-            state.session == intent.session && state.owner is CaptureOwner.Agent
-        }) {
-            goto<ComputerUseState.Ready> { state.asReady() }
-            effect { ComputerUseEffect.StopOwner(state.owner as CaptureOwner.Agent) }
+        on<ComputerUseIntent.Public.StopAgent>(guard = { state.owner == intent.owner }) {
+            goto<ComputerUseState.Ready> {
+                state.asReady().copy(stoppedOwners = state.stoppedOwners + intent.owner)
+            }
+            effect { ComputerUseEffect.StopOwner(intent.owner) }
             effect { ComputerUseEffect.CloseCapture(state.session) }
             effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
@@ -175,6 +196,11 @@ public val ComputerUseMachineSpec: MachineSpec<
             effect { ComputerUseEffect.CloseCapture(state.session) }
             effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
+        }
+        on<ComputerUseIntent.Public.OwnerReleased>(guard = {
+            state.owner != intent.owner && state.stoppedOwners.isStopped(intent.owner)
+        }) {
+            stay { state.copy(stoppedOwners = state.stoppedOwners.without(intent.owner)) }
         }
         on<ComputerUseIntent.Internal.FrameCaptured> {
             stay {
@@ -252,7 +278,18 @@ public val ComputerUseMachineSpec: MachineSpec<
 private fun ComputerUseState.Capturing.asReady(): ComputerUseState.Ready = ComputerUseState.Ready(
     capabilities = capabilities,
     targets = targets,
+    stoppedOwners = stoppedOwners,
 )
+
+/** A named owner must own the session; an operation without one is checked by its session binding only. */
+private fun ComputerUseState.Capturing.isOwnedBy(expected: CaptureOwner?): Boolean =
+    expected == null || expected == owner
+
+private fun Set<CaptureOwner.Agent>.isStopped(owner: CaptureOwner): Boolean = any { it == owner }
+
+private fun Set<CaptureOwner.Agent>.without(owner: CaptureOwner): Set<CaptureOwner.Agent> = filterTo(mutableSetOf()) {
+    it != owner
+}
 
 /**
  * An authorization binding names the approved session and frame. Either part alone is checked too, so a frame
