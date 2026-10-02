@@ -34,6 +34,9 @@ import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
+import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -56,6 +59,23 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ComputerUseAgentToolsTest {
+    @Test
+    fun `status exposes monitor geometry and client capture capability`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val reply = fixture.tools.execute(fixture.context, "computer_status", EmptyArguments)
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(reply.text).jsonObject
+        assertEquals("true", json["clientAreaCaptureAvailable"].toString())
+        assertTrue(json["monitors"].toString().contains("primary"))
+        assertTrue(json["monitors"].toString().contains("-200"))
+        assertTrue(json["monitors"].toString().contains("2.0"))
+        for (name in listOf("computer_screenshot", "computer_zoom")) {
+            val spec = fixture.tools.specifications(null).single { it.name == name }
+            val tile = spec.inputSchema["properties"]!!.jsonObject["tile"].toString()
+            assertTrue(tile.contains("column:row"))
+            assertTrue(tile.contains("0:0"))
+        }
+    }
+
     @Test
     fun `one enabled profile switch exposes every tool without secondary toggles`() = runTest {
         val fixture = Fixture(this, Capturing)
@@ -106,6 +126,32 @@ class ComputerUseAgentToolsTest {
         fixture.machine.outputs.emit(ComputerUseOutput.SessionClosed(Session))
         runCurrent()
         finish.await()
+    }
+
+    @Test
+    fun `refused capture cleanup completes the turn barrier regardless of its reason`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val approved = fixture.approved("computer_capture", arguments)
+        val capture = async { fixture.tools.execute(approved, "computer_capture", arguments) }
+        runCurrent()
+        val opened = fixture.machine.state.value as ComputerUseState.Capturing
+        fixture.machine.state.value = ComputerUseState.Failed(ComputerUseFailure.ClientAreaUnavailable, opened.session)
+        runCurrent()
+        assertEquals("ClientAreaUnavailable", capture.await().text)
+        val barrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        fixture.machine.outputs.emit(
+            ComputerUseOutput.SessionClosed(CaptureSessionId("unrelated"), ComputerUseFailure.TargetClosed),
+        )
+        runCurrent()
+        assertFalse(barrier.isCompleted)
+        fixture.machine.outputs.emit(
+            ComputerUseOutput.SessionClosed(opened.session, ComputerUseFailure.ClientAreaUnavailable),
+        )
+        runCurrent()
+        assertTrue(barrier.isCompleted)
+        barrier.await()
     }
 
     @Test
@@ -712,7 +758,14 @@ class ComputerUseAgentToolsTest {
     }
 
     private companion object {
-        val Capabilities = ComputerUseCapabilities(true, true, true, true)
+        val Capabilities = ComputerUseCapabilities(
+            true,
+            true,
+            true,
+            true,
+            monitors = listOf(MonitorInfo(MonitorId("primary"), ScreenBounds(-200, 0, 200, 100, 2.0), true)),
+            isClientAreaCaptureAvailable = true,
+        )
         val Session = CaptureSessionId("session")
         val EmptyArguments = JsonObject(emptyMap())
         val Frame = CaptureRef(

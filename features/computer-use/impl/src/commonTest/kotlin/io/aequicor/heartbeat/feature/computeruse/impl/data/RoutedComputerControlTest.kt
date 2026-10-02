@@ -43,6 +43,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +62,24 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class RoutedComputerControlTest {
+
+    @Test
+    fun `host capture preserves a session failure and ignores an old close`() = runTest {
+        val fixture = fixture()
+        val machine = fixture.registry.ref!!
+        machine.effectHandler = null
+        val pending = async { fixture.control.capture(CaptureRequest()) }
+        runCurrent()
+        machine.events.emit(
+            ComputerUseOutput.SessionClosed(CaptureSessionId("older"), ComputerUseFailure.ActivationFailed),
+        )
+        runCurrent()
+        assertFalse(pending.isCompleted)
+        machine.ownMachine.send(ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed, Session))
+        machine.ownMachine.send(ComputerUseIntent.Public.Retry)
+        machine.events.emit(ComputerUseOutput.SessionClosed(Session, ComputerUseFailure.TargetClosed))
+        assertEquals(ComputerUseFailure.TargetClosed, pending.await().failure)
+    }
 
     @Test
     fun `the host serves captures while native routing is off`() = runTest {
@@ -148,6 +167,23 @@ class RoutedComputerControlTest {
         assertTrue(fixture.store.files.isNotEmpty())
         fixture.control.revoke()
         assertTrue(fixture.store.files.isEmpty())
+        assertEquals(null, fixture.coordinator.currentBounds())
+    }
+
+    @Test
+    fun `revoke accepts failed cleanup when the captured target is lost before dispatch`() = runTest {
+        val fixture = fixture()
+        val machine = fixture.registry.ref!!
+        machine.beforeSend = { intent ->
+            if (intent == ComputerUseIntent.Public.Revoke) {
+                machine.ownMachine.send(
+                    ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed, Session),
+                )
+            }
+        }
+        fixture.control.revoke()
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(ComputerUseState.Idle, machine.state.value)
         assertEquals(null, fixture.coordinator.currentBounds())
     }
 
@@ -440,6 +476,7 @@ class RoutedComputerControlTest {
         val events = MutableSharedFlow<ComputerUseOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ComputerUseIntent.Public>()
         var effectHandler: EffectHandler<ComputerUseEffect, ComputerUseIntent>? = null
+        var beforeSend: (suspend (ComputerUseIntent.Public) -> Unit)? = null
         private val effectJobs = mutableListOf<Job>()
         private var generation = 0
 
@@ -456,6 +493,7 @@ class RoutedComputerControlTest {
 
         override suspend fun send(intent: ComputerUseIntent.Public): SendResult {
             sent += intent
+            beforeSend?.invoke(intent)
             if (intent is ComputerUseIntent.Public.Input) {
                 events.emit(ComputerUseOutput.InputApplied(intent.action, "unrelated"))
             }

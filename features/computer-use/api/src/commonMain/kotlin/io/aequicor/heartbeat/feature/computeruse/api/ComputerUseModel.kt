@@ -26,8 +26,8 @@ public value class CaptureSessionId(public val value: String)
  *
  * @property x left edge, in virtual-desktop pixels; negative on monitors left of the primary one.
  * @property y top edge, in virtual-desktop pixels.
- * @property widthPx width in physical pixels; positive.
- * @property heightPx height in physical pixels; positive.
+ * @property widthPx width in host coordinate units (logical points on Retina/HiDPI); positive.
+ * @property heightPx height in host coordinate units; positive.
  * @property scale monitor scale factor the rectangle was measured with; `1.0` when unknown.
  */
 public data class ScreenBounds(
@@ -131,6 +131,12 @@ public data class WindowTarget(
     public val bounds: ScreenBounds,
     public val isMinimized: Boolean = false,
     public val revision: Long = 0L,
+    /** Whether this window belongs to the host; never offered as a capture target. */
+    public val isSelfOwned: Boolean = false,
+    /** Native client rectangle in host coordinates, when the host can determine it without guessing. */
+    public val clientBounds: ScreenBounds? = null,
+    /** False when the native rectangle cannot be mapped linearly into AWT input coordinates (mixed displays). */
+    public val isInputGeometryReliable: Boolean = true,
 ) {
     override fun toString(): String = "WindowTarget(id=$id, minimized=$isMinimized, revision=$revision)"
 }
@@ -312,6 +318,8 @@ public data class ComputerUseCapabilities(
     public val isDesktopInputAllowed: Boolean,
     public val monitors: List<MonitorInfo> = emptyList(),
     public val blockers: List<ComputerUseBlocker> = emptyList(),
+    /** The host supports client-area capture; availability is also checked for each target. */
+    public val isClientAreaCaptureAvailable: Boolean = false,
 )
 
 /** Host availability plus the active capture; the value exposed to engines. */
@@ -343,6 +351,12 @@ public enum class ComputerUseFailure {
     CaptureFailed,
     EncodingTooLarge,
     InputRejected,
+    StaleFrame,
+    TargetResized,
+    ActivationFailed,
+    TargetNotForeground,
+    SelfCaptureNotAllowed,
+    ClientAreaUnavailable,
     UnsupportedCharacter,
     RegionOutOfBounds,
     CaptureExpired,

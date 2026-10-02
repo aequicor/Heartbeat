@@ -10,8 +10,10 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
+import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
@@ -54,7 +56,13 @@ internal class DesktopWindowCatalog(private val platform: PlatformInfo, private 
         }
     }
 
-    override suspend fun resolve(id: WindowId): WindowTarget? = list().firstOrNull { it.id == id }
+    override suspend fun resolve(id: WindowId): WindowTarget? = withContext(dispatchers.io) {
+        when (platform.host) {
+            HostPlatform.Windows -> guarded("window lookup") { WindowsScreenBackend.resolve(id) }
+            HostPlatform.MacOs -> guarded("window lookup") { MacOsScreenBackend.resolve(id) }
+            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> null
+        }
+    }
 
     override suspend fun activate(target: WindowTarget): Boolean = withContext(dispatchers.io) {
         when (platform.host) {
@@ -68,7 +76,33 @@ internal class DesktopWindowCatalog(private val platform: PlatformInfo, private 
         }
     }
 
-    private fun <T> guarded(operation: String, block: () -> T?): T? = try {
+    override suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? = activationFailure(target, false)
+
+    override suspend fun activationFailure(target: WindowTarget, isClientAreaOnly: Boolean): ComputerUseFailure? {
+        val live = resolve(target.id)
+        val isReliable = if (isClientAreaOnly) live?.clientBounds != null else live?.isInputGeometryReliable != false
+        if (!isReliable) {
+            log.w { "input geometry spans multiple monitor coordinate maps" }
+            return ComputerUseFailure.InputRejected
+        }
+        return if (activate(target)) {
+            null
+        } else if (platform.host == HostPlatform.MacOs) {
+            ComputerUseFailure.TargetNotForeground
+        } else {
+            ComputerUseFailure.ActivationFailed
+        }
+    }
+
+    override suspend fun isForeground(target: WindowTarget): Boolean = withContext(dispatchers.io) {
+        when (platform.host) {
+            HostPlatform.Windows -> guarded("foreground probe") { WindowsScreenBackend.isForeground(target.id) } == true
+            HostPlatform.MacOs -> guarded("foreground probe") { MacOsScreenBackend.isFrontmost(target.id) } == true
+            HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> false
+        }
+    }
+
+    private suspend fun <T> guarded(operation: String, block: suspend () -> T?): T? = try {
         block()
     } catch (e: CancellationException) {
         throw e
@@ -96,7 +130,27 @@ internal class DesktopScreenCapturer(
     override suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds? = withContext(dispatchers.io) {
         when (mode) {
             is ComputerUseMode.Desktop -> monitorBounds(mode.monitor)
-            is ComputerUseMode.Window -> windows.resolve(mode.target.id)?.bounds
+
+            is ComputerUseMode.Window -> windows.resolve(mode.target.id)?.let { target ->
+                if (target.isSelfOwned || target.isMinimized) {
+                    null
+                } else if (mode.isClientAreaOnly) {
+                    target.clientBounds
+                } else {
+                    target.bounds
+                }
+            }
+        }
+    }
+
+    override suspend fun failure(mode: ComputerUseMode): ComputerUseFailure? {
+        if (mode !is ComputerUseMode.Window) return null
+        val target = windows.resolve(mode.target.id) ?: return ComputerUseFailure.TargetClosed
+        return when {
+            target.isSelfOwned -> ComputerUseFailure.SelfCaptureNotAllowed
+            target.isMinimized -> ComputerUseFailure.TargetMinimized
+            mode.isClientAreaOnly && target.clientBounds == null -> ComputerUseFailure.ClientAreaUnavailable
+            else -> null
         }
     }
 
@@ -107,6 +161,10 @@ internal class DesktopScreenCapturer(
                 is ComputerUseMode.Desktop -> captureScreen(bounds)
                 is ComputerUseMode.Window -> captureWindow(mode, bounds)
             } ?: return@withContext null
+            if (mode is ComputerUseMode.Window && currentBounds(mode) != bounds) {
+                log.w { "window geometry changed during pixel capture" }
+                return@withContext null
+            }
             val isPointerMarked = isCursorIncluded && (mode !is ComputerUseMode.Desktop || mode.isCursorIncluded)
             val marked = if (isPointerMarked) {
                 val pointer = guarded("pointer position") { MouseInfo.getPointerInfo()?.location }
@@ -135,10 +193,24 @@ internal class DesktopScreenCapturer(
         return image?.toGrid()
     }
 
+    override fun markPointer(frame: RawFrame, point: FramePoint?): RawFrame = frame.copy(
+        pixels = pointerMarker(
+            frame.pixels,
+            frame.bounds,
+            point?.let { ScreenPoint(frame.bounds.x + it.x.toInt(), frame.bounds.y + it.y.toInt()) },
+        ),
+    )
+
     private suspend fun captureWindow(mode: ComputerUseMode.Window, bounds: ScreenBounds): PixelGrid? {
         val native = when (platform.host) {
-            HostPlatform.Windows -> guarded("window capture") { WindowsScreenBackend.capture(mode.target.id) }
-            HostPlatform.MacOs -> guarded("window capture") { MacOsScreenBackend.capture(mode.target.id) }
+            HostPlatform.Windows -> guarded("window capture") {
+                WindowsScreenBackend.capture(mode.target.id, mode.isClientAreaOnly)
+            }
+
+            HostPlatform.MacOs -> guarded("window capture") {
+                MacOsScreenBackend.capture(mode.target.id, if (mode.isClientAreaOnly) bounds else null)
+            }
+
             HostPlatform.Linux, HostPlatform.Android, HostPlatform.Ios -> null
         }
         if (native != null) return native
@@ -218,6 +290,8 @@ internal class DesktopOsPermissions(
             isDesktopInputAllowed = isInputAvailable,
             monitors = if (runtime.isUsable) monitors() else emptyList(),
             blockers = blockers(runtime, isScreenRecordingAllowed, isAccessibilityAllowed),
+            isClientAreaCaptureAvailable = isCaptureAvailable && windows.isAvailable &&
+                (!runtime.isMacOs || isAccessibilityAllowed),
         )
     }
 
@@ -268,7 +342,13 @@ internal class DesktopOsPermissions(
             val area = device.defaultConfiguration.bounds
             MonitorInfo(
                 id = MonitorId(device.getIDstring()),
-                bounds = ScreenBounds(area.x, area.y, area.width.coerceAtLeast(1), area.height.coerceAtLeast(1)),
+                bounds = ScreenBounds(
+                    area.x,
+                    area.y,
+                    area.width.coerceAtLeast(1),
+                    area.height.coerceAtLeast(1),
+                    device.defaultConfiguration.defaultTransform.scaleX,
+                ),
                 isPrimary = device == primary,
             )
         }

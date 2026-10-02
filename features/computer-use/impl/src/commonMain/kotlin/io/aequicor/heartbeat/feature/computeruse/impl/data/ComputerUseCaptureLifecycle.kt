@@ -119,7 +119,7 @@ internal class ComputerUseCaptureLifecycle(
     ): PendingCleanup = PendingCleanup(
         session,
         profile.coroutineScope.async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.first { it == ComputerUseOutput.SessionClosed(session) }
+            machine.outputs.first { it is ComputerUseOutput.SessionClosed && it.session == session }
             Unit
         },
     )

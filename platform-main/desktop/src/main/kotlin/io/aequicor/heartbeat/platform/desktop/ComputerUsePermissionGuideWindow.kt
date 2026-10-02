@@ -67,7 +67,7 @@ internal fun ComputerUsePermissionGuideWindow(
     val title = computerUsePermissionGuideTitle()
     val panel = remember { createGuideWindow(title) }
     val presentation = remember(panel) {
-        val native = DesktopCapturePresentation(panel, ComputerUseScreenOverlay(panel))
+        val native = DesktopCapturePresentation(panel, ComputerUseScreenOverlay())
         PermissionGuidePresentation(
             native,
             native::close,

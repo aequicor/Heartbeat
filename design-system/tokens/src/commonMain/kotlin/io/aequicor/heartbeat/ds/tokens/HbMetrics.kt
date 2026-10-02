@@ -74,7 +74,10 @@ data class HbDimensions(
     /** Readable compact session pinned to the screen edge during agent computer use. */
     val computerUseSessionWidth: Dp = 420.dp,
     /** Inward shadow marking the perimeter of a desktop controlled by the agent. */
-    val computerUseShadowWidth: Dp = 20.dp,
+    val computerUseShadowWidth: Dp = 40.dp,
+    /** Size and outline of the agent's native pointer marker. */
+    val computerUsePointerSize: Dp = 24.dp,
+    val computerUsePointerStroke: Dp = 2.dp,
     /** Floating panel next to System Settings that guides a computer-use permission grant. */
     val computerUsePermissionGuideWidth: Dp = 340.dp,
     /** Application icon on the guide's draggable tile, as large as a Finder list icon. */
@@ -220,6 +223,9 @@ data class HbDimensions(
 /** Animation timing; consumers may opt out of decorative movement. */
 @Immutable
 data class HbMotion(
+    /** Safety indication remains visible even when reduced motion disables these pulses. */
+    val computerUseStartMillis: Int = 600,
+    val computerUseInputMillis: Int = 300,
     val fastMillis: Int = 120,
     val normalMillis: Int = 220,
     val slowMillis: Int = 360,

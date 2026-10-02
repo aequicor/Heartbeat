@@ -21,6 +21,9 @@ public interface HostComputerControl : EngineFeature {
     /** Capturable windows of the current desktop session; empty when window capture is unavailable. */
     public suspend fun windows(): List<WindowTarget>
 
+    /** Resolves an explicit identity, including a host-owned window so callers can explain its refusal. */
+    public suspend fun resolveWindow(id: WindowId): WindowTarget? = windows().firstOrNull { it.id == id }
+
     /** Captures one frame; the returned reference points at a stored artifact, never at raw pixels. */
     public suspend fun capture(request: CaptureRequest): CaptureResult
 

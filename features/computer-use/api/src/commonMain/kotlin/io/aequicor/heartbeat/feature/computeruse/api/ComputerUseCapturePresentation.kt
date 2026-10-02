@@ -23,7 +23,14 @@ public interface ComputerUseCapturePresentation {
      * failure after a successful [action] fails the operation: the caller must treat input as possibly applied.
      */
     public suspend fun <T> withoutPresentation(action: suspend () -> T): T
+
+    /** Pointer input excludes app controls but keeps mouse-transparent safety indicators visible. */
+    public suspend fun <T> withoutPresentation(reason: ComputerUseSuppressionReason, action: suspend () -> T): T =
+        withoutPresentation(action)
 }
+
+/** Why native presentation is excluded; only pixel capture suppresses safety indicators. */
+public enum class ComputerUseSuppressionReason { CapturePixels, PointerInput }
 
 /** Native window mechanics only, without a dependency on UI or the feature's business flow. */
 public fun interface ComputerUsePresentation {
@@ -33,4 +40,7 @@ public fun interface ComputerUsePresentation {
      * A failure must leave the controller in its original visibility before throwing.
      */
     public fun suppress(): AutoCloseable
+
+    /** Controllers without independent indicators use the same exclusion for both reasons. */
+    public fun suppress(reason: ComputerUseSuppressionReason): AutoCloseable = suppress()
 }

@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
@@ -16,10 +17,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 
-/** One captured frame in memory, in physical screen pixels. */
+/** Physical raster pixels and their on-screen rectangle in host logical coordinates. */
 internal data class RawFrame(val pixels: PixelGrid, val bounds: ScreenBounds, val capturedAtNanos: Long)
 
-/** A pointer position in physical screen pixels. */
+/** Integer point: input ports use host logical screen units, while raster helpers use frame pixels. */
 internal data class ScreenPoint(val x: Int, val y: Int)
 
 /**
@@ -32,6 +33,12 @@ internal interface ScreenCapturer {
 
     /** The current on-screen rectangle of [mode]; `null` when the target no longer exists. */
     suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds?
+
+    /** Explains a native geometry refusal before any presentation is hidden. */
+    suspend fun failure(mode: ComputerUseMode): ComputerUseFailure? = null
+
+    /** Adds a capture-local agent marker to a window raster; never samples the user's mouse. */
+    fun markPointer(frame: RawFrame, point: FramePoint?): RawFrame = frame
 }
 
 /** Enumerates and activates capturable windows. */
@@ -47,18 +54,36 @@ internal interface WindowCatalog {
 
     /** Brings the window to the front so that input reaches it; `false` when activation was refused. */
     suspend fun activate(target: WindowTarget): Boolean
+
+    /** Typed activation refusal; platforms may verify foreground without attempting activation. */
+    suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? =
+        if (activate(target)) null else ComputerUseFailure.ActivationFailed
+
+    /** Validates the selected capture geometry before attempting activation. */
+    suspend fun activationFailure(target: WindowTarget, isClientAreaOnly: Boolean): ComputerUseFailure? =
+        activationFailure(target)
+
+    /** Reads foreground state without moving focus. */
+    suspend fun isForeground(target: WindowTarget): Boolean = true
 }
 
-/** Applies mouse and keyboard events. The host maps every point into physical screen pixels first. */
+/** Applies mouse and keyboard events in host logical screen coordinates (AWT user space on desktop). */
 internal interface InputInjector {
     /** `false` on hosts without input injection or without the required permission. */
     val isAvailable: Boolean
 
     /**
-     * Applies one action. [map] turns a caller-supplied point into screen pixels and returns `null` when the
+     * Applies one action. [map] turns a caller-supplied point into host screen units and returns `null` when the
      * point leaves the captured area, which the implementation must report as a refusal.
      */
     suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome
+
+    /** Reports actual native pointer steps; null reports keyboard input without moving the pointer. */
+    suspend fun applyObserved(
+        action: InputAction,
+        map: (FramePoint) -> ScreenPoint?,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): InputOutcome = apply(action, map)
 }
 
 /** Operating system permissions and platform support. */
@@ -126,7 +151,8 @@ internal object CaptureRegionPolicy {
     }
 
     /**
-     * Maps a caller-supplied point into physical screen pixels.
+     * Maps a caller-supplied point into screen coordinates for a one-to-one raster-to-host transform.
+     * Scaled desktop frames instead use the coordinator's raster-to-host mapping.
      *
      * @return `null` when the point leaves the captured area: input outside the frame is refused instead of
      * being silently clamped, because a clamped click would hit an unrelated control.

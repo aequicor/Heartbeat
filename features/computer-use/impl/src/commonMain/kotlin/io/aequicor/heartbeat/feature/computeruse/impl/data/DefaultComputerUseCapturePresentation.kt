@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseSuppressionReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
@@ -31,6 +32,7 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     private val presentations = mutableMapOf<Any, ComputerUsePresentation>()
     private val restores = mutableListOf<AutoCloseable>()
     private var isSuppressed = false
+    private var suppressionReason = ComputerUseSuppressionReason.CapturePixels
 
     override fun register(presentation: ComputerUsePresentation): AutoCloseable {
         val registration = Any()
@@ -43,28 +45,35 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
         }
     }
 
-    override suspend fun <T> withoutPresentation(action: suspend () -> T): T = operations.withLock {
-        var failure: Exception? = null
-        var restoreFailure: Throwable? = null
-        val result = try {
-            withContext(NonCancellable + dispatchers.main) { suppressPresentations() }
-            currentCoroutineContext().ensureActive()
-            action()
-        } catch (e: CancellationException) {
-            failure = e
-            throw e
-        } catch (e: Exception) {
-            failure = e
-            throw e
-        } finally {
-            restoreFailure = withContext(NonCancellable) { restoreOnMain() }
-            // The operation's own failure stays primary and carries the restore failure.
-            restoreFailure?.let { restore -> failure?.addSuppressed(restore) }
+    override suspend fun <T> withoutPresentation(action: suspend () -> T): T =
+        withoutPresentation(ComputerUseSuppressionReason.CapturePixels, action)
+
+    override suspend fun <T> withoutPresentation(reason: ComputerUseSuppressionReason, action: suspend () -> T): T =
+        operations.withLock {
+            var failure: Exception? = null
+            var restoreFailure: Throwable? = null
+            val result = try {
+                withContext(NonCancellable + dispatchers.main) {
+                    suppressionReason = reason
+                    suppressPresentations()
+                }
+                currentCoroutineContext().ensureActive()
+                action()
+            } catch (e: CancellationException) {
+                failure = e
+                throw e
+            } catch (e: Exception) {
+                failure = e
+                throw e
+            } finally {
+                restoreFailure = withContext(NonCancellable) { restoreOnMain() }
+                // The operation's own failure stays primary and carries the restore failure.
+                restoreFailure?.let { restore -> failure?.addSuppressed(restore) }
+            }
+            // A failed restore still fails a successful operation.
+            restoreFailure?.let { throw it }
+            result
         }
-        // A failed restore still fails a successful operation.
-        restoreFailure?.let { throw it }
-        result
-    }
 
     /** Switches dispatchers inside the caller's NonCancellable block, so returning cannot skip restore handling. */
     private suspend fun restoreOnMain(): Throwable? = withContext(dispatchers.main) { restorePresentations() }
@@ -72,7 +81,7 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     /** A late window that cannot be hidden stays registered, so the next operation excludes it again. */
     private fun suppressLate(registration: Any, presentation: ComputerUsePresentation) {
         try {
-            restores += presentation.suppress()
+            restores += presentation.suppress(suppressionReason)
         } catch (e: CancellationException) {
             // The caller gets no handle to close, so the registration must not outlive the failed call.
             presentations.remove(registration)
@@ -85,7 +94,7 @@ internal class DefaultComputerUseCapturePresentation(private val dispatchers: Di
     private fun suppressPresentations() {
         isSuppressed = true
         try {
-            presentations.values.toList().forEach { restores += it.suppress() }
+            presentations.values.toList().forEach { restores += it.suppress(suppressionReason) }
         } catch (e: CancellationException) {
             rollBack(e)
             throw e

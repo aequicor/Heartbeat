@@ -4,6 +4,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.toArgb
@@ -11,9 +14,11 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.Toolkit
@@ -27,11 +32,45 @@ internal fun DesktopComputerUsePresentation(
     activity: ComputerUseActivity,
     capturePresentation: ComputerUseCapturePresentation,
 ) {
-    val overlay = remember(window) { ComputerUseScreenOverlay(window) }
+    val overlay = remember(window) { ComputerUseScreenOverlay() }
+    val pointer = remember(window) { ComputerUsePointerOverlay() }
     val presentation = remember(window, overlay) { DesktopCapturePresentation(window, overlay) }
     val dock = remember(window, state) { ComputerUseWindowDock(ComposeDockableWindow(window, state)) }
     val dimensions = HbDimensions.Desktop
-    val color = HbColors.forHost(isSystemInDarkTheme(), isDesktop = true).computerUseShadow.toArgb()
+    val colors = HbColors.forHost(isSystemInDarkTheme(), isDesktop = true)
+    val color = colors.computerUseShadow.toArgb()
+    val isReduced by produceState(initialValue = true, activity.isActive) {
+        value = isDesktopMotionReduced()
+        while (activity.isActive && isActive) {
+            delay(1000)
+            value = isDesktopMotionReduced()
+        }
+    }
+    val motion = HbMotion(isReducedMotion = isReduced)
+    val pulse = OverlayPulse(
+        Color(colors.computerUseShadowStart.toArgb(), true),
+        Color(colors.computerUseShadowInput.toArgb(), true),
+        motion.computerUseStartMillis,
+        motion.computerUseInputMillis,
+        motion.isReducedMotion,
+    )
+    DisposableEffect(pointer, capturePresentation) {
+        val registration = capturePresentation.register(pointer)
+        onDispose {
+            pointer.close()
+            registration.close()
+        }
+    }
+    DisposableEffect(pointer, activity.input, colors) {
+        pointer.update(
+            activity.input,
+            Color(colors.computerUsePointer.toArgb(), true),
+            Color(colors.computerUsePointerOutline.toArgb(), true),
+            dimensions.computerUsePointerSize.value.toInt(),
+            dimensions.computerUsePointerStroke.value,
+        )
+        onDispose { }
+    }
     DisposableEffect(presentation, capturePresentation) {
         val registration = capturePresentation.register(presentation)
         onDispose {
@@ -48,7 +87,7 @@ internal fun DesktopComputerUsePresentation(
             )
         }
     }
-    DisposableEffect(overlay, activity.screens, color) {
+    DisposableEffect(overlay, activity.screens, activity.session, color, pulse) {
         if (activity.screens.isEmpty()) {
             overlay.hide()
         } else {
@@ -56,10 +95,15 @@ internal fun DesktopComputerUsePresentation(
                 activity.screens.map { Rectangle(it.x, it.y, it.width, it.height) },
                 Color(color, true),
                 dimensions.computerUseShadowWidth.value.toInt(),
+                pulse,
+                activity.session?.value,
             )
         }
         // show() recolors in place and recreates windows only for a new monitor layout; close() below disposes them.
         onDispose { }
+    }
+    SideEffect(overlay, activity.input.sequence) {
+        if (activity.input.sequence > 0) overlay.pulseInput()
     }
     DisposableEffect(overlay) { onDispose { overlay.close() } }
 }

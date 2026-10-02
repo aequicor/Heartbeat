@@ -43,12 +43,15 @@ public sealed interface ComputerUseState : MachineState {
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
         public val isOpen: Boolean = false,
+        /** Actual input feedback and current target geometry, independent of the settings screen. */
+        public val inputActivity: ComputerUseInputActivity = ComputerUseInputActivity(),
         /** Agent turns the user stopped while capturing; carried into Ready, see [Ready.stoppedOwners]. */
         public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
     /** The session ended because of an error; [Public.Retry][ComputerUseIntent.Public.Retry] probes again. */
-    public data class Failed(public val reason: ComputerUseFailure) : ComputerUseState
+    public data class Failed(public val reason: ComputerUseFailure, public val session: CaptureSessionId? = null) :
+        ComputerUseState
 }
 
 /** Public commands and private host results. */
@@ -150,10 +153,19 @@ public sealed interface ComputerUseIntent : MachineIntent {
     /** Results reported by the effect handler. */
     public sealed interface Internal : ComputerUseIntent {
         /** Cleanup completed for this exact session. */
-        public data class SessionClosed(public val session: CaptureSessionId) : Internal
+        public data class SessionClosed(
+            public val session: CaptureSessionId,
+            public val reason: ComputerUseFailure? = null,
+        ) : Internal
 
         /** The host opened this session; capture/input may now run. */
         public data class CaptureOpened(public val session: CaptureSessionId) : Internal
+
+        /** Native input or target observation; a replaced session's feedback is ignored. */
+        public data class InputProgress(
+            public val session: CaptureSessionId,
+            public val activity: ComputerUseInputActivity,
+        ) : Internal
 
         /** The host can work; [capabilities] drive every later guard. */
         public data class Available(public val capabilities: ComputerUseCapabilities) : Internal
@@ -194,7 +206,10 @@ public sealed interface ComputerUseIntent : MachineIntent {
             Internal
 
         /** The captured target disappeared or a permission was revoked; the session cannot continue. */
-        public data class CaptureLost(public val reason: ComputerUseFailure) : Internal
+        public data class CaptureLost(
+            public val reason: ComputerUseFailure,
+            public val session: CaptureSessionId? = null,
+        ) : Internal
 
         /** Probing failed. */
         public data class Failed(public val reason: ComputerUseFailure) : Internal
@@ -213,8 +228,14 @@ public sealed interface ComputerUseEffect : MachineEffect {
     public data class OpenCapture(public val mode: ComputerUseMode, public val session: CaptureSessionId) :
         ComputerUseEffect
 
+    /** Observes target moves, resizing and focus while this session remains open. */
+    public data class ObserveCapture(public val session: CaptureSessionId) : ComputerUseEffect
+
     /** Releases the capture device. */
-    public data class CloseCapture(public val session: CaptureSessionId? = null) : ComputerUseEffect
+    public data class CloseCapture(
+        public val session: CaptureSessionId? = null,
+        public val reason: ComputerUseFailure? = null,
+    ) : ComputerUseEffect
 
     /** Captures one frame and stores its master and preview artifacts. */
     public data class CaptureFrame(public val request: CaptureRequest, public val requestId: String? = null) :
@@ -241,7 +262,10 @@ public sealed interface ComputerUseEffect : MachineEffect {
 /** One-shot events for the hosted tools and for other features. */
 public sealed interface ComputerUseOutput : MachineOutput {
     /** The stored frames of this session have been removed. */
-    public data class SessionClosed(public val session: CaptureSessionId) : ComputerUseOutput
+    public data class SessionClosed(
+        public val session: CaptureSessionId,
+        public val reason: ComputerUseFailure? = null,
+    ) : ComputerUseOutput
 
     /** The captured target changed; `null` means "nothing is captured". */
     public data class CaptureChanged(public val mode: ComputerUseMode?) : ComputerUseOutput

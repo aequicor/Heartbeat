@@ -334,6 +334,12 @@ class ComputerUseEffectHandlerTest {
         val proceed = CompletableDeferred<Unit>()
         val applied: List<InputAction> get() = delegate.applied
 
+        override suspend fun applyObserved(
+            action: InputAction,
+            map: (FramePoint) -> ScreenPoint?,
+            onProgress: suspend (ScreenPoint?) -> Unit,
+        ): InputOutcome = apply(action, map)
+
         override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
             if (!entered.isCompleted) {
                 entered.complete(Unit)
