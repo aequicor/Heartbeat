@@ -1,0 +1,188 @@
+package io.aequicor.heartbeat.feature.aiengine.facade.impl.data.install
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.InstallStep
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
+import java.nio.channels.FileChannel
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
+import kotlin.io.path.exists
+import kotlin.io.path.isExecutable
+import kotlin.io.path.listDirectoryEntries
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
+import kotlin.test.AfterTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Instant
+
+class FileManagedInstallStoreTest {
+    private val root: Path = Files.createTempDirectory("heartbeat-managed")
+    private val engine = EngineId("codex")
+    private val releases = mutableMapOf<String, ByteArray>()
+    private val clock = object : Clock {
+        override fun now(): Instant = Instant.fromEpochSeconds(1_000)
+    }
+
+    @AfterTest
+    fun cleanUp() {
+        root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `a staged copy runs nothing until it is activated`() = runTest {
+        val store = store()
+        val steps = mutableListOf<InstallStep>()
+
+        val staged = store.stage(engine, plan("1.0.0"), steps::add)
+
+        assertTrue(Path.of(staged.candidate.executable).exists())
+        if (isPosix) assertTrue(Path.of(staged.candidate.executable).isExecutable())
+        assertEquals(emptyMap(), store.state.value)
+        assertEquals(
+            listOf(InstallStep.Verified, InstallStep.Unpacking),
+            steps.filterNot { it is InstallStep.Downloading },
+        )
+        assertTrue(steps.first() is InstallStep.Downloading)
+
+        val installed = store.activate(staged)
+
+        assertEquals("1.0.0", installed.version)
+        assertEquals("codex 1.0.0", Path.of(installed.executable).readText())
+        assertEquals(mapOf(engine to installed), store.state.value)
+        assertTrue(Path.of(installed.executable).startsWith(root.resolve("codex/versions")))
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `the active copy survives a restart and a newer one replaces it`() = runTest {
+        val first = store()
+        first.activate(first.stage(engine, plan("1.0.0")) {})
+
+        val restarted = store()
+        restarted.refresh()
+        assertEquals("1.0.0", restarted.state.value.getValue(engine).version)
+
+        val updated = restarted.activate(restarted.stage(engine, plan("1.1.0")) {})
+
+        assertEquals("codex 1.1.0", Path.of(updated.executable).readText())
+        assertEquals(1, root.resolve("codex/versions").listDirectoryEntries().size)
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `a discarded or failed stage leaves the active copy and no partial files`() = runTest {
+        val store = store()
+        val installed = store.activate(store.stage(engine, plan("1.0.0")) {})
+
+        store.discard(store.stage(engine, plan("2.0.0")) {})
+        assertInstallFailure(InstallFailureReason.ChecksumMismatch) {
+            store.stage(engine, plan("3.0.0").copy(sha256 = "0".repeat(64))) {}
+        }
+        assertInstallFailure(InstallFailureReason.ExecutableMissing) {
+            store.stage(engine, plan("4.0.0").copy(executable = "bin/missing")) {}
+        }
+
+        assertEquals(mapOf(engine to installed), store.state.value)
+        assertEquals("codex 1.0.0", Path.of(installed.executable).readText())
+        assertNoLeftovers()
+    }
+
+    @Test
+    fun `uninstalling removes the copy for this and later sessions`() = runTest {
+        val store = store()
+        store.activate(store.stage(engine, plan("1.0.0")) {})
+
+        store.uninstall(engine)
+
+        assertEquals(emptyMap(), store.state.value)
+        assertFalse(root.resolve("codex/active.json").exists())
+        assertTrue(root.resolve("codex/versions").listDirectoryEntries().isEmpty())
+        val restarted = store()
+        restarted.refresh()
+        assertEquals(emptyMap(), restarted.state.value)
+        store.uninstall(engine)
+    }
+
+    @Test
+    fun `a record pointing outside its folder is ignored`() = runTest {
+        val store = store()
+        store.activate(store.stage(engine, plan("1.0.0")) {})
+        val record = root.resolve("codex/active.json")
+        record.writeText(record.readText().replace("bin/codex", "../../../outside"))
+
+        val restarted = store()
+        restarted.refresh()
+
+        assertEquals(emptyMap(), restarted.state.value)
+    }
+
+    @Test
+    fun `another Heartbeat process changing the copies makes them busy`() = runTest {
+        val store = store()
+        Files.createDirectories(root.resolve("codex"))
+        FileChannel.open(
+            root.resolve("codex/.lock"),
+            StandardOpenOption.CREATE,
+            StandardOpenOption.WRITE,
+        ).use { channel ->
+            channel.lock().use {
+                assertInstallFailure(InstallFailureReason.FilesInUse) { store.stage(engine, plan("1.0.0")) {} }
+            }
+        }
+
+        store.activate(store.stage(engine, plan("1.0.0")) {})
+        assertEquals("1.0.0", store.state.value.getValue(engine).version)
+    }
+
+    private fun store(): FileManagedInstallStore {
+        val client = releaseClient { request ->
+            val bytes = releases[request.url.encodedPath]
+            if (bytes == null) respond("", HttpStatusCode.NotFound) else respond(bytes, HttpStatusCode.OK)
+        }
+        return FileManagedInstallStore(
+            root,
+            ReleaseDownloader(client, Dispatchers.IO),
+            ArchiveExtractor(),
+            Dispatchers.IO,
+            clock,
+        )
+    }
+
+    private fun plan(version: String): InstallPlan {
+        val path = "/openai/codex/releases/download/rust-v$version/codex-package.tar.gz"
+        val archive = tarGz(
+            directory("codex-package/"),
+            directory("codex-package/bin/"),
+            file("codex-package/bin/codex", "codex $version", mode = 0b111_101_101),
+        )
+        releases[path] = archive
+        return InstallPlan(
+            version,
+            "https://github.com$path",
+            sha256(archive),
+            archive.size.toLong(),
+            ArchiveKind.TarGz(stripComponents = 1),
+            "bin/codex",
+            GitHubDownloadHosts,
+        )
+    }
+
+    private fun assertNoLeftovers() {
+        listOf("staging", "downloads", "trash").map { root.resolve("codex").resolve(it) }.filter { it.exists() }
+            .forEach { assertTrue(it.listDirectoryEntries().isEmpty(), "$it is not empty") }
+    }
+
+    private val isPosix = "posix" in root.fileSystem.supportedFileAttributeViews()
+}
