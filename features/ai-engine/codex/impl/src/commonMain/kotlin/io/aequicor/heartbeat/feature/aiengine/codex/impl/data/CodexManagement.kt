@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
@@ -22,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.InstallPlan
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LoginSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ReleaseFeeds
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.sha256FromSums
 
@@ -29,13 +32,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.sha256FromSums
 public interface CodexEngineManager : EngineManager
 
 /**
- * What engine management may change for Codex: Heartbeat installs its own copy of the official package, and launch
- * settings may name the executable, `CODEX_HOME`, `-c` overrides and extra environment. Keys Heartbeat sets to
+ * What engine management may change for Codex: Heartbeat installs its own copy of the official package, the CLI
+ * signs in to ChatGPT in the browser or with a device code, and launch settings may name the executable,
+ * `CODEX_HOME`, `-c` overrides and extra environment. Keys Heartbeat sets to
  * isolate sessions (provider, features, tools, approvals, sandbox, login method) are reserved.
  */
 internal val CodexManagementSpec = ManagementSpec(
     install = InstallSupport.Managed,
-    login = LoginSupport.None,
+    login = LoginSupport.CliWithDeviceCode,
     launch = LaunchSpec(
         options = LaunchOption.entries.toSet(),
         homeVariable = "CODEX_HOME",
@@ -55,10 +59,18 @@ internal data class CodexTarget(val triple: String, val executable: String)
 @Inject
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
-internal class CodexManager(private val transport: CodexTransport) : CodexEngineManager {
+internal class CodexManager(private val transport: CodexTransport, private val logins: CodexLogin) :
+    CodexEngineManager {
     private val log = Log.tag("CodexManager")
 
     override suspend fun inspect(launch: LaunchContext): Installation = transport.locate(launch)
+
+    override suspend fun loginStatus(launch: LaunchContext): LoginState = logins.status(launch)
+
+    override suspend fun login(launch: LaunchContext, method: LoginMethod, session: LoginSession): LoginState =
+        logins.login(launch, method, session)
+
+    override suspend fun logout(launch: LaunchContext): LoginState = logins.logout(launch)
 
     override suspend fun check(settings: LaunchSettings): List<LaunchProblem> = transport.check(settings)
 

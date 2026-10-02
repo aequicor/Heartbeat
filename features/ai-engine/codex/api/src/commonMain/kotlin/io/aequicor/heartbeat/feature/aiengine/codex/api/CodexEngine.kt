@@ -22,8 +22,10 @@ public object CodexEngine {
 
 /**
  * Trusted host configuration, supplied by the application bundle. Paths are never interpreted by a shell.
- * The CLI must already be installed and logged in. Only CLI-owned ChatGPT login is supported; no key import,
- * login, credential helper or account switching is performed. Android/iOS report UnsupportedPlatform.
+ * Only CLI-owned ChatGPT login is supported; no key import, credential helper or silent account switching is
+ * performed. Signing in happens only when the user asks for it in engine management, through the CLI's own
+ * app-server flow. Engine management may also replace the executable and home through the profile's launch
+ * settings. Android/iOS report UnsupportedPlatform.
  *
  * [executable] names a native executable (not a .cmd/.bat wrapper on Windows). The default `codex` also discovers
  * standard macOS app-bundled and CLI installations when absent from PATH. Explicit paths are never replaced.

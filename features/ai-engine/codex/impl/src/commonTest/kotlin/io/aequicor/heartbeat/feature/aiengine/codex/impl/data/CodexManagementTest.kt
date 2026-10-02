@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConfigOverride
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
@@ -65,7 +66,7 @@ class CodexManagementTest {
             )
         }
         assertInstall(InstallFailureReason.NoAssetForPlatform) {
-            CodexManager(NoTargetTransport).resolveRelease(Feeds())
+            CodexManager(NoTargetTransport, CodexLogin(NoTargetTransport, Dispatchers)).resolveRelease(Feeds())
         }
     }
 
@@ -94,6 +95,12 @@ class CodexManagementTest {
     private class Feeds(private val documents: Map<String, String> = emptyMap()) : ReleaseFeeds {
         override suspend fun latestGitHubRelease(owner: String, repository: String): GitHubRelease = error("unused")
         override suspend fun document(url: String, allowedHosts: Set<String>): String = documents.getValue(url)
+    }
+
+    private object Dispatchers : DispatcherProvider {
+        override val main = kotlinx.coroutines.Dispatchers.Unconfined
+        override val default = kotlinx.coroutines.Dispatchers.Unconfined
+        override val io = kotlinx.coroutines.Dispatchers.Unconfined
     }
 
     private object NoTargetTransport : CodexTransport {
