@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.DeveloperFlags
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineFlags
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineToggles
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ManagedInstallStore
@@ -77,6 +79,14 @@ class ProfileEngineGate(private val toggles: FeatureToggles, private val prefere
         log.d { "engine gate engine=${descriptor.id.value} enabled=$isEnabled userDisabled=$isUserDisabled" }
         return isEnabled
     }
+}
+
+/** [EngineFlags] over the app's feature toggles. */
+class ToggleEngineFlags(private val toggles: FeatureToggles) : EngineFlags {
+    override fun management(): Flow<Boolean> = toggles.observe(EngineManagementEnabled).distinctUntilChanged()
+
+    override fun developer(descriptor: EngineDescriptor): Flow<DeveloperFlags> =
+        combine(toggles.observe(AiEngines), toggles.observe(descriptor.toggle), ::DeveloperFlags).distinctUntilChanged()
 }
 
 /**

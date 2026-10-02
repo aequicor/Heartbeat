@@ -196,7 +196,7 @@ public data class InstallationState(
     val compatibility: Compatibility = Compatibility.Unknown,
     val checkedAt: Instant? = null,
     /** Why the last inspection or update check failed. */
-    val failure: EngineFailure? = null,
+    val failure: ManagementFailure? = null,
 ) {
     /** A newer release than the copy Heartbeat would replace (managed, else bundled, else current) is known. */
     val isUpdateAvailable: Boolean

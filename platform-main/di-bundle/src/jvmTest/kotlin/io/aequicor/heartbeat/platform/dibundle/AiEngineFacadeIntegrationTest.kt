@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAvailability
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCommand
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -41,6 +42,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagement
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
@@ -120,6 +122,7 @@ interface AiEngineTestAccessors {
     val modelSelections: ModelSelections
     val engineRegistrations: Set<EngineRegistration>
     val enginePreferences: EnginePreferences
+    val engineManagement: EngineManagement
 }
 
 /** A scripted adapter bundled only into the test graph, registered like a real adapter. */
@@ -440,6 +443,26 @@ class AiEngineFacadeIntegrationTest {
 
         accessors.enginePreferences.update { it.copy(disabled = emptySet()) }
         catalog.first { list -> list.any { it.descriptor.id == TestAdapter.engine } }
+    }
+
+    @Test
+    fun `engine management lists every engine and its switch reaches the catalog`() = runTest {
+        val toggles = app as TestToggleAccessors
+        toggles.toggleControl.setOverride(AiEngines, true)
+        toggles.toggleControl.setOverride(TestAdapter.toggle, true)
+        toggles.toggleControl.setOverride(EngineManagementEnabled, true)
+        val accessors = app.profileSessions.open(ProfileId("management")).graph as AiEngineTestAccessors
+        val management = accessors.engineManagement
+        val listed = management.state.first { state -> state.engines.any { it.descriptor.id == TestAdapter.engine } }
+        assertEquals(accessors.engineRegistrations.size, listed.engines.size)
+
+        management.execute(TestAdapter.engine, EngineCommand.SetEnabled(false))
+
+        accessors.engineFacade.engines.state.first { list -> list.none { it.descriptor.id == TestAdapter.engine } }
+        val off = management.state.first { state ->
+            state.engines.single { it.descriptor.id == TestAdapter.engine }.enablement.isOnlyUserDisabled
+        }
+        assertTrue(off.isEnabled)
     }
 
     @Test
