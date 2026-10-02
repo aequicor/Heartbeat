@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -38,6 +39,7 @@ class RuntimePool(
     private val context: FacadeContext,
     private val hasActiveTurn: (EngineId, AuthSourceId) -> Boolean,
     private val retireHandles: suspend (EngineId, AuthSourceId) -> Unit,
+    private val launchOf: suspend (EngineId) -> LaunchContext = { LaunchContext() },
 ) {
     private val log = Log.tag("RuntimePool")
     private val mutex = Mutex()
@@ -122,6 +124,8 @@ class RuntimePool(
         }
         mutex.withLock { ensureOpen(identity.engine) }
         log.i { "start runtime engine=${identity.engine.value} source=${identity.source.value}" }
+        // Read before the adapter starts, so a change made meanwhile marks the runtime stale rather than current.
+        val launch = launchOf(identity.engine)
         val created = create(resolved)
         if (created.identity != identity) {
             log.e { "runtime reported another identity engine=${identity.engine.value}" }
@@ -134,7 +138,7 @@ class RuntimePool(
                 if (isClosed) {
                     false
                 } else {
-                    runtimes[key] = Pooled(created, context.clock.now())
+                    runtimes[key] = Pooled(created, context.clock.now(), launch)
                     publish()
                     true
                 }
@@ -224,7 +228,7 @@ class RuntimePool(
     /** Called under [mutex]. */
     private fun publish() {
         published.value = runtimes.map { (key, pooled) ->
-            RuntimeEntry(key.first, key.second, pooled.startedAt, pooled.runtime.isClosed)
+            RuntimeEntry(key.first, key.second, pooled.startedAt, pooled.runtime.isClosed, pooled.launch)
         }
         log.d { "pooled runtimes count=${runtimes.size}" }
     }
@@ -264,11 +268,20 @@ class RuntimePool(
     }
 }
 
-/** One pooled runtime and when the pool started it. */
-private data class Pooled(val runtime: EngineRuntime, val startedAt: Instant)
+/** One pooled runtime, when the pool started it and the launch context it started with. */
+private data class Pooled(val runtime: EngineRuntime, val startedAt: Instant, val launch: LaunchContext)
 
-/** A pooled runtime of [engine] and [source]; [isClosed] tells it shut itself down and awaits replacement. */
-data class RuntimeEntry(val engine: EngineId, val source: AuthSourceId, val startedAt: Instant, val isClosed: Boolean)
+/**
+ * A pooled runtime of [engine] and [source]; [isClosed] tells it shut itself down and awaits replacement, and
+ * [launch] is the context it started with, which tells whether later launch changes reached it.
+ */
+data class RuntimeEntry(
+    val engine: EngineId,
+    val source: AuthSourceId,
+    val startedAt: Instant,
+    val isClosed: Boolean,
+    val launch: LaunchContext = LaunchContext(),
+)
 
 /** Runtimes [RuntimePool.retire] stopped and the busy ones it kept. */
 data class RetireOutcome(val retired: Int, val busy: Int)

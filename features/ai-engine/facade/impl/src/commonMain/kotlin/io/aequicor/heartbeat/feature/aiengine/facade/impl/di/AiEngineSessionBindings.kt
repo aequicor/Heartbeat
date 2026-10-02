@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionAssembler
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionHost
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ActiveSessionRegistry
@@ -64,9 +65,10 @@ object AiEngineSessionBindings {
     fun pool(
         context: FacadeContext,
         handles: ActiveSessionRegistry,
+        launch: EngineLaunchConfig,
         @ForScope(ProfileScope::class) profile: ScopeHandle,
         @ForScope(AppScope::class) app: ScopeHandle,
-    ): RuntimePool = RuntimePool(context, handles::hasActiveTurn, handles::closeHandles).also { pool ->
+    ): RuntimePool = RuntimePool(context, handles::hasActiveTurn, handles::closeHandles, launch::context).also { pool ->
         profile.onClose { app.coroutineScope.launch { pool.closeAll() } }
     }
 

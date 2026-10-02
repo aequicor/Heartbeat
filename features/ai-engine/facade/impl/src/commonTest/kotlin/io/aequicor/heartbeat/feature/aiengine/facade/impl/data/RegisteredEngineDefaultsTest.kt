@@ -9,9 +9,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ProfileEnginePreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -68,6 +70,14 @@ class RegisteredEngineDefaultsTest {
     }
 
     @Test
+    fun `an engine switched off in the profile is no default while engine management is on`() = runTest {
+        val off = ProfileEnginePreferences(disabled = setOf(EngineId("desktop")))
+
+        assertNull(defaults(HostPlatform.MacOs, mapOf(EngineManagementEnabled to true), off).preferred())
+        assertEquals(EngineId("desktop"), defaults(HostPlatform.MacOs, preferences = off).preferred())
+    }
+
+    @Test
     fun `conflicting default registrations fail validation`() = runTest {
         val conflicting = EngineRegistration(
             desktop.descriptor.copy(id = EngineId("other")),
@@ -77,13 +87,20 @@ class RegisteredEngineDefaultsTest {
         val subject = RegisteredEngineDefaults(
             setOf(desktop, conflicting),
             Host(HostPlatform.Linux),
-            Toggles(emptyMap()),
+            ProfileEngineGate(Toggles(emptyMap()), MemoryEnginePreferences()),
         )
         assertFailsWith<IllegalArgumentException> { subject.preferred() }
     }
 
-    private fun defaults(host: HostPlatform, overrides: Map<FeatureToggle<*>, Any> = emptyMap()) =
-        RegisteredEngineDefaults(setOf(desktop, secondary), Host(host), Toggles(overrides))
+    private fun defaults(
+        host: HostPlatform,
+        overrides: Map<FeatureToggle<*>, Any> = emptyMap(),
+        preferences: ProfileEnginePreferences = ProfileEnginePreferences(),
+    ) = RegisteredEngineDefaults(
+        setOf(desktop, secondary),
+        Host(host),
+        ProfileEngineGate(Toggles(overrides), MemoryEnginePreferences(preferences)),
+    )
 
     private class Host(override val host: HostPlatform) : PlatformInfo
 

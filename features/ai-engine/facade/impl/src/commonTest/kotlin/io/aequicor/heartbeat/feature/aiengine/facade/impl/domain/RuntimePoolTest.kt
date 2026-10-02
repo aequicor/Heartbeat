@@ -9,8 +9,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -29,6 +31,8 @@ class RuntimePoolTest {
     private val busy = mutableSetOf<AuthSourceId>()
     private val retiredHandles = mutableListOf<Pair<EngineId, AuthSourceId>>()
 
+    private var launch = LaunchContext()
+
     private fun TestScope.pool(clock: FixedClock = FixedClock()): RuntimePool {
         factory.runtime = { identity -> FakeRuntime(identity).also { runtimes += it } }
         otherFactory.runtime = factory.runtime
@@ -36,6 +40,7 @@ class RuntimePoolTest {
             facadeContext(clock),
             { _, source -> source in busy },
             { engine, source -> retiredHandles += engine to source },
+            { launch },
         )
     }
 
@@ -127,8 +132,23 @@ class RuntimePoolTest {
         pool.runtime(route(key))
 
         assertEquals(listOf(RuntimeEntry(TestEngine, key.info.id, clock.now, isClosed = false)), pool.entries.value)
+        assertEquals(LaunchContext(), pool.entries.value.single().launch)
         pool.closeAll()
         assertTrue(pool.entries.value.isEmpty())
+    }
+
+    @Test
+    fun `entries remember the launch context each runtime started with`() = runTest {
+        val pool = pool()
+        launch = LaunchContext(LaunchSettings(executable = "/opt/first"))
+        pool.runtime(route(managedKey("src_a")))
+        launch = LaunchContext(LaunchSettings(executable = "/opt/second"))
+        pool.runtime(route(managedKey("src_b")))
+
+        assertEquals(
+            listOf("/opt/first", "/opt/second"),
+            pool.entries.value.map { it.launch.settings.executable },
+        )
     }
 
     @Test
