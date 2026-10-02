@@ -43,6 +43,7 @@ class KoogConfigurationTest {
         fixture.toolsByModel = mapOf("next-model" to false)
         fixture.reasoning.discover(
             KoogProvider.Ollama,
+            KoogProvider.Ollama.origin,
             fixture.availableModels,
             fixture.availableModels.associateWith { KoogToggleLevels },
         )
@@ -92,7 +93,12 @@ class KoogConfigurationTest {
     @Test
     fun `live effort leaves the ongoing stream intact and applies to the next request`() = runTest {
         val fixture = KoogTestFixture(this)
-        fixture.reasoning.discover(KoogProvider.Ollama, listOf("test-model"), mapOf("test-model" to KoogToggleLevels))
+        fixture.reasoning.discover(
+            KoogProvider.Ollama,
+            KoogProvider.Ollama.origin,
+            listOf("test-model"),
+            mapOf("test-model" to KoogToggleLevels),
+        )
         val session = fixture.session()
         session.features.require(SendsPrompts).send(fixture.request())
         runCurrent()
@@ -111,7 +117,12 @@ class KoogConfigurationTest {
     @Test
     fun `unsupported trust and invalid effort preserve the previous configuration`() = runTest {
         val fixture = KoogTestFixture(this)
-        fixture.reasoning.discover(KoogProvider.Ollama, listOf("test-model"), mapOf("test-model" to KoogToggleLevels))
+        fixture.reasoning.discover(
+            KoogProvider.Ollama,
+            KoogProvider.Ollama.origin,
+            listOf("test-model"),
+            mapOf("test-model" to KoogToggleLevels),
+        )
         val session = fixture.session()
         val changes = session.features.require(ChangesSessionConfiguration)
         changes.apply("valid", SessionConfigurationChange.Effort("on"))
@@ -131,7 +142,12 @@ class KoogConfigurationTest {
     @Test
     fun `provider rejection corrects actual effort and reports the original operation`() = runTest {
         val fixture = KoogTestFixture(this)
-        fixture.reasoning.discover(KoogProvider.Ollama, listOf("test-model"), mapOf("test-model" to KoogToggleLevels))
+        fixture.reasoning.discover(
+            KoogProvider.Ollama,
+            KoogProvider.Ollama.origin,
+            listOf("test-model"),
+            mapOf("test-model" to KoogToggleLevels),
+        )
         val session = fixture.session()
         val changes = session.features.require(ChangesSessionConfiguration)
         changes.apply("effort-op", SessionConfigurationChange.Effort("on"))
@@ -151,7 +167,12 @@ class KoogConfigurationTest {
     @Test
     fun `late rejection reports the original operation without rolling back a newer effort selection`() = runTest {
         val fixture = KoogTestFixture(this)
-        fixture.reasoning.discover(KoogProvider.Ollama, listOf("test-model"), mapOf("test-model" to KoogToggleLevels))
+        fixture.reasoning.discover(
+            KoogProvider.Ollama,
+            KoogProvider.Ollama.origin,
+            listOf("test-model"),
+            mapOf("test-model" to KoogToggleLevels),
+        )
         val session = fixture.session()
         val changes = session.features.require(ChangesSessionConfiguration)
         val corrections = mutableListOf<SessionConfigurationUpdate>()
@@ -170,7 +191,10 @@ class KoogConfigurationTest {
         assertEquals("old-op", correction.operationId)
         assertEquals(EngineFailure.Request(RequestFailureReason.Invalid), correction.failure)
         assertEquals(changes.configuration.value, correction.configuration)
-        assertEquals(KoogToggleLevels, fixture.reasoning.levels(KoogProvider.Ollama, "test-model"))
+        assertEquals(
+            KoogToggleLevels,
+            fixture.reasoning.levels(KoogProvider.Ollama, KoogProvider.Ollama.origin, "test-model"),
+        )
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
     }
 }

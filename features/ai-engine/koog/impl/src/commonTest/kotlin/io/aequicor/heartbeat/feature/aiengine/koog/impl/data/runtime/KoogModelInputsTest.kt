@@ -25,7 +25,9 @@ class KoogModelInputsTest {
     fun `arbitrary compatible origins cannot inherit static vendor binary capabilities`() = runTest {
         var lookups = 0
         val inputs = KoogModelInputs(object : KoogReasoningCatalog {
-            override suspend fun levels(provider: KoogProvider, model: String): List<String>? = null
+            override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>? =
+                null
+
             override suspend fun inputSupport(provider: KoogProvider, model: String): PromptInputSupport {
                 lookups++
                 return PromptInputSupport(
@@ -49,7 +51,9 @@ class KoogModelInputsTest {
     fun `compatible routes at exact official origins retain vendor capabilities and catalog lookup`() = runTest {
         val lookups = mutableListOf<KoogProvider>()
         val inputs = KoogModelInputs(object : KoogReasoningCatalog {
-            override suspend fun levels(provider: KoogProvider, model: String): List<String>? = null
+            override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>? =
+                null
+
             override suspend fun inputSupport(provider: KoogProvider, model: String): PromptInputSupport {
                 lookups += provider
                 return PromptInputSupport.TextDocuments

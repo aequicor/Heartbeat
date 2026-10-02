@@ -122,7 +122,8 @@ internal class DefaultKoogEngineAdapter(
                     val models = client.models().distinctBy { it.id }
                     if (access.usageEnabled()) access.contextWindows.record(connection, models)
                     val ids = models.map { it.id }
-                    val levels = access.reasoning.discover(provider, ids, client.reasoning(ids))
+                    val origin = connection.source.scope.origin
+                    val levels = access.reasoning.discover(provider, origin, ids, client.reasoning(ids))
                     models.map {
                         ModelInfo(
                             EngineTarget(KoogEngineId, context.binding, ModelId(it.id)),

@@ -5,11 +5,11 @@ import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.llm.LLMCapability
 import ai.koog.prompt.llm.LLModel
-import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.ResponseMetaInfo
 import ai.koog.prompt.params.LLMParams
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
@@ -50,8 +50,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -123,6 +121,7 @@ internal class KoogNativeSession(
 
     // Tools the user allowed for the rest of this native session.
     private val allowedTools = mutableSetOf<String>()
+    private val toolExecution = KoogToolExecution(history, this::approve)
 
     val route: ExecutionRoute = requireNotNull(initial.summary.lastRoute)
     val ref: SessionRef = initial.summary.ref
@@ -232,8 +231,9 @@ internal class KoogNativeSession(
         }
         val connection = access.route(route.binding, identity)
         val provider = requireNotNull(koogProvider(connection.source))
+        val origin = connection.source.scope.origin
         val effort = request.reasoningEffort ?: configuration.value.reasoningEffort
-        if (effort != null && effort !in access.reasoning.levels(provider, model.value)) {
+        if (effort != null && effort !in access.reasoning.levels(provider, origin, model.value)) {
             fail(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
         }
         val client = access.preparePromptClient(
@@ -273,7 +273,7 @@ internal class KoogNativeSession(
         active = turn
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            runTurn(turn, client, provider, model.value, request.trust ?: TrustLevel.Ask)
+            runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
         }
         return turn.id
     }
@@ -282,6 +282,7 @@ internal class KoogNativeSession(
         turn: Turn,
         initialClient: KoogClient,
         provider: KoogProvider,
+        origin: EndpointOrigin,
         initialModel: String,
         trust: TrustLevel,
     ) {
@@ -304,10 +305,7 @@ internal class KoogNativeSession(
                 val requestSelection = mutex.withLock { selection }
                 val selectedModel = requestSelection.configuration.model.value
                 if (selectedModel != clientModel) {
-                    val connection = access.route(route.binding, identity)
-                    val next = koogCall { access.open(connection, selectedModel) }
-                    closeClient(client)
-                    client = next
+                    client = reopenClient(selectedModel, client)
                     clientModel = selectedModel
                 }
                 val tools = turnTools(client, provider, selectedModel, workspace)
@@ -317,13 +315,13 @@ internal class KoogNativeSession(
                     attachments = record.items.hasResourceInputs(),
                 )
                 val prompt = input ?: initialPrompt(provider, workspace?.instructions)
-                val round = streamWithEffort(turn, client, provider, textModel, tools, prompt, requestSelection)
-                if (round.calls.isEmpty()) {
+                val round = streamWithEffort(turn, client, provider, origin, textModel, tools, prompt, requestSelection)
+                val next = toolExecution.nextPrompt(turn, tools, round, prompt)
+                if (next == null) {
                     isComplete = true
                     break
                 }
-                val results = round.calls.map { call -> runToolCall(turn, tools, call) }
-                input = continuePrompt(prompt, round.text, results)
+                input = next
             }
             if (!isComplete) {
                 log.w { "Tool round limit reached ($rounds)" }
@@ -344,6 +342,14 @@ internal class KoogNativeSession(
                 withContext(NonCancellable) { finish(turn, outcome) }
             }
         }
+    }
+
+    /** Reopens the transport after a live selection changed the model mid-turn. */
+    private suspend fun reopenClient(model: String, client: KoogClient): KoogClient {
+        val connection = access.route(route.binding, identity)
+        val next = koogCall { access.open(connection, model) }
+        closeClient(client)
+        return next
     }
 
     private fun closeClient(client: KoogClient) {
@@ -440,6 +446,7 @@ internal class KoogNativeSession(
         turn: Turn,
         client: KoogClient,
         provider: KoogProvider,
+        origin: EndpointOrigin,
         model: LLModel,
         tools: KoogToolbox,
         input: Prompt,
@@ -461,15 +468,19 @@ internal class KoogNativeSession(
             if (effort == null || !e.isRequestRejection() || history.items.size != produced) throw e
             log.w(e.sanitized()) { "Reasoning parameters rejected; retrying without effort" }
             val result = streamRound(turn, client, model, input.withParams(LLMParams()), tools.descriptors)
-            rejectEffort(provider, requestSelection)
+            rejectEffort(provider, origin, requestSelection)
             result
         }
     }
 
-    private suspend fun rejectEffort(provider: KoogProvider, rejected: ConfigurationSelection) {
+    private suspend fun rejectEffort(
+        provider: KoogProvider,
+        origin: EndpointOrigin,
+        rejected: ConfigurationSelection,
+    ) {
         val update = mutex.withLock {
             if (selection.revision == rejected.revision) {
-                access.reasoning.reject(provider, rejected.configuration.model.value)
+                access.reasoning.reject(provider, origin, rejected.configuration.model.value)
                 val next = configuration.value.copy(reasoningEffort = null)
                 record = record.copy(reasoningEffort = null, items = history.items)
                 install(next)
@@ -509,15 +520,13 @@ internal class KoogNativeSession(
             turn.id,
         )
         val content = KoogStreamParts()
-        val calls = mutableListOf<StreamFrame.ToolCallComplete>()
+        val calls = KoogToolCalls()
         var revision = 0L
         var isEnded = false
         contextUsage.start(client)
         client.executor.executeStreaming(input, model, tools).collect { frame ->
             when (frame) {
-                is StreamFrame.ToolCallComplete -> {
-                    calls += frame
-                }
+                is StreamFrame.ToolCallDelta, is StreamFrame.ToolCallComplete -> calls.append(frame)
 
                 is StreamFrame.End -> {
                     isEnded = true
@@ -526,7 +535,6 @@ internal class KoogNativeSession(
 
                 is StreamFrame.TextDelta,
                 is StreamFrame.TextComplete,
-                is StreamFrame.ToolCallDelta,
                 is StreamFrame.ReasoningDelta,
                 is StreamFrame.ReasoningComplete,
                 -> Unit
@@ -542,7 +550,7 @@ internal class KoogNativeSession(
             }
         }
         if (!isEnded) fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
-        return ToolRound(content.text, calls)
+        return ToolRound(content.text, calls.complete())
     }
 
     private suspend fun recordUsage(client: KoogClient, model: LLModel, metadata: ResponseMetaInfo) {
@@ -555,67 +563,6 @@ internal class KoogNativeSession(
             log.w(e.sanitized()) { "Context telemetry unavailable after provider response" }
             contextUsage.clear()
         }
-    }
-
-    private suspend fun runToolCall(
-        turn: Turn,
-        tools: KoogToolbox,
-        call: StreamFrame.ToolCallComplete,
-    ): HandledToolCall {
-        val info = ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id)
-        val id = ToolCallId(call.id?.takeIf { it.isNotBlank() } ?: Uuid.random().toString())
-        val tool = tools[call.name]
-        val args = arguments(call)
-        val isApprovalNeeded = tool != null && args != null && tool.isMutating
-        val started = SessionItem.ToolCall(
-            info,
-            id,
-            call.name,
-            call.content,
-            if (isApprovalNeeded) ToolCallStatus.Pending else ToolCallStatus.Running,
-        )
-        history.append { SessionEvent.ItemUpserted(it, started) }
-        val result = when {
-            tool == null -> {
-                log.w { "Model called an unknown tool ${call.name}" }
-                KoogToolResult("Unknown tool: ${call.name}", true)
-            }
-
-            args == null -> KoogToolResult("InvalidInput: arguments must be a JSON object", true)
-
-            isApprovalNeeded -> approve(turn, tool, args)?.let { KoogToolResult(it, true) } ?: run(tool, args, started)
-
-            else -> {
-                log.i { "Running tool ${call.name}" }
-                tool.run(args)
-            }
-        }
-        val status = if (result.isFailed) ToolCallStatus.Failed else ToolCallStatus.Succeeded
-        history.append { SessionEvent.ItemUpserted(it, started.copy(info = info.copy(revision = 2), status = status)) }
-        val output = SessionItem.ToolResult(
-            ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
-            id,
-            listOf(ContentPart.Text(result.text)) + result.resources.map { ContentPart.Resource(it) },
-            if (result.isFailed) EngineFailure.Unknown() else null,
-        )
-        history.append { SessionEvent.ItemUpserted(it, output) }
-        return HandledToolCall(id.value, call.name, call.content, result)
-    }
-
-    private suspend fun run(tool: KoogTool, args: JsonObject, pending: SessionItem.ToolCall): KoogToolResult {
-        val running = pending.copy(info = pending.info.copy(revision = 1), status = ToolCallStatus.Running)
-        history.append { SessionEvent.ItemUpserted(it, running) }
-        log.i { "Running approved tool ${tool.descriptor.name}" }
-        return tool.run(args)
-    }
-
-    private fun arguments(call: StreamFrame.ToolCallComplete): JsonObject? = try {
-        call.contentJson
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.w(e) { "Malformed tool arguments for ${call.name}" }
-        null
     }
 
     /**
@@ -696,19 +643,6 @@ internal class KoogNativeSession(
             active = resolved
             if (current is ActiveSessionState.AwaitingUserAction) publish(ActiveSessionState.Running(resolved))
         }
-    }
-
-    private fun continuePrompt(input: Prompt, text: String, calls: List<HandledToolCall>): Prompt = prompt(
-        "heartbeat",
-        input.params,
-    ) {
-        if (input.messages.none { it is Message.System && it.textContent() == KOOG_RESOURCE_BOUNDARY }) {
-            system(KOOG_RESOURCE_BOUNDARY)
-        }
-        messages(input.messages)
-        if (text.isNotBlank()) assistant(text)
-        calls.forEach { toolCall(tool = it.name, args = it.arguments, id = it.id) }
-        calls.forEach { toolResult(tool = it.name, output = it.result.text, id = it.id, isError = it.result.isFailed) }
     }
 
     private suspend fun finish(turn: Turn, outcome: TurnOutcome) {
@@ -839,9 +773,7 @@ internal const val MAX_CODING_TOOL_ROUNDS = 64
 
 private typealias Lease = MutableStateFlow<ActiveSessionState>
 
-private data class ToolRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
-
-private data class HandledToolCall(val id: String, val name: String, val arguments: String, val result: KoogToolResult)
+internal data class ToolRound(val text: String, val calls: List<StreamFrame.ToolCallComplete>)
 
 private fun unknownOutcome(request: PromptRequest) =
     EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, request.id))

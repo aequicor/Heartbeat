@@ -121,7 +121,8 @@ internal class KoogTestFixture(test: TestScope) {
     val reasoning = KoogReasoningLevels(
         reasoningStore,
         object : KoogReasoningCatalog {
-            override suspend fun levels(provider: KoogProvider, model: String) = catalogLevels[model]
+            override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String) =
+                catalogSection(provider, origin)?.let { catalogLevels[model] }
         },
         toggles,
     )

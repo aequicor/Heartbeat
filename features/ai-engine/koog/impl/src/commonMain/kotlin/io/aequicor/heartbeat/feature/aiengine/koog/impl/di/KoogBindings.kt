@@ -41,8 +41,8 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogReasoningCatalogEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogSessionSource
 
-/** 1: a discovered model reports the image and document formats it accepts. */
-private const val KOOG_MODEL_CATALOG_REVISION = 1
+/** 2: compatible routes report reasoning effort levels of their exact vendor origin. */
+private const val KOOG_MODEL_CATALOG_REVISION = 2
 
 /** App-wide toggle declaration; registrations themselves are owned by profiles. */
 @BindingContainer
