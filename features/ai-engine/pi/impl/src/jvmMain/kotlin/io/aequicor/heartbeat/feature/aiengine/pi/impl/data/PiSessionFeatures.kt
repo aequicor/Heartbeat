@@ -17,7 +17,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 internal fun piSessionFeatures(
     session: PiSession,
     journal: SessionHistory,
-    usage: SessionContextUsage,
     support: () -> PromptInputSupport,
 ): EngineFeatures = PiFeatures(
     listOf(
@@ -35,6 +34,6 @@ internal fun piSessionFeatures(
         AppliesTrustLevels to session,
         ChangesSessionConfiguration to session,
         SessionHistory to journal,
-        SessionContextUsage to usage,
+        SessionContextUsage to session.contextUsage,
     ),
 )

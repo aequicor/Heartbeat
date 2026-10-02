@@ -144,6 +144,26 @@ class PiCompatibleCatalogTest {
     }
 
     @Test
+    fun `only explicit catalog capacities survive models json for the exact compatible route`() {
+        val known = mapOf(
+            "glm-5.3-flash" to Json.parseToJsonElement("""{"contextWindow":200000}""").jsonObject,
+            "explicit-128k" to Json.parseToJsonElement("""{"contextWindow":128000}""").jsonObject,
+            "invalid" to Json.parseToJsonElement("""{"contextWindow":0}""").jsonObject,
+        )
+        val config = piModelsJson(
+            PiProvider.OpenAiCompatible,
+            openAiScope,
+            (known.keys + "unknown").map { PiCompatibleModel(it, null) },
+            known,
+        )
+        assertEquals(
+            mapOf("openai-compatible/glm-5.3-flash" to 200000L, "openai-compatible/explicit-128k" to 128000L),
+            piConfiguredContextWindows(config),
+        )
+        assertEquals(emptyMap(), piConfiguredContextWindows(null))
+    }
+
+    @Test
     fun `catalog probe unlocks Pi providers with a placeholder key only`() {
         val providers = Json.parseToJsonElement(piCatalogProbeJson()).jsonObject.getValue("providers").jsonObject
         assertEquals(PiCatalogProviders.toSet(), providers.keys)

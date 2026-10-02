@@ -37,6 +37,9 @@ internal interface PiConnection {
     /** Working directory of the process: the only place where trusted file edits are applied. */
     val workingDirectory: Path?
 
+    /** Explicit limits from this process's models.json; excludes Pi's synthetic fallback windows. */
+    val contextWindows: Map<String, Long>
+
     /** Sends a correlated command and returns its `data`; a timeout fails only this command. */
     suspend fun command(type: String, fields: JsonObject = JsonObject(emptyMap())): JsonObject
 
@@ -60,6 +63,7 @@ internal class PiRpc(
     private val failed: suspend (EngineFailure) -> Unit,
     private val commandTimeoutMillis: Long = COMMAND_TIMEOUT,
     override val workingDirectory: Path? = null,
+    override val contextWindows: Map<String, Long> = emptyMap(),
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
@@ -215,3 +219,10 @@ internal class PiRpc(
 }
 
 internal fun JsonObject.string(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull
+
+/** Resolves only an explicit limit for this process and exact provider/model route. */
+internal fun PiConnection.contextCapacity(model: JsonObject?): Long? {
+    val provider = model?.string("provider") ?: return null
+    val id = model.string("id") ?: return null
+    return contextWindows["$provider/$id"]
+}

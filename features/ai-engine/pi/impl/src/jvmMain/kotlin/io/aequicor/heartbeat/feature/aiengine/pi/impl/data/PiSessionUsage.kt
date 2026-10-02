@@ -18,6 +18,7 @@ internal class PiSessionUsage(private val environment: PiSessionEnvironment, han
     private val mutableState = MutableStateFlow<ContextUsage?>(null)
     override val state = mutableState.asStateFlow()
     private var model: JsonObject? = null
+    private var capacity: Long? = null
     private var isClosed = false
 
     init {
@@ -26,8 +27,9 @@ internal class PiSessionUsage(private val environment: PiSessionEnvironment, han
         }
     }
 
-    fun model(value: JsonObject?) {
+    fun model(value: JsonObject?, confirmedCapacity: Long?) {
         model = value
+        capacity = confirmedCapacity
         clear()
     }
 
@@ -50,7 +52,7 @@ internal class PiSessionUsage(private val environment: PiSessionEnvironment, han
                 if (message?.string("role") == "assistant" && !isClosed) {
                     log.v { "Native context observation received" }
                     mutableState.value = if (environment.toggles.get(EngineUsageEnabled)) {
-                        piContextUsage(message, model, Clock.System.now())
+                        piContextUsage(message, model, Clock.System.now(), capacity)
                     } else {
                         null
                     }

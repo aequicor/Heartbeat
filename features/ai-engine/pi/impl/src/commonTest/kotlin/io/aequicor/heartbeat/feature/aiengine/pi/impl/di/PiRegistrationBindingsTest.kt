@@ -17,12 +17,12 @@ class PiRegistrationBindingsTest {
     )
 
     /**
-     * Revision 3 is the first catalog that reports image and document input support. A profile cache of an older
-     * revision is rediscovered in the background, so attachments never stay hidden behind a stale discovery.
+     * Revision 4 replaces synthetic compatible context windows with explicit catalog limits.
+     * Cached discoveries must be refreshed so an unknown capacity never remains a confirmed window.
      */
     @Test
-    fun `registration keeps the catalog revision that introduced input support`() {
-        assertEquals(3, registration.modelCatalogRevision)
+    fun `registration invalidates cached synthetic compatible context limits`() {
+        assertEquals(4, registration.modelCatalogRevision)
     }
 
     @Test

@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Model advertised by a compatible server. */
@@ -215,3 +216,20 @@ private const val CATALOG_PROBE_KEY = "heartbeat-catalog-probe"
 private fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
 
 private const val ANTHROPIC_VERSION = "2023-06-01"
+
+/** Exact route limits explicitly written to models.json, before Pi supplies defaults for missing fields. */
+internal fun piConfiguredContextWindows(modelsJson: String?): Map<String, Long> {
+    if (modelsJson == null) return emptyMap()
+    val providers = Json.parseToJsonElement(modelsJson).jsonObject["providers"] as? JsonObject ?: return emptyMap()
+    return buildMap {
+        providers.forEach { (provider, config) ->
+            val models = (config as? JsonObject)?.get("models") as? JsonArray
+            models.orEmpty().forEach modelEntry@{ element ->
+                val model = element as? JsonObject ?: return@modelEntry
+                val id = model.text("id") ?: return@modelEntry
+                val capacity = (model["contextWindow"] as? JsonPrimitive)?.longOrNull
+                if (capacity != null && capacity > 0) put("$provider/$id", capacity)
+            }
+        }
+    }
+}
