@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorId
 import io.aequicor.heartbeat.feature.computeruse.api.MonitorInfo
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
@@ -232,27 +233,24 @@ internal class DesktopOsPermissions(
         if (runtime.isSupported && !isAccessibilityAllowed) add(ComputerUseBlocker.AccessibilityPermission)
     }
 
-    override suspend fun openSettings(blocker: ComputerUseBlocker): Unit = withContext(dispatchers.io) {
-        val target = when (blocker) {
-            ComputerUseBlocker.ScreenRecordingPermission -> MAC_OS_SCREEN_CAPTURE_SETTINGS
-            ComputerUseBlocker.AccessibilityPermission -> MAC_OS_ACCESSIBILITY_SETTINGS
-            ComputerUseBlocker.UnsupportedPlatform -> null
-            ComputerUseBlocker.ElevationRequired -> null
-            ComputerUseBlocker.SessionLocked -> null
-            ComputerUseBlocker.Headless -> null
+    override suspend fun openSettings(permission: ComputerUsePermission): Boolean = withContext(dispatchers.io) {
+        if (!isMacOs(platform.host)) {
+            log.i { "no system settings page for permission=$permission" }
+            return@withContext false
         }
-        if (target == null || !isMacOs(platform.host)) {
-            log.i { "no system settings page for blocker=$blocker" }
-            return@withContext
+        val target = when (permission) {
+            ComputerUsePermission.ScreenRecording -> MAC_OS_SCREEN_CAPTURE_SETTINGS
+            ComputerUsePermission.Accessibility -> MAC_OS_ACCESSIBILITY_SETTINGS
         }
         try {
-            if (runDesktopProcess(listOf(SYSTEM_OPEN_COMMAND, target), SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND)) {
-                log.i { "system settings opened for blocker=$blocker" }
+            runDesktopProcess(listOf(SYSTEM_OPEN_COMMAND, target), SETTINGS_TIMEOUT_SECONDS * MILLIS_PER_SECOND).also {
+                log.i { "system settings opened=$it for permission=$permission" }
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e) { "system settings could not be opened" }
+            false
         }
     }
 

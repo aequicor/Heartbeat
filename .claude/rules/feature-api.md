@@ -40,7 +40,7 @@ paths:
 `features/computer-use/api` содержит, кроме машины, сервисные контракты `HostComputerControl` /
 `NativeComputerControl` (`EngineFeature` для движков, по исключению ai-engine ниже) и app-scope
 `ComputerUseCapturePresentation` / `ComputerUsePresentation`: координацию временного скрытия окон приложения
-на время снимка и ввода мышью.
+на время снимка и ввода мышью, и `ComputerUsePermissionGuide` — какое разрешение macOS хост сейчас помогает выдать.
 Окна регистрирует только `platform-main`, контракт без IO и UI; захват и ввод по-прежнему идут через
 `ComputerUseMachineKey`. Чистая функция `computerUseActivity()` выводит из состояния машины, что хост
 показывает во время захвата агентом (`ComputerUseActivity`).

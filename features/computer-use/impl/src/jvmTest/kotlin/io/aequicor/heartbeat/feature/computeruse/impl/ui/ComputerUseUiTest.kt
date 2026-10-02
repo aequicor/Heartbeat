@@ -87,7 +87,7 @@ class ComputerUseUiTest {
     }
 
     @Test
-    fun `permission help adds no controls and switch is reachable by keyboard`() =
+    fun `missing permissions offer buttons that open their settings`() =
         runSkikoComposeUiTest(size = Size(420f, 800f)) {
             val intents = mutableListOf<ComputerUseScreenIntent>()
             setContent {
@@ -96,7 +96,10 @@ class ComputerUseUiTest {
                         ComputerUseScreenState(
                             isEnabled = true,
                             isLoaded = true,
-                            blockers = persistentListOf(BlockerUi.ScreenRecordingPermission),
+                            blockers = persistentListOf(
+                                BlockerUi.ScreenRecordingPermission,
+                                BlockerUi.AccessibilityPermission,
+                            ),
                         ),
                         intents::add,
                         null,
@@ -106,6 +109,60 @@ class ComputerUseUiTest {
             onNodeWithTag("computer-use-permissions")
                 .assertIsDisplayed()
                 .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+            onNodeWithTag("computer-use-blockers").assertDoesNotExist()
+            onAllNodes(hasClickAction()).assertCountEquals(3)
+            onNodeWithTag("computer-use-grant-ScreenRecordingPermission").performClick()
+            onNodeWithTag("computer-use-grant-AccessibilityPermission").performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<ComputerUseScreenIntent>(
+                        ComputerUseScreenIntent.GrantPermission(BlockerUi.ScreenRecordingPermission),
+                        ComputerUseScreenIntent.GrantPermission(BlockerUi.AccessibilityPermission),
+                    ),
+                    intents,
+                )
+            }
+        }
+
+    @Test
+    fun `permissions stay hidden while the tool is off`() = runSkikoComposeUiTest(size = Size(420f, 800f)) {
+        setContent {
+            HbTheme {
+                ComputerUseContent(
+                    ComputerUseScreenState(
+                        isLoaded = true,
+                        blockers = persistentListOf(BlockerUi.ScreenRecordingPermission),
+                    ),
+                    {},
+                    null,
+                )
+            }
+        }
+        onNodeWithTag("computer-use-permissions").assertDoesNotExist()
+        onAllNodes(hasClickAction()).assertCountEquals(1)
+    }
+
+    @Test
+    fun `other host blockers add no controls and switch is reachable by keyboard`() =
+        runSkikoComposeUiTest(size = Size(420f, 800f)) {
+            val intents = mutableListOf<ComputerUseScreenIntent>()
+            setContent {
+                HbTheme {
+                    ComputerUseContent(
+                        ComputerUseScreenState(
+                            isEnabled = true,
+                            isLoaded = true,
+                            blockers = persistentListOf(BlockerUi.Headless),
+                        ),
+                        intents::add,
+                        null,
+                    )
+                }
+            }
+            onNodeWithTag("computer-use-blockers")
+                .assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.LiveRegion, LiveRegionMode.Polite))
+            onNodeWithTag("computer-use-permissions").assertDoesNotExist()
             onAllNodes(hasClickAction()).assertCountEquals(1)
             onNodeWithTag("computer-use").performKeyInput { pressKey(Key.Tab) }
             onNodeWithTag("computer-use-enabled").assertIsFocused().performKeyInput { pressKey(Key.Spacebar) }
@@ -159,7 +216,10 @@ class ComputerUseUiTest {
                                     ComputerUseScreenState(
                                         isEnabled = isDark,
                                         isLoaded = true,
-                                        blockers = persistentListOf(BlockerUi.AccessibilityPermission),
+                                        blockers = persistentListOf(
+                                            BlockerUi.ScreenRecordingPermission,
+                                            BlockerUi.AccessibilityPermission,
+                                        ),
                                         error = SettingsError.SaveFailed.takeIf { isDark },
                                     ),
                                     {},

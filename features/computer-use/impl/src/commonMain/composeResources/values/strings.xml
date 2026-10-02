@@ -7,8 +7,14 @@
     <string name="computer_use_save_failed">The setting could not be saved. Try switching it again.</string>
     <string name="computer_use_load_failed">The setting could not be loaded. Reopen settings to try again.</string>
     <string name="computer_use_blocker_platform">Computer use is available on macOS and Windows.</string>
-    <string name="computer_use_blocker_screen_recording">Allow screen recording for Heartbeat in system settings.</string>
-    <string name="computer_use_blocker_accessibility">Allow accessibility access for Heartbeat in system settings.</string>
+    <string name="computer_use_blocker_screen_recording">Lets the agent see the screen. After you allow it, macOS may ask to quit and reopen the app.</string>
+    <string name="computer_use_blocker_accessibility">Lets the agent control the mouse and keyboard.</string>
+    <string name="computer_use_section_permissions">macOS permissions</string>
+    <string name="computer_use_permissions_hint">System Settings opens together with a panel holding the app tile: drag the tile into the list and turn its switch on.</string>
+    <string name="computer_use_permission_screen_recording">Screen recording</string>
+    <string name="computer_use_permission_accessibility">Accessibility</string>
+    <string name="computer_use_permission_open">Open Settings</string>
+    <string name="computer_use_permission_open_description">Open System Settings: %1$s</string>
     <string name="computer_use_blocker_elevation">Windows running with administrator rights cannot be controlled.</string>
     <string name="computer_use_blocker_session_locked">Unlock the computer so the agent can see the screen.</string>
     <string name="computer_use_blocker_headless">Connect an active display so the agent can see the screen.</string>
