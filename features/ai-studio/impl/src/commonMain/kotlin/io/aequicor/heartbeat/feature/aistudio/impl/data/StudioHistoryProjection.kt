@@ -174,9 +174,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
                 }
             }
 
-            is SessionItem.ToolCall -> parts += StudioReplyPart.Tool(
-                StudioToolRun(item.call.value, item.name, item.status.toStudio(), item.arguments),
-            )
+            is SessionItem.ToolCall -> parts += StudioReplyPart.Tool(toolRun(item))
 
             is SessionItem.ToolResult -> updateToolResult(item)
 
@@ -187,6 +185,13 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
 
             is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
         }
+    }
+
+    /** A learning call shows its arguments as a card, so only the tool result goes to the console. */
+    private fun toolRun(item: SessionItem.ToolCall): StudioToolRun {
+        val learning = learningCall(item.name, item.arguments)
+        val output = if (learning == null) item.arguments else ""
+        return StudioToolRun(item.call.value, item.name, item.status.toStudio(), output, learning = learning)
     }
 
     private fun updateToolResult(item: SessionItem.ToolResult) {
@@ -204,6 +209,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             },
             output = listOfNotNull(previous?.output?.takeIf(String::isNotBlank), item.parts.text())
                 .filter(String::isNotBlank).joinToString("\n"),
+            learning = previous?.learning,
         )
         if (index >= 0) parts[index] = StudioReplyPart.Tool(updated) else parts += StudioReplyPart.Tool(updated)
     }

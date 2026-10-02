@@ -71,6 +71,11 @@
     <string name="composer_add">Add</string>
     <string name="composer_commands">Commands</string>
     <string name="template_remember">Remember…</string>
+    <string name="learning_tool_remember">New instruction</string>
+    <string name="learning_tool_skill">Learned skill</string>
+    <string name="learning_kind_general">General</string>
+    <string name="learning_kind_model">Model</string>
+    <string name="learning_kind_skill">Skill</string>
     <string name="template_plan">Plan a feature</string>
     <string name="template_plan_prompt">Plan the feature: </string>
     <string name="template_tests">Write tests</string>

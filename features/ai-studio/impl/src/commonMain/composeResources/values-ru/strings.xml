@@ -71,6 +71,11 @@
     <string name="composer_add">Добавить</string>
     <string name="composer_commands">Команды</string>
     <string name="template_remember">Запомнить…</string>
+    <string name="learning_tool_remember">Новая инструкция</string>
+    <string name="learning_tool_skill">Выученный скилл</string>
+    <string name="learning_kind_general">Общая</string>
+    <string name="learning_kind_model">Для модели</string>
+    <string name="learning_kind_skill">Скилл</string>
     <string name="template_plan">Спланировать фичу</string>
     <string name="template_plan_prompt">Спланируй фичу: </string>
     <string name="template_tests">Написать тесты</string>

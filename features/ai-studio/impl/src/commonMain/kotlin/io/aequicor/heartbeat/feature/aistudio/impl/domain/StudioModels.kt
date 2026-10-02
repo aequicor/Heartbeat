@@ -60,7 +60,14 @@ data class StudioToolRun(
     val output: String = "",
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
+    val learning: StudioLearningCall? = null,
 )
+
+/** What a self-learning tool call does: saving an instruction or loading a learned skill. */
+data class StudioLearningCall(val action: LearningAction, val kind: String?, val title: String, val content: String)
+
+/** Self-learning tool of a [StudioLearningCall]. */
+enum class LearningAction { Remember, LoadSkill }
 
 /** Ordered engine-visible answer content. Reasoning exists only when explicitly exposed by the engine. */
 sealed interface StudioReplyPart {

@@ -49,6 +49,7 @@ internal data class TimelineLabels(
     val calendar: StudioCalendar = StudioCalendar(),
     val isGroupedByDate: Boolean = false,
     val feedback: FeedbackLabels? = null,
+    val learning: LearningLabels? = null,
 )
 
 /** Failed-run notices, one per [FailureUi]. */
@@ -317,7 +318,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
 
 private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
     id = id,
-    title = title,
+    title = learning?.let { labels.learning?.title(it) } ?: title,
     status = when (status) {
         ToolStatusUi.Pending -> HbToolStatus.Pending
         ToolStatusUi.Cancelled -> HbToolStatus.Cancelled
@@ -325,9 +326,11 @@ private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
         ToolStatusUi.Done -> HbToolStatus.Complete
         ToolStatusUi.Failed -> HbToolStatus.Error
     },
-    summary = feedback?.let { labels.feedback?.summary(it) }.orEmpty(),
+    summary = feedback?.let { labels.feedback?.summary(it) }
+        ?: learning?.let { labels.learning?.summary(it) }.orEmpty(),
     blocks = listOfNotNull(
         feedbackBlock(labels.feedback),
+        learning?.content?.takeIf { it.isNotBlank() }?.let { HbToolBlock.Markdown("$id-learning", it) },
         output.takeIf { it.isNotBlank() }?.let { HbToolBlock.Console("$id-console", it.trimEnd()) },
         diff?.let { HbToolBlock.Diff("$id-diff", it) },
     ).toImmutableList(),

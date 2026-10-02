@@ -12,6 +12,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLearningCall
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
@@ -118,6 +120,37 @@ class StudioHistoryProjectionTest {
         assertEquals(2, result.size)
         assertEquals("done", assertIs<StudioMessage.Reply>(result[0]).tools.single().output)
         assertEquals(ToolRunStatus.Done, assertIs<StudioMessage.Reply>(result[0]).tools.single().status)
+    }
+
+    @Test
+    fun `learning tool calls become cards that keep their arguments when the result arrives`() {
+        val call = ToolCallId("remember")
+        val arguments = """{"kind":"general","title":"UTF-8","content":"Run chcp 65001","safety":"safe"}"""
+        val items = listOf(
+            SessionItem.ToolCall(
+                info("invocation", 0, "turn"),
+                call,
+                "mcp__heartbeat_tools__remember",
+                arguments,
+                ToolCallStatus.Running,
+            ),
+            SessionItem.ToolResult(info("result", 1, "turn"), call, listOf(ContentPart.Text("Saved."))),
+        )
+        val tool = assertIs<StudioMessage.Reply>(items.toStudioMessages(now, false).single()).tools.single()
+        assertEquals(StudioLearningCall(LearningAction.Remember, "general", "UTF-8", "Run chcp 65001"), tool.learning)
+        assertEquals("Saved.", tool.output)
+
+        val other = SessionItem.ToolCall(
+            info("other", 0, "turn"),
+            ToolCallId("x"),
+            "remember_me",
+            "{}",
+            ToolCallStatus.Running,
+        )
+        assertEquals(
+            null,
+            assertIs<StudioMessage.Reply>(listOf(other).toStudioMessages(now, false).single()).tools.single().learning,
+        )
     }
 
     @Test
