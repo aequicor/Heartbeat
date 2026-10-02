@@ -75,6 +75,10 @@ data class HbDimensions(
     val computerUseSessionWidth: Dp = 420.dp,
     /** Inward shadow marking the perimeter of a desktop controlled by the agent. */
     val computerUseShadowWidth: Dp = 20.dp,
+    /** Floating panel next to System Settings that guides a computer-use permission grant. */
+    val computerUsePermissionGuideWidth: Dp = 340.dp,
+    /** Application icon on the guide's draggable tile, as large as a Finder list icon. */
+    val computerUsePermissionGuideIconSize: Dp = 32.dp,
     val compactBreakpoint: Dp = 720.dp,
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,

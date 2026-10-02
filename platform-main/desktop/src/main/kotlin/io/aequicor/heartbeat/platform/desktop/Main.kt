@@ -61,6 +61,7 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
         val icon = remember(applicationIcons) { applicationIcons.last().toPainter() }
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
+        val permissionGuide by graph.permissionGuide.guide.collectAsState()
         LifecycleController(lifecycle, windowState)
         Window(
             onCloseRequest = {
@@ -80,6 +81,10 @@ internal fun launchHeartbeat(isDevelopment: Boolean) {
             }
             DesktopWindowContent(windowState) { App(root) }
             DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
+        }
+        val guidedPermission = permissionGuide
+        if (isMacHost && guidedPermission != null) {
+            ComputerUsePermissionGuideWindow(guidedPermission, graph.dispatchers.io, graph.permissionGuide::dismiss)
         }
     }
 }
