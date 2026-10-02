@@ -255,12 +255,19 @@ internal fun newOverlayWindow(kind: String): JDialog = JDialog(null as Window?).
     rootPane.putClientProperty("apple.awt.windowAccessibilityElement", false)
 }
 
+/** Disposes even a restored peer when pass-through cannot be verified after AWT makes it visible. */
 internal fun showOverlayWindow(window: JDialog, native: OverlayPassThrough) {
-    window.addNotify()
-    native.configure(window)
-    window.isVisible = true
-    // AWT may alter native styles during show: reapply and verify after the peer becomes visible.
-    native.configure(window)
+    var isConfigured = false
+    try {
+        window.addNotify()
+        native.configure(window)
+        window.isVisible = true
+        // AWT may alter native styles during show: reapply and verify after the peer becomes visible.
+        native.configure(window)
+        isConfigured = true
+    } finally {
+        if (!isConfigured) window.dispose()
+    }
 }
 
 internal fun overlayPassThrough(): OverlayPassThrough = when {

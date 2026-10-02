@@ -104,7 +104,7 @@ data class HbColors(
 
     /** Agent pointer stays distinct from the system pointer on arbitrary external application backgrounds. */
     val computerUsePointer: Color = brand
-    val computerUsePointerOutline: Color = Color.White
+    val computerUsePointerOutline: Color = accessibleContentColor(computerUsePointer)
 
     /**
      * Opaque dark oak attention surface with warm ivory text and amber actions for a pending questionnaire.

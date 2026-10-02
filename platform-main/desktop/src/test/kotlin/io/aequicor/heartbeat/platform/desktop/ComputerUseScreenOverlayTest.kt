@@ -14,12 +14,37 @@ import java.awt.EventQueue
 import java.awt.GraphicsEnvironment
 import java.awt.Rectangle
 import java.awt.Window
+import javax.swing.JDialog
 import javax.swing.JFrame
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ComputerUseScreenOverlayTest {
+    @Test
+    fun `failed pass-through check after restoring a hidden overlay disposes its peer`() {
+        assumeTrue(!GraphicsEnvironment.isHeadless())
+        EventQueue.invokeAndWait {
+            val window = newOverlayWindow("restore-test")
+            var isRestoreRejected = false
+            val native = OverlayPassThrough { peer: JDialog ->
+                if (isRestoreRejected && peer.isVisible) error("Native pass-through unavailable")
+            }
+            try {
+                showOverlayWindow(window, native)
+                window.isVisible = false
+                isRestoreRejected = true
+                assertFailsWith<IllegalStateException> { showOverlayWindow(window, native) }
+                assertFalse(window.isVisible)
+                assertFalse(window.isDisplayable)
+            } finally {
+                window.dispose()
+            }
+        }
+    }
+
     @Test
     fun `native Windows overlay survives both configurations without taking focus`() {
         assumeTrue(Platform.isWindows() && !GraphicsEnvironment.isHeadless())

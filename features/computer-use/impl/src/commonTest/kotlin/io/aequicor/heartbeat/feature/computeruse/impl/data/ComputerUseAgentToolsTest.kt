@@ -129,6 +129,32 @@ class ComputerUseAgentToolsTest {
     }
 
     @Test
+    fun `refused capture cleanup completes the turn barrier regardless of its reason`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val approved = fixture.approved("computer_capture", arguments)
+        val capture = async { fixture.tools.execute(approved, "computer_capture", arguments) }
+        runCurrent()
+        val opened = fixture.machine.state.value as ComputerUseState.Capturing
+        fixture.machine.state.value = ComputerUseState.Failed(ComputerUseFailure.ClientAreaUnavailable, opened.session)
+        runCurrent()
+        assertEquals("ClientAreaUnavailable", capture.await().text)
+        val barrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        runCurrent()
+        fixture.machine.outputs.emit(
+            ComputerUseOutput.SessionClosed(CaptureSessionId("unrelated"), ComputerUseFailure.TargetClosed),
+        )
+        runCurrent()
+        assertFalse(barrier.isCompleted)
+        fixture.machine.outputs.emit(
+            ComputerUseOutput.SessionClosed(opened.session, ComputerUseFailure.ClientAreaUnavailable),
+        )
+        runCurrent()
+        assertTrue(barrier.isCompleted)
+        barrier.await()
+    }
+
+    @Test
     fun `finishing an earlier turn preserves the newer owners capture`() = runTest {
         val fixture = Fixture(this, Capturing)
         val newer = Capturing.copy(owner = CaptureOwner.Agent(fixture.context.session, TurnId("newer")))

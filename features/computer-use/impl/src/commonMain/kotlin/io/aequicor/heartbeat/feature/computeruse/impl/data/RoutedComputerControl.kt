@@ -139,7 +139,9 @@ internal class RoutedComputerControl(
         val session = access.active()?.session
         val closed = session?.let {
             async(start = CoroutineStart.UNDISPATCHED) {
-                machine.outputs.first { output -> output == ComputerUseOutput.SessionClosed(session) }
+                machine.outputs.first { output ->
+                    output is ComputerUseOutput.SessionClosed && output.session == session
+                }
             }
         }
         try {

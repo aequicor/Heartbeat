@@ -171,6 +171,23 @@ class RoutedComputerControlTest {
     }
 
     @Test
+    fun `revoke accepts failed cleanup when the captured target is lost before dispatch`() = runTest {
+        val fixture = fixture()
+        val machine = fixture.registry.ref!!
+        machine.beforeSend = { intent ->
+            if (intent == ComputerUseIntent.Public.Revoke) {
+                machine.ownMachine.send(
+                    ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed, Session),
+                )
+            }
+        }
+        fixture.control.revoke()
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(ComputerUseState.Idle, machine.state.value)
+        assertEquals(null, fixture.coordinator.currentBounds())
+    }
+
+    @Test
     fun `revoke reports an explicit failure when cleanup is never acknowledged`() = runTest {
         val fixture = fixture()
         fixture.registry.ref!!.effectHandler = null
@@ -459,6 +476,7 @@ class RoutedComputerControlTest {
         val events = MutableSharedFlow<ComputerUseOutput>(extraBufferCapacity = 8)
         val sent = mutableListOf<ComputerUseIntent.Public>()
         var effectHandler: EffectHandler<ComputerUseEffect, ComputerUseIntent>? = null
+        var beforeSend: (suspend (ComputerUseIntent.Public) -> Unit)? = null
         private val effectJobs = mutableListOf<Job>()
         private var generation = 0
 
@@ -475,6 +493,7 @@ class RoutedComputerControlTest {
 
         override suspend fun send(intent: ComputerUseIntent.Public): SendResult {
             sent += intent
+            beforeSend?.invoke(intent)
             if (intent is ComputerUseIntent.Public.Input) {
                 events.emit(ComputerUseOutput.InputApplied(intent.action, "unrelated"))
             }
