@@ -3,33 +3,33 @@ package io.aequicor.heartbeat.platform.desktop
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.window.WindowPlacement
-import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.WindowState
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbColors
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseActivity
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
+import kotlinx.coroutines.delay
 import java.awt.Color
 import java.awt.Rectangle
 import java.awt.Toolkit
-import javax.swing.JFrame
+import kotlin.time.Duration.Companion.milliseconds
 
 /** Native presentation belongs to the window and is removed even when the profile/root is destroyed. */
 @Composable
 internal fun DesktopComputerUsePresentation(
-    window: JFrame,
+    window: ComposeWindow,
     state: WindowState,
     activity: ComputerUseActivity,
     capturePresentation: ComputerUseCapturePresentation,
 ) {
     val overlay = remember(window) { ComputerUseScreenOverlay(window) }
     val presentation = remember(window, overlay) { DesktopCapturePresentation(window, overlay) }
+    val dock = remember(window, state) { ComputerUseWindowDock(ComposeDockableWindow(window, state)) }
     val dimensions = HbDimensions.Desktop
     val color = HbColors.forHost(isSystemInDarkTheme(), isDesktop = true).computerUseShadow.toArgb()
     DisposableEffect(presentation, capturePresentation) {
@@ -39,30 +39,13 @@ internal fun DesktopComputerUsePresentation(
             registration.close()
         }
     }
-    DisposableEffect(window, state, activity.isActive) {
-        val saved = if (activity.isActive) DesktopWindowSnapshot(state) else null
-        if (saved != null) {
-            val configuration = window.graphicsConfiguration
-            val workArea = Rectangle(configuration.bounds)
-            val insets = Toolkit.getDefaultToolkit().getScreenInsets(configuration)
-            workArea.x += insets.left
-            workArea.y += insets.top
-            workArea.width -= insets.left + insets.right
-            workArea.height -= insets.top + insets.bottom
-            val target = computerUseSessionBounds(
-                workArea,
-                dimensions.computerUseSessionWidth.value.toInt(),
-                dimensions.windowHeight.value.toInt(),
+    // Restoration outlives this effect: the dock finishes it even when the activity ends or the window leaves.
+    LaunchedEffect(dock, activity.isActive) {
+        if (activity.isActive) {
+            dock.holdPinned(
+                width = dimensions.computerUseSessionWidth.value.toInt(),
+                height = dimensions.windowHeight.value.toInt(),
             )
-            state.placement = WindowPlacement.Floating
-            state.isMinimized = false
-            state.size = DpSize(Dp(target.width.toFloat()), Dp(target.height.toFloat()))
-            state.position = WindowPosition.Absolute(Dp(target.x.toFloat()), Dp(target.y.toFloat()))
-            Log.tag("DesktopComputerUse").i { "agent capture: session pinned to screen edge" }
-        }
-        onDispose {
-            saved?.restore(state)
-            if (saved != null) Log.tag("DesktopComputerUse").i { "agent capture ended: window restored" }
         }
     }
     DisposableEffect(overlay, activity.screens, color) {
@@ -75,7 +58,8 @@ internal fun DesktopComputerUsePresentation(
                 dimensions.computerUseShadowWidth.value.toInt(),
             )
         }
-        onDispose { overlay.hide() }
+        // show() replaces the appearance in place and an ended activity has no screens; close() below disposes it.
+        onDispose { }
     }
     DisposableEffect(overlay) { onDispose { overlay.close() } }
 }
@@ -92,17 +76,30 @@ internal fun computerUseSessionBounds(workArea: Rectangle, width: Int, height: I
     )
 }
 
-/** Placement is restored last so maximized/fullscreen windows recover their original floating bounds too. */
-internal class DesktopWindowSnapshot(state: WindowState) {
-    private val placement = state.placement
-    private val position = state.position
-    private val size = state.size
-    private val isMinimized = state.isMinimized
+/** Geometry comes from the Compose window itself; Compose applies [state] on the event thread. */
+private class ComposeDockableWindow(private val window: ComposeWindow, override val state: WindowState) :
+    DockableWindow {
+    override val isAlive: Boolean get() = window.isDisplayable
+    override val placement: WindowPlacement get() = window.placement
+    override val isMinimized: Boolean get() = window.isMinimized
+    override val bounds: Rectangle get() = window.bounds
 
-    fun restore(state: WindowState) {
-        state.size = size
-        state.position = position
-        state.placement = placement
-        state.isMinimized = isMinimized
+    override val workArea: Rectangle
+        get() {
+            val configuration = window.graphicsConfiguration
+            val area = Rectangle(configuration.bounds)
+            val insets = Toolkit.getDefaultToolkit().getScreenInsets(configuration)
+            area.x += insets.left
+            area.y += insets.top
+            area.width -= insets.left + insets.right
+            area.height -= insets.top + insets.bottom
+            return area
+        }
+
+    // Leaving fullscreen has no AWT event of its own (Compose infers it from resizes), so the window is polled.
+    override suspend fun awaitToolkit() = delay(TOOLKIT_POLL_INTERVAL)
+
+    private companion object {
+        val TOOLKIT_POLL_INTERVAL = 16.milliseconds
     }
 }

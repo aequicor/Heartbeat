@@ -16,7 +16,10 @@ import java.awt.Dialog
 import java.awt.EventQueue
 import java.awt.Frame
 import java.awt.Window
+import java.lang.ref.Reference
 import java.util.concurrent.CancellationException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.FutureTask
 import javax.swing.JFrame
@@ -311,14 +314,47 @@ private data class MacHiddenWindow(
     val animation: Long,
 )
 
-/** Shared Cocoa access avoids private JAWT pointer layouts; every operation runs on the native main queue. */
+/**
+ * Shared Cocoa access avoids private JAWT pointer layouts; every operation runs on the AppKit main thread.
+ *
+ * Work reaches the main thread through a one-shot `CFRunLoopTimer` registered for the common run loop modes and
+ * for AWT's own `AWTRunLoopMode`, never through `dispatch_sync` on the main queue. While AppKit synchronously waits
+ * for the AWT event thread (`LWCToolkit.invokeAndWait` from accessibility clients such as VoiceOver, input methods,
+ * live resize) it spins a nested run loop only in `AWTRunLoopMode`, where the main queue is not serviced: a
+ * blocking main-queue dispatch from the event thread would then wait for AppKit while AppKit waits for the event
+ * thread, freezing the whole application. The JDK reaches AppKit from the event thread the same way
+ * (`performSelectorOnMainThread:` with run loop modes that include `AWTRunLoopMode`).
+ */
 internal class MacWindowAccess {
+    private val log = Log.tag("MacWindowAccess")
     private val cocoa = NativeLibrary.getInstance("/System/Library/Frameworks/AppKit.framework/AppKit")
     private val objc = NativeLibrary.getInstance("objc")
     private val system = NativeLibrary.getInstance("/usr/lib/libSystem.B.dylib")
     private val quartz = NativeLibrary.getInstance("/System/Library/Frameworks/QuartzCore.framework/QuartzCore")
+    private val foundation = NativeLibrary.getInstance(
+        "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+    )
     private val message = objc.getFunction("objc_msgSend")
     private val selector = objc.getFunction("sel_registerName")
+    private val isMainThread = system.getFunction("pthread_main_np")
+
+    // Resolved up front: once a timer is scheduled, nothing may fail before its callout is known to be finished.
+    private val poolPush = objc.getFunction("objc_autoreleasePoolPush")
+    private val poolPop = objc.getFunction("objc_autoreleasePoolPop")
+    private val createString = foundation.getFunction("CFStringCreateWithCString")
+    private val currentTime = foundation.getFunction("CFAbsoluteTimeGetCurrent")
+    private val createTimer = foundation.getFunction("CFRunLoopTimerCreate")
+    private val mainRunLoop = foundation.getFunction("CFRunLoopGetMain")
+    private val addTimer = foundation.getFunction("CFRunLoopAddTimer")
+    private val wakeUp = foundation.getFunction("CFRunLoopWakeUp")
+    private val invalidateTimer = foundation.getFunction("CFRunLoopTimerInvalidate")
+    private val release = foundation.getFunction("CFRelease")
+    private val commonModes = foundation.getGlobalVariableAddress("kCFRunLoopCommonModes").getPointer(0)
+
+    // JNA frees a callback's native trampoline together with its Java object, so a single callout lives as long
+    // as this access object and finds each timer's work by the timer it fires for.
+    private val scheduled = ConcurrentHashMap<Pointer, Runnable>()
+    private val callout = RunLoopTimerCallout { timer, _ -> timer?.let(scheduled::remove)?.run() }
 
     fun window(title: String): Pointer {
         val found = windows(title)
@@ -359,16 +395,12 @@ internal class MacWindowAccess {
     }
 
     fun onMainThread(action: () -> Unit) {
-        if (system.getFunction("pthread_main_np").invokeInt(emptyArray()) != 0) {
+        if (isMainThread.invokeInt(emptyArray()) != 0) {
             action()
         } else {
             // FutureTask carries every failure, including cancellation, across the JNA callback boundary.
             val task = FutureTask { action() }
-            val callback = MainQueueCallback { task.run() }
-            // dispatch_get_main_queue is an inline function returning this exported global's address.
-            system.getFunction("dispatch_sync_f").invokeVoid(
-                arrayOf(system.getGlobalVariableAddress("_dispatch_main_q"), null, callback),
-            )
+            runOnMainRunLoop(task)
             try {
                 task.get()
             } catch (e: ExecutionException) {
@@ -377,13 +409,74 @@ internal class MacWindowAccess {
         }
     }
 
+    /** Runs [task] from a one-shot main run loop timer and returns only after the timer's work has finished. */
+    private fun runOnMainRunLoop(task: FutureTask<Unit>) {
+        val finished = CountDownLatch(1)
+        val work = Runnable {
+            // The run loop drains autorelease pools only in AppKit's modes, not in AWTRunLoopMode.
+            val pool = poolPush.invokePointer(emptyArray())
+            try {
+                task.run()
+            } finally {
+                poolPop.invokeVoid(arrayOf(pool))
+                finished.countDown()
+            }
+        }
+        val awtMode = checkNotNull(createString.invokePointer(arrayOf<Any?>(null, AWT_RUN_LOOP_MODE, UTF8_ENCODING))) {
+            "Cannot name the AWT run loop mode"
+        }
+        try {
+            val now = currentTime.invokeDouble(emptyArray())
+            val timer = checkNotNull(
+                createTimer.invokePointer(arrayOf<Any?>(null, now, 0.0, NativeLong(0), NativeLong(0), callout, null)),
+            ) {
+                "Cannot schedule Cocoa work on the main run loop"
+            }
+            try {
+                scheduled[timer] = work
+                val main = mainRunLoop.invokePointer(emptyArray())
+                addTimer.invokeVoid(arrayOf(main, timer, commonModes))
+                addTimer.invokeVoid(arrayOf(main, timer, awtMode))
+                wakeUp.invokeVoid(arrayOf(main))
+                awaitUninterruptibly(finished)
+            } finally {
+                scheduled.remove(timer)
+                invalidateTimer.invokeVoid(arrayOf(timer))
+                release.invokeVoid(arrayOf(timer))
+            }
+        } finally {
+            release.invokeVoid(arrayOf(awtMode))
+            // Pins the shared callout (and its native trampoline) until the timer can no longer fire.
+            Reference.reachabilityFence(this)
+        }
+    }
+
+    /** Like dispatch_sync, waiting is not interruptible: the scheduled work may already be running. */
+    private fun awaitUninterruptibly(finished: CountDownLatch) {
+        var interruption: InterruptedException? = null
+        while (finished.count > 0) {
+            try {
+                finished.await()
+            } catch (e: InterruptedException) {
+                log.w(e) { "Interrupted while AppKit runs window work; waiting for it to finish" }
+                interruption = e
+            }
+        }
+        if (interruption != null) Thread.currentThread().interrupt()
+    }
+
     private fun select(name: String): Pointer = selector.invokePointer(arrayOf(name))
 
-    private fun interface MainQueueCallback : Callback {
-        fun invoke(context: Pointer?)
+    /** `CFRunLoopTimerCallBack`: `void (*)(CFRunLoopTimerRef timer, void *info)`. */
+    private fun interface RunLoopTimerCallout : Callback {
+        fun invoke(timer: Pointer?, info: Pointer?)
     }
 
     private companion object {
         const val BOOLEAN_MASK = 0xff
+
+        // ThreadUtilities' javaRunLoopMode: AppKit spins it while waiting for the AWT event thread.
+        const val AWT_RUN_LOOP_MODE = "AWTRunLoopMode"
+        const val UTF8_ENCODING = 0x08000100
     }
 }

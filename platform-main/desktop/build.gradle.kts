@@ -22,6 +22,7 @@ dependencies {
     implementation(libs.jbr.api)
     implementation(libs.jna.platform)
     testImplementation(libs.kotlin.testJunit)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 // The app runtime is independent of Gradle's daemon and shared modules' compilation toolchains.
