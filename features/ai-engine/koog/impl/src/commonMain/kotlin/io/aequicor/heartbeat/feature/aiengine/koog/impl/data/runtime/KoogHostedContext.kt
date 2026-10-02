@@ -25,4 +25,5 @@ internal suspend fun koogHostedContext(
     trust,
     AgentToolPermissions(approve),
     lifetime = currentCoroutineContext()[Job],
+    target = turn.target,
 )

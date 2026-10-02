@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
@@ -82,6 +83,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -104,6 +106,10 @@ internal class KoogNativeSession(
 ) {
     /** Set by the owning runtime before the first lease is issued. */
     var onIdle: (KoogNativeSession) -> Unit = {}
+
+    /** Chosen by the request that opened the session; only callers answering hosted permissions enable it. */
+    @Volatile
+    var areDetachedToolsEnabled: Boolean = false
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -278,6 +284,21 @@ internal class KoogNativeSession(
         return turn.id
     }
 
+    /** Project tools for a project session; detached hosted tools for a chat whose caller opted in. */
+    private suspend fun turnWorkspace(context: AgentToolContext): KoogWorkspace? {
+        val isCodingEnabled = access.codingToolsEnabled()
+        val project = route.workspace
+        return when {
+            project != null -> project.takeIf { workspaces.hasHostedTools || isCodingEnabled }
+                ?.let { workspaces.open(it, context) }
+                ?.withCodingTools(isCodingEnabled)
+
+            areDetachedToolsEnabled -> workspaces.openDetached(context)
+
+            else -> null
+        }
+    }
+
     private suspend fun runTurn(
         turn: Turn,
         initialClient: KoogClient,
@@ -290,11 +311,8 @@ internal class KoogNativeSession(
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
             val context = koogHostedContext(ref, route.workspace, turn, trust) { approveHosted(turn, it) }
-            val isCodingEnabled = access.codingToolsEnabled()
-            val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || isCodingEnabled }
-                ?.let { workspaces.open(it, context) }
-                ?.withCodingTools(isCodingEnabled)
-            val rounds = if (workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
+            val workspace = turnWorkspace(context)
+            val rounds = if (workspace != null && route.workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
             var input: Prompt? = null
             var isComplete = false
             var remainingRounds = rounds

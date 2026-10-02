@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /** Coding context of a session opened on a local project: its tools and the instructions describing them. */
@@ -16,6 +18,18 @@ internal fun interface KoogWorkspaces {
 
     /** Opens tools against the accepted native turn. Legacy fixtures retain their old opening contract. */
     suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? = open(ref)
+
+    /** Detached hosted tools of a session without a project, opened against the accepted native turn. */
+    suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = null
+}
+
+/** Hosted tools that serve sessions without a project; available on every platform with the common dispatcher. */
+internal suspend fun detachedKoogWorkspace(tools: ProfileAgentTools, context: AgentToolContext): KoogWorkspace? {
+    require(context.workspace == null)
+    val specs = tools.specifications(null)
+    if (specs.isEmpty()) return null
+    val instructions = tools.instructions(AgentToolScope(null, context.target))
+    return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
 }
 
 /** Keeps the coding toggle effective without hiding separately enabled hosted workspace workflows. */

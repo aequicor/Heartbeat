@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -144,6 +145,34 @@ class KoogCodingSessionTest {
         val system = f.executor.prompts.single().messages.first()
         assertIs<Message.System>(system)
         assertEquals(INSTRUCTIONS, system.textContent())
+    }
+
+    @Test
+    fun `chat without a project offers detached hosted tools only when its caller opted in`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val tools = DetachedTools()
+        f.hostedTools = tools
+        f.session().features.require(SendsPrompts).send(f.request("plain"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(emptyList(), f.executor.tools.last())
+
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("chat"))
+        f.callTool("remember")
+        runCurrent()
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("remember"), f.executor.tools[1].map { it.name })
+        val system = f.executor.prompts[1].messages.first()
+        assertIs<Message.System>(system)
+        assertEquals("Remember lessons", system.textContent())
+        assertEquals(null, tools.scopes.single().workspace)
+        assertEquals(f.target, tools.scopes.single().target)
+        val context = checkNotNull(tools.context)
+        assertEquals(null, context.workspace)
+        assertEquals(f.target, context.target)
     }
 
     @Test
@@ -333,5 +362,22 @@ class KoogCodingSessionTest {
 
     private companion object {
         const val INSTRUCTIONS = "You are a coding agent."
+    }
+}
+
+private class DetachedTools : ProfileAgentTools {
+    val scopes = mutableListOf<AgentToolScope>()
+    var context: AgentToolContext? = null
+    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = listOf(
+        AgentToolSpec("remember", "Remember", JsonObject(mapOf("type" to JsonPrimitive("object")))),
+    )
+    override suspend fun instructions(workspace: WorkspaceRef?): String = "Remember lessons"
+    override suspend fun instructions(scope: AgentToolScope): String {
+        scopes += scope
+        return "Remember lessons"
+    }
+    override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
+        this.context = context
+        return AgentToolResult("saved")
     }
 }

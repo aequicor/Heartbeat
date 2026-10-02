@@ -4,10 +4,12 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.detachedKoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.koogHostedTools
 
 /** Desktop Koog uses the same project tools and trust gate as native adapters. */
@@ -23,6 +25,9 @@ internal class DesktopKoogWorkspaces(private val tools: ProfileAgentTools) : Koo
         require(context.workspace == ref)
         val specs = tools.specifications(ref)
         if (specs.isEmpty()) return null
-        return KoogWorkspace(koogHostedTools(specs, tools, context), tools.instructions(ref))
+        val instructions = tools.instructions(AgentToolScope(ref, context.target))
+        return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
     }
+
+    override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = detachedKoogWorkspace(tools, context)
 }

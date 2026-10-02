@@ -188,6 +188,8 @@ internal class KoogTestFixture(test: TestScope) {
                     tools.instructions(ref),
                 )
             }
+            override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? =
+                hostedTools?.let { detachedKoogWorkspace(it, context) }
         },
         profile,
     )
