@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
@@ -29,13 +30,15 @@ internal class ToggleSettingsSections(toggles: FeatureToggles, sessions: Profile
         toggles.observe(EngineConnectionsEnabled),
         toggles.observe(SearchEngineTools),
         toggles.observe(ComputerUseEnabled),
+        toggles.observe(AgentLearningEnabled),
         sessions.active,
-    ) { connections, search, computerUse, session ->
+    ) { connections, search, computerUse, learning, session ->
         availableSections(
             isModelsEnabled = connections,
             isSearchEnabled = search,
             hasProfile = session != null,
             isComputerUseEnabled = computerUse,
+            isLearningEnabled = learning,
         )
     }
         // Sections without a toggle appear at once; gated ones join when their toggles are read from storage.

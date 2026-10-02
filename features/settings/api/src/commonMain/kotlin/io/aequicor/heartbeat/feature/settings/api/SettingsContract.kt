@@ -23,6 +23,10 @@ public enum class SettingsSection {
     @SerialName("computer_use")
     ComputerUse,
 
+    /** Instructions the agent learned and how new ones are accepted. */
+    @SerialName("agent_learning")
+    AgentLearning,
+
     /** Device-local feature flags. */
     @SerialName("feature_flags")
     FeatureFlags,
@@ -63,6 +67,7 @@ public val SettingsSection.deepLinkName: String
         SettingsSection.Models -> "models"
         SettingsSection.Search -> "search"
         SettingsSection.ComputerUse -> "computer_use"
+        SettingsSection.AgentLearning -> "agent_learning"
         SettingsSection.FeatureFlags -> "feature_flags"
     }
 

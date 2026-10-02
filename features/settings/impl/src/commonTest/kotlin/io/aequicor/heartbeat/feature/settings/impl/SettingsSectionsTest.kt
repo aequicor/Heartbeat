@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.settings.impl
 
+import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
@@ -26,6 +27,7 @@ class SettingsSectionsTest {
                 isSearchEnabled = true,
                 hasProfile = true,
                 isComputerUseEnabled = true,
+                isLearningEnabled = true,
             ),
         )
         assertEquals(
@@ -47,6 +49,17 @@ class SettingsSectionsTest {
             }
         }
         assertEquals(ComputerUseRoute(isEmbedded = true), SettingsSection.ComputerUse.route())
+    }
+
+    @Test
+    fun `self-learning is offered only with its toggle and an active profile and opens embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isLearningEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.AgentLearning in sections)
+            }
+        }
+        assertEquals(AgentLearningRoute(isEmbedded = true), SettingsSection.AgentLearning.route())
     }
 
     private val allUi = all.map { it.toUi() }

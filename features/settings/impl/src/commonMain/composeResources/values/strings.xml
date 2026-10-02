@@ -5,4 +5,5 @@
     <string name="settings_section_search">Search</string>
     <string name="settings_section_feature_flags">Feature flags</string>
     <string name="settings_section_computer_use">Computer use</string>
+    <string name="settings_section_agent_learning">Self-learning</string>
 </resources>

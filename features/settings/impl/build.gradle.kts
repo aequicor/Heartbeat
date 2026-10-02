@@ -12,6 +12,7 @@ kotlin {
             implementation(projects.features.searchEngine.api)
             implementation(projects.features.aiEngine.connections.api)
             implementation(projects.features.computerUse.api)
+            implementation(projects.features.agentLearning.api)
             implementation(projects.core.profileFacade.api)
             implementation(projects.core.di.ext)
             implementation(projects.core.mvi)

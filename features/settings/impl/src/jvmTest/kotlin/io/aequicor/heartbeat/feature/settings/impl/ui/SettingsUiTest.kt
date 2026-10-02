@@ -30,6 +30,7 @@ class SettingsUiTest {
             SettingsSectionUi.Models,
             SettingsSectionUi.Search,
             SettingsSectionUi.ComputerUse,
+            SettingsSectionUi.AgentLearning,
             SettingsSectionUi.FeatureFlags,
         ),
         selected = SettingsSectionUi.Models,
@@ -91,6 +92,16 @@ class SettingsUiTest {
         }
         onNodeWithTag("settings-section:ComputerUse").performClick()
         runOnIdle { assertEquals(listOf(SettingsSectionUi.ComputerUse), selected) }
+    }
+
+    @Test
+    fun `self-learning section is selectable in unified settings`() = runSkikoComposeUiTest(size = Size(1280f, 800f)) {
+        val selected = mutableListOf<SettingsSectionUi>()
+        setContent {
+            HbTheme { SettingsContent(state, selected::add, {}, {}) { HbText("section content") } }
+        }
+        onNodeWithTag("settings-section:AgentLearning").performClick()
+        runOnIdle { assertEquals(listOf(SettingsSectionUi.AgentLearning), selected) }
     }
 
     @Test
