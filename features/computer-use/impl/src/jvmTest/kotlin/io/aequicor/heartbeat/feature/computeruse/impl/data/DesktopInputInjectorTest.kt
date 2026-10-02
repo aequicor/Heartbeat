@@ -6,6 +6,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -80,6 +82,60 @@ class DesktopInputInjectorTest {
         assertEquals(2, driver.movements)
         assertTrue(driver.heldButtons.isEmpty())
         assertTrue("releaseButton:${InputEvent.BUTTON1_DOWN_MASK}" in driver.events)
+    }
+
+    @Test
+    fun `cancelling drag progress stops before pressing the mouse button`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val job = launch(start = CoroutineStart.LAZY) {
+            injector.applyObserved(
+                InputAction.Drag(FramePoint(0.0, 0.0), FramePoint(120.0, 120.0)),
+                { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            ) { currentCoroutineContext().cancel() }
+        }
+        job.start()
+        advanceUntilIdle()
+        assertTrue(job.isCancelled)
+        assertEquals(listOf("move"), driver.events)
+    }
+
+    @Test
+    fun `cancelling scroll progress stops before sending the wheel event`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val job = launch(start = CoroutineStart.LAZY) {
+            injector.applyObserved(
+                InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = 120),
+                { ScreenPoint(it.x.toInt(), it.y.toInt()) },
+            ) { currentCoroutineContext().cancel() }
+        }
+        job.start()
+        advanceUntilIdle()
+        assertTrue(job.isCancelled)
+        assertEquals(listOf("move"), driver.events)
+    }
+
+    @Test
+    fun `cancelling while creating the device stops before the first input event`() = runTest {
+        val driver = RecordingDriver()
+        val devices = object : DesktopInputDevices {
+            override val isAvailable: Boolean = true
+            var onCreate: () -> Unit = {}
+            override fun create(): DesktopInputDriver {
+                onCreate()
+                return driver
+            }
+        }
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), devices)
+        val job = launch(start = CoroutineStart.LAZY) {
+            injector.apply(InputAction.MoveTo(FramePoint(0.0, 0.0))) { ScreenPoint(0, 0) }
+        }
+        devices.onCreate = { job.cancel() }
+        job.start()
+        advanceUntilIdle()
+        assertTrue(job.isCancelled)
+        assertTrue(driver.events.isEmpty())
     }
 
     @Test

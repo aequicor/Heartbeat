@@ -70,8 +70,9 @@ private class AwtInputDriver(private val robot: Robot) : DesktopInputDriver {
 }
 
 /**
- * Injects serialized actions on the IO dispatcher. Every loop observes cancellation, and every pressed key or
- * button is released in finally, including failures and the kill switch. Text is validated in its entirety
+ * Injects serialized actions on the IO dispatcher. Device creation, progress callbacks and every loop observe
+ * cancellation before input continues, and every pressed key or button is released in finally, including
+ * failures and the kill switch. Text is validated in its entirety
  * before the first event, so a rejected character cannot leave a partially typed command behind.
  *
  * Text uses US keyboard key positions; unsupported characters are refused instead of silently dropped.
@@ -98,12 +99,14 @@ internal class DesktopInputInjector(
         mutex.withLock {
             currentCoroutineContext().ensureActive()
             val driver = driver() ?: return@withLock InputOutcome.Rejected(ComputerUseFailure.Unavailable)
+            currentCoroutineContext().ensureActive()
             var hasStarted = false
             val progress: suspend (ScreenPoint?) -> Unit = { point ->
                 if (point != null || !hasStarted) {
                     hasStarted = true
                     onProgress(point)
                 }
+                currentCoroutineContext().ensureActive()
             }
             try {
                 when (action) {
