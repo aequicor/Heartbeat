@@ -425,6 +425,9 @@ public enum class InstallFailureReason {
     /** Files are used by a running process. */
     FilesInUse,
 
+    /** Heartbeat could not write the files. */
+    Storage,
+
     /** The publisher limits requests for now; retry later. */
     RateLimited,
 
