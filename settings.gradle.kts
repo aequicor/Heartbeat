@@ -81,6 +81,8 @@ include(":lint:detekt-rules")
 
 include(":core:secrets:api", ":core:secrets:impl")
 
+include(":core:desktop-dialogs")
+
 include(":features:ai-engine:authenticator:api", ":features:ai-engine:authenticator:impl")
 include(":features:ai-engine:facade:api", ":features:ai-engine:facade:impl")
 include(":features:ai-engine:pi:api")
