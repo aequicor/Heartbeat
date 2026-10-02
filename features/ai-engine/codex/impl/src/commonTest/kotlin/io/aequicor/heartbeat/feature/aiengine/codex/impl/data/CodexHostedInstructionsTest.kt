@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -71,4 +72,5 @@ private class InstructionTools(private val guidance: String = "Project-specific 
         AgentToolSpec("run_command", "Run a project command", JsonObject(emptyMap()), AgentToolAction.Command),
     )
     override suspend fun instructions(workspace: WorkspaceRef?): String = guidance
+    override suspend fun instructions(scope: AgentToolScope): String = guidance
 }
