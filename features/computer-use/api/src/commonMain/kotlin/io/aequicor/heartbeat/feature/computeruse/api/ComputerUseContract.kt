@@ -17,7 +17,7 @@ public sealed interface ComputerUseState : MachineState {
     /** The host refuses capture or input; [blockers] name what the user has to change. */
     public data class Unavailable(public val blockers: List<ComputerUseBlocker>) : ComputerUseState
 
-    /** Available, no capture is running. */
+    /** Probed, no capture is running; the current capabilities gate capture and input. */
     public data class Ready(
         public val capabilities: ComputerUseCapabilities,
         public val targets: List<WindowTarget> = emptyList(),
@@ -169,6 +169,13 @@ public sealed interface ComputerUseIntent : MachineIntent {
 
         /** The host can work; [capabilities] drive every later guard. */
         public data class Available(public val capabilities: ComputerUseCapabilities) : Internal
+
+        /**
+         * Applies a fresh permission probe between captures. Ready keeps its state scope and stopped turns;
+         * Unavailable/Failed become Ready when capture is available, or report their remaining blockers.
+         * Ignored during capture/checking, so the grant flow retries after they settle; ignored after Revoke.
+         */
+        public data class PermissionsRefreshed(public val capabilities: ComputerUseCapabilities) : Internal
 
         /** The host refuses; [blockers] say what the user has to change. */
         public data class Blocked(public val blockers: List<ComputerUseBlocker>) : Internal

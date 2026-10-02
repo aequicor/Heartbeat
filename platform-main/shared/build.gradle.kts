@@ -26,6 +26,11 @@ kotlin {
             implementation(projects.designSystem.layouts)
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
+            implementation(libs.compose.uiToolingPreview)
+        }
+        jvmTest.dependencies {
+            implementation(libs.compose.uiTest)
+            implementation(compose.desktop.currentOs)
         }
     }
 }

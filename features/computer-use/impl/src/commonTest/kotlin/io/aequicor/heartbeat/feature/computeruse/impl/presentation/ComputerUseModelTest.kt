@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.impl.data.TestDispatchers
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
@@ -195,6 +196,33 @@ class ComputerUseModelTest {
     }
 
     @Test
+    fun `granting a missing permission hands it to the profile grant flow`() = runTest {
+        val fixture = Fixture(
+            this,
+            ComputerUseState.Unavailable(listOf(ComputerUseBlocker.ScreenRecordingPermission)),
+            isEnabled = true,
+        )
+        val screen = fixture.subscribe()
+        screen.intent(ComputerUseScreenIntent.GrantPermission(BlockerUi.ScreenRecordingPermission))
+        screen.intent(ComputerUseScreenIntent.GrantPermission(BlockerUi.AccessibilityPermission))
+        runCurrent()
+        assertEquals(
+            listOf(ComputerUsePermission.ScreenRecording, ComputerUsePermission.Accessibility),
+            fixture.requested,
+        )
+        assertEquals(emptyList(), fixture.machine.sent)
+    }
+
+    @Test
+    fun `blockers without a settings page request no grant`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Unavailable(listOf(ComputerUseBlocker.Headless)), isEnabled = true)
+        val screen = fixture.subscribe()
+        screen.intent(ComputerUseScreenIntent.GrantPermission(BlockerUi.Headless))
+        runCurrent()
+        assertEquals(emptyList(), fixture.requested)
+    }
+
+    @Test
     fun `saved switch changes are reflected while settings are open`() = runTest {
         val fixture = Fixture(this, ComputerUseState.Idle)
         val screen = fixture.subscribe()
@@ -215,10 +243,12 @@ class ComputerUseModelTest {
         val events = mutableListOf<String>()
         val machine = FakeSettingsMachine(initial, events)
         val preferences = FakeSettingsPreferences(isEnabled, events, failObserve)
+        val requested = mutableListOf<ComputerUsePermission>()
         private val screenJob = Job(scope.backgroundScope.coroutineContext.job)
         private val model = ComputerUseModel(
             machine,
             preferences,
+            { permission -> requested += permission },
             HeartbeatStoreFactory(TestDispatchers(StandardTestDispatcher(scope.testScheduler))),
             scope.backgroundScope + screenJob,
         )

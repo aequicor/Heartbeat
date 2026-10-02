@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.PermissionGrants
 
 /**
  * Settings component owning only screen lifetime: capture remains profile-owned, so closing settings neither
@@ -26,11 +27,12 @@ internal class ComputerUseComponent(
     @Assisted screen: ScopeHandle,
     machine: Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>,
     preferences: ComputerUsePreferences,
+    grants: PermissionGrants,
     factory: HeartbeatStoreFactory,
 ) : ComponentContext by context {
     /** The settings store, retained across configuration changes. */
     val model: ComputerUseModel = instanceKeeper.getOrCreate(MODEL_KEY) {
-        RetainedModel(ComputerUseModel(machine, preferences, factory, screen.coroutineScope))
+        RetainedModel(ComputerUseModel(machine, preferences, grants, factory, screen.coroutineScope))
     }.model
 
     /** Closes this navigation entry. */

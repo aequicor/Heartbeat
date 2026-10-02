@@ -18,5 +18,9 @@ paths:
   «Стоп», desktop закрепляет окно у края, скрывает его на время снимка и ввода мышью, а при захвате рабочего стола
   рисует тень по периметру экранов. Решения остаются у фичи: что
   показывать — `computerUseActivity()` из `computer-use:api`, остановка — интент `StopAgent` машины; хост только
-  отображает и пересылает.
+  отображает и пересылает. Так же устроен гид выдачи прав macOS: пока `ComputerUsePermissionGuide.guide` из графа
+  называет разрешение, desktop показывает у окна System Settings неактивирующую панель (`ComputerUsePermissionGuidePanel`
+  из `shared`) с плиткой приложения, которому macOS выдаёт право (ответственный процесс: в разработке — IDE или
+  терминал), и перетаскиванием этой плитки в список; закрытие — `dismiss()`. Когда показывать и скрывать гид,
+  решает фича.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

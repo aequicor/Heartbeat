@@ -9,11 +9,11 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureFormat
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapturePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
@@ -280,16 +280,24 @@ internal class FakeOsPermissions(
 ) : OsPermissions {
     var probes: Int = 0
         private set
-    var opened: List<ComputerUseBlocker> = emptyList()
+    var opened: List<ComputerUsePermission> = emptyList()
         private set
+
+    /** Optional suspending probe hook for cancellation/race tests. */
+    var onProbe: suspend () -> Unit = {}
+
+    /** What [openSettings] reports; `false` simulates a host without the settings page. */
+    var isSettingsOpenable: Boolean = true
 
     override suspend fun probe(): ComputerUseCapabilities {
         probes++
+        onProbe()
         return capabilities
     }
 
-    override suspend fun openSettings(blocker: ComputerUseBlocker) {
-        opened = opened + blocker
+    override suspend fun openSettings(permission: ComputerUsePermission): Boolean {
+        opened = opened + permission
+        return isSettingsOpenable
     }
 }
 

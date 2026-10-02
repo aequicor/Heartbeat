@@ -7,8 +7,14 @@
     <string name="computer_use_save_failed">Не удалось сохранить настройку. Попробуйте переключить её ещё раз.</string>
     <string name="computer_use_load_failed">Не удалось загрузить настройку. Откройте настройки заново, чтобы повторить попытку.</string>
     <string name="computer_use_blocker_platform">Управление компьютером доступно на macOS и Windows.</string>
-    <string name="computer_use_blocker_screen_recording">Разрешите запись экрана для Heartbeat в системных настройках.</string>
-    <string name="computer_use_blocker_accessibility">Разрешите универсальный доступ для Heartbeat в системных настройках.</string>
+    <string name="computer_use_blocker_screen_recording">Агент сможет видеть экран. После разрешения macOS может попросить закрыть и снова открыть приложение.</string>
+    <string name="computer_use_blocker_accessibility">Агент сможет управлять мышью и клавиатурой.</string>
+    <string name="computer_use_section_permissions">Разрешения macOS</string>
+    <string name="computer_use_permissions_hint">Откроются Системные настройки и панель с плиткой приложения: перетащите плитку в список и включите переключатель.</string>
+    <string name="computer_use_permission_screen_recording">Запись экрана</string>
+    <string name="computer_use_permission_accessibility">Универсальный доступ</string>
+    <string name="computer_use_permission_open">Открыть настройки</string>
+    <string name="computer_use_permission_open_description">Открыть настройки: %1$s</string>
     <string name="computer_use_blocker_elevation">Окна, запущенные с правами администратора, недоступны для управления.</string>
     <string name="computer_use_blocker_session_locked">Разблокируйте компьютер, чтобы агент видел экран.</string>
     <string name="computer_use_blocker_headless">Подключите активный дисплей, чтобы агент видел экран.</string>

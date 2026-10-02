@@ -78,6 +78,10 @@ data class HbDimensions(
     /** Size and outline of the agent's native pointer marker. */
     val computerUsePointerSize: Dp = 24.dp,
     val computerUsePointerStroke: Dp = 2.dp,
+    /** Floating panel next to System Settings that guides a computer-use permission grant. */
+    val computerUsePermissionGuideWidth: Dp = 340.dp,
+    /** Application icon on the guide's draggable tile, as large as a Finder list icon. */
+    val computerUsePermissionGuideIconSize: Dp = 32.dp,
     val compactBreakpoint: Dp = 720.dp,
     val compactHeightBreakpoint: Dp = 640.dp,
     val expandedBreakpoint: Dp = 1200.dp,
