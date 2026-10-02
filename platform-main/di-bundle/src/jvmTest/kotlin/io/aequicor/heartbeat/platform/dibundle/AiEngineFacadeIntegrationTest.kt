@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -408,6 +409,13 @@ class AiEngineFacadeIntegrationTest {
         (app.appScope as OwnedScope).close()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `engine management toggle is registered and off by default`() = runTest {
+        val control = (app as TestToggleAccessors).toggleControl
+        val state = control.observeStates().first().single { it.toggle == EngineManagementEnabled }
+        assertEquals(false, state.value)
     }
 
     @Test

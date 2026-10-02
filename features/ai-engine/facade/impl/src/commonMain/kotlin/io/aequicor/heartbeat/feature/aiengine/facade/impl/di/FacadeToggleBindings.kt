@@ -7,9 +7,10 @@ import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineManagementEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 
-/** Registers the engine catalog gate owned by the facade. */
+/** Registers the toggles owned by the facade: the catalog gate, usage telemetry and engine management. */
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object FacadeToggleBindings {
@@ -22,4 +23,9 @@ public object FacadeToggleBindings {
     @Provides
     @IntoSet
     public fun usageToggle(): FeatureToggle<*> = EngineUsageEnabled
+
+    /** Engine management in the engine settings. */
+    @Provides
+    @IntoSet
+    public fun managementToggle(): FeatureToggle<*> = EngineManagementEnabled
 }
