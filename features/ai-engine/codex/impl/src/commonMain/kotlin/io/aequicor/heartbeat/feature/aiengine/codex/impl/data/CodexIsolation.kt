@@ -15,6 +15,28 @@ internal val CodexDisabledCapabilities: List<String> = listOf(
 )
 
 /**
+ * Distinguishes native isolation from the host's authorized execution path. Without this scope, Codex can
+ * interpret its read-only permission context as a ban on all edits and refuse before calling a hosted tool.
+ * Supplied on start and resume only when hosted declarations exist; the dispatcher remains the authority for
+ * the current turn's trust level, so these thread-wide instructions never cache an approval decision.
+ */
+internal fun codexHostedInstructions(workflow: String): String = """
+    Heartbeat hosted tools and permissions:
+    The read-only sandbox applies only to Codex's built-in tools. Native network restrictions and
+    approvalPolicy=never also apply only to native execution. Heartbeat's declared hosted tools are a separate,
+    authorized execution path: hosted tools can edit workspace files and run commands within their declared scope.
+    Use the available hosted tools for project changes, Git operations, builds, and other actions they support.
+    Heartbeat applies the user's current approval mode to each hosted call: Ask requests confirmation for
+    mutations; AutoEdits automatically approves file edits; Full automatically approves edits and commands.
+    Call the appropriate hosted tool directly for the user's task; Heartbeat asks for confirmation when required.
+    Do not treat the native read-only sandbox as evidence that hosted edits are forbidden or request a new
+    writable session solely because of it. Report an access limitation if the hosted tool actually returns one.
+    Respect hosted tool refusals and scope limits; do not bypass them through native tools or sandbox changes.
+    """.trimIndent().let { permissions ->
+    listOf(permissions, workflow).filter(String::isNotBlank).joinToString("\n\n")
+}
+
+/**
  * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
  * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
  */
