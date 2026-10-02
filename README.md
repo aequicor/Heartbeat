@@ -78,16 +78,21 @@ cd Heartbeat
 
 Установочные файлы собираются из исходников. Desktop-пакеты включают Java runtime,
 поэтому пользователю установленного приложения отдельный JDK не нужен.
-MSI собирается на Windows, DMG — на macOS.
+Установщик Windows (Inno Setup) собирается на Windows, DMG — на macOS.
 
 | Платформа | Собрать | Установить |
 | --- | --- | --- |
 | **Android** | `./gradlew :platform-main:android:assembleDebug` | Установить APK из `platform-main/android/build/outputs/apk/debug/`. |
-| **Windows** | `.\gradlew.bat :platform-main:desktop:packageMsi` | Запустить MSI из `platform-main/desktop/build/compose/binaries/main/msi/`. |
+| **Windows** | `.\gradlew.bat :platform-main:desktop:packageInnoSetup` | Запустить `Heartbeat-<версия>-setup.exe` из `platform-main/desktop/build/compose/binaries/main/exe/`. |
 | **macOS** | `./gradlew :platform-main:desktop:packageDmg` | Открыть DMG из `platform-main/desktop/build/compose/binaries/main/dmg/` и перенести приложение в Applications. |
 | **iOS** | Открыть `platform-main/ios/iosApp.xcodeproj` в Xcode | Выбрать команду подписи и iPhone либо Simulator, затем выполнить Run. |
 
-Для Windows-сборки MSI требуется WiX Toolset, поддерживаемый используемым JDK/jpackage.
+Установщик Windows по умолчанию ставит приложение только для текущего пользователя, без прав администратора
+(на первом шаге можно выбрать установку для всех пользователей), создаёт ярлыки в меню «Пуск» и, по выбору,
+на рабочем столе и предлагает запустить приложение после установки. Новая версия ставится поверх старой с сохранением
+данных; удаление стирает данные приложения удаляющего пользователя.
+Для сборки нужен [Inno Setup](https://jrsoftware.org/isinfo.php) 6.6 или новее (`winget install JRSoftware.InnoSetup.7`);
+если он установлен не в стандартный каталог, укажите папку с `ISCC.exe` в Gradle-свойстве `heartbeat.innoSetupDir`.
 Для установки iOS на устройство настройте signing в Xcode и `TEAM_ID` в
 [`Config.xcconfig`](platform-main/ios/Configuration/Config.xcconfig).
 
