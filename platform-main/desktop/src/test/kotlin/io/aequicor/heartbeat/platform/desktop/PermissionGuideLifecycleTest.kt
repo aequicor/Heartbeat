@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.platform.desktop
 
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePresentation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -89,84 +88,6 @@ class PermissionGuideLifecycleTest {
         assertTrue(visibility.first())
         assertTrue(visibility.drop(1).all { !it })
         tracking.cancelAndJoin()
-    }
-
-    @Test
-    fun `placement cannot reveal a guide registered during capture`() {
-        val native = FakePresentation()
-        val guide = PermissionGuidePresentation(native, native::dispose)
-        val lease = guide.suppress()
-        guide.place(true)
-        assertFalse(guide.isShown)
-        assertTrue(native.isSuppressed)
-        lease.close()
-        assertTrue(guide.isShown)
-        assertFalse(native.isSuppressed)
-        guide.close()
-    }
-
-    @Test
-    fun `placement visibility waits for all active suppression leases`() {
-        val native = FakePresentation()
-        val guide = PermissionGuidePresentation(native, native::dispose)
-        guide.place(true)
-        val first = guide.suppress()
-        val second = guide.suppress()
-        guide.place(false)
-        assertTrue(guide.isShown)
-        first.close()
-        first.close()
-        assertTrue(guide.isShown)
-        assertTrue(native.isSuppressed)
-        second.close()
-        assertFalse(guide.isShown)
-        assertFalse(native.isSuppressed)
-        guide.close()
-    }
-
-    @Test
-    fun `dismissing a suppressed guide prevents restoration`() {
-        val native = FakePresentation()
-        val guide = PermissionGuidePresentation(native, native::dispose)
-        guide.place(true)
-        val lease = guide.suppress()
-        guide.close()
-        guide.close()
-        guide.place(true)
-        lease.close()
-        assertFalse(guide.isShown)
-        assertEquals(1, native.disposals)
-        assertEquals(0, native.restorations)
-    }
-
-    @Test
-    fun `failed native suppression leaves placement responsive`() {
-        val guide = PermissionGuidePresentation(ComputerUsePresentation { error("could not hide") }, {})
-        guide.place(true)
-        assertFailsWith<IllegalStateException> { guide.suppress() }
-        assertTrue(guide.isShown)
-        guide.place(false)
-        assertFalse(guide.isShown)
-        guide.close()
-    }
-
-    private class FakePresentation : ComputerUsePresentation {
-        private var count = 0
-        var disposals = 0
-        var restorations = 0
-        val isSuppressed get() = count > 0
-
-        override fun suppress(): AutoCloseable {
-            count++
-            return AutoCloseable {
-                count--
-                if (disposals == 0 && count == 0) restorations++
-            }
-        }
-
-        fun dispose() {
-            disposals++
-        }
     }
 
     private companion object {

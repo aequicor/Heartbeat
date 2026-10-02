@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.awt.Dimension
+import java.awt.EventQueue
 import java.awt.GraphicsEnvironment
 import java.awt.Point
 import java.awt.Rectangle
@@ -67,7 +68,17 @@ internal fun ComputerUsePermissionGuideWindow(
     val panel = remember { createGuideWindow(title) }
     val presentation = remember(panel) {
         val native = DesktopCapturePresentation(panel, ComputerUseScreenOverlay(panel))
-        PermissionGuidePresentation(native, native::close)
+        PermissionGuidePresentation(
+            native,
+            native::close,
+            setVisible = { isVisible ->
+                if (panel.isVisible != isVisible) {
+                    Log.tag("PermissionGuideWindow").d { "Permission guide visibility: $isVisible" }
+                    panel.isVisible = isVisible
+                }
+            },
+            enqueue = { action -> EventQueue.invokeLater(action) },
+        )
     }
     DisposableEffect(presentation, capturePresentation) {
         val registration = permissionGuideOrNull("register capture exclusion") {
@@ -94,7 +105,9 @@ internal fun ComputerUsePermissionGuideWindow(
         )
     }
     Window(
-        visible = presentation.isShown,
+        // AwtWindow queues setVisible on the next event tick. It must never enqueue a show outside our gate.
+        // A displayable hidden window still composes and measures; presentation owns its actual visibility.
+        visible = false,
         create = { panel },
         dispose = ComposeWindow::dispose,
         // A displayable window lays its content out while still hidden, so it is shown already measured.
