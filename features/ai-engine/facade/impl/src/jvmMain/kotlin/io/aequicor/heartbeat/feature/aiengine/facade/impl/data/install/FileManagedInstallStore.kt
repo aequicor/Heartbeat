@@ -95,7 +95,7 @@ internal class FileManagedInstallStore(
             withContext(io) {
                 storage { Files.createDirectories(download.parent) }
                 storage { Files.createDirectories(staging) }
-                lease = fileLocks.acquire(staging, LEASE)
+                lease = fileLocks.acquire(staging, ManagedLock.Candidate)
             }
             downloader.download(plan, download) { bytes, total -> progress(InstallStep.Downloading(bytes, total)) }
             progress(InstallStep.Verified)
@@ -107,7 +107,7 @@ internal class FileManagedInstallStore(
             log.i { "release staged engine=${engine.value} version=${plan.version}" }
             val staged = StagedInstall(engine, candidate, token, plan.sha256) {
                 fileLocks.release(lease)
-                deleteQuietly(staging.resolve(LEASE))
+                deleteQuietly(staging.resolve(ManagedLock.Candidate.fileName))
             }
             isHandedOver = true
             staged
@@ -251,7 +251,7 @@ internal class FileManagedInstallStore(
     }
 
     /** A candidate stays leased between download and activation, including while another profile refreshes. */
-    private fun isAbandoned(staging: Path): Boolean = fileLocks.isAbandoned(staging, LEASE)
+    private fun isAbandoned(staging: Path): Boolean = fileLocks.isAbandoned(staging)
 
     private fun children(folder: Path): List<Path> = storage { Files.list(folder).use { it.toList() } }
 
@@ -336,7 +336,7 @@ internal class FileManagedInstallStore(
         val directory = root.resolve(engine.value)
         var acquired: FileLock? = null
         return try {
-            withContext(io) { fileLocks.acquire(directory, LOCK).also { acquired = it } }
+            withContext(io) { fileLocks.acquire(directory, ManagedLock.Operation).also { acquired = it } }
             block(directory)
         } finally {
             fileLocks.release(acquired)
@@ -376,8 +376,6 @@ internal class FileManagedInstallStore(
 
     private companion object {
         const val ACTIVE = "active.json"
-        const val LOCK = ".lock"
-        const val LEASE = ".lease"
         const val VERSIONS = "versions"
         const val STAGING = "staging"
         const val DOWNLOADS = "downloads"

@@ -60,6 +60,20 @@ class FileManagedInstallStoreTest {
     }
 
     @Test
+    fun `app shutdown keeps an in-flight operation locked until its commit releases it`() {
+        val directory = root.resolve("codex")
+        val operation = fileLocks.acquire(directory, ManagedLock.Operation)
+        val file = directory.resolve(ManagedLock.Operation.fileName)
+        try {
+            lockScope.close()
+            assertFalse(canLockFromAnotherProcess(file), "shutdown must not expose an unfinished disk commit")
+        } finally {
+            fileLocks.release(operation)
+        }
+        assertTrue(canLockFromAnotherProcess(file))
+    }
+
+    @Test
     fun `cancellation on return from acquiring the file lock still releases it`() = runTest {
         lateinit var request: kotlinx.coroutines.Deferred<Unit>
         val dispatcher = afterDispatch(kotlinx.coroutines.test.StandardTestDispatcher(testScheduler)) {

@@ -18,19 +18,26 @@ import java.nio.file.StandardOpenOption
 
 /** App-wide ownership of managed-copy locks. Every store in one app shares this registry. */
 internal interface ManagedFileLocks {
-    /** Acquires the named lock of [directory], or refuses when the app or another process already owns it. */
-    fun acquire(directory: Path, name: String): FileLock
+    /** Acquires [kind] of [directory], or refuses when the app or another process already owns it. */
+    fun acquire(directory: Path, kind: ManagedLock): FileLock
 
     /** Releases an acquired lock and its channel; a null or already closed lock is harmless. */
     fun release(lock: FileLock?)
 
-    /** True if [directory]'s named lease is absent or can be acquired, without disturbing a live app lease. */
-    fun isAbandoned(directory: Path, name: String): Boolean
+    /** True if [directory]'s candidate lease is absent or can be acquired, without disturbing a live app lease. */
+    fun isAbandoned(directory: Path): Boolean
+}
+
+/** An operation owns the engine files through its commit; a candidate lease protects a pending staged copy. */
+internal enum class ManagedLock(val fileName: String) {
+    Operation(".lock"),
+    Candidate(".lease"),
 }
 
 /**
  * One channel per locked file: POSIX can release every lock on an inode when any channel of that inode closes.
- * A sweep never opens a second channel of a locally owned file. App shutdown closes all remaining channels.
+ * A sweep never opens a second channel of a locally owned file. App shutdown releases candidate leases and
+ * refuses new operations; in-flight operation locks stay held until their owner's cleanup finishes.
  */
 @Inject
 @SingleIn(AppScope::class)
@@ -46,10 +53,10 @@ internal class JvmManagedFileLocks(
         scope.onClose(::close)
     }
 
-    override fun acquire(directory: Path, name: String): FileLock = synchronized(locks) {
+    override fun acquire(directory: Path, kind: ManagedLock): FileLock = synchronized(locks) {
         if (isClosed) refuse()
         storage { Files.createDirectories(directory) }
-        val file = storage { directory.toRealPath().resolve(name) }
+        val file = storage { directory.toRealPath().resolve(kind.fileName) }
         if (file in locks) refuse()
         val channel = storage {
             FileChannel.open(file, StandardOpenOption.CREATE, StandardOpenOption.WRITE)
@@ -81,9 +88,9 @@ internal class JvmManagedFileLocks(
         }
     }
 
-    override fun isAbandoned(directory: Path, name: String): Boolean = synchronized(locks) {
+    override fun isAbandoned(directory: Path): Boolean = synchronized(locks) {
         try {
-            val file = directory.toRealPath().resolve(name)
+            val file = directory.toRealPath().resolve(ManagedLock.Candidate.fileName)
             if (file in locks) return@synchronized false
             if (!Files.exists(file)) return@synchronized true
             FileChannel.open(file, StandardOpenOption.WRITE).use { channel ->
@@ -100,14 +107,15 @@ internal class JvmManagedFileLocks(
 
     private fun close() = synchronized(locks) {
         isClosed = true
-        locks.values.forEach { lock ->
+        // ScopeHandle cancels without joining. NonCancellable disk commits must keep their operation locks.
+        val leases = locks.filterKeys { it.fileName.toString() == ManagedLock.Candidate.fileName }.values.toList()
+        leases.forEach { lock ->
             try {
-                lock.channel().close()
-            } catch (e: IOException) {
+                release(lock)
+            } catch (e: io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException) {
                 log.w(e.withoutDetails()) { "managed copy lock could not be closed on shutdown" }
             }
         }
-        locks.clear()
     }
 
     private fun refuse(): Nothing {
