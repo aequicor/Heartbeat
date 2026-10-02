@@ -78,14 +78,42 @@ internal class DesktopPiManager(private val processes: PiProcessLauncher, privat
         try {
             process.outputStream.close()
             val isDone = runInterruptible { process.waitFor(VERSION_TIMEOUT_SECONDS, TimeUnit.SECONDS) }
-            if (isDone) parsePiVersion(process.inputStream.readNBytes(MAX_VERSION_BYTES).decodeToString()) else null
+            if (isDone) parsePiVersion(probeOutput(process)) else null
         } finally {
-            process.descendants().forEach { it.destroyForcibly() }
-            process.destroyForcibly()
+            stopProbe(process)
         }
     } catch (e: IOException) {
         log.w(e.withoutDetails()) { "Pi version could not be read" }
         null
+    }
+
+    /** Reads only buffered bytes; launcher children can keep stdout open after their parent exits. */
+    private suspend fun probeOutput(process: Process): String = runInterruptible {
+        process.inputStream.readNBytes(process.inputStream.available().coerceAtMost(MAX_VERSION_BYTES)).decodeToString()
+    }
+
+    private fun stopProbe(process: Process) {
+        try {
+            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
+        } catch (e: SecurityException) {
+            log.w(e.withoutDetails()) { "Version probe descendants unavailable" }
+        } catch (e: UnsupportedOperationException) {
+            log.w(e.withoutDetails()) { "Version probe descendants unsupported" }
+        } finally {
+            try {
+                process.destroyForcibly()
+            } finally {
+                closeProbeOutput(process)
+            }
+        }
+    }
+
+    private fun closeProbeOutput(process: Process) {
+        try {
+            process.inputStream.close()
+        } catch (e: IOException) {
+            log.w(e.withoutDetails()) { "Version probe output could not be closed" }
+        }
     }
 
     private companion object {

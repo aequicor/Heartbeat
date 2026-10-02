@@ -28,6 +28,36 @@ class PiStartupTest {
     private val digest = "97".repeat(32)
 
     @Test
+    fun `an asset URL outside the official hosts is refused before creating an install plan`() = runTest {
+        val release = GitHubRelease(
+            "v1.0.0",
+            assets = listOf(
+                GitHubAsset("pi-darwin-arm64.tar.gz", 1, "https://evil.example/a", "sha256:$digest"),
+            ),
+        )
+        val error = assertFailsWith<ManagementException> { piInstallPlan(release, "darwin-arm64", Feeds()) }
+        assertEquals(ManagementFailure.Install(InstallFailureReason.UntrustedSource), error.failure)
+    }
+
+    @Test
+    fun `a newer bundled Pi replaces an older managed copy`() {
+        val managed = io.aequicor.heartbeat.feature.aiengine.facade.api.ManagedInstall(
+            "0.9.0",
+            "/managed/pi",
+            kotlin.time.Instant.fromEpochSeconds(0),
+        )
+        val bundled = Path.of("/bundled/pi")
+        val launch = LaunchContext(managed = managed)
+        assertEquals(
+            InstallSource.Bundled,
+            resolvePiStartup(launch, bundled, "0.10.0").source,
+        )
+        assertEquals(InstallSource.Bundled, resolvePiStartup(launch, bundled, "0.9.0").source)
+        assertEquals(InstallSource.Managed, resolvePiStartup(launch, bundled, "0.8.0").source)
+        assertEquals(InstallSource.Managed, resolvePiStartup(launch, null, "0.10.0").source)
+    }
+
+    @Test
     fun `a custom executable wins over Heartbeat's copy, which wins over the bundled Pi`() {
         val custom = LaunchContext(LaunchSettings(executable = "/custom/pi"), managed)
 

@@ -28,6 +28,9 @@ import kotlin.time.Clock
 internal class ClaudeAccount(private val transport: ClaudeTransport, private val clock: Clock) {
     private val log = Log.tag("ClaudeAccount")
 
+    /** Uses the same account probe and clock with the runtime's retained launch context. */
+    fun pinned(transport: ClaudeTransport): ClaudeAccount = ClaudeAccount(transport, clock)
+
     suspend fun inspect(): ClaudeLogin = withProbeTimeout {
         log.i { "Checking Claude CLI login" }
         val output = StringBuilder()

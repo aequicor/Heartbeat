@@ -41,6 +41,10 @@ internal fun <F : EngineFeature> EngineFeatures.available(key: EngineFeatureKey<
     assertIs<FeatureAccess.Available<F>>(resolve(key)).feature
 
 internal class FakeClaudeTransport : ClaudeTransport {
+    var pinnedTransport: ClaudeTransport? = null
+    override suspend fun pinned(
+        launch: io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext?,
+    ): ClaudeTransport = pinnedTransport ?: this
     var account = "owner@example.test"
     var isLoggedIn = true
     var method = "claude.ai"

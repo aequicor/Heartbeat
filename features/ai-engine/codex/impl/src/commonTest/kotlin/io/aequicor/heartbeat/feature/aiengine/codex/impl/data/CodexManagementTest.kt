@@ -24,6 +24,24 @@ class CodexManagementTest {
     private val download = "https://github.com/openai/codex/releases/download/rust-v0.160.0"
 
     @Test
+    fun `an asset URL outside the official hosts is refused before creating an install plan`() = runTest {
+        assertInstall(InstallFailureReason.UntrustedSource) {
+            codexInstallPlan(
+                release(
+                    GitHubAsset(
+                        "codex-package-aarch64-apple-darwin.tar.gz",
+                        1,
+                        "https://evil.example/a",
+                        "sha256:$digest",
+                    ),
+                ),
+                target,
+                Feeds(),
+            )
+        }
+    }
+
+    @Test
     fun `the official package is installed with GitHub's checksum`() = runTest {
         val release = release(
             GitHubAsset(

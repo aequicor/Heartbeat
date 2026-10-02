@@ -48,16 +48,18 @@ data class EngineConnectionsScreenState(
     val panel: EnginePanelUi? = null,
     /** Launch settings being edited for the selected engine; null shows the saved ones. */
     val launchDraft: LaunchDraftUi? = null,
-    /** A code pasted from a sign-in page, kept until it is sent. Never logged. */
+    /** A code pasted from a sign-in page, kept until sent or its sign-in prompt ends. Never logged. */
     val loginCode: String = "",
     /** An action waiting for confirmation (uninstall, an unverified update, sign-out). */
     val confirmAction: EngineActionUi? = null,
-) : MVIState
+) : MVIState {
+    override fun toString(): String = "EngineConnectionsScreenState(***)"
+}
 
 /** Rebuilds the three levels, keeping the selection while it still exists and otherwise picking the first entry. */
 internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState): EngineConnectionsScreenState =
     when (state) {
-        EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null)
+        EngineConnectionsState.Idle -> copy(isLoading = true, loadFailure = null, loginCode = "")
 
         is EngineConnectionsState.Active -> {
             val base = copy(
@@ -65,6 +67,7 @@ internal fun EngineConnectionsScreenState.reflect(state: EngineConnectionsState)
                 isSaving = state.pending != null,
                 loadFailure = state.loadFailure?.toUi(),
                 failure = state.failed?.failure?.toUi(),
+                loginCode = loginCode.takeIf { state.snapshot != null }.orEmpty(),
             )
             val snapshot = state.snapshot
             when {
@@ -142,7 +145,7 @@ private fun EngineConnectionsScreenState.withSnapshot(snapshot: ConnectionsSnaps
         confirmDisconnect = confirmDisconnect?.takeIf { id -> connectionRows.any { it.id == id } },
         panel = panel,
         launchDraft = launchDraft.takeIf { isSameEngine && panel != null },
-        loginCode = loginCode.takeIf { isSameEngine }.orEmpty(),
+        loginCode = loginCode.takeIf { isSameEngine && panel?.job?.phase is JobPhaseUi.AwaitingCode }.orEmpty(),
         confirmAction = confirmAction.takeIf { isSameEngine && panel?.job?.isRunning != true },
     )
 }

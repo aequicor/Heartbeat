@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallationState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.JobPhase
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LoginMethod
@@ -104,7 +105,9 @@ sealed interface LoginUi {
     data object SignedOut : LoginUi
 
     /** The CLI is signed in, as [account] when known. */
-    data class SignedIn(val account: String?) : LoginUi
+    data class SignedIn(val account: String?) : LoginUi {
+        override fun toString(): String = "SignedIn(***)"
+    }
 }
 
 /** How a CLI may sign in. */
@@ -168,10 +171,14 @@ sealed interface JobPhaseUi {
     data object Removing : JobPhaseUi
 
     /** The user signs in at [url]; with a device code, [userCode] is entered there. */
-    data class AwaitingBrowser(val url: String, val userCode: String?) : JobPhaseUi
+    data class AwaitingBrowser(val url: String, val userCode: String?) : JobPhaseUi {
+        override fun toString(): String = "AwaitingBrowser(***)"
+    }
 
     /** The CLI waits for the code the page at [url] shows. */
-    data class AwaitingCode(val url: String?) : JobPhaseUi
+    data class AwaitingCode(val url: String?) : JobPhaseUi {
+        override fun toString(): String = "AwaitingCode(***)"
+    }
 
     /** Completed. */
     data object Succeeded : JobPhaseUi
@@ -217,7 +224,9 @@ data class LaunchProblemUi(val option: LaunchOptionUi, val reason: LaunchProblem
 
 /** One `key=value` row of an editable list. */
 @Immutable
-data class KeyValueUi(val key: String = "", val value: String = "")
+data class KeyValueUi(val key: String = "", val value: String = "") {
+    override fun toString(): String = "KeyValueUi(***)"
+}
 
 /** Editable launch settings; blank fields keep the engine's defaults. Values are user paths and never logged. */
 @Immutable
@@ -279,7 +288,15 @@ internal fun ManagedEngine.toPanel(draft: LaunchDraftUi?, platform: EnginePlatfo
             isEditing = draft != null,
             isDirty = edited.toSettings() != launch.settings,
             isCustomized = !launch.settings.isDefault,
-            errors = validateLaunchSettings(edited.toSettings(), spec.launch, platform).toUi(),
+            errors = validateLaunchSettings(edited.toSettings(), spec.launch, platform).map { problem ->
+                val rows = when (problem.option) {
+                    LaunchOption.ConfigOverrides -> edited.configOverrides
+                    LaunchOption.Environment -> edited.environment
+                    LaunchOption.Executable, LaunchOption.HomeDirectory -> emptyList()
+                }
+                val indices = rows.indices.filter { !rows[it].isBlank() }
+                problem.copy(index = problem.index?.let { indices[it] })
+            }.toUi(),
             warnings = launch.warnings.toUi(),
         )
     }

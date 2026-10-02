@@ -84,6 +84,56 @@ internal fun managedSnapshot(codex: ManagedEngine = managedCodex()): Connections
 
 class EngineManagementPresentationTest {
     @Test
+    fun `sign-in codes disappear when the prompt ends and sensitive UI data is redacted`() {
+        val awaiting = managedSnapshot(
+            managedCodex(
+                job = EngineJob(
+                    EngineAction.Login(LoginMethod.Browser),
+                    JobPhase.AwaitingCode("https://provider.example/secret"),
+                    Instant.fromEpochSeconds(1),
+                ),
+            ),
+        )
+        val screen = EngineConnectionsScreenState(selectedEngine = CodexId.value, loginCode = "secret")
+            .reflect(EngineConnectionsState.Active(awaiting))
+        assertEquals("secret", screen.loginCode)
+        val completed = managedSnapshot(
+            managedCodex(
+                job = EngineJob(
+                    EngineAction.Login(LoginMethod.Browser),
+                    JobPhase.Succeeded,
+                    Instant.fromEpochSeconds(1),
+                ),
+            ),
+        )
+        assertEquals("", screen.reflect(EngineConnectionsState.Active(completed)).loginCode)
+        assertEquals("", screen.reflect(EngineConnectionsState.Active()).loginCode)
+        assertEquals("", screen.reflect(EngineConnectionsState.Idle).loginCode)
+        listOf(
+            screen,
+            LoginUi.SignedIn("secret"),
+            JobPhaseUi.AwaitingBrowser("secret", "secret"),
+            JobPhaseUi.AwaitingCode("secret"),
+            KeyValueUi("key", "secret"),
+            EngineConnectionsScreenIntent.EditLoginCode("secret"),
+        ).forEach {
+            assertFalse("secret" in it.toString())
+        }
+    }
+
+    @Test
+    fun `validation errors keep their visible row index after blank rows`() {
+        val draft = LaunchDraftUi(
+            environment = kotlinx.collections.immutable.persistentListOf(
+                KeyValueUi("", ""),
+                KeyValueUi("OPENAI_API_KEY", "secret"),
+            ),
+        )
+        val panel = managedCodex().toPanel(draft, EnginePlatform.DesktopMacOs)
+        assertEquals(1, panel.launch?.errors?.single()?.index)
+    }
+
+    @Test
     fun `with engine management off the space is exactly as before`() {
         val disabled = managedCodex(EngineEnablement(reasons = setOf(DisabledReason.EngineFlagOff)))
         val off = managedSnapshot(disabled).let { it.copy(management = it.management.copy(isEnabled = false)) }

@@ -192,9 +192,11 @@ internal class JvmClaudeBackend(
             log.w { "Claude runtime requested for a foreign identity" }
             authFailure(AuthFailureReason.AuthMismatch)
         }
-        account.validate(identity.revision)
         val current = runtime
         if (current != null && current.identity == identity && !current.isClosed) return@withLock current
+        val pinnedTransport = transport.pinned()
+        val pinnedAccount = account.pinned(pinnedTransport)
+        pinnedAccount.validate(identity.revision)
         when {
             current == null -> Unit
             current.identity != identity && !current.isClosed -> current.retire()
@@ -203,8 +205,8 @@ internal class JvmClaudeBackend(
         log.i { "Creating Claude profile runtime" }
         ClaudeRuntime(
             identity,
-            transport.pinned(),
-            account,
+            pinnedTransport,
+            pinnedAccount,
             toggles,
             profile.coroutineScope,
             catalog = catalog,

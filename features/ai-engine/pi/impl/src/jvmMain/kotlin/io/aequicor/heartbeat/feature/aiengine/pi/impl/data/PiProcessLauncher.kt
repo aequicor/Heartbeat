@@ -57,7 +57,7 @@ internal class PiProcessLauncher(
 
     /** The Pi the profile's launch context starts: a custom executable, Heartbeat's newer copy or the bundled one. */
     suspend fun startup(launch: LaunchContext? = null): PiStartup =
-        resolvePiStartup(launch ?: launches.context(PiEngineId), bundledExecutable())
+        resolvePiStartup(launch ?: launches.context(PiEngineId), bundledExecutable(), bundledVersion())
 
     suspend fun executable(): Path? = startup().executable
 

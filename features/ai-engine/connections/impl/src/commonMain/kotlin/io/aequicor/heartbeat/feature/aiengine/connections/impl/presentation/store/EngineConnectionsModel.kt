@@ -125,7 +125,9 @@ sealed interface EngineConnectionsScreenIntent : MVIIntent {
     data object ResetLaunch : EngineInput
 
     /** Edits the code pasted from a sign-in page. */
-    data class EditLoginCode(val code: String) : EngineInput
+    data class EditLoginCode(val code: String) : EngineInput {
+        override fun toString(): String = "EditLoginCode(***)"
+    }
 
     /** Passes the pasted code to the signing-in CLI. */
     data object SubmitLoginCode : EngineRequest

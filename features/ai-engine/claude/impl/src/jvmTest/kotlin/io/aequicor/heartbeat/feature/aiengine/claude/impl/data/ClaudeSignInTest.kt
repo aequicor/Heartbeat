@@ -54,6 +54,15 @@ class ClaudeSignInTest {
     }
 
     @Test
+    fun `a failed logout or unchanged account is reported as rejection`() = runTest {
+        Files.writeString(state, "x")
+        assertLogin(LoginFailureReason.Rejected) { signIn("logout-failed").logout(launch) }
+        assertTrue(Files.exists(state))
+        assertLogin(LoginFailureReason.Rejected) { signIn("logout-unchanged").logout(launch) }
+        assertTrue(Files.exists(state))
+    }
+
+    @Test
     fun `a pasted code signs in to the claude ai account`() = runTest {
         answer = "abc#def"
 
@@ -125,6 +134,7 @@ class ClaudeSignInTest {
         val java = Path.of(System.getProperty("java.home"), "bin", "java").toString()
         return ClaudeSignIn(
             dispatchers,
+            isWindows = false,
             starter = { command, _, environment ->
                 this@ClaudeSignInTest.environment = environment
                 ProcessBuilder(listOf(java, program.toString(), state.toString(), mode) + command.drop(1))
@@ -164,6 +174,8 @@ class FakeClaude {
             out.println("{\"loggedIn\": false, \"authMethod\": \"none\"}");
             System.exit(1);
         } else if (command.equals("auth logout")) {
+            if (args[1].equals("logout-failed")) System.exit(2);
+            if (args[1].equals("logout-unchanged")) System.exit(0);
             Files.deleteIfExists(state);
             out.println("Successfully logged out");
         } else {

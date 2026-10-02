@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchProblemReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ManagementFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.isNewerVersion
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.ArchiveKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubDownloadHosts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.GitHubRelease
@@ -36,14 +37,21 @@ internal data class PiStartup(
  * The custom executable of [context]'s settings, else Heartbeat's newer copy, else the [bundled] Pi. A custom path the
  * file system cannot name (Windows reserved characters) is a custom Pi that cannot start.
  */
-internal fun resolvePiStartup(context: LaunchContext, bundled: Path?): PiStartup {
+internal fun resolvePiStartup(context: LaunchContext, bundled: Path?, bundledVersion: String? = null): PiStartup {
     val custom = context.settings.executable?.takeIf { it.isNotBlank() }
     val managed = context.managed?.executable
     val environment = context.settings.environment
     return when {
         custom != null -> PiStartup(pathOrNull(custom), InstallSource.Custom, environment)
-        managed != null -> PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
+
+        managed != null && (
+            bundled == null || bundledVersion == null ||
+                isNewerVersion(checkNotNull(context.managed).version, bundledVersion)
+        ) ->
+            PiStartup(pathOrNull(managed), InstallSource.Managed, environment)
+
         bundled != null -> PiStartup(bundled, InstallSource.Bundled, environment)
+
         else -> PiStartup(null, InstallSource.Missing, environment)
     }
 }

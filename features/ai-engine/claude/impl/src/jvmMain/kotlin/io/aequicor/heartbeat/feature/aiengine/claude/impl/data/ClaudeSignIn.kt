@@ -55,9 +55,9 @@ internal class ClaudeSignIn(
     private val dispatchers: DispatcherProvider,
     private val configuration: ClaudeConfiguration = ClaudeConfiguration(),
     private val starter: ClaudeProcessStarter = ClaudeProcessStarter.Default,
+    private val isWindows: Boolean = ClaudeHost().isWindows,
 ) {
     private val log = Log.tag("ClaudeSignIn")
-    private val isWindows = ClaudeHost().isWindows
 
     /** The CLI login: signed in only with a claude.ai subscription, which is the one Heartbeat can use. */
     suspend fun status(launch: LaunchContext): LoginState {
@@ -92,8 +92,13 @@ internal class ClaudeSignIn(
 
     suspend fun logout(launch: LaunchContext): LoginState {
         val (exit, _) = command(startup(launch), listOf("auth", "logout"))
-        if (exit == 0) log.i { "Claude CLI signed out" } else log.w { "Claude sign-out failed exit=$exit" }
-        return status(launch)
+        val state = if (exit == 0) status(launch) else LoginState.Unknown
+        if (state != LoginState.SignedOut) {
+            log.w { "Claude sign-out rejected exit=$exit" }
+            throw ManagementException(ManagementFailure.Login(LoginFailureReason.Rejected))
+        }
+        log.i { "Claude CLI signed out" }
+        return state
     }
 
     private fun startup(launch: LaunchContext): ClaudeStartup {
