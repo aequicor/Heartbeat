@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
+import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -66,6 +67,47 @@ class KoogRuntimeTest {
         assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
         val result = session.features.require(SessionHistory).page().items.filterIsInstance<SessionItem.ToolResult>()
         assertIs<EngineFailure>(result.single().failure)
+    }
+
+    @Test
+    fun fragmentedToolCallsAreRejoinedBeforeExecution() = runTest {
+        val f = KoogTestFixture(this)
+        f.searchResults = listOf(SearchResult("https://example.com", "Example", "Snippet"))
+        f.fetchedResource = ResourceContent("https://example.com", "Example", "Body")
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        // A reasoning delta flushes the pending call early; its nameless rest rejoins it by index, even when the
+        // fragments of two parallel calls interleave. A nameless frame of an unseen index stays unusable.
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-1", "web_search", "", 0))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-2", "web_fetch", "", 1))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete(null, "", """{"query":""", 0))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete(null, "", """{"url":""", 1))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete(null, "", "\"topic\"}", 0))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete(null, "", "\"https://example.com\"}", 1))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete(null, "", "", 2))
+        f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        f.executor.complete("Answer")
+        runCurrent()
+        assertEquals(2, f.executor.prompts.size)
+        val items = session.features.require(SessionHistory).page().items
+        assertEquals(2, items.filterIsInstance<SessionItem.ToolCall>().size)
+        assertEquals(2, items.filterIsInstance<SessionItem.ToolResult>().size)
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun unusableToolCallsFailTheTurnWithoutAnEcho() = runTest {
+        val f = KoogTestFixture(this)
+        val session = f.session()
+        session.features.require(SendsPrompts).send(f.request())
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-1", "", "{}", 0))
+        f.executor.frames.trySend(StreamFrame.ToolCallComplete("call-2", "web_search", "{", 1))
+        f.executor.frames.trySend(StreamFrame.End("tool_calls"))
+        runCurrent()
+        assertEquals(1, f.executor.prompts.size)
+        assertIs<TurnOutcome.Failed>(assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        val items = session.features.require(SessionHistory).page().items
+        assertEquals(emptyList(), items.filterIsInstance<SessionItem.ToolCall>())
     }
 
     @Test

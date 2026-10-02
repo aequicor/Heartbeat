@@ -22,6 +22,7 @@ internal class KoogConfigurationValidator(
         }
         val connection = access.route(route.binding, identity)
         val provider = requireNotNull(koogProvider(connection.source))
+        val origin = connection.source.scope.origin
         return when (change) {
             is SessionConfigurationChange.Model -> {
                 val levels = koogCall {
@@ -32,9 +33,9 @@ internal class KoogConfigurationValidator(
                         val ids = listOf(change.model.value)
                         val reported = client.reasoning(ids)
                         if (reported == null) {
-                            access.reasoning.levels(provider, change.model.value)
+                            access.reasoning.levels(provider, origin, change.model.value)
                         } else {
-                            access.reasoning.discover(provider, ids, reported)[change.model.value].orEmpty()
+                            access.reasoning.discover(provider, origin, ids, reported)[change.model.value].orEmpty()
                         }
                     }
                 }
@@ -42,7 +43,8 @@ internal class KoogConfigurationValidator(
             }
 
             is SessionConfigurationChange.Effort -> {
-                if (change.effort != null && change.effort !in access.reasoning.levels(provider, current.model.value)) {
+                val levels = access.reasoning.levels(provider, origin, current.model.value)
+                if (change.effort != null && change.effort !in levels) {
                     fail(EngineFailure.Request(RequestFailureReason.Invalid))
                 }
                 current.copy(reasoningEffort = change.effort)

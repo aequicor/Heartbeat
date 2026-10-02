@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.network.networkResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogProvider
 import io.ktor.client.HttpClient
@@ -32,8 +33,12 @@ import kotlin.time.Instant
 
 /** Public model catalog for providers whose API does not report reasoning support. */
 internal interface KoogReasoningCatalog {
-    /** Effort levels of [model]; null when the catalog does not know the model or is unavailable. */
-    suspend fun levels(provider: KoogProvider, model: String): List<String>?
+    /**
+     * Effort levels of [model]; null when the catalog does not know the model or is unavailable. An editable route
+     * is looked up in the section of the fixed vendor route whose [origin] it repeats, so a compatible connection
+     * to a catalog endpoint learns the same levels as the native one.
+     */
+    suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>?
 
     /** Exact vendor model modalities; compatible endpoints are never looked up in the vendor catalog. */
     suspend fun inputSupport(provider: KoogProvider, model: String): PromptInputSupport? = null
@@ -59,8 +64,8 @@ internal class ModelsDevReasoningCatalog(
     private var snapshot: CatalogSnapshot? = null
     private var failedAt: Instant? = null
 
-    override suspend fun levels(provider: KoogProvider, model: String): List<String>? {
-        val section = CatalogSections[provider] ?: return null
+    override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>? {
+        val section = catalogSection(provider, origin) ?: return null
         return current()?.providers?.get(section)?.get(model)
     }
 
@@ -109,6 +114,13 @@ internal class ModelsDevReasoningCatalog(
         const val CATALOG_URL = "https://models.dev/api.json"
     }
 }
+
+/**
+ * Catalog section of [provider]; an editable route without a section of its own borrows the section of the fixed
+ * vendor route whose origin it repeats, so compatible connections to catalog endpoints share their levels.
+ */
+internal fun catalogSection(provider: KoogProvider, origin: EndpointOrigin): String? = CatalogSections[provider]
+    ?: CatalogSections[KoogProvider.entries.firstOrNull { !it.isOriginEditable && it.origin == origin }]
 
 /** Effort levels per catalog section and model id. */
 @Serializable
