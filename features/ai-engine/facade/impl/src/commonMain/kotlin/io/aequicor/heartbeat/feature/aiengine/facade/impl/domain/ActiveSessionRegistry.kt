@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
@@ -137,8 +138,8 @@ class SessionPolicy(
     private val tools: ProfileAgentTools = NoAgentTools,
 ) {
     /** Registers the canonical identity before the native adapter can call hosted tools. */
-    suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId) {
-        tools.bindTurn(session, request, turn)
+    suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
+        tools.bindTurn(session, request, turn.id, turn.target)
     }
 
     /** Rechecks toggles, binding, ownership and source revision before a turn or model change. */
