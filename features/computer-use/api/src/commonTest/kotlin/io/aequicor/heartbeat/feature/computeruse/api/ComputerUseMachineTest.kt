@@ -286,17 +286,9 @@ class ComputerUseMachineTest {
     }
 
     @Test
-    fun `a turn stopped between captures is barred too`() {
-        ComputerUseMachineSpec.assertTransition(
-            from = ready,
-            intent = ComputerUseIntent.Public.StopAgent(owner),
-            to = ready.copy(stoppedOwners = setOf(owner)),
-            effects = listOf(ComputerUseEffect.StopOwner(owner)),
-        )
-        ComputerUseMachineSpec.assertIgnored(
-            ready.copy(stoppedOwners = setOf(owner)),
-            ComputerUseIntent.Public.StopAgent(owner),
-        )
+    fun `a stop that arrives after the capture ended is ignored`() {
+        ComputerUseMachineSpec.assertIgnored(ready, ComputerUseIntent.Public.StopAgent(owner))
+        ComputerUseMachineSpec.assertIgnored(ComputerUseState.Idle, ComputerUseIntent.Public.StopAgent(owner))
     }
 
     @Test
@@ -347,8 +339,10 @@ class ComputerUseMachineTest {
     fun `operations naming another owner cannot touch the capture`() {
         val armed = capturing.copy(mode = windowMode, isInputArmed = true, master = master, lastPreview = preview)
         val request = CaptureRequest()
+        val crop = CropRequest(master.id, CaptureRegion(0, 0, 10, 10))
         listOf(
             ComputerUseIntent.Public.Capture(request, expectedOwner = otherOwner),
+            ComputerUseIntent.Public.Crop(crop, expectedOwner = otherOwner),
             ComputerUseIntent.Public.Input(click, expectedOwner = otherOwner),
             ComputerUseIntent.Public.ArmInput(true, expectedOwner = otherOwner),
             ComputerUseIntent.Public.CancelSession(session, expectedOwner = otherOwner),
@@ -358,6 +352,12 @@ class ComputerUseMachineTest {
             intent = ComputerUseIntent.Public.Capture(request, expectedOwner = owner),
             to = armed,
             effects = listOf(ComputerUseEffect.CaptureFrame(request)),
+        )
+        ComputerUseMachineSpec.assertTransition(
+            from = armed,
+            intent = ComputerUseIntent.Public.Crop(crop, expectedOwner = owner),
+            to = armed,
+            effects = listOf(ComputerUseEffect.ProduceCrop(crop)),
         )
     }
 

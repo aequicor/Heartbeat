@@ -8,7 +8,11 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-/** Turns the user stopped from the host's session chrome; their later computer tool calls are refused. */
+/**
+ * Turns the user stopped from the host's session chrome; their later computer tool calls are refused in every
+ * machine state until the turn ends. The machine keeps its own `stoppedOwners` only in Ready/Capturing, to fence
+ * a capture call that passed this check before the stop; it forgets them when it leaves those states.
+ */
 @Inject
 @SingleIn(ProfileScope::class)
 internal class ComputerUseStoppedTurns {

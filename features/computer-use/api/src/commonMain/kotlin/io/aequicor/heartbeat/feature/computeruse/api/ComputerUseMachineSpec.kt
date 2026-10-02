@@ -18,18 +18,17 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | TargetsLoaded | | stay(targets) | |
  * | Ready | ArmInput | input is available and no authorization binding | stay(armed) | |
  * | Ready | BeginCapture | the mode is supported, the owner is not stopped | Capturing | OpenCapture, CaptureChanged |
- * | Ready | StopAgent | owner not stopped yet | stay(stopped+owner) | StopOwner |
  * | Ready | OwnerReleased | owner was stopped | stay(stopped-owner) | |
  * | Capturing | CaptureOpened | matching session | stay(open) | |
  * | Capturing | ArmInput | input available, matching binding and owner | stay(armed) | |
  * | Capturing | Capture | host open, matching session and owner | stay | CaptureFrame |
- * | Capturing | Crop | master holds the region, matching session and owner | stay | ProduceCrop |
- * | Capturing | Input | armed, the mode allows input, matching binding and owner | stay | ApplyInput |
+ * | Capturing | Crop | host open, region in master, session and owner match | stay | ProduceCrop |
+ * | Capturing | Input | host open, armed, mode allows input, binding and owner match | stay | ApplyInput |
  * | Capturing | FrameCaptured | | stay(master, preview, frames+1) | FrameReady |
  * | Capturing | CropProduced | | stay(lastCrop) | FrameReady |
  * | Capturing | InputApplied | | stay | InputApplied output |
- * | Capturing | SwitchMode | supported mode, same owner | Capturing (re-entered) | CloseCapture(old), OpenCapture, |
- * | | | | | CaptureChanged |
+ * | Capturing | SwitchMode | supported mode, same owner and session | Capturing (re-entered) | CloseCapture(old), |
+ * | | | | | OpenCapture, CaptureChanged |
  * | Capturing | EndCapture | | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | OwnerReleased | same owner | Ready(disarmed) | CloseCapture, PurgeMasters, CaptureChanged(null) |
  * | Capturing | OwnerReleased | another owner that was stopped | stay(stopped-owner) | |
@@ -41,6 +40,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | | | | | CaptureChanged(null) |
  * | any | SessionClosed | | stay | SessionClosed output |
  * | any | Revoke | | Idle | CloseCapture, PurgeMasters, Revoked |
+ *
+ * Stopped turns are fenced here only while the machine stays in Ready/Capturing (`stoppedOwners`); leaving them
+ * resets the set, and the impl's tool layer, filled by the StopOwner effect, refuses those turns until they end.
  *
  * Session identifiers come with the intents instead of being generated inside transitions, so the spec stays a
  * pure function and its tests compare states directly.
@@ -109,10 +111,6 @@ public val ComputerUseMachineSpec: MachineSpec<
             }
             effect { ComputerUseEffect.OpenCapture(intent.mode, intent.session) }
             output { ComputerUseOutput.CaptureChanged(intent.mode) }
-        }
-        on<ComputerUseIntent.Public.StopAgent>(guard = { !state.stoppedOwners.isStopped(intent.owner) }) {
-            stay { state.copy(stoppedOwners = state.stoppedOwners + intent.owner) }
-            effect { ComputerUseEffect.StopOwner(intent.owner) }
         }
         on<ComputerUseIntent.Public.OwnerReleased>(guard = { state.stoppedOwners.isStopped(intent.owner) }) {
             stay { state.copy(stoppedOwners = state.stoppedOwners.without(intent.owner)) }

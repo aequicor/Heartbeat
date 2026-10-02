@@ -90,8 +90,8 @@ internal class TestComputerUseCapturePresentation(dispatchers: DispatcherProvide
     var suppressions: Int = 0
         private set
 
-    /** Makes restoring the app windows fail after the operation, with this message. */
-    var restoreFailure: String? = null
+    /** Makes restoring the app windows fail after the operation with this error. */
+    var restoreFailure: Throwable? = null
 
     init {
         delegate.register {
@@ -99,7 +99,7 @@ internal class TestComputerUseCapturePresentation(dispatchers: DispatcherProvide
             suppressions++
             AutoCloseable {
                 isSuppressed = false
-                restoreFailure?.let(::error)
+                restoreFailure?.let { throw it }
             }
         }
     }

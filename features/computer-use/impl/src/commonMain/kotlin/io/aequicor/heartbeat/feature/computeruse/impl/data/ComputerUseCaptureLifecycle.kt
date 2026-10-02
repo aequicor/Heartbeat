@@ -18,11 +18,13 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Keeps each turn's capture cleanup awaitable after the machine already returned to Ready or Idle. */
@@ -65,8 +67,9 @@ internal class ComputerUseCaptureLifecycle(
     /**
      * The owner's turn ended: releases its active capture, forgets a stop of that turn and awaits all its
      * already-ending capture sessions within one shared deadline. Waiting happens outside the profile-wide guard,
-     * so other turns' barriers and captures do not queue behind it. An unconfirmed closure is logged and
-     * forgotten; a cancelled caller keeps the waiters for a retry.
+     * so other turns' barriers and captures do not queue behind it, and concurrent barriers of the same turn
+     * (its native lifetime and the dispatcher) share the waiters without failing each other. An unconfirmed
+     * closure is logged and forgotten; a cancelled caller keeps the waiters for a retry.
      */
     suspend fun finishTurn(owner: CaptureOwner.Agent) {
         val awaited = guard.withLock {
@@ -83,17 +86,21 @@ internal class ComputerUseCaptureLifecycle(
             }
             cleanups.toList()
         }
-        val isConfirmed = withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { awaited.forEach { it.closed.await() } } != null
+        // The dispatcher already revoked the turn's calls, so no later path needs its stop any more.
+        stoppedTurns.forget(owner)
+        // join() returns for a waiter that another barrier of this turn already gave up on; await() would throw.
+        val isConfirmed = withTimeoutOrNull(CLEANUP_TIMEOUT_MILLIS) { awaited.forEach { it.closed.join() } } != null
         if (!isConfirmed) {
             val pending = awaited.filterNot { it.closed.isCompleted }
             log.w { "agent turn capture cleanup was not confirmed in time sessions=${pending.size}" }
             pending.forEach { it.closed.cancel() }
         }
-        guard.withLock {
-            val remaining = ownerCaptures[owner]?.apply { removeAll(awaited) }
-            if (remaining.isNullOrEmpty()) ownerCaptures.remove(owner)
+        withContext(NonCancellable) {
+            guard.withLock {
+                val remaining = ownerCaptures[owner]?.apply { removeAll(awaited) }
+                if (remaining.isNullOrEmpty()) ownerCaptures.remove(owner)
+            }
         }
-        stoppedTurns.forget(owner)
     }
 
     private fun ComputerUseState?.stoppedOwners(): Set<CaptureOwner.Agent> = when (this) {

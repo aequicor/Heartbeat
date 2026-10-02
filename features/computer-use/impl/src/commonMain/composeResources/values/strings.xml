@@ -9,7 +9,7 @@
     <string name="computer_use_blocker_platform">Computer use is available on macOS and Windows.</string>
     <string name="computer_use_blocker_screen_recording">Allow screen recording for Heartbeat in system settings.</string>
     <string name="computer_use_blocker_accessibility">Allow accessibility access for Heartbeat in system settings.</string>
-    <string name="computer_use_blocker_elevation">The window the agent chose requires elevated privileges. Run Heartbeat as administrator to control it.</string>
+    <string name="computer_use_blocker_elevation">Windows running with administrator rights cannot be controlled.</string>
     <string name="computer_use_blocker_session_locked">Unlock the computer so the agent can see the screen.</string>
     <string name="computer_use_blocker_headless">Connect an active display so the agent can see the screen.</string>
 </resources>

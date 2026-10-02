@@ -160,7 +160,7 @@ public sealed interface ComputerUseMode {
 
 /** Who owns an active capture; the capture ends together with its owner. */
 public sealed interface CaptureOwner {
-    /** A Heartbeat screen rather than an agent turn; agent tools never hand a capture to it. */
+    /** A Heartbeat screen; no longer created since the panel was removed, see issue #162. */
     public data object Panel : CaptureOwner
 
     /** One agent turn of one session. */

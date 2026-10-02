@@ -328,8 +328,11 @@ internal class ComputerUseAgentTools(
                     failure("CaptureTimedOut")
                 }
 
-                settled !is ComputerUseState.Capturing || settled.session != session ->
-                    failure(if (stoppedTurns.isStopped(owner)) "StoppedByUser" else "CaptureEnded")
+                settled !is ComputerUseState.Capturing || settled.session != session -> {
+                    // The state carries the stop atomically with the transition that ended the session.
+                    val isStopped = (settled as? ComputerUseState.Ready)?.stoppedOwners?.contains(owner) == true
+                    failure(if (isStopped || stoppedTurns.isStopped(owner)) "StoppedByUser" else "CaptureEnded")
+                }
 
                 else -> screenshot(machine, arguments, owner)
             }
@@ -553,12 +556,13 @@ internal class ComputerUseAgentTools(
     ): ComputerUseOutput? = coroutineScope {
         val session = (machine.state.value as? ComputerUseState.Capturing)?.session
         val id = Uuid.random().toString()
+        var owner: CaptureOwner? = null
         val correlated = when (intent) {
-            is ComputerUseIntent.Public.Capture -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Capture -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
-            is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Crop -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
-            is ComputerUseIntent.Public.Input -> intent.copy(requestId = id)
+            is ComputerUseIntent.Public.Input -> intent.copy(requestId = id).also { owner = it.expectedOwner }
 
             ComputerUseIntent.Public.Start, ComputerUseIntent.Public.Retry,
             ComputerUseIntent.Public.RefreshTargets, ComputerUseIntent.Public.EndCapture,
@@ -595,7 +599,7 @@ internal class ComputerUseAgentTools(
             closed.cancel()
             if (!isCompleted && session != null) {
                 // Cancel state effects as well as the waiter, without touching any replacement session.
-                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session)) }
+                withContext(NonCancellable) { machine.send(ComputerUseIntent.Public.CancelSession(session, owner)) }
             }
         }
     }

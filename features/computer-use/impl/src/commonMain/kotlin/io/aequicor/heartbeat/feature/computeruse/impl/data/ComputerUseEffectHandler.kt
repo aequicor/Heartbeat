@@ -153,16 +153,20 @@ internal class ComputerUseEffectHandler(
         }
     }
 
-    /** Applied input stays applied: a failed window restore afterwards is logged, so the agent does not repeat it. */
+    /**
+     * The injector's outcome stands: a failed window restore afterwards is logged, so applied input is not reported
+     * as rejected and repeated. A cancellation always propagates, even one a restore lease reports.
+     */
     private suspend fun pointer(apply: suspend () -> InputOutcome): InputOutcome {
-        var applied: InputOutcome? = null
+        var finished: InputOutcome? = null
         return try {
-            presentation.withoutPresentation { apply().also { applied = it } }
+            presentation.withoutPresentation { apply().also { finished = it } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            val outcome = applied ?: throw e
-            log.w(e) { "pointer input applied, but app windows were not restored" }
+            val outcome = finished ?: throw e
+            val result = if (outcome is InputOutcome.Rejected) "rejected (${outcome.reason})" else "applied"
+            log.w(e) { "pointer input was $result, but app windows were not restored" }
             outcome
         }
     }

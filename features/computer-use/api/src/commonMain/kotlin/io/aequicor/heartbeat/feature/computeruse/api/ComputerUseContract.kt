@@ -23,7 +23,10 @@ public sealed interface ComputerUseState : MachineState {
         public val targets: List<WindowTarget> = emptyList(),
         public val isInputArmed: Boolean = false,
         public val lastPreview: CaptureRef? = null,
-        /** Agent turns the user stopped; they cannot open a capture again until their turn ends. */
+        /**
+         * Agent turns the user stopped while capturing; BeginCapture refuses them. Kept only while the machine
+         * stays in Ready/Capturing: the profile's tools refuse those turns for the rest of the turn in any state.
+         */
         public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
@@ -40,7 +43,7 @@ public sealed interface ComputerUseState : MachineState {
         public val lastCrop: CaptureRef? = null,
         public val frameCount: Long = 0L,
         public val isOpen: Boolean = false,
-        /** Agent turns the user stopped; they cannot take this capture over or open another one. */
+        /** Agent turns the user stopped while capturing; carried into Ready, see [Ready.stoppedOwners]. */
         public val stoppedOwners: Set<CaptureOwner.Agent> = emptySet(),
     ) : ComputerUseState
 
@@ -63,7 +66,7 @@ public sealed interface ComputerUseIntent : MachineIntent {
 
         /**
          * Opens a capture session. The caller allocates [session], so transitions stay deterministic.
-         * Rejected when [mode] is not covered by the probed capabilities.
+         * Rejected when [mode] is not covered by the probed capabilities or the user stopped [owner]'s turn.
          */
         public data class BeginCapture(
             public val mode: ComputerUseMode,
@@ -134,8 +137,9 @@ public sealed interface ComputerUseIntent : MachineIntent {
         ) : Public
 
         /**
-         * The user stops [owner]'s agent turn: its capture ends, and the turn can neither open another capture nor
-         * use computer tools again while its other tools keep working. A turn stopped between captures is barred too.
+         * The user stops [owner]'s agent turn while it captures: the capture ends, and the turn can neither open
+         * another capture nor use computer tools again while its other tools keep working. The host offers the stop
+         * only during a capture; a stop that arrives after the capture ended is ignored rather than outliving it.
          */
         public data class StopAgent(public val owner: CaptureOwner.Agent) : Public
 

@@ -15,7 +15,8 @@ paths:
 - iOS: `IosHeartbeatHost` в `platform-main:shared` (iosMain) держит root на `ApplicationLifecycle` и отдаёт `viewController()`; его хранит `AppDelegate`. Swift-код в `platform-main/ios/` — минимальный.
 - Никакой бизнес-логики и UI фич — только сборка. Исключение — хром сессии агента computer-use: root наблюдает
   `ComputerUseMachineKey` и один раз выводит студию вперёд при захвате агентом, `App` рисует плашку сессии с кнопкой
-  «Стоп», desktop закрепляет окно у края, скрывает его на время снимка и рисует тень. Решения остаются у фичи: что
+  «Стоп», desktop закрепляет окно у края, скрывает его на время снимка и ввода мышью, а при захвате рабочего стола
+  рисует тень по периметру экранов. Решения остаются у фичи: что
   показывать — `computerUseActivity()` из `computer-use:api`, остановка — интент `StopAgent` машины; хост только
   отображает и пересылает.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

@@ -250,7 +250,7 @@ class ComputerUseAgentToolsTest {
         advanceUntilIdle()
         val reply = call.await()
         assertEquals("FrameTimedOut", reply.text)
-        assertEquals(ComputerUseIntent.Public.CancelSession(Session), fixture.machine.sent.last())
+        assertEquals(ComputerUseIntent.Public.CancelSession(Session, Owner), fixture.machine.sent.last())
     }
 
     @Test
@@ -260,7 +260,7 @@ class ComputerUseAgentToolsTest {
         val call = async { fixture.tools.execute(fixture.context, "computer_screenshot", EmptyArguments) }
         runCurrent()
         call.cancelAndJoin()
-        assertEquals(ComputerUseIntent.Public.CancelSession(Session), fixture.machine.sent.last())
+        assertEquals(ComputerUseIntent.Public.CancelSession(Session, Owner), fixture.machine.sent.last())
         assertEquals(ComputerUseState.Idle, fixture.machine.state.value)
     }
 
@@ -580,6 +580,36 @@ class ComputerUseAgentToolsTest {
         assertFalse(fixture.stoppedTurns.isStopped(Owner))
         assertEquals(ComputerUseIntent.Public.OwnerReleased(Owner), fixture.machine.sent.single())
         assertEquals(ComputerUseState.Ready(Capabilities), fixture.machine.state.value)
+    }
+
+    @Test
+    fun `concurrent barriers of one turn both end when the cleanup acknowledgement is lost`() = runTest {
+        val fixture = Fixture(this, Capturing)
+        val lifetimeBarrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        advanceTimeBy(10_000)
+        val dispatcherBarrier = async { fixture.tools.finishTurn(fixture.context.session, fixture.context.turn) }
+        advanceTimeBy(20_001)
+        runCurrent()
+        assertTrue(lifetimeBarrier.isCompleted)
+        assertTrue(dispatcherBarrier.isCompleted)
+        lifetimeBarrier.await()
+        dispatcherBarrier.await()
+        assertEquals(0, fixture.machine.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `stopping the agent while its capture opens ends the call as stopped`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        val arguments = buildJsonObject { put("mode", "desktop") }
+        val approved = fixture.approved("computer_capture", arguments)
+        val call = async { fixture.tools.execute(approved, "computer_capture", arguments) }
+        runCurrent()
+        assertFalse((fixture.machine.state.value as ComputerUseState.Capturing).isOpen)
+        fixture.machine.send(ComputerUseIntent.Public.StopAgent(Owner))
+        runCurrent()
+        assertTrue(call.isCompleted)
+        assertEquals("StoppedByUser", call.await().text)
+        assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
     }
 
     private class Fixture(scope: TestScope, initial: ComputerUseState) {

@@ -154,11 +154,25 @@ class ComputerUseEffectHandlerTest {
         val fixture = fixture()
         val capture = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result
         val reference = assertNotNull(capture.reference)
-        fixture.presentation.restoreFailure = "window cannot be shown again"
         val click = InputAction.Click(FramePoint(5.0, 5.0))
+        fixture.presentation.restoreFailure = IllegalStateException("window cannot be shown again")
         fixture.run(ComputerUseEffect.ApplyInput(click, "pointer", reference.id))
-        assertEquals(listOf<InputAction>(click), fixture.injector.applied)
         assertEquals(ComputerUseIntent.Internal.InputApplied(click, "pointer"), fixture.feedback.intents.single())
+        assertEquals(listOf<InputAction>(click), fixture.injector.applied)
+    }
+
+    @Test
+    fun `rejected pointer input stays rejected when the app windows are not restored`() = runTest {
+        val fixture = fixture()
+        val capture = assertIs<CaptureOutcome.Produced>(fixture.coordinator.capture(CaptureRequest())).result
+        val reference = assertNotNull(capture.reference)
+        fixture.presentation.restoreFailure = IllegalStateException("window cannot be shown again")
+        fixture.injector.refusal = ComputerUseFailure.TargetClosed
+        fixture.run(ComputerUseEffect.ApplyInput(InputAction.Click(FramePoint(5.0, 5.0)), "pointer", reference.id))
+        assertEquals(
+            ComputerUseIntent.Internal.Rejected(ComputerUseFailure.TargetClosed, "pointer"),
+            fixture.feedback.intents.single(),
+        )
     }
 
     @Test

@@ -102,7 +102,7 @@ public object CapturePresets {
         isSharpened = true,
     )
 
-    /** Preview shown inside Heartbeat. */
+    /** Larger JPEG preview an agent can request with the `ui` preset. */
     public val UiPreview: CaptureEncoding = CaptureEncoding(
         format = CaptureFormat.Jpeg,
         quality = UI_QUALITY,
