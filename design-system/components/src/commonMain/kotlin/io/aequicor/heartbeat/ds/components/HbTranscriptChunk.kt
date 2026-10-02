@@ -127,6 +127,7 @@ internal fun HbTranscriptChunkContent(
     modifier: Modifier = Modifier,
     isToolExpanded: Boolean = false,
     onToolExpandedChange: (Boolean) -> Unit = {},
+    onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
 ) {
     val palette = tonePalette(if (message.status == HbMessageStatus.Error) HbTone.Danger else message.appearance.tone)
     val foreground = if (message.appearance.foreground == Color.Unspecified) {
@@ -148,7 +149,11 @@ internal fun HbTranscriptChunkContent(
         showStatus = chunk.isLast,
         onLinkClick = onLinkClick,
         toolLabels = toolLabels,
-        contentPadding = if (message.appearance.isUnified) unifiedChunkPadding(chunk) else toolPanelChunkPadding(chunk),
+        contentPadding = if (message.appearance.isUnified) {
+            unifiedChunkPadding(chunk, isHostEntry = message.isHostEntry)
+        } else {
+            toolPanelChunkPadding(chunk)
+        },
     ) {
         when (val body = chunk.body) {
             is HbTranscriptBody.Markdown -> HbMarkdownBlockContent(
@@ -163,6 +168,7 @@ internal fun HbTranscriptChunkContent(
                 onExpandedChange = onToolExpandedChange,
                 labels = toolLabels,
                 isUnified = message.appearance.isUnified,
+                onAction = { onToolAction(body.call, it) },
             )
 
             is HbTranscriptBody.ToolPayload -> UnifiedToolPayload(
@@ -228,10 +234,13 @@ private fun TranscriptText(body: HbTranscriptBody.Text, foreground: Color, isLas
     }
 }
 
-/** Each lazy segment paints the same outer surface; only content gets an internal gap. */
+/**
+ * Each lazy segment paints the same outer surface; only content gets an internal gap. A host entry has no
+ * surface of its own, so it starts right below the previous message's gap.
+ */
 @Composable
 @ReadOnlyComposable
-private fun unifiedChunkPadding(chunk: HbTranscriptChunk): PaddingValues {
+private fun unifiedChunkPadding(chunk: HbTranscriptChunk, isHostEntry: Boolean): PaddingValues {
     val inset = HbTheme.dimensions.messagePadding
     val isPayload = chunk.body is HbTranscriptBody.ToolPayload
     val markdown = (chunk.body as? HbTranscriptBody.Markdown)?.block
@@ -240,6 +249,7 @@ private fun unifiedChunkPadding(chunk: HbTranscriptChunk): PaddingValues {
         start = inset,
         end = inset,
         top = when {
+            chunk.isFirst && isHostEntry -> HbTheme.spacing.none
             chunk.isFirst -> inset
             isPayload || isMarkdownContinuation -> HbTheme.spacing.none
             else -> HbTheme.spacing.l

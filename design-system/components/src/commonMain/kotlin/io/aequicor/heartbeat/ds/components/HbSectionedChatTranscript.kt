@@ -60,6 +60,7 @@ private class TimelineChangeLog {
  * [contentPadding] reserves readable space beneath floating controls without shrinking the scroll viewport.
  * [showSectionHeaders] can hide date/session headings when their context is already shown outside the transcript.
  * [overlapInsets] softly fades rows beneath floating controls without fading the scrollbar or jump action.
+ * [onToolAction] receives the pressed action of a tool call together with that call.
  */
 @Composable
 public fun HbChatTranscript(
@@ -78,6 +79,7 @@ public fun HbChatTranscript(
     contentPadding: PaddingValues = PaddingValues(HbTheme.spacing.l),
     showSectionHeaders: Boolean = true,
     overlapInsets: PaddingValues = PaddingValues(),
+    onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     messageFooterContent: (@Composable (HbChatMessage) -> Unit)? = null,
 ) {
     val expandedKeys = toolExpansionState.expandedKeys
@@ -158,6 +160,7 @@ public fun HbChatTranscript(
                                 followState = followState.onUserScroll(isAtLatest = !isExpanded && isAtLatest)
                                 toolExpansionState.updateTool(chunk, isExpanded)
                             },
+                            onToolAction = onToolAction,
                         )
                     }
                 }
@@ -225,6 +228,7 @@ private fun TimelineMessageChunk(
     isLatestMessage: Boolean = false,
     isToolExpanded: Boolean = false,
     onToolExpandedChange: (Boolean) -> Unit = {},
+    onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
 ) {
     // Keep per-row snapshots cheap: only the footer needs the complete copyable prose.
     val copyText = if (chunk.isLast && (appearance ?: message.appearance).isUnified) {
@@ -256,6 +260,7 @@ private fun TimelineMessageChunk(
             onLinkClick = onLinkClick,
             isToolExpanded = isToolExpanded,
             onToolExpandedChange = onToolExpandedChange,
+            onToolAction = onToolAction,
         )
         if (chunk.isLast) footerContent?.invoke(message)
     }

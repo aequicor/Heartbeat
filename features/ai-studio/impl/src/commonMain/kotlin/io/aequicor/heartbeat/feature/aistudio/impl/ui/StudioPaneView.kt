@@ -29,6 +29,7 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
@@ -89,6 +90,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests_prom
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.working_for
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
 import kotlin.time.Duration
@@ -97,6 +99,7 @@ import kotlin.time.Duration
  * One workspace column: a session transcript or the new-session page, with its composer.
  * [content] holds only this pane's data, so streaming into another pane does not recompose it.
  * Keyboard focus anywhere inside the pane selects it, keeping screen-level screenshot paste on the same draft.
+ * Worktree cards follow the transcript; a pane preparing a worktree session already shows them in its feed.
  */
 @Composable
 internal fun StudioPaneView(
@@ -120,10 +123,17 @@ internal fun StudioPaneView(
         }.focusGroup().focusOnPress(content.isFocused, pane.id) { onIntent(AiStudioScreenIntent.FocusPane(pane.id)) }
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
-        val sessionId = pane.sessionId
-        val transcript = content.transcript
-        val isCenteredComposer = sessionId == null && HbTheme.dimensions.isDesktop
-        if (sessionId == null && !isCenteredComposer) {
+        val worktreeFeed = content.worktreeFeed()
+        val worktree = if (worktreeFeed == null) {
+            NoWorktree
+        } else {
+            val labels = worktreeLabels()
+            remember(worktreeFeed, labels) { worktreeTimeline(worktreeFeed, labels) }
+        }
+        val feedId = pane.sessionId ?: worktreeFeed?.key
+        val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
+        val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
+        if (feedId == null && !isCenteredComposer) {
             Box(
                 Modifier.fillMaxSize().padding(top = topInset, bottom = bottomInset),
             ) {
@@ -134,11 +144,12 @@ internal fun StudioPaneView(
                         .padding(HbTheme.spacing.xl),
                 )
             }
-        } else if (sessionId != null && transcript != null) {
-            key(sessionId) {
+        } else if (feedId != null && transcript != null) {
+            key(feedId) {
                 SessionTranscript(
-                    sessionId = sessionId,
+                    feedId = feedId,
                     messages = transcript,
+                    worktree = worktree,
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
                     attachmentPreviews = content.attachmentPreviews,
@@ -473,10 +484,12 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
     }
 }
 
+/** Feed [feedId]: the open session, or `pane-<id>` while the pane only shows its [worktree] cards. */
 @Composable
 private fun SessionTranscript(
-    sessionId: String,
+    feedId: String,
     messages: ImmutableList<MessageUi>,
+    worktree: WorktreeTimeline,
     section: String,
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
@@ -485,16 +498,20 @@ private fun SessionTranscript(
     onIntent: (AiStudioScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val timeline = rememberStudioTimeline(sessionId, messages, timelineLabels(section, calendar))
+    val timeline = rememberStudioTimeline(feedId, messages, timelineLabels(section, calendar), worktree.messages)
+    val links = LocalUriHandler.current
     HbChatTranscript(
         timeline = timeline,
-        modifier = modifier.fillMaxSize().testTag("transcript-$sessionId"),
+        modifier = modifier.fillMaxSize().testTag("transcript-$feedId"),
         streamingLabel = stringResource(Res.string.streaming),
         jumpToLatestLabel = stringResource(Res.string.jump_latest),
         toolLabels = studioToolLabels(),
         contentPadding = contentPadding,
         overlapInsets = overlapInsets,
         showSectionHeaders = true,
+        onToolAction = { call, action ->
+            worktree.dispatch(call.id, action.id, onIntent) { openPullRequest(links, it) }
+        },
         messageFooterContent = { rendered ->
             val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
             if (prompt != null && prompt.attachments.isNotEmpty()) {
@@ -545,7 +562,6 @@ private fun PaneFooter(
                 previews = content.attachmentPreviews,
             )
         }
-        StudioWorktree(content, onIntent, column)
         StudioComposer(content, onIntent, isCompact, column, onOpenResearch)
     }
 }
@@ -578,6 +594,8 @@ private fun RunStatus(isStopping: Boolean, elapsed: Duration?, modifier: Modifie
         )
     }
 }
+
+private val NoWorktree = WorktreeTimeline()
 
 /** Project and branch of the pane, or the plain conversation label outside projects. */
 @Composable

@@ -135,6 +135,7 @@ class SandboxUiTest {
                 onNodeWithText("Components").performClick()
                 onNodeWithTag("components-catalog").performScrollToNode(hasText("Create something"))
                 onNodeWithText("Create something").performClick()
+                onNodeWithTag("components-catalog").performScrollToNode(hasText("Action received"))
                 onNodeWithText("Action received").assertIsDisplayed()
                 savePreview("desktop-${platform.name.lowercase()}", captureToImage().toAwtImage())
             }

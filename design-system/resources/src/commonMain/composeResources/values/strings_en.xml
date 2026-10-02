@@ -192,4 +192,11 @@
     <string name="en_loading_label">Loading…</string>
     <string name="en_attachments">Attachments</string>
     <string name="en_paste_image">Paste image</string>
+    <string name="en_worktree_result">Task completed</string>
+    <string name="en_worktree_merge_target">Local merge target: release/master</string>
+    <string name="en_worktree_create_pr">Create PR</string>
+    <string name="en_worktree_leave">Leave as is</string>
+    <string name="en_worktree_failed">Worktree operation failed</string>
+    <string name="en_worktree_failure">The original checkout has uncommitted changes. Save or commit them, then check again before merging.</string>
+    <string name="en_worktree_recheck">Check checkout</string>
 </resources>
