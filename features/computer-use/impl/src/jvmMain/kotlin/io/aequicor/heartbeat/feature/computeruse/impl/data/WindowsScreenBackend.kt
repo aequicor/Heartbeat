@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.PixelGrid
+import kotlinx.coroutines.delay
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -65,11 +66,11 @@ internal object WindowsScreenBackend {
     }
 
     /** Brings a window to the front so that injected input reaches it. */
-    fun activate(id: WindowId): Boolean {
+    suspend fun activate(id: WindowId): Boolean {
         val library = user32 ?: return false
         val handle = handle(id) ?: return false
         return try {
-            library.SetForegroundWindow(handle)
+            activateWindowsWindow(library, handle)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -78,12 +79,15 @@ internal object WindowsScreenBackend {
         }
     }
 
+    /** Foreground checks never move focus and do not rely on SetForegroundWindow's return value. */
+    fun isForeground(id: WindowId): Boolean = handle(id)?.let { it == user32?.GetForegroundWindow() } == true
+
     /** Renders a window into pixels; null when the target cannot be rendered. */
-    fun capture(id: WindowId): PixelGrid? {
+    fun capture(id: WindowId, isClientAreaOnly: Boolean = false): PixelGrid? {
         val users = user32 ?: return null
         val gdi = gdi32 ?: return null
         val handle = handle(id) ?: return null
-        return captureWindowsBitmap(users, gdi, handle)
+        return captureWindowsBitmap(users, gdi, handle, isClientAreaOnly)
     }
 
     private fun describe(library: User32Lib, hwnd: Pointer): WindowTarget? {
@@ -101,7 +105,15 @@ internal object WindowsScreenBackend {
             title = title,
             bounds = ScreenBounds(rect.left, rect.top, width, height, scale(library, hwnd)),
             isMinimized = library.IsIconic(hwnd),
+            isSelfOwned = processId(library, hwnd).toLong() == ProcessHandle.current().pid(),
+            clientBounds = windowsClientBounds(library, hwnd, scale(library, hwnd)),
         )
+    }
+
+    private fun processId(library: User32Lib, hwnd: Pointer): Int {
+        val result = IntByReference()
+        library.GetWindowThreadProcessId(hwnd, result)
+        return result.value
     }
 
     private fun text(library: User32Lib, hwnd: Pointer): String {
@@ -160,7 +172,7 @@ internal object WindowsScreenBackend {
 
     private fun handle(id: WindowId): Pointer? {
         val value = id.value.toLongOrNull() ?: return null
-        return if (value == 0L) null else Pointer.createConstant(value)
+        return windowsHandle(value)
     }
 
     private fun <T : Library> load(type: Class<T>, name: String): T? = try {
@@ -179,11 +191,14 @@ internal object WindowsScreenBackend {
 }
 
 /** `user32` entry points used by the Windows backend. */
-@Suppress("FunctionNaming") // Win32 symbol names are fixed by the native ABI
+@Suppress("FunctionNaming", "TooManyFunctions") // This interface mirrors the fixed user32 ABI used by one backend.
 internal interface User32Lib : StdCallLibrary {
     fun EnumWindows(callback: EnumWindowsProc, data: Pointer?): Boolean
     fun GetWindowTextW(hwnd: Pointer, buffer: CharArray, count: Int): Int
     fun GetWindowRect(hwnd: Pointer, rect: NativeRect): Boolean
+    fun GetClientRect(hwnd: Pointer, rect: NativeRect): Boolean
+    fun ClientToScreen(hwnd: Pointer, point: NativePoint): Boolean
+    fun GetForegroundWindow(): Pointer?
     fun IsWindowVisible(hwnd: Pointer): Boolean
     fun IsIconic(hwnd: Pointer): Boolean
     fun GetWindowThreadProcessId(hwnd: Pointer, processId: IntByReference): Int
@@ -197,6 +212,50 @@ internal interface User32Lib : StdCallLibrary {
 /** Window enumeration callback; returning `false` stops the walk. */
 internal interface EnumWindowsProc : StdCallLibrary.StdCallCallback {
     fun callback(hwnd: Pointer, data: Pointer?): Boolean
+}
+
+/** A pointer-sized HWND, including values with non-zero upper 32 bits. */
+internal fun windowsHandle(value: Long): Pointer? = if (value == 0L) null else Pointer(value)
+
+/** Measures client geometry in the same host coordinates as full window geometry. */
+internal fun windowsClientBounds(users: User32Lib, handle: Pointer, scale: Double): ScreenBounds? {
+    val rect = NativeRect()
+    val origin = NativePoint()
+    if (!users.GetClientRect(handle, rect) || !users.ClientToScreen(handle, origin)) return null
+    val width = rect.right - rect.left
+    val height = rect.bottom - rect.top
+    return if (width > 0 && height > 0) ScreenBounds(origin.x, origin.y, width, height, scale) else null
+}
+
+/** Retries focus acquisition only, never an input action. */
+internal suspend fun activateWindowsWindow(
+    users: User32Lib,
+    handle: Pointer,
+    pause: suspend (Long) -> Unit = { delay(it) },
+): Boolean {
+    var isForeground = users.GetForegroundWindow() == handle
+    for (attempt in 0..ACTIVATION_RETRIES) {
+        if (isForeground) break
+        if (attempt > 0) pause(ACTIVATION_DELAY_MILLIS * attempt)
+        Native.setLastError(0)
+        users.SetForegroundWindow(handle)
+        val nativeError = Native.getLastError()
+        isForeground = users.GetForegroundWindow() == handle
+        if (!isForeground) {
+            Log.tag("WindowsScreenBackend").w {
+                "window activation refused attempt=${attempt + 1} nativeError=$nativeError"
+            }
+        }
+    }
+    return isForeground
+}
+
+/** Win32 POINT in screen coordinates. */
+@Structure.FieldOrder("x", "y")
+internal class NativePoint : Structure() {
+    @JvmField var x: Int = 0
+
+    @JvmField var y: Int = 0
 }
 
 /** `gdi32` entry points used by the Windows backend. */
@@ -290,11 +349,17 @@ internal class BitmapInfoHeader : Structure() {
 }
 
 /** Native capture call sequence, injectable in tests without loading Windows libraries. */
-internal fun captureWindowsBitmap(users: User32Lib, gdi: Gdi32Lib, handle: Pointer): PixelGrid? {
+internal fun captureWindowsBitmap(
+    users: User32Lib,
+    gdi: Gdi32Lib,
+    handle: Pointer,
+    isClientAreaOnly: Boolean = false,
+): PixelGrid? {
     val log = Log.tag("WindowsScreenBackend")
     if (users.IsIconic(handle)) return null
     val rect = NativeRect()
-    if (!users.GetWindowRect(handle, rect)) return null
+    val measured = if (isClientAreaOnly) users.GetClientRect(handle, rect) else users.GetWindowRect(handle, rect)
+    if (!measured) return null
     val width = rect.right - rect.left
     val height = rect.bottom - rect.top
     if (width <= 0 || height <= 0) return null
@@ -307,7 +372,11 @@ internal fun captureWindowsBitmap(users: User32Lib, gdi: Gdi32Lib, handle: Point
             try {
                 val previous = gdi.SelectObject(memory, bitmap) ?: return null
                 val isRendered = try {
-                    users.PrintWindow(handle, memory, PRINT_FULL_CONTENT)
+                    users.PrintWindow(
+                        handle,
+                        memory,
+                        PRINT_FULL_CONTENT or if (isClientAreaOnly) PRINT_CLIENT_ONLY else 0,
+                    )
                 } finally {
                     // GetDIBits requires the bitmap to be deselected from every DC before it is read.
                     gdi.SelectObject(memory, previous)
@@ -351,6 +420,9 @@ private fun readWindowsBits(gdi: Gdi32Lib, screen: Pointer, bitmap: Pointer, wid
 }
 
 private const val PRINT_FULL_CONTENT = 2
+private const val PRINT_CLIENT_ONLY = 1
+private const val ACTIVATION_RETRIES = 2
+private const val ACTIVATION_DELAY_MILLIS = 50L
 private const val DIB_RGB_COLORS = 0
 private const val BYTES_PER_PIXEL = 4
 private const val BYTE_MASK = 0xFF

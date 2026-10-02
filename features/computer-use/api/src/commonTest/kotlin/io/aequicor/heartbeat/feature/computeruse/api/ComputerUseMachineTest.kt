@@ -366,9 +366,20 @@ class ComputerUseMachineTest {
         ComputerUseMachineSpec.assertTransition(
             from = capturing,
             intent = ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.TargetClosed),
-            to = ComputerUseState.Failed(ComputerUseFailure.TargetClosed),
-            effects = listOf(ComputerUseEffect.CloseCapture(session), ComputerUseEffect.PurgeMasters(session)),
+            to = ComputerUseState.Failed(ComputerUseFailure.TargetClosed, session),
+            effects = listOf(
+                ComputerUseEffect.CloseCapture(session, ComputerUseFailure.TargetClosed),
+                ComputerUseEffect.PurgeMasters(session),
+            ),
             outputs = listOf(ComputerUseOutput.CaptureChanged(null)),
+        )
+    }
+
+    @Test
+    fun `a failure from an old capture cannot end its replacement`() {
+        ComputerUseMachineSpec.assertIgnored(
+            capturing,
+            ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.ClientAreaUnavailable, CaptureSessionId("old")),
         )
     }
 

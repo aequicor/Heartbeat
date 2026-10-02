@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
@@ -32,6 +33,9 @@ internal interface ScreenCapturer {
 
     /** The current on-screen rectangle of [mode]; `null` when the target no longer exists. */
     suspend fun currentBounds(mode: ComputerUseMode): ScreenBounds?
+
+    /** Explains a native geometry refusal before any presentation is hidden. */
+    suspend fun failure(mode: ComputerUseMode): ComputerUseFailure? = null
 }
 
 /** Enumerates and activates capturable windows. */
@@ -47,6 +51,13 @@ internal interface WindowCatalog {
 
     /** Brings the window to the front so that input reaches it; `false` when activation was refused. */
     suspend fun activate(target: WindowTarget): Boolean
+
+    /** Typed activation refusal; platforms may verify foreground without attempting activation. */
+    suspend fun activationFailure(target: WindowTarget): ComputerUseFailure? =
+        if (activate(target)) null else ComputerUseFailure.ActivationFailed
+
+    /** Reads foreground state without moving focus. */
+    suspend fun isForeground(target: WindowTarget): Boolean = true
 }
 
 /** Applies mouse and keyboard events. The host maps every point into physical screen pixels first. */

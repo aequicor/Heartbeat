@@ -51,7 +51,7 @@ internal class ComputerUseEffectHandler(
             coordinator.closeSessionAndPurge(effect.session)
             effect.session?.let { session ->
                 // A keyed completion only emits an output; it remains valid after the originating state exited.
-                val sent = runningMachine.value.send(ComputerUseIntent.Internal.SessionClosed(session))
+                val sent = runningMachine.value.send(ComputerUseIntent.Internal.SessionClosed(session, effect.reason))
                 log.d { "capture cleanup acknowledged session=$session result=$sent" }
             }
         }
@@ -81,7 +81,7 @@ internal class ComputerUseEffectHandler(
             ?: coordinator.open(effect.session, effect.mode)
         if (failure != null) {
             log.w { "capture open refused reason=$failure" }
-            machine.send(ComputerUseIntent.Internal.CaptureLost(failure))
+            machine.send(ComputerUseIntent.Internal.CaptureLost(failure, effect.session))
         } else {
             machine.send(ComputerUseIntent.Internal.CaptureOpened(effect.session))
         }

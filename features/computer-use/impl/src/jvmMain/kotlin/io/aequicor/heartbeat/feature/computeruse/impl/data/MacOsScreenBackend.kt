@@ -35,6 +35,11 @@ internal object MacOsScreenBackend {
     private val foundation: CoreFoundationLib? = load(CoreFoundationLib::class.java, "CoreFoundation")
     private val services: ApplicationServicesLib? = load(ApplicationServicesLib::class.java, "ApplicationServices")
     private val keys: WindowKeys? = keysOf(graphics, foundation)
+    private val clientGeometry: MacClientGeometry? = if (services != null && foundation != null) {
+        MacClientGeometry(services, foundation)
+    } else {
+        null
+    }
 
     /** `true` when the frameworks and their window list keys were resolved. */
     val isAvailable: Boolean = graphics != null && foundation != null && keys != null
@@ -70,9 +75,10 @@ internal object MacOsScreenBackend {
     fun isFrontmost(id: WindowId): Boolean = windows().firstOrNull()?.id == id
 
     /** Renders one window into pixels with the system capture tool; `null` on refusal or timeout. */
-    suspend fun capture(id: WindowId): PixelGrid? {
+    suspend fun capture(id: WindowId, clientBounds: ScreenBounds? = null): PixelGrid? {
         val identifier = id.value.toLongOrNull() ?: return null
         if (identifier == 0L) return null
+        val windowBounds = if (clientBounds == null) null else bounds(id) ?: return null
         val file = try {
             Files.createTempFile(WINDOW_CAPTURE_PREFIX, PNG_EXTENSION)
         } catch (e: CancellationException) {
@@ -82,7 +88,17 @@ internal object MacOsScreenBackend {
             return null
         }
         return try {
-            if (!runCapture(identifier, file)) null else decode(file)
+            if (!runCapture(identifier, file)) {
+                null
+            } else {
+                decode(file)?.let { pixels ->
+                    if (clientBounds != null && windowBounds != null) {
+                        cropClientPixels(pixels, windowBounds, clientBounds)
+                    } else {
+                        pixels
+                    }
+                }
+            }
         } finally {
             deleteQuietly(file)
         }
@@ -188,12 +204,16 @@ internal object MacOsScreenBackend {
         val title = string(entry, found.name)
         if (title.isNullOrBlank() && owner.isNullOrBlank()) return null
         val bounds = boundsOf(entry, found) ?: return null
+        val processId = number(entry, found.ownerPid).toInt()
+        val isSelfOwned = processId.toLong() == ProcessHandle.current().pid()
         return WindowTarget(
             id = WindowId(identifier.toString()),
             application = owner ?: title.orEmpty(),
             title = title.orEmpty(),
             bounds = bounds,
             isMinimized = false,
+            isSelfOwned = isSelfOwned,
+            clientBounds = if (isSelfOwned) null else clientGeometry?.bounds(processId, bounds),
         )
     }
 
@@ -320,6 +340,8 @@ internal interface CoreGraphicsLib : Library {
 /** CoreFoundation entry points used to read the window list. */
 @Suppress("FunctionNaming") // CoreFoundation symbol names are fixed by the framework ABI
 internal interface CoreFoundationLib : Library {
+    fun CFGetTypeID(value: Pointer): Long
+    fun CFArrayGetTypeID(): Long
     fun CFArrayGetCount(array: Pointer): Long
     fun CFArrayGetValueAtIndex(array: Pointer, index: Long): Pointer?
     fun CFDictionaryGetValue(dictionary: Pointer, key: Pointer): Pointer?
@@ -334,6 +356,14 @@ internal interface CoreFoundationLib : Library {
 @Suppress("FunctionNaming") // Accessibility symbol names are fixed by the framework ABI
 internal interface ApplicationServicesLib : Library {
     fun AXIsProcessTrusted(): Boolean
+    fun AXUIElementCreateApplication(pid: Int): Pointer?
+    fun AXUIElementCopyAttributeValue(
+        element: Pointer,
+        attribute: Pointer,
+        value: com.sun.jna.ptr.PointerByReference,
+    ): Int
+    fun AXValueGetType(value: Pointer): Int
+    fun AXValueGetValue(value: Pointer, type: Int, result: Pointer): Boolean
 }
 
 /**
@@ -351,6 +381,7 @@ internal class WindowKeys(foundation: CoreFoundationLib) {
 
     /** `kCGWindowOwnerName`: the owning application. */
     val owner: Pointer? = global(WINDOW_OWNER_KEY)
+    val ownerPid: Pointer? = global("kCGWindowOwnerPID")
 
     /** `kCGWindowLayer`: normal application windows are layer zero. */
     val layer: Pointer? = global(WINDOW_LAYER_KEY)

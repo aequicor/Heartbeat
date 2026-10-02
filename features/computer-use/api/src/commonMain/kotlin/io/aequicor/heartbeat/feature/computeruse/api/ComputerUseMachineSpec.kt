@@ -222,9 +222,11 @@ public val ComputerUseMachineSpec: MachineSpec<
                 )
             }
         }
-        on<ComputerUseIntent.Internal.CaptureLost> {
-            goto<ComputerUseState.Failed> { ComputerUseState.Failed(intent.reason) }
-            effect { ComputerUseEffect.CloseCapture(state.session) }
+        on<ComputerUseIntent.Internal.CaptureLost>(guard = {
+            intent.session == null || state.session == intent.session
+        }) {
+            goto<ComputerUseState.Failed> { ComputerUseState.Failed(intent.reason, state.session) }
+            effect { ComputerUseEffect.CloseCapture(state.session, intent.reason) }
             effect { ComputerUseEffect.PurgeMasters(state.session) }
             output { ComputerUseOutput.CaptureChanged(null) }
         }
@@ -232,7 +234,7 @@ public val ComputerUseMachineSpec: MachineSpec<
     }
     any {
         on<ComputerUseIntent.Internal.SessionClosed> {
-            output { ComputerUseOutput.SessionClosed(intent.session) }
+            output { ComputerUseOutput.SessionClosed(intent.session, intent.reason) }
         }
         on<ComputerUseIntent.Public.Revoke> {
             goto<ComputerUseState.Idle> { ComputerUseState.Idle }
@@ -252,7 +254,7 @@ public val ComputerUseMachineSpec: MachineSpec<
             ComputerUseEffect.EnumerateWindows -> null
 
             is ComputerUseEffect.OpenCapture ->
-                ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.CaptureFailed)
+                ComputerUseIntent.Internal.CaptureLost(ComputerUseFailure.CaptureFailed, effect.session)
 
             is ComputerUseEffect.CloseCapture -> null
 

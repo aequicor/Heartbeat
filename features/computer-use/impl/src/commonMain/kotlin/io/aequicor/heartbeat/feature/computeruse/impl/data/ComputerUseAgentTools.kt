@@ -283,6 +283,9 @@ internal class ComputerUseAgentTools(
         arguments: JsonObject,
     ): AgentToolResult {
         val mode = mode(arguments) ?: return failure("InvalidMode")
+        if (mode is ComputerUseMode.Window && mode.target.isSelfOwned) {
+            return failure(ComputerUseFailure.SelfCaptureNotAllowed.name)
+        }
         val session = CaptureSessionId(Uuid.random().toString())
         val owner = context.owner()
         val intent = when (machine.state.value) {
@@ -327,6 +330,8 @@ internal class ComputerUseAgentTools(
                     machine.send(ComputerUseIntent.Public.CancelSession(session, owner))
                     failure("CaptureTimedOut")
                 }
+
+                settled is ComputerUseState.Failed && settled.session == session -> failure(settled.reason.name)
 
                 settled !is ComputerUseState.Capturing || settled.session != session -> {
                     // The state carries the stop atomically with the transition that ended the session.
@@ -433,7 +438,7 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
-            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+            is ComputerUseOutput.SessionClosed -> failure(output.reason?.name ?: "CaptureEnded")
 
             is ComputerUseOutput.InputApplied, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
@@ -516,7 +521,7 @@ internal class ComputerUseAgentTools(
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
-            is ComputerUseOutput.SessionClosed -> failure("CaptureEnded")
+            is ComputerUseOutput.SessionClosed -> failure(output.reason?.name ?: "CaptureEnded")
 
             is ComputerUseOutput.FrameReady, is ComputerUseOutput.CaptureChanged,
             is ComputerUseOutput.PermissionRequired, ComputerUseOutput.Revoked,
@@ -578,7 +583,10 @@ internal class ComputerUseAgentTools(
         // A stopped or replaced session never answers; its closure is the answer.
         val closed = async(start = CoroutineStart.UNDISPATCHED) {
             val ended = machine.state.first { (it as? ComputerUseState.Capturing)?.session != session }
-            ComputerUseOutput.SessionClosed((ended as? ComputerUseState.Capturing)?.session ?: CaptureSessionId(""))
+            ComputerUseOutput.SessionClosed(
+                session ?: CaptureSessionId(""),
+                (ended as? ComputerUseState.Failed)?.takeIf { it.session == session }?.reason,
+            )
         }
         var isCompleted = false
         try {
@@ -635,7 +643,7 @@ internal class ComputerUseAgentTools(
     /** Resolves the requested window identity against the live window list. */
     private suspend fun windowMode(arguments: JsonObject): ComputerUseMode? {
         val identifier = arguments.text("windowId")?.let { WindowId(it) }
-        val target = identifier?.let { id -> control.windows().firstOrNull { it.id == id } }
+        val target = identifier?.let { id -> control.resolveWindow(id) }
         return target?.let { ComputerUseMode.Window(it, isClientAreaOnly = arguments.flag("clientAreaOnly") ?: false) }
     }
 

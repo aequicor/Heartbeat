@@ -49,6 +49,7 @@ internal sealed interface CaptureOutcome {
  * derived from it, and every caller-supplied point is mapped back through the frame the caller received. Input
  * outside the captured area is refused instead of clamped, so an agent cannot click something it never saw.
  */
+@Suppress("TooManyFunctions") // One coordinator serializes all operations on the single active capture.
 internal class CaptureCoordinator(
     private val capturer: ScreenCapturer,
     private val windows: WindowCatalog,
@@ -69,11 +70,7 @@ internal class CaptureCoordinator(
     suspend fun open(session: CaptureSessionId, mode: ComputerUseMode): ComputerUseFailure? =
         withContext(dispatchers.io) {
             operations.withLock {
-                if (mode is ComputerUseMode.Window &&
-                    mode.isClientAreaOnly
-                ) {
-                    return@withLock ComputerUseFailure.ModeNotAllowed
-                }
+                capturer.failure(mode)?.let { return@withLock it }
                 val bounds = capturer.currentBounds(mode) ?: return@withLock ComputerUseFailure.TargetClosed
                 val previous = active
                 if (previous != null) cache.forgetSession(previous.session)
@@ -142,9 +139,13 @@ internal class CaptureCoordinator(
         if (!windows.isAvailable) {
             emptyList()
         } else {
-            runLogged("window enumeration") { windows.list() }.orEmpty()
+            runLogged("window enumeration") { windows.list() }.orEmpty().filterNot { it.isSelfOwned }
         }
     }
+
+    /** Explicit lookup preserves the distinction between a host-owned target and a closed target. */
+    suspend fun resolveTarget(id: io.aequicor.heartbeat.feature.computeruse.api.WindowId): WindowTarget? =
+        withContext(dispatchers.io) { windows.resolve(id) }
 
     /** The current screen rectangle of the captured area; `null` when nothing is captured. */
     suspend fun currentBounds(): ScreenBounds? = mutex.withLock { active?.bounds }
@@ -239,30 +240,50 @@ internal class CaptureCoordinator(
         guard: suspend () -> ComputerUseFailure?,
     ): InputOutcome {
         val session = active ?: return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
-        if ((isFrameBound || expectedCapture != null) && session.preview?.id != expectedCapture) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        }
+        val failure = inputFailure(session, expectedCapture, isFrameBound, guard)
+        if (failure != null) return InputOutcome.Rejected(failure)
         val bounds = capturer.currentBounds(session.mode)
             ?: return InputOutcome.Rejected(ComputerUseFailure.TargetClosed)
         val capturedBounds = session.previewBounds
         if (capturedBounds != null && !bounds.hasSameSize(capturedBounds)) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+            return InputOutcome.Rejected(ComputerUseFailure.TargetResized)
         }
         val frames = mutex.withLock {
             session.bounds = bounds
             Frames(session.masterReference, session.preview)
         }
-        val mode = session.mode
-        if (mode is ComputerUseMode.Window && !activate(mode.target)) {
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        }
         if (!injector.isAvailable) return InputOutcome.Rejected(ComputerUseFailure.Unavailable)
         val map: (FramePoint) -> ScreenPoint? = { point -> mapPoint(point, action.space, bounds, frames) }
-        guard()?.let { return InputOutcome.Rejected(it) }
-        val outcome = runLogged("input injection") { injector.apply(action, map) }
+        val outcome = guard()?.let(InputOutcome::Rejected)
+            ?: runLogged("input injection") { injector.apply(action, map) }
             ?: InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        log.i { "input outcome=${outcome::class.simpleName.orEmpty()} action=${action::class.simpleName.orEmpty()}" }
+        log.i {
+            "input session=${session.session} outcome=${outcome::class.simpleName.orEmpty()} " +
+                "reason=${(outcome as? InputOutcome.Rejected)?.reason} action=${action::class.simpleName.orEmpty()}"
+        }
         return outcome
+    }
+
+    private suspend fun inputFailure(
+        session: ActiveCapture,
+        expectedCapture: CaptureId?,
+        isFrameBound: Boolean,
+        guard: suspend () -> ComputerUseFailure?,
+    ): ComputerUseFailure? {
+        if ((isFrameBound || expectedCapture != null) && session.preview?.id != expectedCapture) {
+            return ComputerUseFailure.StaleFrame
+        }
+        return capturer.failure(
+            session.mode,
+        ) ?: activationFailure(session.mode) ?: guard() ?: capturer.failure(session.mode)
+    }
+
+    private suspend fun activationFailure(mode: ComputerUseMode): ComputerUseFailure? {
+        if (mode !is ComputerUseMode.Window) return null
+        val outcome = runLogged("window activation") {
+            windows.activationFailure(mode.target)?.let(InputOutcome::Rejected) ?: InputOutcome.Applied
+        } ?: InputOutcome.Rejected(ComputerUseFailure.ActivationFailed)
+        return (outcome as? InputOutcome.Rejected)?.reason
     }
 
     private suspend fun masterFrame(
@@ -313,6 +334,7 @@ internal class CaptureCoordinator(
     )
 
     private suspend fun rejected(session: ActiveCapture): CaptureOutcome.Rejected {
+        capturer.failure(session.mode)?.let { return CaptureOutcome.Rejected(it) }
         val stillThere = runLogged("bounds probe") { capturer.currentBounds(session.mode) }
         return CaptureOutcome.Rejected(
             if (stillThere == null) ComputerUseFailure.TargetClosed else ComputerUseFailure.CaptureFailed,
@@ -425,9 +447,6 @@ internal class CaptureCoordinator(
 
     private fun ScreenBounds.hasSameSize(other: ScreenBounds): Boolean =
         widthPx == other.widthPx && heightPx == other.heightPx
-
-    private suspend fun activate(target: WindowTarget): Boolean =
-        runLogged("window activation") { windows.activate(target) } ?: false
 
     private suspend fun nextSequence(): Long = mutex.withLock { sequence++ }
 

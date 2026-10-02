@@ -207,7 +207,7 @@ private class WindowsOverlayPassThrough : OverlayPassThrough {
             "Cannot set overlay window styles: ${Native.getLastError()}"
         }
         val flags = WinUser.SWP_NOMOVE or WinUser.SWP_NOSIZE or WinUser.SWP_NOACTIVATE or WinUser.SWP_FRAMECHANGED
-        check(user.SetWindowPos(handle, HWND(Pointer.createConstant(-1)), 0, 0, 0, 0, flags)) {
+        check(user.SetWindowPos(handle, HWND(Pointer(-1L)), 0, 0, 0, 0, flags)) {
             "Cannot keep overlay above other windows: ${Native.getLastError()}"
         }
         val applied = user.GetWindowLong(handle, WinUser.GWL_EXSTYLE)

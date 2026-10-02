@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.computeruse.impl.data
 
 import com.sun.jna.Pointer
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
+import kotlinx.coroutines.test.runTest
 import java.lang.reflect.Proxy
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -9,6 +11,48 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class WindowsCaptureTest {
+    @Test
+    fun `client capture uses the native client flag and screen origin`() {
+        val fixture = Fixture()
+        val pixels = assertNotNull(captureWindowsBitmap(fixture.users, fixture.gdi, fixture.window, true))
+        assertEquals(2, pixels.widthPx)
+        assertEquals(3, fixture.renderFlags)
+        assertEquals(ScreenBounds(-200, 45, 2, 1, 2.0), windowsClientBounds(fixture.users, fixture.window, 2.0))
+    }
+
+    @Test
+    fun `foreground acquisition retries without repeating any input`() = runTest {
+        val target = Pointer(42L)
+        var foreground: Pointer? = null
+        var attempts = 0
+        val pauses = mutableListOf<Long>()
+        val users = proxy(User32Lib::class.java) { name, _ ->
+            when (name) {
+                "GetForegroundWindow" -> foreground
+
+                "SetForegroundWindow" -> {
+                    attempts++
+                    if (attempts == 3) foreground = target
+                    false
+                }
+
+                else -> error("Unexpected input during activation: $name")
+            }
+        }
+        assertTrue(activateWindowsWindow(users, target) { pauses += it })
+        assertEquals(3, attempts)
+        assertEquals(listOf(50L, 100L), pauses)
+        assertTrue(activateWindowsWindow(users, target) { error("Already foreground") })
+        assertEquals(3, attempts)
+    }
+
+    @Test
+    fun `real window handles retain the full native value`() {
+        val value = 0x123456789L
+        assertEquals(value, Pointer.nativeValue(windowsHandle(value)))
+        assertNull(windowsHandle(0L))
+    }
+
     @Test
     fun `RGB bitmap is created from display DC and deselected before reading`() {
         val fixture = Fixture()
@@ -47,6 +91,7 @@ class WindowsCaptureTest {
 
     private class Fixture(isRendered: Boolean = true, isMinimized: Boolean = false) {
         val calls = mutableListOf<String>()
+        var renderFlags = 0
         val window = Pointer.createConstant(1)
         private val display = Pointer.createConstant(2)
         private val memory = Pointer.createConstant(3)
@@ -58,10 +103,17 @@ class WindowsCaptureTest {
             when (name) {
                 "IsIconic" -> isMinimized
 
-                "GetWindowRect" -> {
+                "GetWindowRect", "GetClientRect" -> {
                     val rect = arguments[1] as NativeRect
                     rect.right = 2
                     rect.bottom = 1
+                    true
+                }
+
+                "ClientToScreen" -> {
+                    val point = arguments[1] as NativePoint
+                    point.x = -200
+                    point.y = 45
                     true
                 }
 
@@ -77,6 +129,7 @@ class WindowsCaptureTest {
                 }
 
                 "PrintWindow" -> {
+                    renderFlags = arguments[2] as Int
                     assertEquals(bitmap, selected)
                     calls += "render"
                     isRendered

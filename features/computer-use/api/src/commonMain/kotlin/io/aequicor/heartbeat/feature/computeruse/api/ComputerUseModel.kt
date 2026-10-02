@@ -131,6 +131,10 @@ public data class WindowTarget(
     public val bounds: ScreenBounds,
     public val isMinimized: Boolean = false,
     public val revision: Long = 0L,
+    /** Whether this window belongs to the host; never offered as a capture target. */
+    public val isSelfOwned: Boolean = false,
+    /** Native client rectangle in host coordinates, when the host can determine it without guessing. */
+    public val clientBounds: ScreenBounds? = null,
 ) {
     override fun toString(): String = "WindowTarget(id=$id, minimized=$isMinimized, revision=$revision)"
 }
@@ -312,6 +316,8 @@ public data class ComputerUseCapabilities(
     public val isDesktopInputAllowed: Boolean,
     public val monitors: List<MonitorInfo> = emptyList(),
     public val blockers: List<ComputerUseBlocker> = emptyList(),
+    /** The host supports client-area capture; availability is also checked for each target. */
+    public val isClientAreaCaptureAvailable: Boolean = false,
 )
 
 /** Host availability plus the active capture; the value exposed to engines. */
@@ -343,6 +349,12 @@ public enum class ComputerUseFailure {
     CaptureFailed,
     EncodingTooLarge,
     InputRejected,
+    StaleFrame,
+    TargetResized,
+    ActivationFailed,
+    TargetNotForeground,
+    SelfCaptureNotAllowed,
+    ClientAreaUnavailable,
     UnsupportedCharacter,
     RegionOutOfBounds,
     CaptureExpired,

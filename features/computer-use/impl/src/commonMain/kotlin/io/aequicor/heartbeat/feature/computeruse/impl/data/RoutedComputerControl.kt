@@ -55,6 +55,9 @@ internal class RoutedComputerControl(
     override suspend fun windows(): List<WindowTarget> =
         if (access.probe().isWindowCaptureAvailable) coordinator.targets() else emptyList()
 
+    override suspend fun resolveWindow(id: io.aequicor.heartbeat.feature.computeruse.api.WindowId): WindowTarget? =
+        if (access.probe().isWindowCaptureAvailable) coordinator.resolveTarget(id) else null
+
     override suspend fun capture(request: CaptureRequest): CaptureResult {
         val failure = access.captureFailure()
         if (failure != null) return CaptureResult(failure = failure)

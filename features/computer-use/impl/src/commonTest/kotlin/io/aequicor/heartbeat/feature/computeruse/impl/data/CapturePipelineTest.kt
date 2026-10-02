@@ -347,7 +347,7 @@ class CaptureCoordinatorTest {
         fixture.coordinator.open(Session, ComputerUseMode.Window(windowTarget()))
         fixture.windows.isActivationAllowed = false
         val outcome = fixture.coordinator.input(InputAction.Click(FramePoint(1.0, 1.0)))
-        assertEquals(ComputerUseFailure.InputRejected, assertIs<InputOutcome.Rejected>(outcome).reason)
+        assertEquals(ComputerUseFailure.ActivationFailed, assertIs<InputOutcome.Rejected>(outcome).reason)
         assertTrue(fixture.injector.applied.isEmpty())
     }
 
