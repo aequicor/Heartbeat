@@ -9,8 +9,10 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseIntent
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.PermissionGrants
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -28,14 +30,21 @@ import pro.respawn.flowmvi.plugins.whileSubscribed
 private typealias SettingsPipeline =
     PipelineContext<ComputerUseScreenState, ComputerUseScreenIntent, ComputerUseScreenAction>
 
-/** Host blockers presented as localized help beside the tool switch. */
-internal enum class BlockerUi {
-    UnsupportedPlatform,
-    ScreenRecordingPermission,
-    AccessibilityPermission,
-    ElevationRequired,
-    SessionLocked,
-    Headless,
+/**
+ * Host blockers presented beside the tool switch: a permission the user grants in the system settings gets its own
+ * row with a button, everything else is localized help.
+ */
+internal enum class BlockerUi(val permission: ComputerUsePermission?) {
+    UnsupportedPlatform(null),
+    ScreenRecordingPermission(ComputerUsePermission.ScreenRecording),
+    AccessibilityPermission(ComputerUsePermission.Accessibility),
+    ElevationRequired(null),
+    SessionLocked(null),
+    Headless(null),
+    ;
+
+    /** `true` when the user can grant it in the operating system settings. */
+    val isGrantable: Boolean get() = permission != null
 }
 
 /** Why the settings screen cannot show or keep the saved switch value. */
@@ -56,10 +65,13 @@ internal data class ComputerUseScreenState(
     val error: SettingsError? = null,
 ) : MVIState
 
-/** The only control offered by computer use settings. */
+/** Controls offered by computer use settings. */
 internal sealed interface ComputerUseScreenIntent : MVIIntent {
     /** Enables the tool, or revokes the active capture and disables further agent use. */
     data class SetEnabled(val isEnabled: Boolean) : ComputerUseScreenIntent
+
+    /** Opens the system settings page of a missing permission together with the host's drag guide. */
+    data class GrantPermission(val blocker: BlockerUi) : ComputerUseScreenIntent
 }
 
 /** Reserved contract for one-off screen actions. */
@@ -69,10 +81,12 @@ internal sealed interface ComputerUseScreenAction : MVIAction
  * Settings store. It observes the profile preference and the machine's permission blockers, without holding
  * captured frames or choosing a capture target. Disabling revokes input and capture before saving the switch,
  * and both outlive the settings screen. A failed save keeps the previous value; a failed read keeps it locked.
+ * A permission grant is handed to the profile's [PermissionGrants], so it continues after settings close.
  */
 internal class ComputerUseModel(
     private val machine: Machine<ComputerUseState, ComputerUseIntent, ComputerUseOutput>,
     private val preferences: ComputerUsePreferences,
+    private val grants: PermissionGrants,
     factory: HeartbeatStoreFactory,
     scope: CoroutineScope,
 ) {
@@ -94,6 +108,7 @@ internal class ComputerUseModel(
         reduce { intent ->
             when (intent) {
                 is ComputerUseScreenIntent.SetEnabled -> setEnabled(intent.isEnabled)
+                is ComputerUseScreenIntent.GrantPermission -> grantPermission(intent.blocker)
             }
         }
     }
@@ -129,6 +144,17 @@ internal class ComputerUseModel(
             log.e(e) { "computer use switch was not saved enabled=$isEnabled" }
             // A failed read stays visible: its observer is gone, so a save cannot vouch for the shown value.
             updateState { copy(error = error.takeIf { it == SettingsError.LoadFailed } ?: SettingsError.SaveFailed) }
+        }
+    }
+
+    /** Only a grantable blocker reaches the profile's grant flow; the others have no settings page. */
+    private fun grantPermission(blocker: BlockerUi) {
+        val permission = blocker.permission
+        if (permission == null) {
+            log.w { "no system settings page for blocker=$blocker" }
+        } else {
+            log.i { "permission grant requested from settings permission=$permission" }
+            grants.request(permission)
         }
     }
 }

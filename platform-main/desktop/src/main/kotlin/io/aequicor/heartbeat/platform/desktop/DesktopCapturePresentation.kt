@@ -383,8 +383,8 @@ internal class MacWindowAccess {
 
     fun number(receiver: Pointer, method: String): Long = message.invokeLong(arrayOf(receiver, select(method)))
 
-    fun boolean(receiver: Pointer, method: String): Boolean =
-        message.invokeInt(arrayOf(receiver, select(method))) and BOOLEAN_MASK != 0
+    fun boolean(receiver: Pointer, method: String, vararg args: Any?): Boolean =
+        message.invokeInt(arrayOf(receiver, select(method), *args)) and BOOLEAN_MASK != 0
 
     fun send(receiver: Pointer, method: String, vararg args: Any?) {
         message.invokeVoid(arrayOf(receiver, select(method), *args))

@@ -16,6 +16,7 @@ plugins {
 dependencies {
     implementation(projects.platformMain.shared)
     implementation(projects.designSystem.tokens)
+    implementation(projects.designSystem.theme)
     implementation(projects.designSystem.components)
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlinx.coroutinesSwing)

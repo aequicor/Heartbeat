@@ -70,14 +70,16 @@ lint/            detekt-rules — собственный набор правил
 > доверия, захват принадлежит ходу агента и освобождается в конце хода; выключение отзывает захват (`Revoke`) и без
 > открытого экрана. Во время захвата Desktop закрепляет окно сессии у правого края поверх окон с кнопкой «Стоп»
 > (интент `StopAgent`), а при захвате рабочего стола — тенью по периметру экранов; окно и тень скрываются на время снимка
-> и ввода мышью; тоглы `computer_use.enabled`
+> и ввода мышью. Недостающие права macOS (запись экрана, универсальный доступ) выдаются из настроек: кнопка открывает
+> страницу System Settings и плавающую панель с плиткой приложения для перетаскивания в список; фича опрашивает права
+> и после выдачи перепроверяет машину; тоглы `computer_use.enabled`
 > и `computer_use.native_routing` (по умолчанию false).
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)
 
 1. **Зависимости**: `feature:impl` → только `api` других фич. От любого `…:impl` (фич и `core`) зависит только `:platform-main:di-bundle` (проверяет `build-logic` через `heartbeat.detekt`, подключённый ко всем модулям). `core` не знает о `features` и `design-system`. `feature:api` без Compose/UI.
-2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)`. Никаких прямых ссылок на классы `impl`. Исключение для сервисных контрактов и SPI `features:ai-engine` — `.claude/rules/feature-api.md`.
+2. **State-machine фичи живёт в `api`** (`machineSpec { }` из `core:state-machine:api`, движок KStateMachine скрыт в `impl`): все состояния, интенты, переходы, эффекты, outputs. Машина запускается в скоупе фичи; другие фичи общаются с ней только через `MachineKey` + `MachineRegistry` → `send(key, Public intent)`. Никаких прямых ссылок на классы `impl`. Исключения для сервисных контрактов, SPI и координации с хостом перечислены в `.claude/rules/feature-api.md`.
 3. **UI-состояние** — FlowMVI-стор в `impl`. Машина = бизнес-флоу фичи, стор = состояние экрана. Стор не дублирует состояние машины, а отражает его (`reflect` из `core:state-machine:flowmvi-ext`).
 4. **Навигация** — только Decompose через `core:navigation`: фичи открывают друг друга `Navigator.navigate(Route)`, маршруты — `@Serializable @SerialName` в `api`, `RouteEntry` в реестре своего скоупа (`binding<ProfileRouteBinding>()` / `AppRouteBinding`), результаты — `ResultContract`. Никаких navigation-compose и ссылок на чужие компоненты.
 5. **DI** — только Metro (`@Inject`, `@ContributesBinding`, `@ContributesIntoMap/Set`, `@GraphExtension`). Граф — только в `platform-main:di-bundle`; скоупы app → profile → feature → screen, граф фичи — через `retainedGraph` (`core:di:ext`). Никаких сервис-локаторов и `object`-синглтонов с состоянием.

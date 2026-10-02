@@ -14,6 +14,9 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Checking | Blocked | | Unavailable | PermissionRequired |
  * | Checking | Failed | | Failed | |
  * | Unavailable / Failed / Ready | Retry | | Checking | ProbeAvailability |
+ * | Unavailable / Failed | PermissionsRefreshed | capture available | Ready | EnumerateWindows |
+ * | Unavailable / Failed | PermissionsRefreshed | capture unavailable | Unavailable | PermissionRequired |
+ * | Ready | PermissionsRefreshed | | stay(capabilities, disarmed, stopped owners kept) | |
  * | Ready | RefreshTargets | | stay | EnumerateWindows |
  * | Ready | TargetsLoaded | | stay(targets) | |
  * | Ready | ArmInput | input is available and no authorization binding | stay(armed) | |
@@ -85,6 +88,9 @@ public val ComputerUseMachineSpec: MachineSpec<
         }
     }
     state<ComputerUseState.Ready> {
+        on<ComputerUseIntent.Internal.PermissionsRefreshed> {
+            stay { state.copy(capabilities = intent.capabilities, isInputArmed = false) }
+        }
         on<ComputerUseIntent.Public.Retry> {
             goto<ComputerUseState.Checking> { ComputerUseState.Checking }
             effect { ComputerUseEffect.ProbeAvailability }
@@ -231,6 +237,20 @@ public val ComputerUseMachineSpec: MachineSpec<
         on<ComputerUseIntent.Internal.Failed> { output { ComputerUseOutput.Rejected(intent.reason) } }
     }
     any {
+        on<ComputerUseIntent.Internal.PermissionsRefreshed>(guard = {
+            (state is ComputerUseState.Unavailable || state is ComputerUseState.Failed) &&
+                intent.capabilities.isCaptureAvailable
+        }) {
+            goto<ComputerUseState.Ready> { ComputerUseState.Ready(intent.capabilities) }
+            effect { ComputerUseEffect.EnumerateWindows }
+        }
+        on<ComputerUseIntent.Internal.PermissionsRefreshed>(guard = {
+            (state is ComputerUseState.Unavailable || state is ComputerUseState.Failed) &&
+                !intent.capabilities.isCaptureAvailable
+        }) {
+            goto<ComputerUseState.Unavailable> { ComputerUseState.Unavailable(intent.capabilities.blockers) }
+            output { ComputerUseOutput.PermissionRequired(intent.capabilities.blockers) }
+        }
         on<ComputerUseIntent.Internal.SessionClosed> {
             output { ComputerUseOutput.SessionClosed(intent.session) }
         }

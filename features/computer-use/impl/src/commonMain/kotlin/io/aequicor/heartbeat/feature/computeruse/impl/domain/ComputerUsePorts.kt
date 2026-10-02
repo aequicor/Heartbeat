@@ -4,9 +4,9 @@ import io.aequicor.heartbeat.feature.computeruse.api.CaptureEncoding
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureId
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureRegion
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
-import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseBlocker
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
+import io.aequicor.heartbeat.feature.computeruse.api.ComputerUsePermission
 import io.aequicor.heartbeat.feature.computeruse.api.EncodedFrame
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.FrameSpace
@@ -66,8 +66,26 @@ internal interface OsPermissions {
     /** Probes capture and input permissions; never throws, reports blockers instead. */
     suspend fun probe(): ComputerUseCapabilities
 
-    /** Opens the system settings page for [blocker] when the host can. */
-    suspend fun openSettings(blocker: ComputerUseBlocker)
+    /** Opens the system settings page of [permission]; `false` when the host has no such page or it failed. */
+    suspend fun openSettings(permission: ComputerUsePermission): Boolean
+}
+
+/**
+ * The host's guide panel as the grant flow drives it; the host itself only observes and dismisses it.
+ * Showing and closing leases are confined to the main thread, like host dismissal.
+ */
+internal interface PermissionGuidePanel {
+    /**
+     * Shows the panel for [permission]. Closing the returned lease hides only this request's panel, never a
+     * replacement, including one for the same permission from another profile.
+     */
+    fun show(permission: ComputerUsePermission): AutoCloseable
+}
+
+/** Guided grants of operating-system permissions; a grant outlives the screen that asked for it. */
+internal fun interface PermissionGrants {
+    /** Opens the settings page of [permission], shows the host's drag guide and re-probes once it is granted. */
+    fun request(permission: ComputerUsePermission)
 }
 
 /** Encodes and decodes frames; the platform source sets own the actual codecs. */
