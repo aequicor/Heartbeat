@@ -36,6 +36,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.CropRequest
 import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.NormalizedRegion
+import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
@@ -93,11 +94,13 @@ internal class ComputerUseAgentTools(
             "with computer_capture {mode:\"desktop\"} or one application window with " +
             "computer_capture {mode:\"window\", windowId} after picking an id from computer_windows. " +
             "computer_screenshot returns a downscaled frame (at most ${OVERVIEW_WIDTH_PX}px wide) and a tile grid; " +
-            "read small text with computer_zoom on a region or a tile, which is cut from the same stored master " +
+            "read small text with computer_zoom on a region or a zero-based tile (column:row, e.g. 0:0), " +
+            "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
             "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
             "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
-            "TargetClosed); a capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
+            "TargetClosed, ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
+            "A capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
             "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
             "Call computer_release as soon as you finish working with the computer; capture and " +
             "stored frames are also released automatically when your turn ends."
@@ -245,6 +248,28 @@ internal class ComputerUseAgentTools(
             buildJsonObject {
                 put("captureAvailable", status.capabilities.isCaptureAvailable)
                 put("windowCaptureAvailable", status.capabilities.isWindowCaptureAvailable)
+                put("clientAreaCaptureAvailable", status.capabilities.isClientAreaCaptureAvailable)
+                put(
+                    "monitors",
+                    buildJsonArray {
+                        status.capabilities.monitors.forEach { monitor ->
+                            add(
+                                buildJsonObject {
+                                    put("id", monitor.id.value)
+                                    put("bounds", boundsJson(monitor.bounds))
+                                    put("scale", monitor.bounds.scale)
+                                    put("primary", monitor.isPrimary)
+                                },
+                            )
+                        }
+                    },
+                )
+                (status.mode as? ComputerUseMode.Window)?.let { mode ->
+                    val target = control.resolveWindow(mode.target.id)
+                    put("clientAreaGeometryAvailable", target?.clientBounds != null)
+                    val bounds = target?.clientBounds
+                    if (bounds != null) put("clientBounds", boundsJson(bounds))
+                }
                 put("inputAvailable", status.capabilities.isInputAvailable)
                 put("desktopInputAllowed", status.capabilities.isDesktopInputAllowed)
                 put("inputArmed", status.isInputArmed)
@@ -253,6 +278,14 @@ internal class ComputerUseAgentTools(
                 status.lastPreview?.let { put("frame", frameJson(it)) }
             }.toString(),
         )
+    }
+
+    private fun boundsJson(bounds: ScreenBounds): JsonObject = buildJsonObject {
+        put("x", bounds.x)
+        put("y", bounds.y)
+        put("widthPx", bounds.widthPx)
+        put("heightPx", bounds.heightPx)
+        put("scale", bounds.scale)
     }
 
     private suspend fun windows(): AgentToolResult {
@@ -269,6 +302,8 @@ internal class ComputerUseAgentTools(
                         put("widthPx", target.bounds.widthPx)
                         put("heightPx", target.bounds.heightPx)
                         put("minimized", target.isMinimized)
+                        put("clientAreaGeometryAvailable", target.clientBounds != null)
+                        target.clientBounds?.let { put("clientBounds", boundsJson(it)) }
                     },
                 )
             }
@@ -467,6 +502,7 @@ internal class ComputerUseAgentTools(
                 buildJsonObject {
                     put("columns", grid.columns)
                     put("rows", grid.rows)
+                    put("format", "column:row (zero-based), e.g. 0:0")
                     put("tileWidthPx", grid.tileWidthPx)
                     put("tileHeightPx", grid.tileHeightPx)
                     put("overlapPx", grid.overlapPx)
@@ -755,7 +791,7 @@ internal class ComputerUseAgentTools(
                         "quality":{"type":"integer","minimum":1,"maximum":100},
                         "maxWidth":{"type":"integer","minimum":0,"maximum":4096},
                         "maxBytes":{"type":"integer","minimum":0},
-                        "tile":{"type":"string"},
+                        "tile":{"type":"string","description":"Zero-based column:row, for example 0:0"},
                         "regionX":{"type":"integer"},"regionY":{"type":"integer"},
                         "regionWidth":{"type":"integer"},"regionHeight":{"type":"integer"},
                         "fresh":{"type":"boolean"},"includeCursor":{"type":"boolean"}
@@ -767,7 +803,7 @@ internal class ComputerUseAgentTools(
                 "Cut a native-resolution crop out of a stored master frame; accepts master pixels or fractions.",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{
-                        "captureId":{"type":"string"},"tile":{"type":"string"},
+                        "captureId":{"type":"string"},"tile":{"type":"string","description":"Zero-based column:row, for example 0:0"},
                         "regionX":{"type":"integer"},"regionY":{"type":"integer"},
                         "regionWidth":{"type":"integer"},"regionHeight":{"type":"integer"},
                         "nx":{"type":"number"},"ny":{"type":"number"},"nw":{"type":"number"},"nh":{"type":"number"},
