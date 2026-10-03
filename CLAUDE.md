@@ -63,8 +63,10 @@ lint/            detekt-rules — собственный набор правил
 > отдельная `platform-main:uikit-sandbox:{desktop,android,shared}` и iOS Xcode app — [запуск](platform-main/uikit-sandbox/README.md).
 > `features:effort-configuration:{api,impl}` — машина выбора reasoning effort по маршруту модели (ProfileScope); ai-studio шлёт выбор
 > через неё, движки Codex/Claude/Pi/Koog объявляют и применяют уровни; сохранение стартового выбора в профиле — тогл `ai.effort_configuration` (по умолчанию true); изменения effort в существующем чате остаются локальными для чата.
-> Koog узнаёт поддержку effort из API (Anthropic, Ollama), иначе из каталога models.dev (тогл `ai.koog.reasoning_catalog`), иначе по семейству модели;
-> отвергнутые поставщиком параметры — повтор хода без них.
+> Koog узнаёт поддержку effort из API (Anthropic, Ollama), иначе из каталога models.dev (тогл `ai.koog.reasoning_catalog`;
+> совместимый маршрут — по разделу вендора, чей origin повторяет), иначе по семейству модели;
+> отвергнутые поставщиком параметры — повтор хода без них. Обрезанные стримом tool-calls склеиваются по индексу,
+> непригодные вызовы отбрасываются до инструментов и эха в промпт.
 > `features:computer-use:{api,impl}` — управление компьютером для тестирования и отладки приложений (только Desktop Windows/macOS):
 > два режима захвата (весь рабочий стол и отдельное окно), master-кадр с кропами и тайлами в нативном разрешении, сжатие кадра под
 > токен-бюджет агента (пресеты, JPEG/PNG, gray/indexed с дизерингом, лестница снижений под лимит байтов), ввод мышью и клавиатурой
@@ -153,6 +155,7 @@ iOS собирается только на macOS (Xcode, `platform-main/ios/`). 
 | Room / DataStore / репозитории | `data-storage` |
 | HTTP | `network` |
 | Агенты, инструменты, LLM-провайдеры | `ai-koog` |
+| Управление компьютером инструментами `computer_*` (захват, ввод, расшифровка отказов) | `computer-use` |
 | Логирование, аудит логов | `logging` |
 | Gradle, build-logic, новый модуль, миграция шаблона | `module-setup` |
 | Проверка перед «готово» | `verify` |

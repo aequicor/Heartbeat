@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.HostComputerControl
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -77,7 +78,7 @@ internal class RoutedComputerControl(
     override suspend fun input(action: InputAction): InputOutcome {
         val failure = access.inputFailure()
         if (failure != null) return InputOutcome.Rejected(failure)
-        val output = dispatch { requestId, state ->
+        val output = dispatch(inputWaitLimitMillis(action)) { requestId, state ->
             ComputerUseIntent.Public.Input(action, requestId, state.session, state.lastPreview?.id)
         }
         return when (output) {
@@ -93,6 +94,7 @@ internal class RoutedComputerControl(
 
     /** Subscribes before sending, and fences cancellation to the session that accepted this operation. */
     private suspend fun dispatch(
+        timeoutMillis: Long = OPERATION_TIMEOUT_MILLIS,
         intent: (String, ComputerUseState.Capturing) -> ComputerUseIntent.Public,
     ): ComputerUseOutput = coroutineScope {
         val machine = machines.find(ComputerUseMachineKey)
@@ -114,7 +116,7 @@ internal class RoutedComputerControl(
             val command = intent(requestId, capture)
             isAccepted = machine.send(command) == SendResult.Accepted
             if (!isAccepted) return@coroutineScope ComputerUseOutput.Rejected(command.refusal(capture))
-            val answer = withTimeoutOrNull(OPERATION_TIMEOUT_MILLIS) { awaited.await() }
+            val answer = withTimeoutOrNull(timeoutMillis) { awaited.await() }
             hasAnswer = answer != null
             answer ?: ComputerUseOutput.Rejected(ComputerUseFailure.Timeout)
         } finally {

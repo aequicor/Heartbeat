@@ -4,6 +4,8 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
 import io.aequicor.heartbeat.feature.computeruse.api.FramePoint
 import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancel
@@ -177,6 +179,16 @@ class DesktopInputInjectorTest {
     }
 
     @Test
+    fun `unknown key names are refused with a specific reason before any input`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Key(listOf("win", "bogus"))) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.UnsupportedKey), result)
+        assertTrue(driver.events.isEmpty())
+        assertTrue(driver.heldKeys.isEmpty())
+    }
+
+    @Test
     fun `f13 uses the extended function key range`() = runTest {
         val driver = RecordingDriver()
         val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
@@ -184,17 +196,104 @@ class DesktopInputInjectorTest {
         assertEquals(listOf(KeyEvent.VK_F13), driver.pressedKeys)
     }
 
+    @Test
+    fun `unicode-capable drivers receive the exact text and control keys stay key presses`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        assertEquals(InputOutcome.Applied, injector.apply(InputAction.Type("привет\nмир\t!")) { null })
+        assertEquals(listOf("привет", "мир", "!"), driver.typedUnicode)
+        assertEquals(listOf(KeyEvent.VK_ENTER, KeyEvent.VK_TAB), driver.pressedKeys)
+    }
+
+    @Test
+    fun `a refused unicode run is reported and nothing after it is sent`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true, isUnicodeRefused = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("ab\ncd")) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.InputRejected), result)
+        assertEquals(listOf("ab"), driver.typedUnicode)
+        assertTrue(driver.pressedKeys.isEmpty())
+    }
+
+    @Test
+    fun `line endings and backspace are key presses on the unicode path`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        assertEquals(InputOutcome.Applied, injector.apply(InputAction.Type("a\r\nb\bc")) { null })
+        assertEquals(listOf("a", "b", "c"), driver.typedUnicode)
+        assertEquals(listOf(KeyEvent.VK_ENTER, KeyEvent.VK_BACK_SPACE), driver.pressedKeys)
+    }
+
+    @Test
+    fun `other control characters are refused before the first unicode event`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("a\nb\u001B")) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter), result)
+        assertTrue(driver.events.isEmpty())
+    }
+
+    @Test
+    fun `text over the shared length limit is refused before any input`() = runTest {
+        val driver = RecordingDriver(isUnicodeAvailable = true)
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("a".repeat(MAX_TYPED_CHARS + 1))) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.InputRejected), result)
+        assertTrue(driver.events.isEmpty())
+    }
+
+    @Test
+    fun `text falls back to layout key codes when the driver cannot type unicode`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        assertEquals(InputOutcome.Applied, injector.apply(InputAction.Type("AB")) { null })
+        assertTrue(driver.typedUnicode.isEmpty())
+        assertEquals(listOf(KeyEvent.VK_SHIFT, KeyEvent.VK_A, KeyEvent.VK_SHIFT, KeyEvent.VK_B), driver.pressedKeys)
+    }
+
+    @Test
+    fun `unmappable text is refused before the first input event on the fallback path`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Type("a🙂")) { null }
+        assertEquals(InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter), result)
+        assertTrue(driver.events.isEmpty())
+        assertTrue(driver.heldKeys.isEmpty())
+    }
+
+    @Test
+    fun `wheel scrolling sends one native event per notch`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = -120)) { ScreenPoint(0, 0) }
+        assertEquals(InputOutcome.Applied, result)
+        assertEquals(listOf("wheel:-1", "wheel:-1", "wheel:-1"), driver.events.filter { it.startsWith("wheel") })
+    }
+
+    @Test
+    fun `wheel scrolling clamps the notch count`() = runTest {
+        val driver = RecordingDriver()
+        val injector = DesktopInputInjector(TestDispatchers(StandardTestDispatcher(testScheduler)), Devices(driver))
+        val result = injector.apply(InputAction.Scroll(FramePoint(0.0, 0.0), deltaY = 100_000)) { ScreenPoint(0, 0) }
+        assertEquals(InputOutcome.Applied, result)
+        assertEquals(MAX_WHEEL_NOTCHES, driver.events.filter { it == "wheel:1" }.size)
+    }
+
     private class Devices(private val driver: RecordingDriver) : DesktopInputDevices {
         override val isAvailable: Boolean = true
         override fun create(): DesktopInputDriver = driver
     }
 
-    private class RecordingDriver : DesktopInputDriver {
+    private class RecordingDriver(
+        override val isUnicodeAvailable: Boolean = false,
+        private val isUnicodeRefused: Boolean = false,
+    ) : DesktopInputDriver {
         val events = mutableListOf<String>()
         val heldKeys = mutableSetOf<Int>()
         val heldButtons = mutableSetOf<Int>()
         val pressedKeys = mutableListOf<Int>()
         val releasedKeys = mutableListOf<Int>()
+        val typedUnicode = mutableListOf<String>()
         var movements = 0
         var onPause: () -> Unit = {}
         var onPressKey: (Int) -> Unit = {}
@@ -234,6 +333,13 @@ class DesktopInputInjectorTest {
         }
 
         override fun pause() = onPause()
+
         override fun idle() = Unit
+
+        override fun typeUnicode(text: String): Boolean {
+            typedUnicode += text
+            events += "typeUnicode:$text"
+            return !isUnicodeRefused
+        }
     }
 }

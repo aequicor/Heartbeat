@@ -41,6 +41,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.WHEEL_NOTCH_PX
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.inputWaitLimitMillis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
@@ -97,9 +101,15 @@ internal class ComputerUseAgentTools(
             "read small text with computer_zoom on a region or a zero-based tile (column:row, e.g. 0:0), " +
             "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
-            "you pass space:\"master\", \"normalized\" or \"screen\". Input follows the session trust and " +
-            "confirmation gate automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, " +
-            "TargetClosed, ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
+            "you pass space:\"master\", \"normalized\" or \"screen\". computer_type types up to " +
+            "$MAX_TYPED_CHARS UTF-16 code units per call (a character outside the BMP counts as two, flags and " +
+            "joined emoji more; newline is Enter, tab is Tab); split longer text. On Windows it " +
+            "carries exact characters independent of the keyboard layout; on macOS it uses US key positions and " +
+            "refuses other characters with UnsupportedCharacter. computer_key accepts named keys including win; " +
+            "$WHEEL_NOTCH_PX pixels of computer_scroll deltaY are one wheel notch, at most $MAX_WHEEL_NOTCHES " +
+            "notches per call, negative scrolls up. Input follows the session trust and confirmation gate " +
+            "automatically; a refusal names the reason (PermissionLost, RegionOutOfBounds, TargetClosed, " +
+            "ClientAreaUnavailable); StaleFrame or TargetResized requires a fresh screenshot. " +
             "A capture opened by another turn is refused with CaptureOwnedByAnotherTurn, and " +
             "StoppedByUser means the user stopped you: do not use the computer again in this turn. " +
             "Call computer_release as soon as you finish working with the computer; capture and " +
@@ -550,6 +560,7 @@ internal class ComputerUseAgentTools(
                 expectedCapture = capture,
                 expectedOwner = owner,
             ),
+            inputWaitLimitMillis(action),
         )
             ?: return failure("InputTimedOut")
         return when (output) {
@@ -594,6 +605,7 @@ internal class ComputerUseAgentTools(
     private suspend fun awaitOutput(
         machine: MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>,
         intent: ComputerUseIntent.Public,
+        timeoutMillis: Long = OUTPUT_TIMEOUT_MILLIS,
     ): ComputerUseOutput? = coroutineScope {
         val session = (machine.state.value as? ComputerUseState.Capturing)?.session
         val id = Uuid.random().toString()
@@ -630,7 +642,7 @@ internal class ComputerUseAgentTools(
                 isCompleted = true
                 return@coroutineScope ComputerUseOutput.Rejected(ignoredReason(machine.state.value, intent), id)
             }
-            val result = withTimeoutOrNull(OUTPUT_TIMEOUT_MILLIS) {
+            val result = withTimeoutOrNull(timeoutMillis) {
                 select {
                     answered.onAwait { it }
                     closed.onAwait { it }
@@ -851,9 +863,10 @@ internal class ComputerUseAgentTools(
             ),
             AgentToolSpec(
                 TYPE_TOOL,
-                "Type text into the focused control of the captured area.",
+                "Type text into the focused control of the captured area, at most $MAX_TYPED_CHARS UTF-16 code units " +
+                    "(a character outside the BMP counts as two).",
                 Json.parseToJsonElement(
-                    """{"type":"object","properties":{"text":{"type":"string"}},
+                    """{"type":"object","properties":{"text":{"type":"string","maxLength":$MAX_TYPED_CHARS}},
                        "required":["text"],"additionalProperties":false}""",
                 ).jsonObject,
                 AgentToolAction.Command,

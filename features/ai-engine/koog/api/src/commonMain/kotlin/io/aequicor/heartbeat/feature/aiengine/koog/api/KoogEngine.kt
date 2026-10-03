@@ -23,7 +23,8 @@ public val KoogEngineEnabled: FeatureToggle.Flag = FeatureToggle.Flag("ai.koog",
 
 /**
  * Allows reading the public models.dev catalog to learn which OpenAI and Alibaba models accept reasoning effort;
- * off, unknown models fall back to a guess by model family.
+ * a compatible route reads the section of the vendor origin it repeats; off, unknown models fall back to a guess
+ * by model family.
  */
 public val KoogReasoningCatalogEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
     "ai.koog.reasoning_catalog",

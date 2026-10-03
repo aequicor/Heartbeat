@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.computeruse.impl.data
 import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseFailure
@@ -11,7 +13,10 @@ import io.aequicor.heartbeat.feature.computeruse.api.InputAction
 import io.aequicor.heartbeat.feature.computeruse.api.InputOutcome
 import io.aequicor.heartbeat.feature.computeruse.api.MouseButton
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.InputInjector
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_CLICKS
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.wheelNotches
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -22,6 +27,7 @@ import java.awt.Robot
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
 
 /** Native input calls, separated from action policy so cancellation can be verified without real input. */
 internal interface DesktopInputDriver {
@@ -33,6 +39,16 @@ internal interface DesktopInputDriver {
     fun wheel(notches: Int)
     fun pause()
     fun idle()
+
+    /** `true` when [typeUnicode] carries characters independent of the active keyboard layout. */
+    val isUnicodeAvailable: Boolean get() = false
+
+    /**
+     * Types the text exactly as given; called only when [isUnicodeAvailable], and control characters never appear here.
+     * `false` means the system refused the events, possibly after some of them arrived, so the caller reports the
+     * failure instead of typing the text again.
+     */
+    fun typeUnicode(text: String): Boolean = false
 }
 
 /** Creates an input device only after the host has authorized an action. */
@@ -44,25 +60,32 @@ internal interface DesktopInputDevices {
 /** AWT devices; Robot coordinates are the operating system's logical screen coordinates. */
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class AwtInputDevices : DesktopInputDevices {
+internal class AwtInputDevices(private val platform: PlatformInfo) : DesktopInputDevices {
     override val isAvailable: Boolean get() = !GraphicsEnvironment.isHeadless()
 
-    override fun create(): DesktopInputDriver = AwtInputDriver(Robot().apply { autoDelay = AUTO_DELAY_MILLIS })
+    override fun create(): DesktopInputDriver = AwtInputDriver(
+        Robot().apply { autoDelay = AUTO_DELAY_MILLIS },
+        platform.host,
+    )
 
     private companion object {
         const val AUTO_DELAY_MILLIS = 8
     }
 }
 
-private class AwtInputDriver(private val robot: Robot) : DesktopInputDriver {
+private class AwtInputDriver(private val robot: Robot, private val host: HostPlatform) : DesktopInputDriver {
     override fun move(point: ScreenPoint) = robot.mouseMove(point.x, point.y)
     override fun pressButton(mask: Int) = robot.mousePress(mask)
     override fun releaseButton(mask: Int) = robot.mouseRelease(mask)
-    override fun pressKey(code: Int) = robot.keyPress(code)
-    override fun releaseKey(code: Int) = robot.keyRelease(code)
+    override fun pressKey(code: Int) = robot.keyPress(injectableKeyCode(code, host))
+    override fun releaseKey(code: Int) = robot.keyRelease(injectableKeyCode(code, host))
     override fun wheel(notches: Int) = robot.mouseWheel(notches)
     override fun pause() = robot.delay(STEP_DELAY_MILLIS)
     override fun idle() = robot.waitForIdle()
+
+    override val isUnicodeAvailable: Boolean get() = host == HostPlatform.Windows && WindowsTextBackend.isAvailable
+
+    override fun typeUnicode(text: String): Boolean = isUnicodeAvailable && WindowsTextBackend.type(text)
 
     private companion object {
         const val STEP_DELAY_MILLIS = 12
@@ -70,12 +93,21 @@ private class AwtInputDriver(private val robot: Robot) : DesktopInputDriver {
 }
 
 /**
+ * Translates a logical AWT key code into one this platform's `Robot` accepts. AWT rejects the platform-independent
+ * VK_META outright on Windows (`Invalid key code`), where the same key is VK_WINDOWS; other platforms inject the
+ * meta key as VK_META. Press and release must translate identically, so a combination never sticks.
+ */
+internal fun injectableKeyCode(code: Int, host: HostPlatform): Int =
+    if (code == KeyEvent.VK_META && host == HostPlatform.Windows) KeyEvent.VK_WINDOWS else code
+
+/**
  * Injects serialized actions on the IO dispatcher. Device creation, progress callbacks and every loop observe
  * cancellation before input continues, and every pressed key or button is released in finally, including
  * failures and the kill switch. Text is validated in its entirety
  * before the first event, so a rejected character cannot leave a partially typed command behind.
  *
- * Text uses US keyboard key positions; unsupported characters are refused instead of silently dropped.
+ * Text goes through the driver's Unicode path when it has one (Windows), otherwise through US keyboard key
+ * positions; unsupported characters are refused instead of silently dropped.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -201,8 +233,15 @@ internal class DesktopInputInjector(
         if (action.deltaX != 0) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
         driver.move(target)
         onProgress(target)
-        val notches = action.deltaY / WHEEL_NOTCH_PX
-        if (notches != 0) driver.wheel(notches)
+        val notches = wheelNotches(action.deltaY)
+        // One native event per notch: a single large delta scrolls an unpredictable amount in modern apps.
+        val sign = if (notches < 0) -1 else 1
+        val count = abs(notches)
+        for (notch in 0 until count) {
+            currentCoroutineContext().ensureActive()
+            driver.wheel(sign)
+            if (notch != count - 1) driver.pause()
+        }
         driver.idle()
         return InputOutcome.Applied
     }
@@ -212,20 +251,81 @@ internal class DesktopInputInjector(
         text: String,
         onProgress: suspend (ScreenPoint?) -> Unit,
     ): InputOutcome {
-        if (text.length > MAX_TYPED_CHARS) return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
-        val keys = text.map { typedKey(it) }
-        if (keys.any { it == null }) {
+        if (text.length > MAX_TYPED_CHARS) {
+            log.w { "typed text refused: over the limit chars=${text.length}" }
+            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        }
+        val segments = textSegments(text)
+        // The driver either carries every character itself or none of them: validate the whole text before
+        // the first event, so a rejected character cannot leave a partially typed command behind.
+        val isUnicodeCapable = driver.isUnicodeAvailable
+        val isMappable = segments.filterIsInstance<TextSegment.Literal>().all { segment ->
+            segment.text.all { character ->
+                if (isUnicodeCapable) !character.isISOControl() else typedKey(character) != null
+            }
+        }
+        if (!isMappable) {
             log.w { "typed text refused: unmappable character" }
             return InputOutcome.Rejected(ComputerUseFailure.UnsupportedCharacter)
         }
-        for (key in keys.filterNotNull()) {
+        if (!typeSegments(driver, segments, isUnicodeCapable, onProgress)) {
+            log.w { "typed text refused by the system chars=${text.length}" }
+            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+        }
+        driver.idle()
+        return InputOutcome.Applied
+    }
+
+    /** `false` when the system refused a Unicode run; the text typed before it stays, nothing after it is sent. */
+    private suspend fun typeSegments(
+        driver: DesktopInputDriver,
+        segments: List<TextSegment>,
+        isUnicodeCapable: Boolean,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ): Boolean {
+        for (segment in segments) {
             currentCoroutineContext().ensureActive()
+            when (segment) {
+                is TextSegment.Literal -> if (isUnicodeCapable) {
+                    if (!driver.typeUnicode(segment.text)) return false
+                    onProgress(null)
+                } else {
+                    // Validated upfront, so the key-code path always carries the whole run.
+                    typeByKeys(driver, segment.text, onProgress)
+                }
+
+                TextSegment.Newline -> pressControl(driver, KeyEvent.VK_ENTER, onProgress)
+
+                TextSegment.Tab -> pressControl(driver, KeyEvent.VK_TAB, onProgress)
+
+                TextSegment.Backspace -> pressControl(driver, KeyEvent.VK_BACK_SPACE, onProgress)
+            }
+        }
+        return true
+    }
+
+    private suspend fun pressControl(
+        driver: DesktopInputDriver,
+        code: Int,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ) {
+        pressKeys(driver, listOf(code), onProgress)
+        driver.pause()
+    }
+
+    /** Types one literal run as layout key codes; the run is validated before the first event. */
+    private suspend fun typeByKeys(
+        driver: DesktopInputDriver,
+        text: String,
+        onProgress: suspend (ScreenPoint?) -> Unit,
+    ) {
+        for (character in text) {
+            currentCoroutineContext().ensureActive()
+            val key = typedKey(character) ?: continue
             val codes = if (key.isShifted) listOf(KeyEvent.VK_SHIFT, key.code) else listOf(key.code)
             pressKeys(driver, codes, onProgress)
             driver.pause()
         }
-        driver.idle()
-        return InputOutcome.Applied
     }
 
     private suspend fun combination(
@@ -237,7 +337,7 @@ internal class DesktopInputInjector(
         val codes = keys.map { namedKey(it) }
         if (codes.any { it == KeyEvent.VK_UNDEFINED }) {
             log.w { "key combination refused: unknown key name count=${keys.size}" }
-            return InputOutcome.Rejected(ComputerUseFailure.InputRejected)
+            return InputOutcome.Rejected(ComputerUseFailure.UnsupportedKey)
         }
         pressKeys(driver, codes, onProgress)
         driver.idle()
@@ -395,9 +495,6 @@ internal class DesktopInputInjector(
 
     private companion object {
         const val DRAG_STEPS = 12
-        const val MAX_CLICKS = 3
-        const val MAX_TYPED_CHARS = 4096
-        const val WHEEL_NOTCH_PX = 40
         const val DIGIT_KEYS = 10
         const val FUNCTION_KEY_PREFIX = "f"
         const val STANDARD_FUNCTION_KEYS = 12

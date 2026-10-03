@@ -4,6 +4,7 @@ import ai.koog.prompt.llm.LLModel
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogConnection
@@ -15,7 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.api.koogProvider
 @Inject
 internal class KoogModelInputs(
     private val catalog: KoogReasoningCatalog = object : KoogReasoningCatalog {
-        override suspend fun levels(provider: KoogProvider, model: String): List<String>? = null
+        override suspend fun levels(provider: KoogProvider, origin: EndpointOrigin, model: String): List<String>? = null
     },
 ) {
     private val values = mutableMapOf<Pair<KoogConnection, String>, PromptInputSupport>()

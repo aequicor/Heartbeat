@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenCapturer
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ScreenPoint
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WindowCatalog
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.solidGrid
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -154,6 +155,9 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
     var onInput: () -> Unit = {}
     var isProgressReported: Boolean = false
 
+    /** Holds every input until completed, like a device busy with a long action. */
+    var awaitInput: CompletableDeferred<Unit>? = null
+
     override suspend fun applyObserved(
         action: InputAction,
         map: (FramePoint) -> ScreenPoint?,
@@ -166,6 +170,7 @@ internal class FakeInputInjector(override val isAvailable: Boolean = true) : Inp
 
     override suspend fun apply(action: InputAction, map: (FramePoint) -> ScreenPoint?): InputOutcome {
         onInput()
+        awaitInput?.await()
         val refused = refusal ?: return mappedOutcome(action, map)
         return InputOutcome.Rejected(refused)
     }
