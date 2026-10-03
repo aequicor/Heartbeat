@@ -77,6 +77,7 @@ public fun HbIconButton(
     Box(
         modifier = modifier
             .size(controlTargetSize(size))
+            .captionClientArea()
             .semantics {
                 this.contentDescription = contentDescription
                 if (isSelected) selected = true

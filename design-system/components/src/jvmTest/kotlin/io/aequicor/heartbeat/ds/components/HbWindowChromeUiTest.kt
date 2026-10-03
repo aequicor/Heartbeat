@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performMouseInput
@@ -28,6 +29,44 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class HbWindowChromeUiTest {
+    @Test
+    fun `caption icon hover is client area before the first press and free caption remains draggable`() =
+        runSkikoComposeUiTest(size = Size(500f, 200f)) {
+            val hitTests = mutableListOf<Boolean>()
+            var clicks = 0
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    HbWindowChromeProvider(
+                        HbWindowChrome(height = 44.dp),
+                        Modifier.fillMaxSize().testTag("window"),
+                        onNativeHitTest = { hitTests += it },
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            HbPaneHeader(
+                                "Title",
+                                navigation = { HbIconButton(HbIcons.ArrowLeft, "Back", { clicks++ }) },
+                            )
+                        }
+                    }
+                }
+            }
+            onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 20f)) }
+            assertEquals(false, hitTests.last())
+            val button = onNodeWithContentDescription("Back")
+            button.performMouseInput { moveTo(center) }
+            assertEquals(true, hitTests.last(), "The native caption must know this is a control before mouse-down")
+            hitTests.clear()
+            button.performMouseInput {
+                press()
+                moveBy(Offset(1f, 0f))
+                release()
+            }
+            assertEquals(1, clicks)
+            assertTrue(hitTests.all { it })
+            onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 20f)) }
+            assertEquals(false, hitTests.last(), "Leaving a control must restore native dragging")
+        }
+
     @Test
     fun `a header without a window provider preserves its full width`() =
         runSkikoComposeUiTest(size = Size(420f, 200f)) {
@@ -107,6 +146,10 @@ class HbWindowChromeUiTest {
                 release()
             }
             assertEquals(1, clicks)
+            assertTrue(
+                hitTests.all { it },
+                "A client press must keep movement and release out of native caption handling",
+            )
             onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 100f)) }
             assertTrue(hitTests.last(), "Content below the caption is client area")
         }

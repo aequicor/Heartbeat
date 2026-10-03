@@ -70,13 +70,13 @@ public fun HbButton(
         AdaptiveButton(
             text = text,
             onClick = loggedClick,
-            modifier = modifier.heightIn(min = buttonHeight(size)),
+            modifier = modifier.captionClientArea().heightIn(min = buttonHeight(size)),
             enabled = enabled,
             primary = style == HbButtonStyle.Primary,
             dimensions = HbTheme.dimensions,
         )
     } else {
-        FlatButton(text, loggedClick, modifier, style, enabled, size)
+        FlatButton(text, loggedClick, modifier.captionClientArea(), style, enabled, size)
     }
 }
 
