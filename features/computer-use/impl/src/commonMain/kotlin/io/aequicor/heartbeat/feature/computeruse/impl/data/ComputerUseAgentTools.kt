@@ -87,6 +87,9 @@ internal class ComputerUseAgentTools(
     private val log = Log.tag("ComputerUseAgentTools")
     private val requests = Mutex()
 
+    /** Computer control belongs to the profile and turn, so chat sessions do not need a project. */
+    override val isDetachedSupported: Boolean = true
+
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (isEnabled()) toolSpecs else emptyList()
 
