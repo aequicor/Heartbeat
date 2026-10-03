@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.psi.KtNamedFunction
 
 /**
  * Requests to the network and reads/writes of storage go through repositories and data sources;
- * each of their public operations logs its entry with key parameters (`log.d`).
+ * each public operation logs its entry: routine/high-frequency IO at `log.v`, meaningful operations at `log.d/i`.
  *
  * Applies to non-private functions with a body in classes whose name matches `classNamePattern`
  * (default: `*Repository`, `*DataSource`, `*Storage`, `*Api`, `*Client`, optionally with `Impl`).
@@ -63,7 +63,7 @@ class DataAccessNotLogged(config: Config) :
                     Finding(
                         Entity.atName(function),
                         "`$name.$functionName` does not log — add log.d { \"$functionName <key params>\" } " +
-                            "on entry (errors: log.e(e)).",
+                            "on entry, or log.v for routine/high-frequency IO (errors: log.e(e)).",
                     ),
                 )
             }

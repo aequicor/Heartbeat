@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -139,8 +140,9 @@ internal class CodexHistory : SessionHistory {
         }
     }
 
+    @HighFrequency
     fun publish(make: (HistoryCheckpoint) -> SessionEvent) {
-        log.d { "Codex history revision advanced" }
+        log.v { "Codex history revision advanced" }
         sequence++
         val event = make(checkpoint())
         val current = journal.value
