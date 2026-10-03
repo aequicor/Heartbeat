@@ -22,7 +22,9 @@ import pro.respawn.flowmvi.api.Provider
 import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 private typealias ScreenProvider =
     Provider<AgentLearningScreenState, AgentLearningScreenIntent, AgentLearningScreenAction>
@@ -84,6 +86,32 @@ class AgentLearningModelTest {
         val stored = (fixture.machine.state.value as AgentLearningState.Ready).instructions.single()
         assertEquals("Renamed" to "Use LF endings", stored.title to stored.content)
         assertEquals("Renamed", screen.states.value.instructions.single().title)
+    }
+
+    @Test
+    fun `saving an unchanged draft closes the editor without an error or a write`() = runTest {
+        val fixture = Fixture(this, AgentLearningState.Ready(listOf(project), revision = 2))
+        val screen = fixture.subscribe()
+        screen.intent(AgentLearningScreenIntent.Edit("1"))
+        runCurrent()
+        screen.intent(AgentLearningScreenIntent.ChangeDraft("Project rule ", "", " Content of Project rule"))
+        screen.intent(AgentLearningScreenIntent.SaveDraft)
+        runCurrent()
+        assertNull(screen.states.value.draft)
+        assertNull(screen.states.value.error)
+        assertEquals(AgentLearningState.Ready(listOf(project), revision = 2), fixture.machine.state.value)
+        assertEquals(emptyList(), fixture.machine.effects)
+    }
+
+    @Test
+    fun `a draft is measured trimmed and a skill keeps its description`() {
+        val draft = DraftUi("1", KindUi.General, " Title ", "", "  Text  ", 5, 300, 4)
+        assertTrue(draft.isValid)
+        assertFalse(draft.copy(content = "  Texts ").isValid)
+        assertFalse(draft.copy(title = "   ").isValid)
+        val skill = draft.copy(kind = KindUi.Skill, description = "When needed")
+        assertTrue(skill.isValid)
+        assertFalse(skill.copy(description = "  ").isValid)
     }
 
     private fun lesson(id: String, title: String) =

@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.domain.applicable
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.isRatedSafe
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.learningPrompt
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.parseRemember
+import io.aequicor.heartbeat.feature.agentlearning.impl.domain.singleLine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -41,6 +42,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -88,10 +90,10 @@ internal class LearningAgentTools(
         arguments: JsonObject,
     ): Boolean {
         if (spec.name != LearningTools.REMEMBER) return false
-        // A call execution refuses anyway is not put to the user; the trust table still applies on its own.
-        if (parseRemember(arguments) is DraftResult.Invalid || projectOf(context.workspace) == Project.Unknown) {
-            return false
-        }
+        // Invalid arguments are refused by execution deterministically, so they are not put to the user; the trust
+        // table still applies on its own. The project is not consulted: it is resolved again on execution and may
+        // become known in between (a worktree getting ready), so an unknown one must not skip the decision.
+        if (parseRemember(arguments) is DraftResult.Invalid) return false
         return approvalLevel().requiresDecision(isRatedSafe(arguments))
     }
 
@@ -131,7 +133,7 @@ internal class LearningAgentTools(
             modelScope(
                 context,
                 draft.reach,
-            ) ?: return failure("not saved: the model is unknown, use model_scope=engine")
+            ) ?: return failure("not saved: the model is unknown, use ${LearningTools.Arguments.MODEL_SCOPE}=engine")
         } else {
             null
         }
@@ -147,30 +149,40 @@ internal class LearningAgentTools(
             createdAtMillis = now,
         )
         val outcome = learn(instruction)
-        log.i { "remember kind=${draft.kind} outcome=${outcome?.let { it::class.simpleName } ?: "none"}" }
+        log.i { "remember kind=${draft.kind} outcome=${outcome::class.simpleName}" }
         return result(outcome, draft, project.ref)
     }
 
-    private fun result(outcome: AgentLearningOutput?, draft: RememberDraft, project: WorkspaceRef?) = when (outcome) {
-        is AgentLearningOutput.Learned -> AgentToolResult(
+    private fun result(outcome: LearnOutcome, draft: RememberDraft, project: WorkspaceRef?) = when (outcome) {
+        LearnOutcome.Learned -> AgentToolResult(
             "Saved the ${draft.kind.label()} \"${draft.title}\" for future sessions of " +
                 (if (project == null) "chats without a project" else "this project") + ".",
         )
 
-        is AgentLearningOutput.Rejected -> failure(
+        is LearnOutcome.Rejected -> failure(
             when (outcome.reason) {
                 LearnRejection.Duplicate -> "not saved: an instruction with this title already exists here"
                 LearnRejection.Limit -> "not saved: the registry is full; the user has to remove old instructions"
                 LearnRejection.Unavailable -> "not saved: the registry is not available"
-                LearnRejection.NotPersisted -> "not stored: the instruction applies only until the app closes"
+                LearnRejection.NotPersisted -> "not saved: the registry could not be written"
+                LearnRejection.Invalid -> "not saved: the instruction is empty or longer than allowed"
             },
         )
 
-        AgentLearningOutput.StorageFailed, null -> failure("not saved: the registry did not answer")
+        LearnOutcome.NotTaken -> failure("not saved: the registry did not take the request")
+
+        LearnOutcome.Unconfirmed -> failure(
+            "not confirmed yet: the registry is still saving; do not call ${LearningTools.REMEMBER} again for this " +
+                "lesson",
+        )
     }
 
     private suspend fun loadSkill(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
-        val name = (arguments["name"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim().orEmpty()
+        val name = (arguments[LearningTools.Arguments.NAME] as? JsonPrimitive)
+            ?.takeIf { it.isString }
+            ?.content
+            ?.trim()
+            .orEmpty()
         val project = projectOf(context.workspace) as? Project.Known ?: return failure("no learned skills here")
         val skills = registry()?.instructions.orEmpty()
             .applicable(project.ref, context.target)
@@ -181,22 +193,20 @@ internal class LearningAgentTools(
             ?: failure("no enabled learned skill named \"$name\"; available: " + skills.joinToString { it.title })
     }
 
-    /** Saves [instruction] through the machine and waits for the outcome it reports for this request. */
-    private suspend fun learn(instruction: LearnedInstruction): AgentLearningOutput? = coroutineScope {
+    /**
+     * Saves [instruction] through the machine and waits for the outcome it reports for this request. A request the
+     * machine took but did not answer in time may still be written, so it is [LearnOutcome.Unconfirmed], not lost.
+     */
+    private suspend fun learn(instruction: LearnedInstruction): LearnOutcome = coroutineScope {
         val requestId = Uuid.random().toString()
         val outcome = async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.first {
-                (it as? AgentLearningOutput.Learned)?.requestId == requestId ||
-                    (it as? AgentLearningOutput.Rejected)?.requestId == requestId
-            }
+            machine.outputs.mapNotNull { it.outcomeOf(requestId) }.first()
         }
         val sent = machine.send(AgentLearningIntent.Public.Learn(requestId, instruction))
         val result = if (sent == SendResult.Accepted) {
-            withTimeoutOrNull(
-                OUTCOME_TIMEOUT_MILLIS,
-            ) { outcome.await() }
+            withTimeoutOrNull(OUTCOME_TIMEOUT_MILLIS) { outcome.await() } ?: LearnOutcome.Unconfirmed
         } else {
-            null
+            LearnOutcome.NotTaken
         }
         outcome.cancel()
         result
@@ -231,8 +241,13 @@ internal class LearningAgentTools(
         }
     }
 
-    /** Reviewed content in the language of the other hosted approvals: kind, scope, the agent's rating and text. */
+    /**
+     * Reviewed content in the language of the other hosted approvals. The text to be stored comes first and whole,
+     * never a preview: the window may show only its top, and the agent's own words must not stand in front of it.
+     * Then, set apart, one line each: kind, scope and the agent's rating, the title, when to use it and the reason.
+     */
     private fun approvalText(draft: RememberDraft, context: AgentToolContext): String = buildString {
+        append(draft.content).append("\n\n")
         append(
             when (draft.kind) {
                 InstructionKind.General -> "General instruction"
@@ -247,10 +262,10 @@ internal class LearningAgentTools(
         )
         append(if (context.workspace == null) " · chats without a project" else " · this project")
         append(if (draft.isSafe) " · rated safe by the agent" else " · the agent asks you to review it")
-        if (draft.reason.isNotEmpty()) append("\nReason: ").append(draft.reason)
+        // The title and description are single lines (checked by parseRemember); the reason is folded into one.
+        append("\nTitle: ").append(draft.title)
         if (draft.description.isNotEmpty()) append("\nWhen to use: ").append(draft.description)
-        // The whole text, never a preview: the user approves exactly what will be stored.
-        append("\n\n").append(draft.content)
+        if (draft.reason.isNotEmpty()) append("\nReason: ").append(singleLine(draft.reason))
     }
 
     private fun failure(message: String) = AgentToolResult(message.replaceFirstChar(Char::uppercase), isError = true)
@@ -272,27 +287,41 @@ internal class LearningAgentTools(
                 put("type", "object")
                 putJsonObject("properties") {
                     enumProperty(
-                        "kind",
+                        LearningTools.Arguments.KIND,
                         "general, model (current engine or model only) or skill",
                         "general",
                         "model",
                         "skill",
                     )
-                    stringProperty("title", "Short title; for a skill its unique name")
-                    stringProperty("content", "The instruction: imperative and self-contained")
-                    stringProperty("description", "For a skill: when to load it. Optional otherwise")
+                    stringProperty(LearningTools.Arguments.TITLE, "Short title; for a skill its unique name")
+                    stringProperty(LearningTools.Arguments.CONTENT, "The instruction: imperative and self-contained")
+                    stringProperty(
+                        LearningTools.Arguments.DESCRIPTION,
+                        "For a skill: when to load it. Optional otherwise",
+                    )
                     enumProperty(
-                        "model_scope",
+                        LearningTools.Arguments.MODEL_SCOPE,
                         "For kind=model: the whole current engine or only the model",
                         "engine",
                         "model",
                     )
-                    enumProperty("safety", "Your rating: safe, or review when the user must decide", "safe", "review")
-                    stringProperty("reason", "What led to the lesson: the error, correction or preference")
+                    enumProperty(
+                        LearningTools.Arguments.SAFETY,
+                        "Your rating: safe, or review when the user must decide",
+                        "safe",
+                        "review",
+                    )
+                    stringProperty(
+                        LearningTools.Arguments.REASON,
+                        "What led to the lesson: the error, correction or preference",
+                    )
                 }
                 put(
                     "required",
-                    buildJsonArray { listOf("kind", "title", "content", "safety").forEach { add(JsonPrimitive(it)) } },
+                    buildJsonArray {
+                        with(LearningTools.Arguments) { listOf(KIND, TITLE, CONTENT, SAFETY) }
+                            .forEach { add(JsonPrimitive(it)) }
+                    },
                 )
             },
         )
@@ -302,11 +331,33 @@ internal class LearningAgentTools(
             "Load the full text of a learned skill listed in the instructions before a task it applies to.",
             buildJsonObject {
                 put("type", "object")
-                putJsonObject("properties") { stringProperty("name", "Skill name as listed") }
-                put("required", buildJsonArray { add(JsonPrimitive("name")) })
+                putJsonObject("properties") { stringProperty(LearningTools.Arguments.NAME, "Skill name as listed") }
+                put("required", buildJsonArray { add(JsonPrimitive(LearningTools.Arguments.NAME)) })
             },
         )
     }
+}
+
+/** What became of a `remember` request. */
+private sealed interface LearnOutcome {
+    /** The registry stored the instruction. */
+    data object Learned : LearnOutcome
+
+    /** The registry refused the instruction for [reason]. */
+    data class Rejected(val reason: LearnRejection) : LearnOutcome
+
+    /** The registry did not take the request; nothing was saved. */
+    data object NotTaken : LearnOutcome
+
+    /** The registry took the request but did not report the outcome in time; it may still be saved. */
+    data object Unconfirmed : LearnOutcome
+}
+
+/** The outcome this output reports for [requestId], or null when it belongs to another request. */
+private fun AgentLearningOutput.outcomeOf(requestId: String): LearnOutcome? = when (this) {
+    is AgentLearningOutput.Learned -> LearnOutcome.Learned.takeIf { this.requestId == requestId }
+    is AgentLearningOutput.Rejected -> LearnOutcome.Rejected(reason).takeIf { this.requestId == requestId }
+    AgentLearningOutput.StorageFailed -> null
 }
 
 private fun InstructionKind.label(): String = when (this) {

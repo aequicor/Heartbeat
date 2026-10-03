@@ -2,13 +2,17 @@ package io.aequicor.heartbeat.feature.agentlearning.impl.domain
 
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningLimits
+import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools.Arguments
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** How far a model instruction reaches: the whole current engine or only its current model. */
 internal enum class ModelReach { Engine, Model }
 
-/** A validated `remember` call; scope and identity are added by the host, never taken from the model. */
+/**
+ * A validated `remember` call; scope and identity are added by the host, never taken from the model. [title] and
+ * [description] are single lines; [reason] is shown to the user only, folded into one line.
+ */
 internal data class RememberDraft(
     val kind: InstructionKind,
     val title: String,
@@ -32,22 +36,27 @@ internal sealed interface DraftResult {
 
 /** Reads and validates `remember` arguments; texts are trimmed and checked against [LearningLimits]. */
 internal fun parseRemember(arguments: JsonObject): DraftResult {
-    val kind = kindOf(arguments.text("kind")) ?: return DraftResult.Invalid("kind must be general, model or skill")
-    val reach = when (val value = arguments.text("model_scope")) {
+    val kind = kindOf(arguments.text(Arguments.KIND))
+        ?: return DraftResult.Invalid("${Arguments.KIND} must be general, model or skill")
+    val reach = when (val value = arguments.text(Arguments.MODEL_SCOPE)) {
         null -> ModelReach.Model
-        else -> reachOf(value) ?: return DraftResult.Invalid("model_scope must be engine or model")
+        else -> reachOf(value) ?: return DraftResult.Invalid("${Arguments.MODEL_SCOPE} must be engine or model")
     }
     val draft = RememberDraft(
         kind,
-        title = arguments.text("title").orEmpty(),
-        content = arguments.text("content").orEmpty(),
-        description = arguments.text("description").orEmpty(),
+        title = arguments.text(Arguments.TITLE).orEmpty(),
+        content = arguments.text(Arguments.CONTENT).orEmpty(),
+        description = arguments.text(Arguments.DESCRIPTION).orEmpty(),
         reach = reach.takeIf { kind == InstructionKind.Model },
-        isSafe = arguments.text("safety") == "safe",
-        reason = arguments.text("reason").orEmpty().take(LearningLimits.DESCRIPTION),
+        isSafe = isRatedSafe(arguments),
+        reason = arguments.text(Arguments.REASON).orEmpty().truncated(LearningLimits.DESCRIPTION),
     )
-    val safety = arguments.text("safety")
-    val problem = if (safety != "safe" && safety != "review") "safety must be safe or review" else draft.problem()
+    val safety = arguments.text(Arguments.SAFETY)
+    val problem = if (safety != "safe" && safety != "review") {
+        "${Arguments.SAFETY} must be safe or review"
+    } else {
+        draft.problem()
+    }
     return problem?.let(DraftResult::Invalid) ?: DraftResult.Valid(draft)
 }
 
@@ -80,7 +89,12 @@ private fun RememberDraft.problem(): String? = when {
     content.length > LearningLimits.content(kind) ->
         "content is longer than ${LearningLimits.content(kind)} characters; make it shorter"
 
-    hasHiddenCharacters(title + description + content) ->
+    // A line break would let the title or description pose as other text in the approval or the prompt.
+    title.hasLineBreak() -> "title must be a single line"
+
+    description.hasLineBreak() -> "description must be a single line; put details into content"
+
+    hasHiddenCharacters(title + description + content + reason) ->
         "it contains invisible or control characters; use plain text"
 
     looksLikeSecret("$title\n$description\n$content") -> "it looks like a credential; secrets are never stored"
@@ -89,7 +103,29 @@ private fun RememberDraft.problem(): String? = when {
 }
 
 /** Whether the agent rated the instruction in [arguments] safe; anything unreadable counts as unsafe. */
-internal fun isRatedSafe(arguments: JsonObject): Boolean = arguments.text("safety") == "safe"
+internal fun isRatedSafe(arguments: JsonObject): Boolean = arguments.text(Arguments.SAFETY) == "safe"
+
+/** [text] on one line: every run of whitespace, line breaks included, becomes a single space. */
+internal fun singleLine(text: String): String = buildString {
+    var isSpace = false
+    for (char in text.trim()) {
+        if (char.isWhitespace()) {
+            if (!isSpace) append(' ')
+        } else {
+            append(char)
+        }
+        isSpace = char.isWhitespace()
+    }
+}
+
+private fun String.hasLineBreak(): Boolean = any { it == '\n' || it == '\r' || it == '\u2028' || it == '\u2029' }
+
+/** At most [limit] characters, never ending in half of a surrogate pair. */
+private fun String.truncated(limit: Int): String = when {
+    length <= limit -> this
+    this[limit - 1].isHighSurrogate() -> take(limit - 1)
+    else -> take(limit)
+}
 
 /**
  * Whether [text] carries characters a reviewer cannot see: control characters other than line breaks and tabs,

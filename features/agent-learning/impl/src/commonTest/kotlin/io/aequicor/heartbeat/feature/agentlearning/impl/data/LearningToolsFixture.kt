@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningIntent
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningMachineSpec
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningOutput
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
+import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningMachine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -45,9 +46,14 @@ internal val PROJECT = WorkspaceRef("project")
 internal val CHECKOUT = WorkspaceRef("checkout")
 internal val TARGET = EngineTarget(EngineId("claude"), EngineBindingId("binding"), ModelId("sonnet"))
 
-/** Runs the real registry spec without a runtime; effects are recorded, outputs are emitted. */
-internal class SpecMachine(initial: AgentLearningState = AgentLearningState.Ready()) :
-    Machine<AgentLearningState, AgentLearningIntent, AgentLearningOutput> {
+/**
+ * Runs the real registry spec without a runtime; effects are recorded, outputs are emitted. Saves succeed unless
+ * [isWritable] is false, then they fail the way the effect handler reports it.
+ */
+internal class SpecMachine(
+    initial: AgentLearningState = AgentLearningState.Ready(),
+    private val isWritable: Boolean = true,
+) : Machine<AgentLearningState, AgentLearningIntent, AgentLearningOutput> {
     override val name: String = AgentLearningMachineSpec.name
     override val state = MutableStateFlow(initial)
     private val emitted = MutableSharedFlow<AgentLearningOutput>(extraBufferCapacity = 16)
@@ -59,9 +65,14 @@ internal class SpecMachine(initial: AgentLearningState = AgentLearningState.Read
         state.value = resolution.to
         effects += resolution.effects
         resolution.outputs.forEach { emitted.emit(it) }
-        // Storage always succeeds here: confirm learned instructions the way the effect handler does.
-        resolution.effects.filterIsInstance<AgentLearningEffect.Persist>().mapNotNull { it.receipt }.forEach {
-            send(AgentLearningIntent.Internal.Saved(it))
+        // Report saves the way the effect handler does: confirm learned instructions or map the failure.
+        for (persist in resolution.effects.filterIsInstance<AgentLearningEffect.Persist>()) {
+            val result = if (isWritable) {
+                persist.receipt?.let(AgentLearningIntent.Internal::Saved)
+            } else {
+                AgentLearningMachineSpec.onEffectFailure(persist, IllegalStateException("not writable"))
+            }
+            result?.let { send(it) }
         }
         return SendResult.Accepted
     }
@@ -108,8 +119,17 @@ internal class SavedProjects(private val projects: List<WorkspaceRef> = listOf(P
     override suspend fun resolve(ref: WorkspaceRef): String? = null
 }
 
+/** Takes every intent with [result] and never reports an outcome, like a registry stuck in a save. */
+internal class SilentMachine(private val result: SendResult = SendResult.Accepted) :
+    Machine<AgentLearningState, AgentLearningIntent, AgentLearningOutput> {
+    override val name: String = AgentLearningMachineSpec.name
+    override val state = MutableStateFlow<AgentLearningState>(AgentLearningState.Ready())
+    override val outputs: Flow<AgentLearningOutput> = MutableSharedFlow()
+    override suspend fun send(intent: AgentLearningIntent): SendResult = result
+}
+
 internal fun tools(
-    machine: SpecMachine = SpecMachine(),
+    machine: LearningMachine = SpecMachine(),
     toggles: Toggles = Toggles(),
     worktrees: Worktrees = Worktrees(),
 ) = LearningAgentTools(

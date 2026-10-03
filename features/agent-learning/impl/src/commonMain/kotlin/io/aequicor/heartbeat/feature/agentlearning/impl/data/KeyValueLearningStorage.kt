@@ -12,12 +12,14 @@ import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningApproval
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.LearningStorage
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.StoredLearning
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 
 /**
  * The registry in the profile key-value store as JSON text, decoded here: an unreadable registry fails the load
- * instead of reading as empty, so the next save cannot replace it. Values are never logged.
+ * instead of reading as empty, so the next save cannot replace it. Values are never logged, and neither are decoder
+ * messages, which quote the stored text.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -29,11 +31,22 @@ internal class KeyValueLearningStorage(
     private val store by lazy { stores.keyValue(SPEC) }
 
     override suspend fun load(): StoredLearning {
-        val instructions = store.get(INSTRUCTIONS)?.let { json.decodeFromString(INSTRUCTION_LIST, it) }.orEmpty()
+        val instructions = store.get(INSTRUCTIONS)?.let(::decode).orEmpty()
         // An unknown approval level falls back to asking, the most careful choice.
         val approval = store.get(APPROVAL)?.let { name -> LearningApproval.entries.firstOrNull { it.name == name } }
         log.d { "read learned instructions: ${instructions.size}, approval known=${approval != null}" }
         return StoredLearning(instructions, approval ?: LearningApproval.Ask)
+    }
+
+    /**
+     * Decodes the stored registry. A decoding failure ([SerializationException] is an [IllegalArgumentException], as
+     * are the checks of [LearnedInstruction]) is replaced by one without message or cause, which may quote texts.
+     */
+    private fun decode(raw: String): List<LearnedInstruction> = try {
+        json.decodeFromString(INSTRUCTION_LIST, raw)
+    } catch (e: IllegalArgumentException) {
+        log.w(e.withoutStoredText()) { "stored learned instructions are unreadable" }
+        throw e.withoutStoredText()
     }
 
     override suspend fun saveInstructions(instructions: List<LearnedInstruction>) {
@@ -54,3 +67,7 @@ internal class KeyValueLearningStorage(
         val json = Json { ignoreUnknownKeys = true }
     }
 }
+
+/** Decoder messages and causes can quote stored instruction texts: only the failure kind is kept. */
+private fun Exception.withoutStoredText(): IllegalStateException =
+    IllegalStateException("Unreadable learning registry (${this::class.simpleName.orEmpty()})")

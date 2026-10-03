@@ -52,10 +52,20 @@ internal data class DraftUi(
     val descriptionLimit: Int,
     val contentLimit: Int,
 ) {
-    /** A draft needs a title and content, and every text within its limit. */
+    /**
+     * A draft needs a title and content (a skill also its description), and every text within its limit. Texts are
+     * measured as the registry stores them, without surrounding whitespace.
+     */
     val isValid: Boolean
-        get() = title.isNotBlank() && content.isNotBlank() && title.length <= titleLimit &&
-            description.length <= descriptionLimit && content.length <= contentLimit
+        get() {
+            val title = title.trim()
+            val description = description.trim()
+            val content = content.trim()
+            val isComplete = title.isNotEmpty() && content.isNotEmpty() &&
+                (kind != KindUi.Skill || description.isNotEmpty())
+            return isComplete && title.length <= titleLimit && description.length <= descriptionLimit &&
+                content.length <= contentLimit
+        }
 }
 
 /** Why the registry cannot be shown or changed. */
@@ -66,7 +76,7 @@ internal enum class LearningErrorUi {
     /** The last change could not be written; it applies until the profile closes. */
     SaveFailed,
 
-    /** The registry refused an edit: an empty or too long text, or a title already taken. */
+    /** The registry refused an edit: an empty or too long text (a skill's description too), or a title taken. */
     EditRejected,
 }
 

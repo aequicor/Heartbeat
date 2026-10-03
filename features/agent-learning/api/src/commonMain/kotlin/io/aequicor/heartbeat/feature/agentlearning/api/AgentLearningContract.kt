@@ -41,8 +41,11 @@ public enum class LearnRejection {
     /** The registry is not loaded. */
     Unavailable,
 
-    /** The instruction could not be written; it applies only until the profile closes. */
+    /** The instruction could not be written; it was removed again and applies nowhere. */
     NotPersisted,
+
+    /** A required text is empty (a skill also needs its description) or a text exceeds [LearningLimits]. */
+    Invalid,
 }
 
 /** Correlates a learned instruction with the request that added it until it is written. */
@@ -64,7 +67,10 @@ public sealed interface AgentLearningIntent : MachineIntent {
         /** Turns an instruction on or off without removing it. */
         public data class SetEnabled(val id: InstructionId, val isEnabled: Boolean) : Public
 
-        /** Replaces the texts of an instruction; [atMillis] becomes its update time. */
+        /**
+         * Replaces the texts of an instruction; [atMillis] becomes its update time. Texts are trimmed; an edit that
+         * keeps every text is accepted without a write.
+         */
         public data class Edit(
             val id: InstructionId,
             val title: String,
@@ -91,7 +97,10 @@ public sealed interface AgentLearningIntent : MachineIntent {
         /** The change carrying [receipt] was written, possibly together with a newer one. */
         public data class Saved(val receipt: LearnReceipt) : Internal
 
-        /** A change could not be written; it stays in memory for this run. [receipt] names a learned one. */
+        /**
+         * A change could not be written; it stays in memory for this run, except a learned instruction named by
+         * [receipt], which is removed again.
+         */
         public data class SaveFailed(val receipt: LearnReceipt? = null) : Internal
     }
 }

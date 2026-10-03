@@ -136,6 +136,7 @@ internal class AgentLearningModel(
             current.content,
             clock.now().toEpochMilliseconds(),
         )
+        // The registry accepts an unchanged draft without a write, so saving it closes the editor like any save.
         val result = sendTo(machine, edit)
         updateState {
             if (result == SendResult.Accepted) copy(draft = null) else copy(error = LearningErrorUi.EditRejected)
@@ -188,8 +189,14 @@ private fun InstructionUi.toDraft() = DraftUi(
     content,
     titleLimit = LearningLimits.TITLE,
     descriptionLimit = LearningLimits.DESCRIPTION,
-    contentLimit = if (kind == KindUi.Skill) LearningLimits.SKILL_CONTENT else LearningLimits.CONTENT,
+    contentLimit = LearningLimits.content(kind.toDomain()),
 )
+
+private fun KindUi.toDomain(): InstructionKind = when (this) {
+    KindUi.General -> InstructionKind.General
+    KindUi.Model -> InstructionKind.Model
+    KindUi.Skill -> InstructionKind.Skill
+}
 
 private fun LearningApproval.toUi(): ApprovalUi = when (this) {
     LearningApproval.Ask -> ApprovalUi.Ask

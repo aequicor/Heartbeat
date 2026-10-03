@@ -74,19 +74,71 @@ class AgentLearningMachineTest {
             updated,
             outputs = listOf(AgentLearningOutput.Learned("r", skill.id)),
         )
-        spec.assertTransition(
-            updated,
-            AgentLearningIntent.Internal.SaveFailed(receipt),
-            updated,
-            outputs = listOf(
-                AgentLearningOutput.StorageFailed,
-                AgentLearningOutput.Rejected("r", LearnRejection.NotPersisted),
-            ),
-        )
         val persist = AgentLearningEffect.Persist(updated.instructions, 4, receipt)
         assertEquals(
             AgentLearningIntent.Internal.SaveFailed(receipt),
             spec.onEffectFailure(persist, IllegalStateException()),
+        )
+    }
+
+    @Test
+    fun `a learned lesson that could not be written is rolled back and rejected`() {
+        val skill = instruction("2", "Release notes", InstructionKind.Skill)
+        val updated = ready.copy(instructions = listOf(encoding, skill), revision = 4)
+        val receipt = LearnReceipt("r", skill.id)
+        val notPersisted = listOf(
+            AgentLearningOutput.StorageFailed,
+            AgentLearningOutput.Rejected("r", LearnRejection.NotPersisted),
+        )
+        spec.assertTransition(
+            updated,
+            AgentLearningIntent.Internal.SaveFailed(receipt),
+            ready.copy(revision = 5),
+            effects = listOf(AgentLearningEffect.Persist(listOf(encoding), 5)),
+            outputs = notPersisted,
+        )
+        // The lesson is gone already (removed by the user): nothing is left to roll back.
+        spec.assertTransition(ready, AgentLearningIntent.Internal.SaveFailed(receipt), ready, outputs = notPersisted)
+        // After the rollback the agent may remember the same lesson again.
+        spec.assertTransition(
+            ready.copy(revision = 5),
+            AgentLearningIntent.Public.Learn("again", skill),
+            updated.copy(revision = 6),
+            effects = listOf(AgentLearningEffect.Persist(updated.instructions, 6, LearnReceipt("again", skill.id))),
+        )
+    }
+
+    @Test
+    fun `a lesson is trimmed and refused when a text is empty or too long`() {
+        val padded = instruction("2", "  Line endings ").copy(content = " Use LF \n", description = " ")
+        val trimmed = padded.copy(title = "Line endings", content = "Use LF", description = "")
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Learn("r", padded),
+            ready.copy(instructions = listOf(encoding, trimmed), revision = 4),
+            effects = listOf(AgentLearningEffect.Persist(listOf(encoding, trimmed), 4, LearnReceipt("r", padded.id))),
+        )
+        val invalid = listOf(
+            instruction("3", "x".repeat(LearningLimits.TITLE + 1)),
+            instruction("4", "Long").copy(content = "x".repeat(LearningLimits.CONTENT + 1)),
+            instruction("5", "Long description").copy(description = "x".repeat(LearningLimits.DESCRIPTION + 1)),
+            instruction("6", "Skill without description", InstructionKind.Skill).copy(description = "  "),
+        )
+        for (lesson in invalid) {
+            spec.assertTransition(
+                ready,
+                AgentLearningIntent.Public.Learn("r", lesson),
+                ready,
+                outputs = listOf(AgentLearningOutput.Rejected("r", LearnRejection.Invalid)),
+            )
+        }
+        // Padding does not count against the limits.
+        val fits = instruction("7", "Fits").copy(content = "x".repeat(LearningLimits.CONTENT))
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Learn("r", fits.copy(content = "   ${fits.content} ")),
+            ready.copy(instructions = listOf(encoding, fits), revision = 4),
+            effects = listOf(AgentLearningEffect.Persist(listOf(encoding, fits), 4, LearnReceipt("r", fits.id))),
         )
     }
 
@@ -100,12 +152,13 @@ class AgentLearningMachineTest {
             outputs = listOf(AgentLearningOutput.Rejected("r", LearnRejection.Duplicate)),
         )
         val otherProject = duplicate.copy(project = null)
+        val stored = otherProject.copy(title = otherProject.title.trim(), content = otherProject.content.trim())
         spec.assertTransition(
             ready,
             AgentLearningIntent.Public.Learn("r", otherProject),
-            ready.copy(instructions = listOf(encoding, otherProject), revision = 4),
+            ready.copy(instructions = listOf(encoding, stored), revision = 4),
             effects = listOf(
-                AgentLearningEffect.Persist(listOf(encoding, otherProject), 4, LearnReceipt("r", otherProject.id)),
+                AgentLearningEffect.Persist(listOf(encoding, stored), 4, LearnReceipt("r", otherProject.id)),
             ),
         )
         val full = AgentLearningState.Ready(List(LearningLimits.INSTRUCTIONS) { instruction("$it", "Lesson $it") })
@@ -141,16 +194,42 @@ class AgentLearningMachineTest {
             ready,
             AgentLearningIntent.Public.Edit(encoding.id, encoding.title, "", "x".repeat(LearningLimits.CONTENT + 1), 9),
         )
-        spec.assertIgnored(
-            ready,
-            AgentLearningIntent.Public.Edit(encoding.id, encoding.title, encoding.description, encoding.content, 9),
-        )
 
         spec.assertTransition(
             ready,
             AgentLearningIntent.Public.Delete(encoding.id),
             ready.copy(instructions = emptyList(), revision = 4),
             effects = listOf(AgentLearningEffect.Persist(emptyList(), 4)),
+        )
+        spec.assertIgnored(ready, AgentLearningIntent.Public.Delete(InstructionId("missing")))
+    }
+
+    @Test
+    fun `an edit without changes is accepted without writing`() {
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Edit(encoding.id, encoding.title, encoding.description, encoding.content, 9),
+            ready,
+        )
+        spec.assertTransition(
+            ready,
+            AgentLearningIntent.Public.Edit(encoding.id, " ${encoding.title} ", " ", "${encoding.content}\n", 9),
+            ready,
+        )
+        spec.assertIgnored(ready, AgentLearningIntent.Public.Edit(InstructionId("missing"), "Title", "", "Text", 9))
+    }
+
+    @Test
+    fun `an edit cannot erase the description of a skill`() {
+        val skill = instruction("2", "Release", InstructionKind.Skill).copy(description = "When releasing")
+        val registry = ready.copy(instructions = listOf(encoding, skill))
+        spec.assertIgnored(registry, AgentLearningIntent.Public.Edit(skill.id, skill.title, "  ", skill.content, 9))
+        val renamed = skill.copy(title = "Publish", updatedAtMillis = 9)
+        spec.assertTransition(
+            registry,
+            AgentLearningIntent.Public.Edit(skill.id, "Publish", skill.description, skill.content, 9),
+            registry.copy(instructions = listOf(encoding, renamed), revision = 4),
+            effects = listOf(AgentLearningEffect.Persist(listOf(encoding, renamed), 4)),
         )
     }
 
@@ -200,5 +279,13 @@ class AgentLearningMachineTest {
         title: String,
         kind: InstructionKind = InstructionKind.General,
         scope: ModelScope? = null,
-    ) = LearnedInstruction(InstructionId(id), kind, project, title, "Content of $title", modelScope = scope)
+    ) = LearnedInstruction(
+        InstructionId(id),
+        kind,
+        project,
+        title,
+        "Content of $title",
+        description = if (kind == InstructionKind.Skill) "When $title applies" else "",
+        modelScope = scope,
+    )
 }

@@ -19,6 +19,9 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFails
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 
 class KeyValueLearningStorageTest {
     private val stores = MemoryStores()
@@ -41,6 +44,20 @@ class KeyValueLearningStorageTest {
         assertFails { storage.load() }
         stores.store.values["instructions"] = "not json"
         assertFails { storage.load() }
+    }
+
+    @Test
+    fun `a load failure never carries the stored texts`() = runTest {
+        val unreadable = listOf(
+            """[{"id":{"value":"1"},"kind":"general","title":"Deploy to prod-db-7","content": broken}]""",
+            """[{"id":{"value":"1"},"kind":"Deploy to prod-db-7","title":"T","content":"x"}]""",
+        )
+        for (raw in unreadable) {
+            stores.store.values["instructions"] = raw
+            val failure = assertFailsWith<IllegalStateException> { storage.load() }
+            assertFalse("prod-db-7" in failure.toString(), failure.toString())
+            assertNull(failure.cause)
+        }
     }
 
     private class MemoryStores : DataStores {
