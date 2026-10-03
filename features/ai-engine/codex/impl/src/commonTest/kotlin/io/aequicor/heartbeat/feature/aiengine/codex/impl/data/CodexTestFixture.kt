@@ -40,6 +40,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
@@ -140,6 +141,7 @@ internal class Fixture(
         )
     }
     var isSearchEnabled = true
+    var isQuestionnaireEnabled = true
     var isUsageEnabled = true
     val workspacePaths = mutableMapOf<WorkspaceRef, String>()
     val environment = CodexRuntimeEnvironment(
@@ -151,6 +153,7 @@ internal class Fixture(
             override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
                 is FeatureToggle.Flag -> when (toggle) {
                     SearchEngineTools -> isSearchEnabled
+                    QuestionnaireEnabled -> isQuestionnaireEnabled
                     EngineUsageEnabled -> isUsageEnabled
                     else -> true
                 }
