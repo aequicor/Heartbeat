@@ -69,6 +69,13 @@
     <string name="composer_send">Отправить</string>
     <string name="composer_stop">Остановить</string>
     <string name="composer_add">Добавить</string>
+    <string name="composer_commands">Команды</string>
+    <string name="template_remember">Запомнить…</string>
+    <string name="learning_tool_remember">Новая инструкция</string>
+    <string name="learning_tool_skill">Выученный скилл</string>
+    <string name="learning_kind_general">Общая</string>
+    <string name="learning_kind_model">Для модели</string>
+    <string name="learning_kind_skill">Скилл</string>
     <string name="template_plan">Спланировать фичу</string>
     <string name="template_plan_prompt">Спланируй фичу: </string>
     <string name="template_tests">Написать тесты</string>
@@ -115,6 +122,7 @@
     <string name="tool_path_copied">Путь скопирован</string>
     <string name="connect_model_hint">Подключите и выберите модель в настройках</string>
     <string name="stop_failed">Не удалось подтвердить остановку. Движок может ещё работать. Нажмите «Остановить» повторно.</string>
+    <string name="permission_more">Текст длинный: прокрутите и прочитайте его целиком, прежде чем решать.</string>
     <string name="session_read_only">Продолжение этой сессии сейчас недоступно. Сохранённая история доступна; для продолжения работы создайте новый чат.</string>
     <string name="stop_unsupported">Этот движок не поддерживает остановку принятого запроса.</string>
     <string name="research_mode">Исследование</string>

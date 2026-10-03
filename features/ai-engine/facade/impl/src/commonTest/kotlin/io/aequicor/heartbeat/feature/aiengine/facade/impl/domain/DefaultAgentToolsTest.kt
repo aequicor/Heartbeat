@@ -128,7 +128,7 @@ class DefaultAgentToolsTest {
         val first = ToolOwner(AgentToolAction.Read)
         val second = ToolOwner(AgentToolAction.Read)
         val duplicated = DefaultAgentTools(setOf(first, second))
-        assertFailsWith<IllegalStateException> { duplicated.specifications(null) }
+        assertFailsWith<IllegalStateException> { duplicated.specifications(WorkspaceRef("project")) }
         assertFailsWith<IllegalStateException> { duplicated.execute(toolContext(), "tool", EMPTY_ARGS) }
         assertTrue(DefaultAgentTools(setOf(first)).execute(toolContext(), "unknown", EMPTY_ARGS).isError)
         assertEquals(0, first.calls)

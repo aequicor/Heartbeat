@@ -20,6 +20,9 @@ interface StudioEntries {
     /** Whether the profile search settings can be opened. */
     val showsProfileSettings: Flow<Boolean>
 
+    /** Whether the composer offers `/remember` (self-learning is on and a profile is active). */
+    val showsRemember: Flow<Boolean> get() = flowOf(false)
+
     /** Whether one "Settings" entry replaces the separate settings actions. */
     val showsUnifiedSettings: Flow<Boolean> get() = flowOf(false)
 }

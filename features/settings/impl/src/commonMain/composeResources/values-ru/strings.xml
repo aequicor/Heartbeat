@@ -5,4 +5,5 @@
     <string name="settings_section_search">Поиск</string>
     <string name="settings_section_feature_flags">Фича-флаги</string>
     <string name="settings_section_computer_use">Управление компьютером</string>
+    <string name="settings_section_agent_learning">Самообучение</string>
 </resources>

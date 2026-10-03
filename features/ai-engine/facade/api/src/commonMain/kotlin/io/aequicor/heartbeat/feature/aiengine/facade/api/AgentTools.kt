@@ -53,9 +53,25 @@ public data class AgentToolContext(
     val lifetime: Job? = null,
     /** Authorization snapshot assigned by the dispatcher; models never supply or modify it. */
     val authorization: AgentToolApproval? = null,
+    /**
+     * Engine and model of the turn. Adapters supply their current target; the dispatcher replaces it with the
+     * target recorded by [ProfileAgentTools.bindTurn] for a bound request. Never decoded from model arguments.
+     */
+    val target: EngineTarget? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }
+
+/**
+ * What a session's instructions are built for. [workspace] is null for a session without a project; [target] is the
+ * session's engine and model when the adapter knows it. [declared] limits instructions to contributions whose tools
+ * are among these names — a resumed native thread that froze its tool set at creation; null means no limit.
+ */
+public data class AgentToolScope(
+    val workspace: WorkspaceRef?,
+    val target: EngineTarget? = null,
+    val declared: Set<String>? = null,
+)
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */
 @Serializable
@@ -64,13 +80,38 @@ public data class AgentToolResult(val text: String, val isError: Boolean = false
 /**
  * A profile contribution of hosted tools. Features implement this outside the adapter SPI.
  * Specifications and instructions are scoped to an opaque workspace. IO belongs to the implementation.
+ * A session without a project (workspace null) consults only contributions with [isDetachedSupported].
  */
 public interface AgentToolContribution {
+    /**
+     * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
+     * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
+     * answers any request without a workspace with these; adapters attach them only to sessions opened with
+     * [CreateSessionRequest.areDetachedToolsEnabled], which also tells which request decides.
+     */
+    public val isDetachedSupported: Boolean get() = false
+
     /** Currently available declarations; duplicate names across contributions are an error. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
 
     /** Additional workflow instructions, without execution tokens. */
     public suspend fun instructions(workspace: WorkspaceRef?): String = ""
+
+    /**
+     * Instructions for a concrete session; adapters building a system prompt call this form. The default ignores
+     * the target. The workspace-only form remains for transports announcing the server (MCP `initialize`).
+     */
+    public suspend fun instructions(scope: AgentToolScope): String = instructions(scope.workspace)
+
+    /**
+     * Requires an explicit user decision beyond the [AgentToolAction] × [TrustLevel] table. It can only add a
+     * decision: returning false never skips one the table demands.
+     */
+    public suspend fun requiresDecision(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): Boolean = false
 
     /** Presentation for the one trust gate. */
     public fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =
@@ -96,14 +137,25 @@ public interface AgentToolContribution {
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */
 public interface ProfileAgentTools {
-    /** Binds a trusted request to its facade turn before native submission can invoke any hosted tools. */
-    public suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId): Unit = Unit
+    /**
+     * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
+     * [target] is the engine and model the turn runs on; calls of the request see it as [AgentToolContext.target].
+     */
+    public suspend fun bindTurn(
+        session: SessionRef,
+        request: RequestId,
+        turn: TurnId,
+        target: EngineTarget? = null,
+    ): Unit = Unit
 
     /** Available tool declarations for a session's immutable execution workspace. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
 
     /** Workflow instructions for the same workspace. */
     public suspend fun instructions(workspace: WorkspaceRef?): String
+
+    /** Instructions for a concrete session: its workspace, engine and model, and the tools it declared. */
+    public suspend fun instructions(scope: AgentToolScope): String = instructions(scope.workspace)
 
     /** Rechecks availability and enforces TrustLevel before invoking a contribution. */
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
@@ -137,14 +189,23 @@ public interface AgentToolBridgeAttachment : AutoCloseable {
     override fun close()
 }
 
+/** Name of the MCP server through which a bridge serves hosted tools; MCP clients prefix tool names with it. */
+public const val HOSTED_TOOLS_SERVER: String = "heartbeat_tools"
+
+/** A hosted tool call [name] as an engine reports it, without an MCP client's `mcp__<server>__` prefix. */
+public fun hostedToolName(name: String): String = name.removePrefix("mcp__${HOSTED_TOOLS_SERVER}__")
+
 /** Desktop transport for the same dispatcher; each call resolves the current trusted turn context. */
 public interface AgentToolBridge {
     /** False on platforms without local processes. */
     public val isAvailable: Boolean
 
-    /** Creates a private capability. A null context rejects calls outside an active turn. */
+    /**
+     * Creates a private capability. A null context rejects calls outside an active turn. A null [workspace] serves
+     * a session without a project: only detached contributions answer it.
+     */
     public suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment
 }
@@ -153,7 +214,7 @@ public interface AgentToolBridge {
 public object UnavailableAgentToolBridge : AgentToolBridge {
     override val isAvailable: Boolean = false
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment = throw UnsupportedOperationException("Local agent tools are unavailable")
 }

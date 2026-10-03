@@ -69,6 +69,13 @@
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
     <string name="composer_add">Add</string>
+    <string name="composer_commands">Commands</string>
+    <string name="template_remember">Remember…</string>
+    <string name="learning_tool_remember">New instruction</string>
+    <string name="learning_tool_skill">Learned skill</string>
+    <string name="learning_kind_general">General</string>
+    <string name="learning_kind_model">Model</string>
+    <string name="learning_kind_skill">Skill</string>
     <string name="template_plan">Plan a feature</string>
     <string name="template_plan_prompt">Plan the feature: </string>
     <string name="template_tests">Write tests</string>
@@ -115,6 +122,7 @@
     <string name="tool_path_copied">Path copied</string>
     <string name="connect_model_hint">Connect and select a model in settings</string>
     <string name="stop_failed">Could not confirm the stop. The engine may still be running. Try Stop again.</string>
+    <string name="permission_more">Long text: scroll to read all of it before deciding.</string>
     <string name="session_read_only">This session cannot be continued right now. Its saved history is available; start a new chat to continue working.</string>
     <string name="stop_unsupported">This engine does not support stopping an accepted request.</string>
     <string name="research_mode">Research</string>

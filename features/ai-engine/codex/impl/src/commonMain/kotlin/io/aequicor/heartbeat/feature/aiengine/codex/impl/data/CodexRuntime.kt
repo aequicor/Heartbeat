@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthFailureReaso
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -211,6 +212,7 @@ internal class CodexRuntime(
         null,
         request.target,
         request.workspace,
+        request.areDetachedToolsEnabled,
     )
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession {
@@ -219,55 +221,73 @@ internal class CodexRuntime(
                 EngineFailure.Session(SessionFailureReason.NotFound),
             )
         }
-        return open(ref.nativeId, request.target, request.workspace)
+        return open(ref.nativeId, request.target, request.workspace, request.areDetachedToolsEnabled)
     }
 
-    private suspend fun open(nativeId: String?, target: EngineTarget, workspace: WorkspaceRef?): ActiveSession =
-        withContext(dispatchers.main) {
-            commands.withLock {
-                gate()
-                if (target.engine != identity.engine) {
-                    fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
+    /**
+     * Hosted tools are fixed when a thread starts: a thread without a project declares detached tools only when the
+     * creating request enabled [areDetachedToolsEnabled]. A thread already open in this runtime is reused with its
+     * choice; a resume after a restart never adds or removes declarations, and without the resuming caller's opt-in
+     * a chat's declared tools are refused when called.
+     */
+    private suspend fun open(
+        nativeId: String?,
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        areDetachedToolsEnabled: Boolean,
+    ): ActiveSession = withContext(dispatchers.main) {
+        commands.withLock {
+            gate()
+            if (target.engine != identity.engine) {
+                fail(EngineFailure.Authentication(AuthFailure(AuthFailureReason.AuthMismatch)))
+            }
+            val route =
+                ExecutionRoute(identity.engine, target.binding, identity.source, identity.revision, workspace)
+            val existing = sessions[nativeId]
+            if (existing != null) {
+                if (existing.route != route || existing.target != target) {
+                    fail(EngineFailure.Session(SessionFailureReason.Changed))
                 }
-                val route =
-                    ExecutionRoute(identity.engine, target.binding, identity.source, identity.revision, workspace)
-                val existing = sessions[nativeId]
-                if (existing != null) {
-                    if (existing.route != route || existing.target != target) {
-                        fail(EngineFailure.Session(SessionFailureReason.Changed))
-                    }
-                    existing.refreshHistory()
-                    ensureOpen()
-                    existing.lease().also { existing.recheck() }
-                } else {
-                    isOpening = true
-                    try {
-                        openNative(nativeId, target, route)
-                    } finally {
-                        isOpening = false
-                        withContext(NonCancellable) { dropEarly() }
-                    }
+                existing.refreshHistory()
+                ensureOpen()
+                existing.lease().also { existing.recheck() }
+            } else {
+                isOpening = true
+                try {
+                    openNative(nativeId, target, route, areDetachedToolsEnabled)
+                } finally {
+                    isOpening = false
+                    withContext(NonCancellable) { dropEarly() }
                 }
             }
         }
+    }
 
-    private suspend fun openNative(nativeId: String?, target: EngineTarget, route: ExecutionRoute): ActiveSession {
+    private suspend fun openNative(
+        nativeId: String?,
+        target: EngineTarget,
+        route: ExecutionRoute,
+        areDetachedToolsEnabled: Boolean,
+    ): ActiveSession {
         val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
-        val hostedManifest = hostedManifest(route.workspace)
-        val isHosted = validateHostedResume(nativeId, hostedManifest)
-        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, isHosted)
+        val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
+            detachedOpening(nativeId, target)
+        } else {
+            hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
+        }
+        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, hosted.parameters)
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = validateNativeThread(nativeId, response)
         val id = checkNotNull(thread.text("id"))
         val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
-        if (nativeId == null && hostedManifest != null) host.manifests.save(id, hostedManifest)
+        if (nativeId == null && hosted.manifest != null) host.manifests.save(id, hosted.manifest)
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
             route,
             target,
             this,
             rpc,
-            isHosted,
+            hosted.isServed,
         )
         try {
             val isUnpaged = listOf("turnsBackwardsCursor", "itemsBackwardsCursor").all { field ->
@@ -291,14 +311,55 @@ internal class CodexRuntime(
         return session.lease()
     }
 
-    private suspend fun validateHostedResume(nativeId: String?, expected: String?): Boolean {
-        if (nativeId == null) return true
+    /** Hosted tools of a thread being opened; a thread [isEligible] for them fails to open when they fail. */
+    private suspend fun hostedOpening(
+        nativeId: String?,
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isEligible: Boolean,
+    ): HostedOpening {
+        val manifest = if (isEligible) hostedManifest(workspace) else null
+        val hosted = validateHostedResume(nativeId, workspace, manifest)
+        val parameters = hosted.takeIf { isEligible }?.let { hostedParameters(workspace, target, it) }
+        return HostedOpening(manifest, parameters, isServed = isEligible && hosted != null)
+    }
+
+    /**
+     * Detached hosted tools are optional: a failing contribution opens the chat thread as if its caller had not
+     * opted in. Engine failures, such as a stored manifest incompatible with a resume, still fail the open.
+     */
+    private suspend fun detachedOpening(nativeId: String?, target: EngineTarget): HostedOpening = try {
+        hostedOpening(nativeId, target, workspace = null, isEligible = true)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        throw e
+    } catch (e: Exception) {
+        // Contribution failures may quote instructions or arguments; only the type is logged.
+        log.w(IllegalStateException("Detached hosted tools failed (${e::class.simpleName.orEmpty()})")) {
+            "Detached hosted tools unavailable; the chat thread opens without them"
+        }
+        hostedOpening(nativeId, target, workspace = null, isEligible = false)
+    }
+
+    /**
+     * Hosted declarations of the thread: [HostedThread.New] for a new thread, the stored tool names on resume, or
+     * null for a thread without hosted tools. A resumed thread keeps the tools it was created with: a tool whose
+     * declaration changed fails the resume, while added tools stay invisible to it and removed ones are refused
+     * when called.
+     */
+    private suspend fun validateHostedResume(
+        nativeId: String?,
+        workspace: WorkspaceRef?,
+        expected: String?,
+    ): HostedThread? {
+        if (nativeId == null) return HostedThread.New
         val stored = host.manifests.get(nativeId)
         val isRequired = stored != null || host.manifests.isRequired(nativeId)
-        if (isRequired) {
-            if (stored == null || stored != expected) fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (isRequired && (stored == null || !isManifestCompatible(stored, workspace, expected))) {
+            fail(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        return stored != null
+        return stored?.let { HostedThread.Resumed(manifestTools(it).keys) }
     }
 
     private fun validateNativeThread(nativeId: String?, response: JsonObject): JsonObject {
@@ -321,12 +382,11 @@ internal class CodexRuntime(
 
     /** Resume restores native declarations; changing them silently would advertise tools Codex cannot call. */
     private suspend fun hostedManifest(workspace: WorkspaceRef?): String? {
-        if (workspace == null) return null
         val tools = host.tools.specifications(workspace)
         if (tools.isEmpty()) return null
         return buildJsonObject {
-            put("version", 1)
-            put("workspace", workspace.value)
+            put("version", MANIFEST_VERSION)
+            put("workspace", workspace?.value)
             put(
                 "tools",
                 JsonArray(
@@ -354,16 +414,14 @@ internal class CodexRuntime(
         target: EngineTarget,
         workspace: WorkspaceRef?,
         tools: Boolean,
-        hostedEnabled: Boolean,
+        hosted: Pair<List<JsonObject>, String>?,
     ): JsonObject {
         val path = workspace?.let {
             host.workspaces.resolve(it) ?: config.workspaces[it]
                 ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        val hostedWorkspace = workspace.takeIf { hostedEnabled }
-        val hosted = hostedParameters(hostedWorkspace)
-        val declarations = hosted.first + if (tools) searchToolSpecs() else emptyList()
-        val instructions = hosted.second
+        val declarations = hosted?.first.orEmpty() + if (tools) searchToolSpecs() else emptyList()
+        val instructions = hosted?.second.orEmpty()
         val isolation = codexIsolationConfig(rpc, path, tools)
         return buildJsonObject {
             put("model", target.model.value)
@@ -378,8 +436,15 @@ internal class CodexRuntime(
         }
     }
 
-    private suspend fun hostedParameters(workspace: WorkspaceRef?): Pair<List<JsonObject>, String> {
-        if (workspace == null) return emptyList<JsonObject>() to ""
+    /**
+     * Declarations for a new thread and instructions limited to the tools the thread has. The access preamble
+     * describes project edits, so a session without a project gets only the contributions' own instructions.
+     */
+    private suspend fun hostedParameters(
+        workspace: WorkspaceRef?,
+        target: EngineTarget,
+        thread: HostedThread,
+    ): Pair<List<JsonObject>, String> {
         val declarations = host.tools.specifications(workspace).map { spec ->
             buildJsonObject {
                 put("type", "function")
@@ -388,8 +453,11 @@ internal class CodexRuntime(
                 put("inputSchema", spec.inputSchema)
             }
         }
-        val instructions = host.tools.instructions(workspace)
-        return declarations to if (declarations.isEmpty()) instructions else codexHostedInstructions(instructions)
+        val declared = (thread as? HostedThread.Resumed)?.tools
+        val instructions = host.tools.instructions(AgentToolScope(workspace, target, declared))
+        val hasTools = declared?.isNotEmpty() ?: declarations.isNotEmpty()
+        val text = if (hasTools && workspace != null) codexHostedInstructions(instructions) else instructions
+        return declarations to text
     }
 
     private suspend fun event(message: JsonObject) {

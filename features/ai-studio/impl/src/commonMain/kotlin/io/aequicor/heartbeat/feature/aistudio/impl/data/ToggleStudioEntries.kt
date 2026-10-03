@@ -4,6 +4,7 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
+import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
@@ -51,6 +52,13 @@ internal class ToggleStudioEntries(
         }
 
     override val showsUnifiedSettings: Flow<Boolean> = toggles.observe(UnifiedSettings)
+
+    // The demo runtime has no engine tools, so the command would reach no remember tool.
+    override val showsRemember: Flow<Boolean> = combine(
+        toggles.observe(AgentLearningEnabled),
+        toggles.observe(StudioEngineRuntime),
+        sessions.active,
+    ) { isEnabled, runtime, session -> isEnabled && runtime && session != null }
 
     override val showsProfileSettings: Flow<Boolean> =
         combine(toggles.observe(SearchEngineTools), sessions.active) { isEnabled, session ->

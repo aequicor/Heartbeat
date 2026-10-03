@@ -1,13 +1,16 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -17,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
@@ -33,6 +37,7 @@ internal class PiHostedSessionTools(
     private val permissions: MutableMap<PermissionRequestId, PermissionRequest>,
     private val send: suspend (ActiveSessionIntent) -> SendResult,
 ) {
+    private val log = Log.tag("PiHostedSessionTools")
     private val pending = mutableMapOf<PermissionRequestId, CompletableDeferred<Boolean>>()
     private var attachment: AgentToolBridgeAttachment? = null
     var lifetime: CompletableJob? = null
@@ -55,6 +60,7 @@ internal class PiHostedSessionTools(
             trust,
             AgentToolPermissions { approval(turn, it) },
             lifetime = lifetime,
+            target = turn.target,
         )
     }
 
@@ -73,11 +79,38 @@ internal class PiHostedSessionTools(
         snapshot = null
     }
 
-    suspend fun prepare(workspace: WorkspaceRef?): PiHostedTools? {
-        if (workspace == null) return null
+    /**
+     * Tools and instructions for the process about to start. A session without a project gets detached tools only
+     * when its caller opted in. Instructions are fixed for the process: a later model switch keeps those of [target].
+     * Detached tools are optional: an unavailable bridge or a failing contribution starts the chat without them,
+     * while a project session fails.
+     */
+    suspend fun prepare(
+        workspace: WorkspaceRef?,
+        target: EngineTarget,
+        areDetachedToolsEnabled: Boolean,
+    ): PiHostedTools? {
+        if (workspace != null) return attach(workspace, target)
+        if (!areDetachedToolsEnabled) return null
+        if (!environment.bridge.isAvailable) {
+            log.i { "Hosted tools bridge is unavailable; the chat starts without hosted tools" }
+            return null
+        }
+        return try {
+            attach(null, target)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Contribution failures may quote instructions or arguments; only the type is logged.
+            log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
+            null
+        }
+    }
+
+    private suspend fun attach(workspace: WorkspaceRef?, target: EngineTarget): PiHostedTools? {
         val specs = environment.tools.specifications(workspace)
         if (specs.isEmpty()) return null
-        val instructions = environment.tools.instructions(workspace)
+        val instructions = environment.tools.instructions(AgentToolScope(workspace, target))
         if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
         val capability = environment.bridge.attach(workspace, ::context)
         attachment = capability

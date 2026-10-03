@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -35,6 +37,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
@@ -48,6 +51,7 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -69,6 +73,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.permission_more
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
@@ -250,7 +255,14 @@ private fun PaneNotices(
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
     questions: ImmutableMap<String, ComposableComponent>,
-) {
+) = HbBoxWithConstraints(Modifier.fillMaxWidth()) {
+    // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
+    val described = content.permissions.count { !it.description.isNullOrBlank() }.coerceAtLeast(1)
+    val descriptionMaxHeight = if (constraints.hasBoundedHeight) {
+        minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / (PANE_SHARE_OF_DESCRIPTIONS * described))
+    } else {
+        HbTheme.dimensions.toolPayloadMaxHeight
+    }
     HbColumn(
         Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
@@ -269,12 +281,14 @@ private fun PaneNotices(
         content.permissions.takeIf { asked == null }.orEmpty().forEach { request ->
             key(request.requestId) {
                 HbColumn(
-                    Modifier.padding(HbTheme.spacing.m)
-                        .semantics { liveRegion = LiveRegionMode.Polite }
-                        .testTag("permission-${request.requestId}"),
+                    Modifier.padding(HbTheme.spacing.m).testTag("permission-${request.requestId}"),
                     gap = HbTheme.spacing.s,
                 ) {
-                    HbText(request.title)
+                    // Only the title is announced: the reviewed content can be thousands of characters long.
+                    HbText(request.title, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                    request.description?.takeIf { it.isNotBlank() }?.let { description ->
+                        PermissionDescription(description, request.requestId, descriptionMaxHeight)
+                    }
                     request.options.forEach { option ->
                         HbButton(
                             text = option.title,
@@ -292,6 +306,40 @@ private fun PaneNotices(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Panes this many times taller than all permission descriptions together still show decisions and the composer. */
+private const val PANE_SHARE_OF_DESCRIPTIONS = 3
+
+/**
+ * What a permission request approves, bounded and scrollable. A long text keeps a line saying so: the scrollbar
+ * alone appears only on hover, and the hidden part is part of what the user approves. The text area takes focus,
+ * so a keyboard scrolls it with the arrow and page keys.
+ */
+@Composable
+private fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
+    val scroll = rememberScrollState()
+    // Kept while the text is scrollable at all, so the decisions do not move once the end is reached.
+    val isLong by remember(scroll) { derivedStateOf { scroll.maxValue in 1 until Int.MAX_VALUE } }
+    HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+        Box(
+            Modifier.fillMaxWidth()
+                .heightIn(max = maxHeight)
+                .hbVerticalScroll(scroll)
+                .focusable()
+                .testTag("permission-$requestId-scroll"),
+        ) {
+            HbText(description, Modifier.testTag("permission-$requestId-description"))
+        }
+        if (isLong) {
+            HbText(
+                stringResource(Res.string.permission_more),
+                Modifier.testTag("permission-$requestId-more"),
+                style = HbTheme.typography.caption,
+                color = HbTheme.colors.textSecondary,
+            )
         }
     }
 }

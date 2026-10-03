@@ -34,6 +34,7 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
                 request.requestId,
                 request.title,
                 request.options.map { PermissionOptionUi(it.id, it.title) }.toImmutableList(),
+                request.description,
             )
         }.toImmutableList(),
         panes = machine.panes.map { it.toUi() }.toImmutableList(),

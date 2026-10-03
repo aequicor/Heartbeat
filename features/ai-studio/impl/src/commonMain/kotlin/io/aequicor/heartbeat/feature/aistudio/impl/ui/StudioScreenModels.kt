@@ -82,6 +82,7 @@ internal data class PaneContent(
     val configuration: SessionConfigurationUi? = null,
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
+    val isRememberEnabled: Boolean = false,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
 ) {
@@ -120,6 +121,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         draft = draft(pane.id),
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
+        isRememberEnabled = isRememberEnabled,
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
         isSubmitFailed = pane.id in failedPanes,

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -71,7 +72,7 @@ internal class DesktopAgentToolBridge(
     }
 
     override suspend fun attach(
-        workspace: WorkspaceRef,
+        workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
         check(!profile.isClosed) { "Agent tools profile is closed" }
@@ -212,7 +213,7 @@ internal class DesktopAgentToolBridge(
                 put(
                     "serverInfo",
                     buildJsonObject {
-                        put("name", "heartbeat_tools")
+                        put("name", HOSTED_TOOLS_SERVER)
                         put("version", "1")
                     },
                 )
@@ -287,7 +288,7 @@ internal class DesktopAgentToolBridge(
     }
 
     private data class Capability(
-        val workspace: WorkspaceRef,
+        val workspace: WorkspaceRef?,
         val context: suspend () -> AgentToolContext?,
         val scope: CoroutineScope,
     )

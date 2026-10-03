@@ -75,6 +75,13 @@ internal class ClaudeSession(
     private val commands = Mutex()
     private val lock = Any()
     private val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
+
+    /**
+     * Hosted tools for a session without a project. Chosen by the lease that opens the session without other holders;
+     * only callers answering hosted permissions enable it. Each turn captures it when accepted.
+     */
+    @Volatile
+    private var areDetachedToolsEnabled: Boolean = false
     private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
@@ -114,9 +121,14 @@ internal class ClaudeSession(
     @Volatile
     private var undelivered: TurnId? = null
 
-    fun lease(): ActiveSession = synchronized(lock) {
+    /**
+     * Attaches a handle. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
+     * session without a project; an attach to a session that is already held keeps the holders' choice.
+     */
+    fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = synchronized(lock) {
         ensureOpen()
         if (isEvicted) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (leases.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
         Lease(current).also { leases.add(it) }
     }
 
@@ -215,9 +227,11 @@ internal class ClaudeSession(
                 lease.ensureAttached()
                 ensureOpen()
                 val previous = (current as? ActiveSessionState.Ready)?.lastTurn
+                // The opt-in is fixed at acceptance: a holder attaching before the process starts changes later turns.
+                val submission = Submission(request, text, turn, previous, areDetachedToolsEnabled)
                 update(ActiveSessionState.Submitting(request, turn))
                 operation = scope.launch {
-                    execute(Submission(request, text, turn, previous), accepted)
+                    execute(submission, accepted)
                 }
                 // The CLI may already have read the prompt when the runtime stops, so delivery is unknown.
                 operation?.invokeOnCompletion { cause ->
@@ -286,7 +300,13 @@ internal class ClaudeSession(
 
     private suspend fun hostedTurn(submission: Submission, observer: ClaudeTurnObserver): ClaudeHostedTurn =
         ClaudeHostedTurn(
-            ClaudeTurnContext(ref, route.workspace, submission.request),
+            ClaudeTurnContext(
+                ref,
+                route.workspace,
+                submission.request,
+                submission.turn.target,
+                submission.areDetachedToolsEnabled,
+            ),
             observer,
             history,
             environment,
@@ -654,7 +674,14 @@ private const val MAX_PROMPT_CHARS = 1024 * 1024
 /** Reported by the transport only before a child process exists. */
 private val LAUNCH_FAILURE = EngineFailure.Engine(EngineFailureReason.RequirementsNotMet)
 
-private data class Submission(val request: PromptRequest, val text: String, val turn: Turn, val previous: Turn?) {
+/** An accepted turn; [areDetachedToolsEnabled] is the session's opt-in when the turn was accepted. */
+private data class Submission(
+    val request: PromptRequest,
+    val text: String,
+    val turn: Turn,
+    val previous: Turn?,
+    val areDetachedToolsEnabled: Boolean,
+) {
     override fun toString(): String = "Submission(***)"
 }
 

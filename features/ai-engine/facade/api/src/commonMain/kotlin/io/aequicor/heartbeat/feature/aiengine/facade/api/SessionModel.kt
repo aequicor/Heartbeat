@@ -60,13 +60,36 @@ public data class SessionQuery(
     val order: SessionOrder = SessionOrder.RecentlyUpdated,
 )
 
-/** Explicit creation request; credential compatibility and revision are checked before execution. */
+/**
+ * Explicit creation request; credential compatibility and revision are checked before execution.
+ * [areDetachedToolsEnabled] lets a session without a [workspace] receive the hosted tools and instructions of
+ * contributions that support it ([AgentToolContribution.isDetachedSupported]). Only callers that present hosted
+ * tool calls and answer their permission requests enable it; a project session always receives hosted tools.
+ * The adapter checks it before attaching detached tools; the hosted tools dispatcher ([ProfileAgentTools]) does not.
+ * Adapters that attach tools per turn (Claude, Pi, Koog) follow the request that opens the native session without
+ * current holders, including a resume after a restart or after every handle was closed; attaching a session another
+ * handle still holds keeps that holder's value, and an accepted turn keeps the value it was accepted with.
+ * An adapter that declares tools once per native thread (Codex) follows the request that starts the thread: a thread
+ * it keeps open is reused with that choice, and a resume never adds or removes declarations, though without the
+ * resuming caller's opt-in calls to them are refused.
+ */
 @Serializable
-public data class CreateSessionRequest(val target: EngineTarget, val workspace: WorkspaceRef? = null)
+public data class CreateSessionRequest(
+    val target: EngineTarget,
+    val workspace: WorkspaceRef? = null,
+    val areDetachedToolsEnabled: Boolean = false,
+)
 
-/** Explicit resume route. Unknown historical authentication requires resolution/confirmation before this call. */
+/**
+ * Explicit resume route. Unknown historical authentication requires resolution/confirmation before this call.
+ * [areDetachedToolsEnabled] has the meaning of [CreateSessionRequest.areDetachedToolsEnabled].
+ */
 @Serializable
-public data class ResumeSessionRequest(val target: EngineTarget, val workspace: WorkspaceRef? = null)
+public data class ResumeSessionRequest(
+    val target: EngineTarget,
+    val workspace: WorkspaceRef? = null,
+    val areDetachedToolsEnabled: Boolean = false,
+)
 
 /** Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication. */
 @Serializable

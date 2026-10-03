@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
@@ -91,19 +92,32 @@ private class NativeHistoryProjection(private val time: Instant) {
             MessageRole.User -> {
                 flush()
                 streamingAnswer = null
-                messages += StudioMessage.Prompt(
-                    item.info.id.value,
-                    time,
-                    item.parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning }.text(),
-                    isTimestampKnown = false,
-                    attachments = item.parts.mapNotNull {
-                        when (it) {
-                            is ContentPart.Image -> it.resource
-                            is ContentPart.Resource -> it.resource
-                            is ContentPart.Text, is ContentPart.Reasoning -> null
-                        }
-                    },
-                )
+                // Host directives (a /remember request, learning hints) go to the engine, not the transcript; each
+                // text part is stripped on its own.
+                val text = item.parts.mapNotNull {
+                    when (it) {
+                        is ContentPart.Text -> stripHostDirectives(it.text)
+                        is ContentPart.Reasoning -> it.text
+                        is ContentPart.Image, is ContentPart.Resource -> null
+                    }
+                }.joinToString("\n")
+                val attachments = item.parts.mapNotNull {
+                    when (it) {
+                        is ContentPart.Image -> it.resource
+                        is ContentPart.Resource -> it.resource
+                        is ContentPart.Text, is ContentPart.Reasoning -> null
+                    }
+                }
+                // A message that carried only host directives is not the user's prompt.
+                if (text.isNotBlank() || attachments.isNotEmpty()) {
+                    messages += StudioMessage.Prompt(
+                        item.info.id.value,
+                        time,
+                        text,
+                        isTimestampKnown = false,
+                        attachments = attachments,
+                    )
+                }
             }
 
             MessageRole.System -> appendNotice(item.info.id.value, item.parts.text())
@@ -170,9 +184,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
                 }
             }
 
-            is SessionItem.ToolCall -> parts += StudioReplyPart.Tool(
-                StudioToolRun(item.call.value, item.name, item.status.toStudio(), item.arguments),
-            )
+            is SessionItem.ToolCall -> parts += StudioReplyPart.Tool(toolRun(item))
 
             is SessionItem.ToolResult -> updateToolResult(item)
 
@@ -183,6 +195,13 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
 
             is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
         }
+    }
+
+    /** A learning call shows its arguments as a card, so only the tool result goes to the console. */
+    private fun toolRun(item: SessionItem.ToolCall): StudioToolRun {
+        val learning = learningCall(item.name, item.arguments)
+        val output = if (learning == null) item.arguments else ""
+        return StudioToolRun(item.call.value, item.name, item.status.toStudio(), output, learning = learning)
     }
 
     private fun updateToolResult(item: SessionItem.ToolResult) {
@@ -200,6 +219,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             },
             output = listOfNotNull(previous?.output?.takeIf(String::isNotBlank), item.parts.text())
                 .filter(String::isNotBlank).joinToString("\n"),
+            learning = previous?.learning,
         )
         if (index >= 0) parts[index] = StudioReplyPart.Tool(updated) else parts += StudioReplyPart.Tool(updated)
     }

@@ -1,12 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioPane
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
@@ -119,7 +121,15 @@ data class ToolUi(
     val output: String,
     val diff: String?,
     val feedback: FeedbackUi? = null,
+    val learning: LearningCallUi? = null,
 )
+
+/** Self-learning tool call shown as a card: [kind] is general, model or skill when the agent named it. */
+@Immutable
+data class LearningCallUi(val isSkillLoad: Boolean, val kind: LearningKindUi?, val title: String, val content: String)
+
+/** Kind of an instruction the agent remembers. */
+enum class LearningKindUi { General, Model, Skill }
 
 /** Chronological blocks inside one answer, retaining native identities across streaming updates. */
 @Immutable
@@ -271,4 +281,17 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
     output = output,
     diff = diff,
     feedback = feedback?.toUi(),
+    learning = learning?.let { call ->
+        LearningCallUi(
+            isSkillLoad = call.action == LearningAction.LoadSkill,
+            kind = when (call.kind) {
+                InstructionKind.General -> LearningKindUi.General
+                InstructionKind.Model -> LearningKindUi.Model
+                InstructionKind.Skill -> LearningKindUi.Skill
+                null -> null
+            },
+            title = call.title,
+            content = call.content,
+        )
+    },
 )

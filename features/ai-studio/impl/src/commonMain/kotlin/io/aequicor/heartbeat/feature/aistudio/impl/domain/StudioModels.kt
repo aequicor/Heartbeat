@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
@@ -60,7 +61,19 @@ data class StudioToolRun(
     val output: String = "",
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
+    val learning: StudioLearningCall? = null,
 )
+
+/** What a self-learning tool call does: saving an instruction or loading a learned skill. */
+data class StudioLearningCall(
+    val action: LearningAction,
+    val kind: InstructionKind?,
+    val title: String,
+    val content: String,
+)
+
+/** Self-learning tool of a [StudioLearningCall]. */
+enum class LearningAction { Remember, LoadSkill }
 
 /** Ordered engine-visible answer content. Reasoning exists only when explicitly exposed by the engine. */
 sealed interface StudioReplyPart {

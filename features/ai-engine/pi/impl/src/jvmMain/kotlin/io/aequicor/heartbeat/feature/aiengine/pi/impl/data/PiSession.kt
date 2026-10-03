@@ -140,6 +140,10 @@ internal class PiSession(
             if (effect is ActiveSessionEffect.Decide) decide(effect.decision) else handoff(effect)
         },
     )
+
+    // Hosted tools are prepared once per process from the request that launched it.
+    private val launchTarget = request.target
+    private val areDetachedToolsEnabled = request.areDetachedToolsEnabled
     private val hostedTools = PiHostedSessionTools(
         environment,
         { state.value is ActiveSessionState.Interrupting },
@@ -164,7 +168,8 @@ internal class PiSession(
     /** Native session of this handle once started; null before [start] succeeds. */
     val attachedRef: SessionRef? get() = nativeRef
 
-    suspend fun prepareHostedTools(): PiHostedTools? = hostedTools.prepare(route.workspace)
+    suspend fun prepareHostedTools(): PiHostedTools? =
+        hostedTools.prepare(route.workspace, launchTarget, areDetachedToolsEnabled)
 
     /** Starts Pi on a new native session, or on the stored [transcript] when the session is resumed. */
     suspend fun start(factory: PiConnector, transcript: PiTranscript? = null): Unit = withContext(dispatchers.main) {

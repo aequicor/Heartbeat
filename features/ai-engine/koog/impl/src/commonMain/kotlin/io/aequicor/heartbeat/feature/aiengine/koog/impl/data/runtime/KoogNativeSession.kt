@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
@@ -102,6 +103,15 @@ internal class KoogNativeSession(
 ) {
     /** Set by the owning runtime before the first lease is issued. */
     var onIdle: (KoogNativeSession) -> Unit = {}
+
+    /**
+     * Hosted tools for a session without a project. Chosen by the lease that attaches without other holders;
+     * only callers answering hosted permissions enable it.
+     */
+    private var areDetachedToolsEnabled = false
+
+    // The opt-in of the running turn, captured at its acceptance; a later lease changes only later turns.
+    private var isTurnDetached = false
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -127,8 +137,14 @@ internal class KoogNativeSession(
     val ref: SessionRef = initial.summary.ref
     val model: ModelId get() = configuration.value.model
 
-    fun attach(): ActiveSession {
+    /**
+     * Issues a lease. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
+     * session without a project, even while a turn accepted for an earlier lease still runs; a lease on a session
+     * that is already held keeps the holders' choice.
+     */
+    fun attach(areDetachedToolsEnabled: Boolean): ActiveSession {
         checkOpen()
+        if (handles.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
         val state = MutableStateFlow(current)
         handles += state
         return object : ActiveSession {
@@ -271,11 +287,37 @@ internal class KoogNativeSession(
         history.append { SessionEvent.TurnStarted(it, turn) }
         history.append { SessionEvent.ItemUpserted(it, user) }
         active = turn
+        isTurnDetached = areDetachedToolsEnabled
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, origin, model.value, request.trust ?: TrustLevel.Ask)
         }
         return turn.id
+    }
+
+    /** Project tools for a project session; detached hosted tools for a chat whose caller opted in. */
+    private suspend fun turnWorkspace(context: AgentToolContext): KoogWorkspace? {
+        val isCodingEnabled = access.codingToolsEnabled()
+        val project = route.workspace
+        return when {
+            project != null -> project.takeIf { workspaces.hasHostedTools || isCodingEnabled }
+                ?.let { workspaces.open(it, context) }
+                ?.withCodingTools(isCodingEnabled)
+
+            isTurnDetached -> openDetached(context)
+
+            else -> null
+        }
+    }
+
+    /** Detached hosted tools are optional: a failing contribution leaves a plain chat turn. */
+    private suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = try {
+        workspaces.openDetached(context)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.sanitized()) { "Detached hosted tools unavailable; the chat turn continues without them" }
+        null
     }
 
     private suspend fun runTurn(
@@ -291,11 +333,8 @@ internal class KoogNativeSession(
         var outcome: TurnOutcome = TurnOutcome.Unknown
         try {
             val context = koogHostedContext(ref, route.workspace, turn, trust) { approveHosted(turn, it) }
-            val isCodingEnabled = access.codingToolsEnabled()
-            val workspace = route.workspace?.takeIf { workspaces.hasHostedTools || isCodingEnabled }
-                ?.let { workspaces.open(it, context) }
-                ?.withCodingTools(isCodingEnabled)
-            val rounds = if (workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
+            val workspace = turnWorkspace(context)
+            val rounds = if (workspace != null && route.workspace != null) MAX_CODING_TOOL_ROUNDS else MAX_TOOL_ROUNDS
             var input: Prompt? = null
             var isComplete = false
             var remainingRounds = rounds
@@ -314,7 +353,9 @@ internal class KoogNativeSession(
                     tools = !tools.isEmpty(),
                     attachments = record.items.hasResourceInputs(),
                 )
-                val prompt = input ?: initialPrompt(provider, workspace?.instructions)
+                // Hosted instructions only accompany the tools they describe; blank ones add no system message.
+                val instructions = workspace?.instructions?.takeIf { it.isNotBlank() && !tools.isEmpty() }
+                val prompt = input ?: initialPrompt(provider, instructions)
                 val round = streamWithEffort(turn, client, provider, origin, textModel, tools, prompt, requestSelection)
                 val next = toolExecution.nextPrompt(turn, tools, round, prompt)
                 if (next == null) {
@@ -366,8 +407,9 @@ internal class KoogNativeSession(
     private val toolSupport = mutableMapOf<String, Boolean>()
 
     /**
-     * Tools of this turn: search tools while their toggle is on, coding tools of the session's project on Desktop.
-     * Tools are sent only when the model accepts them.
+     * Tools of this turn: search tools while their toggle is on, and the hosted tools of [workspace] — the project's
+     * coding tools on Desktop, or detached hosted tools of a chat without a project whose caller opted in.
+     * Tools are sent only when the model accepts them; without them the turn also omits their instructions.
      */
     private suspend fun turnTools(
         client: KoogClient,

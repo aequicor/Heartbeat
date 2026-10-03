@@ -95,6 +95,8 @@ data class AiStudioScreenState(
     val visibleAttachmentPreviews: ImmutableMap<String, PreviewVisibilityUi> = persistentMapOf(),
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
     val isAttachmentsEnabled: Boolean = false,
+    /** Whether the composer offers the `/remember` command. */
+    val isRememberEnabled: Boolean = false,
     val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),
@@ -286,6 +288,8 @@ data class PermissionUi(
     val requestId: String,
     val title: String,
     val options: ImmutableList<PermissionOptionUi>,
+    /** What exactly is being approved, e.g. the text of an instruction the agent wants to remember. */
+    val description: String? = null,
 )
 
 /** Exact native choice identity, displayed without inventing approval policy. */

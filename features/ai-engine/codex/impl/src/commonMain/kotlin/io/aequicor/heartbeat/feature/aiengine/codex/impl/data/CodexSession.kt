@@ -537,6 +537,7 @@ internal class CodexSession(
             AgentToolPermissions { hostedApproval(turn, it) },
             params.text("callId")?.let(::ToolCallId),
             lifetime = toolJobs[turn.id],
+            target = turn.target,
         )
         return try {
             val result = runtime.host.tools.execute(context, name, args)

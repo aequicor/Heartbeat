@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -175,6 +176,7 @@ internal class ProcessClaudeTransport(
                     checkNotNull(bridgeConfig),
                     checkNotNull(instructionFile),
                     isSearchEnabled,
+                    isProviderSearchKept = !hosted.isProject,
                 )
             } else {
                 bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
@@ -363,25 +365,47 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
     override suspend fun locate(launch: LaunchContext): Installation = base.locate(launch)
 }
 
-/** A turn-scoped bearer; trusted instructions are passed in an owner-only file, never shell-escaped JSON. */
-internal data class ClaudeHostedTools(val endpoint: AgentToolBridgeEndpoint, val instructions: String) {
+/**
+ * A turn-scoped bearer; trusted instructions are passed in an owner-only file, never shell-escaped JSON.
+ * [isProject] is false for detached tools of a session without a project.
+ */
+internal data class ClaudeHostedTools(
+    val endpoint: AgentToolBridgeEndpoint,
+    val instructions: String,
+    val isProject: Boolean = true,
+) {
     override fun toString(): String = "ClaudeHostedTools(***)"
 }
 
-/** Native coding tools remain disabled. CLI approval covers only the host, which applies its own trust gate. */
+/**
+ * Native coding tools remain disabled. CLI approval covers only the host, which applies its own trust gate.
+ * [isProviderSearchKept] keeps the provider-side `WebSearch` a session without a project has without hosted
+ * tools, so attaching detached tools does not take web search away from a plain chat.
+ */
 internal fun claudeHostedArguments(
     arguments: List<String>,
     config: Path,
     instructions: Path,
     search: Boolean,
-): List<String> = arguments.filterNot { it == SEARCH_BRIDGE_MARKER } + listOf(
-    "--permission-mode=dontAsk",
-    "--allowedTools=mcp__heartbeat_tools__*" + if (search) ",mcp__heartbeat_search__*" else "",
-    "--mcp-config",
-    config.toString(),
-    "--append-system-prompt-file",
-    instructions.toString(),
-)
+    isProviderSearchKept: Boolean = false,
+): List<String> {
+    val isProviderSearch = search && isProviderSearchKept
+    val allowed = buildList {
+        add("mcp__${HOSTED_TOOLS_SERVER}__*")
+        if (search) add("mcp__heartbeat_search__*")
+        if (isProviderSearch) add(CLAUDE_PROVIDER_SEARCH)
+    }
+    return arguments.filterNot { it == SEARCH_BRIDGE_MARKER || (isProviderSearch && it == "--tools=") } +
+        listOfNotNull("--tools=$CLAUDE_PROVIDER_SEARCH".takeIf { isProviderSearch }) +
+        listOf(
+            "--permission-mode=dontAsk",
+            "--allowedTools=${allowed.joinToString(",")}",
+            "--mcp-config",
+            config.toString(),
+            "--append-system-prompt-file",
+            instructions.toString(),
+        )
+}
 
 /** Hosted coding and optional public web search share one strict MCP configuration. */
 internal fun claudeHostedConfig(
@@ -393,7 +417,7 @@ internal fun claudeHostedConfig(
         put(
             "mcpServers",
             buildJsonObject {
-                put("heartbeat_tools", mcpServer(endpoint.url, endpoint.token))
+                put(HOSTED_TOOLS_SERVER, mcpServer(endpoint.url, endpoint.token))
                 search?.let { put("heartbeat_search", mcpServer(it.origin, it.token)) }
             },
         )
@@ -484,6 +508,8 @@ private fun BufferedReader.readFrame(): String? {
 }
 
 private const val MAX_FRAME_CHARS = 2 * 1024 * 1024
+
+private const val CLAUDE_PROVIDER_SEARCH = "WebSearch"
 
 private const val CLAUDE_SEARCH_TOOLS =
     "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"

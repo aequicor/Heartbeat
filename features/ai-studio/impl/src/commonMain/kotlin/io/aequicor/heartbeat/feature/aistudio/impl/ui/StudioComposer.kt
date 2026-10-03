@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -34,6 +37,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withRememberCommand
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -42,6 +46,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_paste
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_commands
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
@@ -61,6 +66,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_review_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_tests
@@ -92,6 +98,13 @@ internal fun StudioComposer(
     val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
     val isAddingEnabled = content.canAddAttachments()
     val focus = remember { FocusRequester() }
+    var inputFocusRequests by remember { mutableIntStateOf(0) }
+    LaunchedEffect(inputFocusRequests) {
+        if (inputFocusRequests == 0) return@LaunchedEffect
+        // The menu returns focus to its button when it closes; the input takes it back on the next frame.
+        withFrameNanos { }
+        focus.requestFocus()
+    }
     var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
     SideEffect {
         if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {
@@ -126,7 +139,7 @@ internal fun StudioComposer(
         },
         leadingContent = {
             AttachmentActions(isAddingEnabled, content, onIntent)
-            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch)
+            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch) { inputFocusRequests++ }
         },
         trailingContent = {
             ComposerEffort(content, hasRunPreferences, onIntent)
@@ -153,9 +166,12 @@ private fun StudioComposerLeading(
     hasRunPreferences: Boolean,
     onIntent: (AiStudioScreenIntent) -> Unit,
     onOpenResearch: ((String) -> Unit)?,
+    onFocusInput: () -> Unit,
 ) {
     TemplatesMenu(
         draft = content.draft,
+        isRememberEnabled = content.isRememberEnabled,
+        onFocusInput = onFocusInput,
         approval = content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
         onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
@@ -338,6 +354,8 @@ internal fun ContextTray(
 @Composable
 private fun TemplatesMenu(
     draft: String,
+    isRememberEnabled: Boolean,
+    onFocusInput: () -> Unit,
     approval: ApprovalUi?,
     onDraft: (String) -> Unit,
     onApproval: (ApprovalUi) -> Unit,
@@ -350,7 +368,14 @@ private fun TemplatesMenu(
         Template("review", Res.string.template_review, Res.string.template_review_prompt),
     )
     val prompts = templates.associate { it.id to stringResource(it.prompt) }
+    // A command, not a template: it starts its own group of the menu.
+    val rememberAction = HbComposerAction(
+        REMEMBER_ACTION,
+        stringResource(Res.string.template_remember),
+        sectionLabel = stringResource(Res.string.composer_commands),
+    )
     val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
+        listOfNotNull(rememberAction.takeIf { isRememberEnabled }) +
         approvalActions(approval, approvalEnabled)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
@@ -360,6 +385,10 @@ private fun TemplatesMenu(
         onAction = { id ->
             if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
+            } else if (id == REMEMBER_ACTION) {
+                // The command must lead the prompt: templates append, /remember prefixes the typed text.
+                onDraft(withRememberCommand(draft))
+                onFocusInput()
             } else {
                 val prompt = prompts[id].orEmpty()
                 onDraft(if (draft.isBlank()) prompt else "${draft.trimEnd()}\n$prompt")
@@ -455,6 +484,8 @@ private fun effortLabel(effort: EffortUi): String = stringResource(
 )
 
 private data class Template(val id: String, val label: StringResource, val prompt: StringResource)
+
+private const val REMEMBER_ACTION = "remember"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"

@@ -53,6 +53,8 @@ private const val REJECTION_GRACE_FRAMES = 2
  * Controlled text with a hoisted editor scroll state, shared by fields and the composer.
  * Owners may answer asynchronously (for example a store on the main dispatcher): an edit is only
  * treated as rejected when [value] is still unchanged a few frames later, and late answers keep the caret.
+ * When the owner replaces the text itself, a caret at the end stays at the end and a prefix the owner adds moves the
+ * caret with the text after it; any other selection is clamped to the new text.
  * Selection uses the current scoped palette without replacing selection of surrounding read-only text.
  *
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
@@ -292,7 +294,8 @@ private class ControlledEditorBridge(private var externalText: String, private v
             pendingReports.clear()
         }
         if (editingText != value) {
-            val selection = selectionsAfterEdit[value] ?: selectionsBeforeEdit[value] ?: state.selection
+            val selection = selectionsAfterEdit[value] ?: selectionsBeforeEdit[value]
+                ?: ownerSelection(editingText, value, state.selection)
             state.replaceControlledText(value, selection)
         }
         latestSelection = state.selection
@@ -303,6 +306,19 @@ private class ControlledEditorBridge(private var externalText: String, private v
         pendingReports.clear()
         selectionsBeforeEdit.clear()
         selectionsAfterEdit.clear()
+    }
+}
+
+/**
+ * Caret for text the owner replaced: a caret at the end of [old] stays at the end, and text the owner put before
+ * [old] (a command prefix) moves the caret with the text after it; any other caret is clamped.
+ */
+private fun ownerSelection(old: String, new: String, selection: TextRange): TextRange {
+    val shift = new.length - old.length
+    return when {
+        selection.collapsed && selection.end == old.length -> TextRange(new.length)
+        old.isNotEmpty() && new.endsWith(old) -> TextRange(selection.start + shift, selection.end + shift)
+        else -> selection
     }
 }
 

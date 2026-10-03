@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -39,7 +41,13 @@ public interface AgentToolBindings {
     public fun agentToolContributions(): Set<AgentToolContribution>
 }
 
-/** One authorization boundary; adapters never implement a second gate for these tools. */
+/**
+ * One authorization boundary for tool calls; adapters never implement a second trust gate for these tools.
+ * A session without a project sees only contributions supporting it; the turn barrier still reaches every
+ * contribution. Whether such a session gets hosted tools at all is the opt-in of the request that opens it
+ * (`CreateSessionRequest.areDetachedToolsEnabled` tells which one decides per adapter): adapters check it before
+ * attaching tools, this dispatcher never sees it and answers any request without a workspace.
+ */
 @Inject
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
@@ -48,24 +56,34 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
-    private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, TurnId>()
 
-    override suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId) {
+    // Entries stay after the turn: a delayed call must still resolve to its finished facade turn.
+    private val boundTurns = mutableMapOf<Pair<SessionRef, RequestId>, BoundTurn>()
+
+    override suspend fun bindTurn(session: SessionRef, request: RequestId, turn: TurnId, target: EngineTarget?) {
         log.i { "Bind hosted execution to the facade turn" }
         callsLock.withLock {
             val key = session to request
-            check(boundTurns[key] == null || boundTurns[key] == turn) { "Request already belongs to another turn" }
-            boundTurns[key] = turn
+            val previous = boundTurns[key]
+            check(previous == null || previous.turn == turn) { "Request already belongs to another turn" }
+            boundTurns[key] = BoundTurn(turn, target ?: previous?.target)
         }
     }
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         declarations(workspace).map { it.second }
 
-    override suspend fun instructions(workspace: WorkspaceRef?): String = contributions
+    override suspend fun instructions(workspace: WorkspaceRef?): String = owners(workspace)
         .map { it.instructions(workspace) }
-        .filter { it.isNotBlank() }
-        .joinToString("\n\n")
+        .joined()
+
+    override suspend fun instructions(scope: AgentToolScope): String = owners(scope.workspace)
+        .filter { owner ->
+            val declared = scope.declared ?: return@filter true
+            owner.specifications(scope.workspace).any { it.name in declared }
+        }
+        .map { it.instructions(scope) }
+        .joined()
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         coroutineScope {
@@ -77,8 +95,12 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
             try {
                 currentCoroutineContext().ensureActive()
                 val isRegistered = callsLock.withLock {
-                    val turn = context.request?.let { boundTurns[context.session to it] } ?: context.turn
-                    trusted = context.copy(turn = turn, authorization = null)
+                    val bound = context.request?.let { boundTurns[context.session to it] }
+                    trusted = context.copy(
+                        turn = bound?.turn ?: context.turn,
+                        target = bound?.target ?: context.target,
+                        authorization = null,
+                    )
                     val key = trusted.session to trusted.turn
                     if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
                 }
@@ -157,11 +179,13 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
         arguments: JsonObject,
         approval: AgentToolApproval,
     ): AgentToolResult? {
-        val isDecisionRequired = when (spec.action) {
+        val isRequiredByTrust = when (spec.action) {
             AgentToolAction.Read -> false
             AgentToolAction.Edit -> context.trust == TrustLevel.Ask
             AgentToolAction.Command -> context.trust != TrustLevel.Full
         }
+        // The owner may add a decision (its own approval policy); it can never remove one the table demands.
+        val isDecisionRequired = isRequiredByTrust || owner.requiresDecision(context, spec, arguments)
         return if (isDecisionRequired && !context.permissions.request(approval)) {
             log.i { "Hosted tool declined name=${spec.name}" }
             AgentToolResult("The user declined this action", isError = true)
@@ -175,8 +199,15 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
     }
 
     private suspend fun declarations(workspace: WorkspaceRef?): List<Pair<AgentToolContribution, AgentToolSpec>> {
-        val result = contributions.flatMap { owner -> owner.specifications(workspace).map { owner to it } }
+        val result = owners(workspace).flatMap { owner -> owner.specifications(workspace).map { owner to it } }
         check(result.map { it.second.name }.distinct().size == result.size) { "Duplicate hosted tool name" }
         return result
     }
+
+    private fun owners(workspace: WorkspaceRef?): List<AgentToolContribution> =
+        contributions.filter { workspace != null || it.isDetachedSupported }
+
+    private fun List<String>.joined(): String = filter { it.isNotBlank() }.joinToString("\n\n")
+
+    private data class BoundTurn(val turn: TurnId, val target: EngineTarget?)
 }
