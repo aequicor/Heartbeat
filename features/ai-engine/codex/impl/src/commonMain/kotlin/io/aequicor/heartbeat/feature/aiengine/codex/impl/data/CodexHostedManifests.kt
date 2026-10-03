@@ -27,6 +27,8 @@ internal sealed interface HostedThread {
  * Hosted tools of a thread being opened: the [manifest] saved for a new thread, the declarations and instructions
  * sent with its start or resume ([parameters]), and whether its hosted tool calls are served ([isServed]).
  */
+// A generated data-class toString would expose hosted instructions and workspace paths.
+@Suppress("UseDataClass")
 internal class HostedOpening(
     val manifest: String?,
     val parameters: Pair<List<JsonObject>, String>?,
