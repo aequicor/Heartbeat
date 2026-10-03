@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -284,10 +285,10 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
         LearningCallUi(
             isSkillLoad = call.action == LearningAction.LoadSkill,
             kind = when (call.kind) {
-                "general" -> LearningKindUi.General
-                "model" -> LearningKindUi.Model
-                "skill" -> LearningKindUi.Skill
-                else -> null
+                InstructionKind.General -> LearningKindUi.General
+                InstructionKind.Model -> LearningKindUi.Model
+                InstructionKind.Skill -> LearningKindUi.Skill
+                null -> null
             },
             title = call.title,
             content = call.content,

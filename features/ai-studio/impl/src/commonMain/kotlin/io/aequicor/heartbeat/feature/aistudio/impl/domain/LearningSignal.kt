@@ -14,7 +14,7 @@ internal enum class LearningSignal {
 
 /** Signals whose signatures occur in [output]; empty for ordinary output. */
 internal fun detectLearningSignals(output: String): Set<LearningSignal> = buildSet {
-    if (ENCODING.any { it.containsMatchIn(output) } || REPLACEMENT.findAll(output).count() >= MIN_REPLACEMENTS) {
+    if (ENCODING.any { it.containsMatchIn(output) } || output.hasReplacements()) {
         add(LearningSignal.TextEncoding)
     }
     if (SHELL.any { it.containsMatchIn(output) }) add(LearningSignal.ShellDialect)
@@ -37,7 +37,12 @@ internal fun learningHint(signals: Set<LearningSignal>): String {
 
 private const val MIN_REPLACEMENTS = 3
 
-private val REPLACEMENT = Regex("�")
+private const val REPLACEMENT = '\uFFFD'
+
+private fun String.hasReplacements(): Boolean {
+    var count = 0
+    return any { it == REPLACEMENT && ++count >= MIN_REPLACEMENTS }
+}
 
 private val ENCODING = listOf(
     Regex("""Unicode(?:Encode|Decode)Error"""),
@@ -53,7 +58,7 @@ private val ENCODING = listOf(
 
 private val SHELL = listOf(
     Regex("""is not recognized as an internal or external command"""),
-    Regex("""The term '[^']+' is not recognized as (?:the )?name of a cmdlet"""),
+    Regex("""The term '[^']+' is not recognized as (?:the |a )?name of a cmdlet"""),
     Regex("""The token '&&' is not a valid statement separator"""),
     Regex("""'(?:ls|cat|grep|rm|export)' is not recognized"""),
 )

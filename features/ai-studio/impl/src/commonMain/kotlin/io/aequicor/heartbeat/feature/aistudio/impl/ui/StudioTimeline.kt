@@ -330,7 +330,8 @@ private fun ToolUi.toHb(labels: TimelineLabels): HbToolCall = HbToolCall(
         ?: learning?.let { labels.learning?.summary(it) }.orEmpty(),
     blocks = listOfNotNull(
         feedbackBlock(labels.feedback),
-        learning?.content?.takeIf { it.isNotBlank() }?.let { HbToolBlock.Markdown("$id-learning", it) },
+        // Literal, not Markdown: link definitions and URLs must stay visible in what becomes a future prompt.
+        learning?.content?.takeIf { it.isNotBlank() }?.let { HbToolBlock.Console("$id-learning", it) },
         output.takeIf { it.isNotBlank() }?.let { HbToolBlock.Console("$id-console", it.trimEnd()) },
         diff?.let { HbToolBlock.Diff("$id-diff", it) },
     ).toImmutableList(),

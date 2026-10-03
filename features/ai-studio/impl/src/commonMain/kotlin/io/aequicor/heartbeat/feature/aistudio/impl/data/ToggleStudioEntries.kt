@@ -53,10 +53,12 @@ internal class ToggleStudioEntries(
 
     override val showsUnifiedSettings: Flow<Boolean> = toggles.observe(UnifiedSettings)
 
-    override val showsRemember: Flow<Boolean> =
-        combine(toggles.observe(AgentLearningEnabled), sessions.active) { isEnabled, session ->
-            isEnabled && session != null
-        }
+    // The demo runtime has no engine tools, so the command would reach no remember tool.
+    override val showsRemember: Flow<Boolean> = combine(
+        toggles.observe(AgentLearningEnabled),
+        toggles.observe(StudioEngineRuntime),
+        sessions.active,
+    ) { isEnabled, runtime, session -> isEnabled && runtime && session != null }
 
     override val showsProfileSettings: Flow<Boolean> =
         combine(toggles.observe(SearchEngineTools), sessions.active) { isEnabled, session ->

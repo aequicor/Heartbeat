@@ -4,16 +4,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
@@ -24,6 +30,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withDraft
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_edits
@@ -33,6 +40,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_default
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -123,6 +131,43 @@ class StudioComposerUiTest {
                     events,
                 )
             }
+        }
+
+    @Test
+    fun `remember command leads the draft and typing continues after it`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val pane = PaneUi(0)
+            var state by mutableStateOf(
+                AiStudioScreenState(
+                    panes = persistentListOf(pane),
+                    models = StudioModelOptions,
+                    isRememberEnabled = true,
+                ),
+            )
+            var addLabel = ""
+            var rememberLabel = ""
+            setContent {
+                addLabel = stringResource(Res.string.composer_add)
+                rememberLabel = stringResource(Res.string.template_remember)
+                HbTheme(darkTheme = false) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        StudioComposer(
+                            state.paneContent(pane),
+                            { intent ->
+                                if (intent is AiStudioScreenIntent.DraftChanged) {
+                                    state = state.withDraft(intent.paneId, intent.text)
+                                }
+                            },
+                            isCompact = false,
+                        )
+                    }
+                }
+            }
+            onNodeWithContentDescription(addLabel).performClick()
+            onNodeWithText(rememberLabel).performClick()
+            waitForIdle()
+            onNode(hasSetTextAction()).assertIsFocused().performTextInput("Use LF")
+            runOnIdle { assertEquals("/remember Use LF", state.paneContent(pane).draft) }
         }
 
     @Test

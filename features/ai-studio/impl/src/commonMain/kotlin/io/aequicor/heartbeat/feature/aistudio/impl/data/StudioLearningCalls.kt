@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioLearningCall
 import kotlinx.serialization.SerializationException
@@ -11,15 +13,12 @@ import kotlinx.serialization.json.JsonPrimitive
 
 private val log = Log.tag("StudioLearningCalls")
 
-/** Prefix Claude gives tools of the Heartbeat MCP server; other engines use the plain name. */
-private const val MCP_PREFIX = "mcp__heartbeat_tools__"
-
 /**
  * The self-learning call behind a native tool call named [name], with its readable arguments, or null for any other
  * tool. Unreadable arguments still mark the call so the card does not dump raw JSON.
  */
 internal fun learningCall(name: String, arguments: String): StudioLearningCall? {
-    val action = when (name.removePrefix(MCP_PREFIX)) {
+    val action = when (hostedToolName(name)) {
         LearningTools.REMEMBER -> LearningAction.Remember
         LearningTools.LOAD_SKILL -> LearningAction.LoadSkill
         else -> return null
@@ -27,10 +26,17 @@ internal fun learningCall(name: String, arguments: String): StudioLearningCall? 
     val values = parse(arguments)
     return StudioLearningCall(
         action,
-        kind = values?.text("kind"),
-        title = values?.text(if (action == LearningAction.LoadSkill) "name" else "title").orEmpty(),
-        content = values?.text("content").orEmpty(),
+        kind = values?.text(LearningTools.Arguments.KIND)?.let(::kindOf),
+        title = values?.text(
+            if (action == LearningAction.LoadSkill) LearningTools.Arguments.NAME else LearningTools.Arguments.TITLE,
+        ).orEmpty(),
+        content = values?.text(LearningTools.Arguments.CONTENT).orEmpty(),
     )
+}
+
+/** The kind named by its serial name in the tool arguments; an unknown one is shown without a kind. */
+private fun kindOf(value: String): InstructionKind? = InstructionKind.entries.firstOrNull {
+    InstructionKind.serializer().descriptor.getElementName(it.ordinal) == value
 }
 
 /** Streaming arguments may still be incomplete; such a card fills in with a later revision of the call. */

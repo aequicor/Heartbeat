@@ -148,6 +148,23 @@ class HbEditableTextUiTest {
     }
 
     @Test
+    fun `owner text keeps a caret at the end and follows a prefix`() = runSkikoComposeUiTest {
+        var value by mutableStateOf("")
+        setContent { EditorTestHost(value, { value = it }) }
+        val editor = onNodeWithTag("editor")
+        editor.performTextInputSelection(TextRange.Zero)
+        runOnIdle { value = "/remember " }
+        editor.assertEditorSelection(TextRange(10))
+        editor.performTextInput("Use LF")
+        editor.assertEditorText("/remember Use LF")
+
+        runOnIdle { value = "use LF" }
+        editor.performTextInputSelection(TextRange(3))
+        runOnIdle { value = "/remember use LF" }
+        editor.assertEditorSelection(TextRange(13))
+    }
+
+    @Test
     fun `accepted edits preserve caret and selection across unrelated recomposition`() = runSkikoComposeUiTest {
         var value by mutableStateOf("abcd")
         var isDark by mutableStateOf(false)

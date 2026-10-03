@@ -1,11 +1,14 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -95,18 +98,19 @@ internal fun StudioComposer(
     val support = content.models.firstOrNull { it.id == settings.modelId }?.inputSupport
     val isAddingEnabled = content.canAddAttachments()
     val focus = remember { FocusRequester() }
-    // The menu returns focus to its button on close; the input takes it back after the next composition.
-    var isInputFocusRequested by remember { mutableStateOf(false) }
+    var inputFocusRequests by remember { mutableIntStateOf(0) }
+    LaunchedEffect(inputFocusRequests) {
+        if (inputFocusRequests == 0) return@LaunchedEffect
+        // The menu returns focus to its button when it closes; the input takes it back on the next frame.
+        withFrameNanos { }
+        focus.requestFocus()
+    }
     var previousPhase by remember(session?.id) { mutableStateOf(content.worktree?.phase) }
     SideEffect {
         if (previousPhase == WorktreePhaseUi.AwaitingDecision && content.worktree?.phase == WorktreePhaseUi.Idle) {
             focus.requestFocus()
         }
         previousPhase = content.worktree?.phase
-        if (isInputFocusRequested) {
-            isInputFocusRequested = false
-            focus.requestFocus()
-        }
     }
     HbChatComposer(
         value = draft,
@@ -135,7 +139,7 @@ internal fun StudioComposer(
         },
         leadingContent = {
             AttachmentActions(isAddingEnabled, content, onIntent)
-            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch) { isInputFocusRequested = true }
+            StudioComposerLeading(content, hasRunPreferences, onIntent, onOpenResearch) { inputFocusRequests++ }
         },
         trailingContent = {
             ComposerEffort(content, hasRunPreferences, onIntent)

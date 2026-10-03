@@ -236,6 +236,7 @@ class AiStudioUiTest {
         setContent { HbTheme(darkTheme = false) { AiStudioContent(state, events::add, exits) } }
         onNodeWithTag("permission-request").assertIsDisplayed()
         onNodeWithTag("permission-request-description").assertIsDisplayed()
+        onNodeWithTag("permission-request-more").assertDoesNotExist()
         onNodeWithTag("permission-request-once").performClick()
         runOnIdle {
             assertEquals(
@@ -244,6 +245,31 @@ class AiStudioUiTest {
             )
         }
     }
+
+    @Test
+    fun `a long description on a low pane keeps the decision visible and says the text continues`() =
+        runSkikoComposeUiTest(size = Size(1000f, 480f)) {
+            val long = (1..80).joinToString("\n") { "line $it" }
+            val state = workspace.copy(
+                panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                running = persistentSetOf("s-facade"),
+                transcripts = transcriptsOf("s-facade"),
+                permissions = persistentListOf(
+                    PermissionUi(
+                        "s-facade",
+                        "request",
+                        "Remember instruction",
+                        persistentListOf(PermissionOptionUi("once", "Once"), PermissionOptionUi("deny", "Deny")),
+                        description = long,
+                    ),
+                ),
+            )
+            setContent { HbTheme(darkTheme = false) { AiStudioContent(state, {}, exits) } }
+            onNodeWithTag("permission-request-more").assertIsDisplayed()
+            onNodeWithTag("permission-request-once").assertIsDisplayed()
+            onNodeWithTag("permission-request-deny").assertIsDisplayed()
+            onNodeWithTag("composer-0").assertIsDisplayed()
+        }
 
     @Test
     fun `awaiting native history shows working and stopping requires an explicit stop`() = runSkikoComposeUiTest(

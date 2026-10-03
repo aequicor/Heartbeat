@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
@@ -137,7 +138,10 @@ class StudioHistoryProjectionTest {
             SessionItem.ToolResult(info("result", 1, "turn"), call, listOf(ContentPart.Text("Saved."))),
         )
         val tool = assertIs<StudioMessage.Reply>(items.toStudioMessages(now, false).single()).tools.single()
-        assertEquals(StudioLearningCall(LearningAction.Remember, "general", "UTF-8", "Run chcp 65001"), tool.learning)
+        assertEquals(
+            StudioLearningCall(LearningAction.Remember, InstructionKind.General, "UTF-8", "Run chcp 65001"),
+            tool.learning,
+        )
         assertEquals("Saved.", tool.output)
 
         val other = SessionItem.ToolCall(

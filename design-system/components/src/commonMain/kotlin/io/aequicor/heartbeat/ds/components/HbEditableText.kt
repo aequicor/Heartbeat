@@ -292,7 +292,8 @@ private class ControlledEditorBridge(private var externalText: String, private v
             pendingReports.clear()
         }
         if (editingText != value) {
-            val selection = selectionsAfterEdit[value] ?: selectionsBeforeEdit[value] ?: state.selection
+            val selection = selectionsAfterEdit[value] ?: selectionsBeforeEdit[value]
+                ?: ownerSelection(editingText, value, state.selection)
             state.replaceControlledText(value, selection)
         }
         latestSelection = state.selection
@@ -303,6 +304,19 @@ private class ControlledEditorBridge(private var externalText: String, private v
         pendingReports.clear()
         selectionsBeforeEdit.clear()
         selectionsAfterEdit.clear()
+    }
+}
+
+/**
+ * Caret for text the owner replaced: a caret at the end of [old] stays at the end, and text the owner put before
+ * [old] (a command prefix) moves the caret with the text after it; any other caret is clamped.
+ */
+private fun ownerSelection(old: String, new: String, selection: TextRange): TextRange {
+    val shift = new.length - old.length
+    return when {
+        selection.collapsed && selection.end == old.length -> TextRange(new.length)
+        old.isNotEmpty() && new.endsWith(old) -> TextRange(selection.start + shift, selection.end + shift)
+        else -> selection
     }
 }
 

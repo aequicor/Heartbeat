@@ -39,7 +39,7 @@ class StudioLearningTimelineTest {
         assertEquals("New instruction", tool.title)
         assertEquals("General · UTF-8 console", tool.summary)
         assertEquals(HbToolStatus.Complete, tool.status)
-        assertEquals("Run chcp 65001", assertIs<HbToolBlock.Markdown>(tool.blocks[0]).source)
+        assertEquals("Run chcp 65001", assertIs<HbToolBlock.Console>(tool.blocks[0]).text)
         assertEquals("Saved.", assertIs<HbToolBlock.Console>(tool.blocks[1]).text)
     }
 

@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.components.HbActivityIndicator
 import io.aequicor.heartbeat.ds.components.HbBadge
@@ -69,6 +71,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_close
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_general
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_open_sidebar
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.permission_more
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
@@ -250,7 +253,13 @@ private fun PaneNotices(
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
     questions: ImmutableMap<String, ComposableComponent>,
-) {
+) = BoxWithConstraints(Modifier.fillMaxWidth()) {
+    // A share of the pane, so a long description never pushes the decision or the composer off a low pane.
+    val descriptionMaxHeight = if (constraints.hasBoundedHeight) {
+        minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / PANE_SHARE_OF_DESCRIPTION)
+    } else {
+        HbTheme.dimensions.toolPayloadMaxHeight
+    }
     HbColumn(
         Modifier.fillMaxWidth().background(HbTheme.surfaces.header, HbTheme.shapes.large)
             .pointerInput(Unit) { detectTapGestures { } },
@@ -275,14 +284,7 @@ private fun PaneNotices(
                     // Only the title is announced: the reviewed content can be thousands of characters long.
                     HbText(request.title, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                     request.description?.takeIf { it.isNotBlank() }?.let { description ->
-                        // Bounded and scrollable so a long instruction never pushes the decision off screen.
-                        Box(
-                            Modifier.fillMaxWidth()
-                                .heightIn(max = HbTheme.dimensions.toolPayloadMaxHeight)
-                                .hbVerticalScroll(rememberScrollState()),
-                        ) {
-                            HbText(description, Modifier.testTag("permission-${request.requestId}-description"))
-                        }
+                        PermissionDescription(description, request.requestId, descriptionMaxHeight)
                     }
                     request.options.forEach { option ->
                         HbButton(
@@ -301,6 +303,32 @@ private fun PaneNotices(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Panes this many times taller than a permission description still show its decision and the composer. */
+private const val PANE_SHARE_OF_DESCRIPTION = 3
+
+/**
+ * What a permission request approves, bounded and scrollable. Text below the visible part is announced by a line
+ * that stays until the end is reached: the scrollbar alone appears only on hover, and the hidden tail is part of
+ * what the user approves.
+ */
+@Composable
+private fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
+    val scroll = rememberScrollState()
+    HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
+        Box(Modifier.fillMaxWidth().heightIn(max = maxHeight).hbVerticalScroll(scroll)) {
+            HbText(description, Modifier.testTag("permission-$requestId-description"))
+        }
+        if (scroll.canScrollForward) {
+            HbText(
+                stringResource(Res.string.permission_more),
+                Modifier.testTag("permission-$requestId-more"),
+                style = HbTheme.typography.caption,
+                color = HbTheme.colors.textSecondary,
+            )
         }
     }
 }
