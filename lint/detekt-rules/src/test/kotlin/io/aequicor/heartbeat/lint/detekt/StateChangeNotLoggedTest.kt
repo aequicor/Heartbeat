@@ -39,6 +39,8 @@ class StateChangeNotLoggedTest {
                     log.i { "session: signed out" }
                     _session.value = null
                 }
+                @HighFrequency
+                fun revision() { log.v { "revision" }; _session.value = null }
                 fun tick() { counter.update { it + 1 } }
                 fun read() = _session.value
             }

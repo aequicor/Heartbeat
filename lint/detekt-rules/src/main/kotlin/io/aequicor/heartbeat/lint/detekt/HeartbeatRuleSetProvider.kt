@@ -17,6 +17,7 @@ class HeartbeatRuleSetProvider : RuleSetProvider {
         ruleSetId,
         listOf(
             ::RawLoggingCall,
+            ::HighFrequencyLog,
             ::SwallowedError,
             ::CancellationSwallowed,
             ::GenericExceptionCaught,

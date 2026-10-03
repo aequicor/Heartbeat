@@ -24,7 +24,8 @@ class CodexLaunchTest {
 
     @Test
     fun `a custom executable wins over Heartbeat's copy, which wins over the system`() {
-        val mac = host(available = setOf("/opt/homebrew/bin/codex"))
+        val executable = File("/opt/homebrew/bin/codex").path
+        val mac = host(available = setOf(executable))
         val custom = LaunchContext(LaunchSettings(executable = "/custom/codex"), managed)
 
         assertEquals(
@@ -33,7 +34,7 @@ class CodexLaunchTest {
         )
         assertEquals(InstallSource.Managed, resolveCodexLaunch(LaunchContext(managed = managed), config, mac).source)
         val system = resolveCodexLaunch(LaunchContext(), config, mac)
-        assertEquals("/opt/homebrew/bin/codex" to InstallSource.System, system.executable to system.source)
+        assertEquals(executable to InstallSource.System, system.executable to system.source)
         assertEquals(InstallSource.Missing, resolveCodexLaunch(LaunchContext(), config, host()).source)
     }
 

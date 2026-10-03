@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -39,10 +40,30 @@ data class HbWindowChrome(
 
 private val LocalHbWindowChrome = staticCompositionLocalOf { HbWindowChrome() }
 private val LocalHbWindowWidth = staticCompositionLocalOf { 0f }
+private val LocalHbCaptionControls = staticCompositionLocalOf<CaptionControls?> { null }
+
+private class CaptionControls {
+    var isClient = false
+}
+
+/** Marks a control before the root's final hit test, including hover before the first native press. */
+@Composable
+internal fun Modifier.captionClientArea(): Modifier {
+    val controls = LocalHbCaptionControls.current ?: return this
+    return pointerInput(controls) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.type != PointerEventType.Exit) controls.isClient = true
+            }
+        }
+    }
+}
 
 /**
  * Connects window geometry and native hit testing to all pane headers in one Compose root.
- * [onNativeHitTest] receives true for client controls and false for unconsumed events in drag regions.
+ * [onNativeHitTest] receives true for marked client controls (including hover) and consumed gestures,
+ * and false for unconsumed events in drag regions.
  * It never consumes Compose input. Native caption actions therefore coexist with editors, menus and buttons.
  */
 @Composable
@@ -53,30 +74,53 @@ fun HbWindowChromeProvider(
     content: @Composable () -> Unit,
 ) {
     var width by remember { mutableFloatStateOf(0f) }
+    val controls = remember { CaptionControls() }
     val captionHeight = with(LocalDensity.current) { chrome.height.toPx() }
     CompositionLocalProvider(
         LocalHbWindowChrome provides chrome,
         LocalHbWindowWidth provides width,
+        LocalHbCaptionControls provides controls.takeIf { onNativeHitTest != null && !chrome.isFullscreen },
     ) {
         Box(
             modifier.onSizeChanged { width = it.width.toFloat() }
-                .nativeCaptionHitTest(captionHeight, !chrome.isFullscreen, onNativeHitTest),
+                .nativeCaptionHitTest(captionHeight, !chrome.isFullscreen, controls, onNativeHitTest),
             propagateMinConstraints = true,
         ) { content() }
     }
 }
 
-private fun Modifier.nativeCaptionHitTest(height: Float, enabled: Boolean, onHitTest: ((Boolean) -> Unit)?): Modifier {
+private fun Modifier.nativeCaptionHitTest(
+    height: Float,
+    enabled: Boolean,
+    controls: CaptionControls,
+    onHitTest: ((Boolean) -> Unit)?,
+): Modifier {
     if (!enabled || onHitTest == null) return this
     return pointerInput(height, onHitTest) {
         awaitPointerEventScope {
+            val gesture = CaptionGesture()
             while (true) {
+                awaitPointerEvent(PointerEventPass.Initial)
+                controls.isClient = false
                 val event = awaitPointerEvent(PointerEventPass.Final)
                 if (event.type == PointerEventType.Exit || event.type == PointerEventType.Scroll) continue
                 val isInCaption = event.changes.any { it.position.y in 0f..<height }
-                onHitTest(!isInCaption || event.changes.any { it.isConsumed })
+                val isClient = !isInCaption || controls.isClient || event.changes.any { it.isConsumed }
+                onHitTest(gesture.hitTest(event, isClient))
             }
         }
+    }
+}
+
+/** Keep a client press in Compose until release, even when a clickable leaves movement unconsumed. */
+private class CaptionGesture {
+    private var isClient = false
+
+    fun hitTest(event: PointerEvent, client: Boolean): Boolean {
+        if (event.type == PointerEventType.Press) isClient = isClient || client
+        val isClientEvent = isClient || client
+        if (event.type == PointerEventType.Release && event.changes.none { it.pressed }) isClient = false
+        return isClientEvent
     }
 }
 

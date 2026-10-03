@@ -136,14 +136,16 @@ internal class ChatRepositoryImpl(
         dao.observeMessages(chatId).map { rows -> rows.map(MessageEntity::toDomain) }
 
     override suspend fun append(message: Message) {
-        log.d { "append chatId=${message.chatId} id=${message.id}" }
+        log.v { "append chatId=${message.chatId} id=${message.id}" }
         dao.insert(message.toEntity(retentions.stamp(Retention.expiring(Expiry.After(30.days)))))
     }
 }
 ```
 
 - Маппинг Entity ↔ domain в `impl/data`; Entity не утекают в стор/UI.
-- DAO-операции логирует репозиторий (`d`). Открытие, миграции и чистки логирует ядро.
+- Обычные DAO-операции логирует репозиторий (`v`); значимые одноразовые операции — `d/i`. Частые обработчики
+  помечай `@HighFrequency`, не дублируй централизованный лог. Открытие, миграции и чистки логирует ядро.
+  Ограничение частоты и уровни — [logging](../logging/SKILL.md).
 
 ## Файлы фичи
 

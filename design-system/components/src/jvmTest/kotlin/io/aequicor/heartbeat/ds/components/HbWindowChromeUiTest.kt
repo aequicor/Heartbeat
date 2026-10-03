@@ -1,9 +1,11 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,6 +16,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performMouseInput
@@ -28,6 +31,81 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
 class HbWindowChromeUiTest {
+    @Test
+    fun `consumed press retains an unmarked control gesture until release`() =
+        runSkikoComposeUiTest(size = Size(500f, 200f)) {
+            val hitTests = mutableListOf<Boolean>()
+            var clicks = 0
+            setContent {
+                CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                    HbWindowChromeProvider(
+                        HbWindowChrome(height = 44.dp),
+                        Modifier.fillMaxSize().testTag("window"),
+                        onNativeHitTest = { hitTests += it },
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            // Plain clickable deliberately has no captionClientArea hover marker.
+                            Box(Modifier.size(80.dp, 32.dp).testTag("control").clickable { clicks++ })
+                        }
+                    }
+                }
+            }
+            val control = onNodeWithTag("control")
+            control.performMouseInput { moveTo(center) }
+            assertEquals(false, hitTests.last(), "An unmarked hover does not claim the caption")
+            control.performMouseInput { press() }
+            assertEquals(true, hitTests.last(), "The consumed press starts a client gesture")
+            hitTests.clear()
+            control.performMouseInput { moveBy(Offset(1f, 1f)) }
+            assertTrue(hitTests.isNotEmpty())
+            assertTrue(hitTests.all { it }, "Unconsumed movement must retain the client gesture")
+            hitTests.clear()
+            control.performMouseInput { release() }
+            assertEquals(1, clicks)
+            assertTrue(hitTests.isNotEmpty())
+            assertTrue(hitTests.all { it }, "Release still belongs to the client gesture")
+            onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 20f)) }
+            assertEquals(false, hitTests.last(), "After release the free caption is draggable again")
+        }
+
+    @Test
+    fun `caption icon hover is client area before the first press and free caption remains draggable`() =
+        runSkikoComposeUiTest(size = Size(500f, 200f)) {
+            val hitTests = mutableListOf<Boolean>()
+            var clicks = 0
+            setContent {
+                HbTheme(dimensions = HbDimensions.Desktop) {
+                    HbWindowChromeProvider(
+                        HbWindowChrome(height = 44.dp),
+                        Modifier.fillMaxSize().testTag("window"),
+                        onNativeHitTest = { hitTests += it },
+                    ) {
+                        Box(Modifier.fillMaxSize()) {
+                            HbPaneHeader(
+                                "Title",
+                                navigation = { HbIconButton(HbIcons.ArrowLeft, "Back", { clicks++ }) },
+                            )
+                        }
+                    }
+                }
+            }
+            onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 20f)) }
+            assertEquals(false, hitTests.last())
+            val button = onNodeWithContentDescription("Back")
+            button.performMouseInput { moveTo(center) }
+            assertEquals(true, hitTests.last(), "The native caption must know this is a control before mouse-down")
+            hitTests.clear()
+            button.performMouseInput {
+                press()
+                moveBy(Offset(1f, 0f))
+                release()
+            }
+            assertEquals(1, clicks)
+            assertTrue(hitTests.all { it })
+            onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 20f)) }
+            assertEquals(false, hitTests.last(), "Leaving a control must restore native dragging")
+        }
+
     @Test
     fun `a header without a window provider preserves its full width`() =
         runSkikoComposeUiTest(size = Size(420f, 200f)) {
@@ -107,6 +185,10 @@ class HbWindowChromeUiTest {
                 release()
             }
             assertEquals(1, clicks)
+            assertTrue(
+                hitTests.all { it },
+                "A client press must keep movement and release out of native caption handling",
+            )
             onNodeWithTag("window").performMouseInput { moveTo(Offset(200f, 100f)) }
             assertTrue(hitTests.last(), "Content below the caption is client area")
         }

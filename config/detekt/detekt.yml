@@ -147,6 +147,7 @@ style:
       - 'CancellationSwallowed'
       - 'RawLoggingCall'
       - 'SensitiveDataLogged'
+      - 'HighFrequencyLog'
   DataClassShouldBeImmutable:
     active: true
   ExpressionBodySyntax:
@@ -173,6 +174,10 @@ heartbeat:
   # Raw output (println, printStackTrace, System.out, android.util.Log, NSLog, Napier) outside core:logging
   RawLoggingCall:
     active: true
+  # DEBUG/INFO in @HighFrequency handlers and retryable update lambdas creates log flood
+  HighFrequencyLog:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   # catch / Flow.catch / onFailure / getOrElse / fold / CoroutineExceptionHandler must log (w/e + throwable) or propagate
   SwallowedError:
     active: true
@@ -307,4 +312,4 @@ Compose:
   CompositionLocalAllowlist:
     active: true
     # LocalNav*: core:navigation:compose passes host-wide rendering context (animations, shared transition scope) to nested hosts
-    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes
+    allowedCompositionLocals: LocalHbColors,LocalHbGradients,LocalHbTypography,LocalHbSpacing,LocalHbShapes,LocalHbElevation,LocalHbDimensions,LocalHbSurfaces,LocalHbMotion,LocalHbVisualStyle,LocalHbLocale,LocalComposerAnchor,LocalHbWindowScope,LocalHbWindowChrome,LocalHbWindowWidth,LocalHbCaptionControls,LocalAdaptiveColors,LocalPlatformUi,LocalNavAnimations,LocalNavSharedTransitionScope,LocalNavEntryScopes

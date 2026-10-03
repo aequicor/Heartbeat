@@ -81,6 +81,19 @@ class ComputerUseAgentToolsTest {
     }
 
     @Test
+    fun `chats without a project can discover computer tools and their instructions`() = runTest {
+        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
+        assertTrue(fixture.tools.isDetachedSupported)
+        val names = fixture.tools.specifications(null).map { it.name }
+        assertTrue("computer_capture" in names)
+        assertTrue("computer_type" in names)
+        assertTrue("computer_release" in names)
+        assertTrue(fixture.tools.instructions(null).contains("computer_status"))
+        val reply = fixture.tools.execute(fixture.context.copy(workspace = null), "computer_status", EmptyArguments)
+        assertFalse(reply.isError)
+    }
+
+    @Test
     fun `one enabled profile switch exposes every tool without secondary toggles`() = runTest {
         val fixture = Fixture(this, Capturing)
         assertTrue(fixture.tools.specifications(null).any { it.name == "computer_capture" })

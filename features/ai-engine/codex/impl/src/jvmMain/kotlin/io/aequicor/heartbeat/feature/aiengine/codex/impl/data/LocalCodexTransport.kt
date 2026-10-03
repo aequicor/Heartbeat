@@ -66,8 +66,7 @@ internal class LocalCodexTransport(
         val resolved = resolveCodexLaunch(launch, config)
         log.i { "Starting local Codex app-server source=${resolved.source}" }
         try {
-            // A missing CLI still tries the bare command, so it fails as an unavailable app-server, as before.
-            require(resolved.isRunnable || resolved.source == InstallSource.Missing) {
+            require(resolved.isRunnable && resolved.source != InstallSource.Missing) {
                 "Codex executable cannot be started safely"
             }
             resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
@@ -81,7 +80,11 @@ internal class LocalCodexTransport(
             cleanup = { handle.dispose() }
             wire
         } catch (e: IOException) {
-            throw e.sanitized()
+            // Starting a local process failed (missing executable, permissions or format), not a network request.
+            // Do not retain native diagnostics: they can contain the user's executable path.
+            val failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            log.w(e.sanitized()) { "Codex executable could not be started" }
+            throw failure
         } catch (e: IllegalArgumentException) {
             log.w(e) { "Codex launch settings rejected" }
             throw EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))

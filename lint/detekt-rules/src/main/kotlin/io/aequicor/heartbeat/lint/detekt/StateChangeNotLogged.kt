@@ -96,7 +96,7 @@ class StateChangeNotLogged(config: Config) :
                 Finding(
                     Entity.from(first),
                     "State `$holder` changes without a log in `${owner.name ?: "init"}` — " +
-                        "add log.i { \"$holder: old -> new\" } (or log.d for high-frequency updates).",
+                        "add log.i { \"$holder: old -> new\" } (or log.v for high-frequency updates).",
                 ),
             )
         }

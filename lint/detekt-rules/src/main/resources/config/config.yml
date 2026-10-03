@@ -6,6 +6,9 @@ heartbeat:
     active: true
     allowedPackages:
       - 'io.aequicor.heartbeat.core.logging'
+  HighFrequencyLog:
+    active: true
+    excludes: ['**/test/**', '**/*Test/**']
   SwallowedError:
     active: true
     isErrorReferenceRequired: true
