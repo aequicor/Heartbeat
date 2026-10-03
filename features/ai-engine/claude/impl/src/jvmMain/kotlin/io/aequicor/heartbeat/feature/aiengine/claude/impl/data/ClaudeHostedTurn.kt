@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachment
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
@@ -9,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -21,6 +23,7 @@ internal class ClaudeHostedTurn(
     private val lifetime: Job?,
     private val callbacks: ClaudeTurnCallbacks,
 ) : AutoCloseable {
+    private val log = Log.tag("ClaudeHostedTurn")
     private val isOpen = AtomicBoolean(true)
     private var attachment: AgentToolBridgeAttachment? = null
     val permissions = ClaudePermissions(
@@ -32,9 +35,31 @@ internal class ClaudeHostedTurn(
         callbacks.canApprove,
     )
 
+    /**
+     * Hosted tools for this turn. A project session fails on any error; for a session without a project the tools
+     * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn.
+     */
     suspend fun prepare(): ClaudeHostedTools? {
         val project = context.workspace
-        if (project == null && !context.areDetachedToolsEnabled) return null
+        if (project != null) return attach(project)
+        if (!context.areDetachedToolsEnabled) return null
+        if (!environment.bridge.isAvailable) {
+            log.i { "Hosted tools bridge is unavailable; the chat turn continues without hosted tools" }
+            return null
+        }
+        return try {
+            attach(null)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e.redacted()) { "Hosted tools failed to attach; the chat turn continues without them" }
+            attachment?.close()
+            attachment = null
+            null
+        }
+    }
+
+    private suspend fun attach(project: WorkspaceRef?): ClaudeHostedTools? {
         if (environment.tools.specifications(project).isEmpty()) return null
         val capability = environment.bridge.attach(project) {
             if (isActive()) {

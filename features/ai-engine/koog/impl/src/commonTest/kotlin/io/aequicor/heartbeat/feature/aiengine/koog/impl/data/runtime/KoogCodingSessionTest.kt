@@ -176,6 +176,47 @@ class KoogCodingSessionTest {
     }
 
     @Test
+    fun `chat without a project answers when its detached tools fail`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+                error("Contribution failed")
+        }
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("chat"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(emptyList(), f.executor.tools.single())
+        assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(chat.state.value).lastTurn?.outcome)
+    }
+
+    @Test
+    fun `chat prompt carries hosted instructions only when they accompany sent tools`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.modelSupportsTools = false
+        f.hostedTools = DetachedTools()
+        val plain = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        plain.features.require(SendsPrompts).send(f.request("no tools"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(emptyList(), f.executor.tools.single())
+        assertTrue(f.executor.prompts.single().messages.none { it is Message.System })
+
+        f.modelSupportsTools = true
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String = ""
+        }
+        val blank = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        blank.features.require(SendsPrompts).send(f.request("blank"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("remember"), f.executor.tools.last().map { it.name })
+        assertTrue(f.executor.prompts.last().messages.none { it is Message.System })
+    }
+
+    @Test
     fun `session without project or with toggle off stays a plain chat`() = runTest {
         val f = fixture()
         f.isSearchEnabled = false

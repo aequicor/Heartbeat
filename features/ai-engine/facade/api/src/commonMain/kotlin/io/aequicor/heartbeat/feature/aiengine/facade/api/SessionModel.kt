@@ -65,7 +65,9 @@ public data class SessionQuery(
  * [areDetachedToolsEnabled] lets a session without a [workspace] receive the hosted tools and instructions of
  * contributions that support it ([AgentToolContribution.isDetachedSupported]). Only callers that present hosted
  * tool calls and answer their permission requests enable it; a project session always receives hosted tools.
- * The request that opens the native session decides: attaching a session that is already open keeps its value.
+ * The adapter checks it before attaching detached tools; the hosted tools dispatcher ([ProfileAgentTools]) does not.
+ * The request that opens the native session without current holders decides, including a resume after a restart or
+ * after every handle was closed; attaching a session another handle still holds keeps that holder's value.
  */
 @Serializable
 public data class CreateSessionRequest(

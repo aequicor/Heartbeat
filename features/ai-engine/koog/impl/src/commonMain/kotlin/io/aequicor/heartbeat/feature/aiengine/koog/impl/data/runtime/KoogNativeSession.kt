@@ -293,10 +293,20 @@ internal class KoogNativeSession(
                 ?.let { workspaces.open(it, context) }
                 ?.withCodingTools(isCodingEnabled)
 
-            areDetachedToolsEnabled -> workspaces.openDetached(context)
+            areDetachedToolsEnabled -> openDetached(context)
 
             else -> null
         }
+    }
+
+    /** Detached hosted tools are optional: a failing contribution leaves a plain chat turn. */
+    private suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = try {
+        workspaces.openDetached(context)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.sanitized()) { "Detached hosted tools unavailable; the chat turn continues without them" }
+        null
     }
 
     private suspend fun runTurn(
@@ -334,7 +344,9 @@ internal class KoogNativeSession(
                     tools = !tools.isEmpty(),
                     attachments = record.items.hasResourceInputs(),
                 )
-                val prompt = input ?: initialPrompt(provider, workspace?.instructions)
+                // Hosted instructions only accompany the tools they describe; blank ones add no system message.
+                val instructions = workspace?.instructions?.takeIf { it.isNotBlank() && !tools.isEmpty() }
+                val prompt = input ?: initialPrompt(provider, instructions)
                 val round = streamWithEffort(turn, client, provider, textModel, tools, prompt, requestSelection)
                 if (round.calls.isEmpty()) {
                     isComplete = true
@@ -378,8 +390,9 @@ internal class KoogNativeSession(
     private val toolSupport = mutableMapOf<String, Boolean>()
 
     /**
-     * Tools of this turn: search tools while their toggle is on, coding tools of the session's project on Desktop.
-     * Tools are sent only when the model accepts them.
+     * Tools of this turn: search tools while their toggle is on, and the hosted tools of [workspace] — the project's
+     * coding tools on Desktop, or detached hosted tools of a chat without a project whose caller opted in.
+     * Tools are sent only when the model accepts them; without them the turn also omits their instructions.
      */
     private suspend fun turnTools(
         client: KoogClient,

@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
@@ -25,12 +26,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedResource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.searchengine.api.SearchBridgeEndpoint
 import kotlinx.coroutines.CompletableDeferred
@@ -121,6 +124,89 @@ class ClaudeHostedTest {
         assertEquals(turn, context.turn)
         assertEquals(testTarget, context.target)
         runtime.close()
+    }
+
+    @Test
+    fun `chat reopened without holders takes the opt in of the resuming caller`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val contexts = mutableListOf<AgentToolContext?>()
+        fixture.transport.generation = { args, line ->
+            contexts += bridge.context()
+            line(resultFrame(nativeId(args)))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val created = runtime.create(CreateSessionRequest(testTarget))
+        created.features.available(SendsPrompts).send(prompt("plain"))
+        runCurrent()
+        assertTrue(bridge.attached.isEmpty())
+        created.close()
+
+        val chat = runtime.stored(created.ref).features.available(ResumesSessions)
+            .resume(ResumeSessionRequest(testTarget, areDetachedToolsEnabled = true))
+        val other = runtime.attach(created.ref, ResumeSessionRequest(testTarget))
+        val turn = other.features.available(SendsPrompts).send(prompt("chat"))
+        runCurrent()
+        assertEquals(listOf<WorkspaceRef?>(null), bridge.attached)
+        val context = assertNotNull(contexts.last())
+        assertNull(context.workspace)
+        assertEquals(turn, context.turn)
+        chat.close()
+        other.close()
+        runtime.close()
+    }
+
+    @Test
+    fun `chat restored after restart takes the opt in of the resuming caller`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        fixture.transport.generation = { args, line ->
+            line(resultFrame(nativeId(args)))
+            0
+        }
+        val first = fixture.runtime(TestAgentTools(), bridge)
+        val created = first.create(CreateSessionRequest(testTarget, areDetachedToolsEnabled = true))
+        first.close()
+        val second = fixture.runtime(TestAgentTools(), bridge)
+        val chat = second.stored(created.ref).features.available(ResumesSessions)
+            .resume(ResumeSessionRequest(testTarget, areDetachedToolsEnabled = true))
+        chat.features.available(SendsPrompts).send(prompt("chat"))
+        runCurrent()
+        assertEquals(listOf<WorkspaceRef?>(null), bridge.attached)
+        assertFalse(assertNotNull(fixture.transport.hostedCalls.last()).isProject)
+        second.close()
+    }
+
+    @Test
+    fun `chat without a project answers when its hosted tools fail`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val failing = object : AgentToolBridge {
+            override val isAvailable = true
+            override suspend fun attach(
+                workspace: WorkspaceRef?,
+                context: suspend () -> AgentToolContext?,
+            ): AgentToolBridgeAttachment = error("Bridge failed")
+        }
+        val attached = TestAgentBridge()
+        val failingInstructions = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun instructions(scope: AgentToolScope): String = error("Contribution failed")
+        }
+        listOf(
+            TestAgentTools() to failing,
+            TestAgentTools() to UnavailableAgentToolBridge,
+            failingInstructions to attached,
+        ).forEach { (tools, bridge) ->
+            val runtime = fixture.runtime(tools, bridge)
+            val chat = runtime.create(CreateSessionRequest(testTarget, areDetachedToolsEnabled = true))
+            chat.features.available(SendsPrompts).send(prompt())
+            runCurrent()
+            assertNull(fixture.transport.hostedCalls.last())
+            assertEquals(TurnOutcome.Completed, assertIs<ActiveSessionState.Ready>(chat.state.value).lastTurn?.outcome)
+            runtime.close()
+        }
+        assertEquals(listOf<WorkspaceRef?>(null), attached.attached)
+        assertEquals(1, attached.closed)
     }
 
     @Test
@@ -424,6 +510,9 @@ class ClaudeHostedTest {
         }
     }
 }
+
+private fun nativeId(args: List<String>): String =
+    args.first { it.startsWith("--session-id=") || it.startsWith("--resume=") }.substringAfter('=')
 
 private class TestAgentTools : ProfileAgentTools {
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(

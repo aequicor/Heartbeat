@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -38,6 +39,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -101,6 +103,35 @@ class PiHostedSessionTest {
         fixture.connection.promptAck.complete(JsonObject(emptyMap()))
         fixture.session.send(PromptRequest(RequestId("chat"), listOf(ContentPart.Text("Hi"))))
         fixture.session.shutdown()
+    }
+
+    @Test
+    fun `chat without a project starts without detached tools when they fail`() = runTest {
+        val failing = object : AgentToolBridge {
+            override val isAvailable = true
+            override suspend fun attach(
+                workspace: WorkspaceRef?,
+                context: suspend () -> AgentToolContext?,
+            ): AgentToolBridgeAttachment = error("Bridge failed")
+        }
+        val failingInstructions = object : ProfileAgentTools by HostedToolDeclarations {
+            override suspend fun instructions(scope: AgentToolScope): String = error("Contribution failed")
+        }
+        val bridge = HostedBridge()
+        listOf(HostedToolDeclarations to failing, failingInstructions to bridge).forEach { (tools, toolBridge) ->
+            val fixture = fixture(
+                this,
+                tools = tools,
+                bridge = toolBridge,
+                project = null,
+                areDetachedToolsEnabled = true,
+            )
+            assertNull(fixture.session.prepareHostedTools())
+            fixture.connection.promptAck.complete(JsonObject(emptyMap()))
+            fixture.session.send(PromptRequest(RequestId("chat"), listOf(ContentPart.Text("Hi"))))
+            fixture.session.shutdown()
+        }
+        assertTrue(bridge.attached.isEmpty())
     }
 
     @Test

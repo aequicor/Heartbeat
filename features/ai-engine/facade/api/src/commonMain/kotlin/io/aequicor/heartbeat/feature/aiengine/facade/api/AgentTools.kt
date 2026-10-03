@@ -85,7 +85,9 @@ public data class AgentToolResult(val text: String, val isError: Boolean = false
 public interface AgentToolContribution {
     /**
      * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
-     * so enabling hosted tools for such sessions does not expose project or desktop tools there.
+     * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
+     * answers any request without a workspace with these; adapters attach them only to sessions whose creator
+     * enabled [CreateSessionRequest.areDetachedToolsEnabled].
      */
     public val isDetachedSupported: Boolean get() = false
 
@@ -186,6 +188,12 @@ public interface AgentToolBridgeAttachment : AutoCloseable {
     /** Revokes this attachment; repeated calls are harmless. */
     override fun close()
 }
+
+/** Name of the MCP server through which a bridge serves hosted tools; MCP clients prefix tool names with it. */
+public const val HOSTED_TOOLS_SERVER: String = "heartbeat_tools"
+
+/** A hosted tool call [name] as an engine reports it, without an MCP client's `mcp__<server>__` prefix. */
+public fun hostedToolName(name: String): String = name.removePrefix("mcp__${HOSTED_TOOLS_SERVER}__")
 
 /** Desktop transport for the same dispatcher; each call resolves the current trusted turn context. */
 public interface AgentToolBridge {

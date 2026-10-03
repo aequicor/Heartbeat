@@ -10,7 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspa
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.detachedKoogWorkspace
 
-/** Mobile Koog sessions are a plain chat: no local project, files or commands. */
+/** Mobile Koog sessions have no local project, files or commands; an opted-in chat keeps detached hosted tools. */
 @Inject
 @ContributesBinding(ProfileScope::class)
 internal class UnsupportedKoogWorkspaces(private val tools: ProfileAgentTools) : KoogWorkspaces {

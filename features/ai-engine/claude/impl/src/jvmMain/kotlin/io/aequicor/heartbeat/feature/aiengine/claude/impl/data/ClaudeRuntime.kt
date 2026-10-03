@@ -136,15 +136,13 @@ internal class ClaudeRuntime(
             request.workspace,
         )
         val session = ClaudeSession(ref, route, request.target, environment)
-        session.areDetachedToolsEnabled = request.areDetachedToolsEnabled
         session.persist()
         sessions[ref] = session
-        session.lease()
+        session.lease(request.areDetachedToolsEnabled)
     }
 
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): ActiveSession = mutex.withLock {
         validate(request.target)
-        val isOpen = sessions[ref] != null
         val session = find(ref) ?: run {
             log.w { "Claude session is unknown to this runtime" }
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
@@ -156,9 +154,8 @@ internal class ClaudeRuntime(
             authFailure(AuthFailureReason.AuthMismatch)
         }
         log.i { "Attaching existing Claude session" }
-        // The request that opens the session decides; another holder of an open session keeps its tools.
-        if (!isOpen) session.areDetachedToolsEnabled = request.areDetachedToolsEnabled
-        session.lease()
+        // A session kept in memory or restored from the catalog without holders takes this request's choice.
+        session.lease(request.areDetachedToolsEnabled)
     }
 
     suspend fun stored(ref: SessionRef): EngineSession = mutex.withLock {

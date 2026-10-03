@@ -76,9 +76,12 @@ internal class ClaudeSession(
     private val lock = Any()
     private val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
 
-    /** Chosen by the request that opened the session; only callers answering hosted permissions enable it. */
+    /**
+     * Hosted tools for a session without a project. Chosen by the lease that opens the session without other holders;
+     * only callers answering hosted permissions enable it.
+     */
     @Volatile
-    var areDetachedToolsEnabled: Boolean = false
+    private var areDetachedToolsEnabled: Boolean = false
     private val storage = Mutex()
     val contextUsage = ClaudeContextUsage()
     private val leases = mutableSetOf<Lease>()
@@ -118,9 +121,14 @@ internal class ClaudeSession(
     @Volatile
     private var undelivered: TurnId? = null
 
-    fun lease(): ActiveSession = synchronized(lock) {
+    /**
+     * Attaches a handle. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
+     * session without a project; an attach to a session that is already held keeps the holders' choice.
+     */
+    fun lease(areDetachedToolsEnabled: Boolean): ActiveSession = synchronized(lock) {
         ensureOpen()
         if (isEvicted) throw EngineException(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (leases.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
         Lease(current).also { leases.add(it) }
     }
 

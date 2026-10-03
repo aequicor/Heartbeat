@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Installation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
@@ -390,7 +391,7 @@ internal fun claudeHostedArguments(
 ): List<String> {
     val isProviderSearch = search && isProviderSearchKept
     val allowed = buildList {
-        add("mcp__heartbeat_tools__*")
+        add("mcp__${HOSTED_TOOLS_SERVER}__*")
         if (search) add("mcp__heartbeat_search__*")
         if (isProviderSearch) add(CLAUDE_PROVIDER_SEARCH)
     }
@@ -416,7 +417,7 @@ internal fun claudeHostedConfig(
         put(
             "mcpServers",
             buildJsonObject {
-                put("heartbeat_tools", mcpServer(endpoint.url, endpoint.token))
+                put(HOSTED_TOOLS_SERVER, mcpServer(endpoint.url, endpoint.token))
                 search?.let { put("heartbeat_search", mcpServer(it.origin, it.token)) }
             },
         )

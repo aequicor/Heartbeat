@@ -5,10 +5,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
-/** Coding context of a session opened on a local project: its tools and the instructions describing them. */
+/**
+ * Hosted context of a turn: the tools of the session's project, or detached hosted tools of a chat without a project,
+ * and the instructions describing them; blank [instructions] add nothing to the prompt.
+ */
 internal data class KoogWorkspace(val tools: List<KoogTool>, val instructions: String)
 
-/** Opens coding workspaces; Desktop only, other platforms keep the plain chat. */
+/**
+ * Opens hosted tools of a turn: coding tools of a local project on Desktop only, detached hosted tools of a chat
+ * without a project on every platform.
+ */
 internal fun interface KoogWorkspaces {
     /** Hosted workspace workflows may remain available while the coding toggle disables file and shell tools. */
     val hasHostedTools: Boolean get() = false
