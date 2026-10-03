@@ -46,6 +46,27 @@ class CodexDetachedToolsTest {
     }
 
     @Test
+    fun `chat thread opens without detached tools when a contribution fails`() = runTest {
+        val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
+            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+                error("Contribution failed")
+        }
+        val failingInstructions = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
+            override suspend fun instructions(scope: AgentToolScope): String = error("Contribution failed")
+        }
+        listOf(failingSpecifications, failingInstructions).forEach { tools ->
+            val manifests = MemoryCodexToolManifests()
+            val fixture = Fixture(this, tools = tools, manifests = manifests)
+            val chat = fixture.runtime.create(CreateSessionRequest(fixture.target, areDetachedToolsEnabled = true))
+            val params = fixture.wire.written.single { it.text("method") == "thread/start" }.obj("params")
+            assertFalse("remember" in params.declaredTools())
+            assertFalse("developerInstructions" in params)
+            assertFalse(manifests.isRequired(chat.ref.nativeId))
+            fixture.runtime.close()
+        }
+    }
+
+    @Test
     fun `resumed thread tolerates added and removed tools and keeps its own declarations`() = runTest {
         val manifests = MemoryCodexToolManifests()
         val initial = Fixture(this, tools = ScopedTools(listOf("run_command")), manifests = manifests)

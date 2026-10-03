@@ -66,8 +66,12 @@ public data class SessionQuery(
  * contributions that support it ([AgentToolContribution.isDetachedSupported]). Only callers that present hosted
  * tool calls and answer their permission requests enable it; a project session always receives hosted tools.
  * The adapter checks it before attaching detached tools; the hosted tools dispatcher ([ProfileAgentTools]) does not.
- * The request that opens the native session without current holders decides, including a resume after a restart or
- * after every handle was closed; attaching a session another handle still holds keeps that holder's value.
+ * Adapters that attach tools per turn (Claude, Pi, Koog) follow the request that opens the native session without
+ * current holders, including a resume after a restart or after every handle was closed; attaching a session another
+ * handle still holds keeps that holder's value, and an accepted turn keeps the value it was accepted with.
+ * An adapter that declares tools once per native thread (Codex) follows the request that starts the thread: a thread
+ * it keeps open is reused with that choice, and a resume never adds or removes declarations, though without the
+ * resuming caller's opt-in calls to them are refused.
  */
 @Serializable
 public data class CreateSessionRequest(

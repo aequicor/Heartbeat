@@ -92,22 +92,32 @@ private class NativeHistoryProjection(private val time: Instant) {
             MessageRole.User -> {
                 flush()
                 streamingAnswer = null
-                messages += StudioMessage.Prompt(
-                    item.info.id.value,
-                    time,
-                    // Host directives (a /remember request, learning hints) go to the engine, not the transcript.
-                    stripHostDirectives(
-                        item.parts.filter { it is ContentPart.Text || it is ContentPart.Reasoning }.text(),
-                    ),
-                    isTimestampKnown = false,
-                    attachments = item.parts.mapNotNull {
-                        when (it) {
-                            is ContentPart.Image -> it.resource
-                            is ContentPart.Resource -> it.resource
-                            is ContentPart.Text, is ContentPart.Reasoning -> null
-                        }
-                    },
-                )
+                // Host directives (a /remember request, learning hints) go to the engine, not the transcript; each
+                // text part is stripped on its own.
+                val text = item.parts.mapNotNull {
+                    when (it) {
+                        is ContentPart.Text -> stripHostDirectives(it.text)
+                        is ContentPart.Reasoning -> it.text
+                        is ContentPart.Image, is ContentPart.Resource -> null
+                    }
+                }.joinToString("\n")
+                val attachments = item.parts.mapNotNull {
+                    when (it) {
+                        is ContentPart.Image -> it.resource
+                        is ContentPart.Resource -> it.resource
+                        is ContentPart.Text, is ContentPart.Reasoning -> null
+                    }
+                }
+                // A message that carried only host directives is not the user's prompt.
+                if (text.isNotBlank() || attachments.isNotEmpty()) {
+                    messages += StudioMessage.Prompt(
+                        item.info.id.value,
+                        time,
+                        text,
+                        isTimestampKnown = false,
+                        attachments = attachments,
+                    )
+                }
             }
 
             MessageRole.System -> appendNotice(item.info.id.value, item.parts.text())

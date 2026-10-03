@@ -54,6 +54,15 @@ class HandoffComposerTest {
     }
 
     @Test
+    fun `a directive followed by an attachment is not replayed either`() {
+        val hint = withHostDirectives("Look at this", listOf("Remember the workaround"))
+        val image = ContentPart.Image(ResourceRef("r", "image/png"))
+        val prompt = compose(message(0, MessageRole.User, ContentPart.Text(hint), image))
+        assertTrue("User:\nLook at this\n[image omitted]" in prompt.text)
+        assertFalse("Remember the workaround" in prompt.text)
+    }
+
+    @Test
     fun `private engine details are not carried over`() {
         val info = { position: Long -> ItemInfo(ItemId("i$position"), position, 0) }
         val prompt = compose(

@@ -149,7 +149,8 @@ internal class LearningAgentTools(
             createdAtMillis = now,
         )
         val outcome = learn(instruction)
-        log.i { "remember kind=${draft.kind} outcome=${outcome::class.simpleName}" }
+        // The outcome names only its kind and, for a refusal, the reason; never a text of the instruction.
+        log.i { "remember kind=${draft.kind} outcome=$outcome" }
         return result(outcome, draft, project.ref)
     }
 
@@ -172,8 +173,8 @@ internal class LearningAgentTools(
         LearnOutcome.NotTaken -> failure("not saved: the registry did not take the request")
 
         LearnOutcome.Unconfirmed -> failure(
-            "not confirmed yet: the registry is still saving; do not call ${LearningTools.REMEMBER} again for this " +
-                "lesson",
+            "not confirmed yet: the registry is still saving; if the instruction is missing later, a repeated call " +
+                "is safe (a saved one is reported as a duplicate)",
         )
     }
 
@@ -242,12 +243,12 @@ internal class LearningAgentTools(
     }
 
     /**
-     * Reviewed content in the language of the other hosted approvals. The text to be stored comes first and whole,
-     * never a preview: the window may show only its top, and the agent's own words must not stand in front of it.
-     * Then, set apart, one line each: kind, scope and the agent's rating, the title, when to use it and the reason.
+     * Reviewed content in the language of the other hosted approvals. The window may show only its top, so the first
+     * line is the host's (kind, scope and the agent's rating) and no text of the agent stands in front of it. Then,
+     * set apart, the text to be stored, whole and never a preview (parseRemember allows no two blank lines in a row
+     * there), and one line each: the title, when to use it and the reason.
      */
     private fun approvalText(draft: RememberDraft, context: AgentToolContext): String = buildString {
-        append(draft.content).append("\n\n")
         append(
             when (draft.kind) {
                 InstructionKind.General -> "General instruction"
@@ -262,6 +263,7 @@ internal class LearningAgentTools(
         )
         append(if (context.workspace == null) " · chats without a project" else " · this project")
         append(if (draft.isSafe) " · rated safe by the agent" else " · the agent asks you to review it")
+        append("\n\n").append(draft.content).append("\n")
         // The title and description are single lines (checked by parseRemember); the reason is folded into one.
         append("\nTitle: ").append(draft.title)
         if (draft.description.isNotEmpty()) append("\nWhen to use: ").append(draft.description)

@@ -45,7 +45,7 @@ internal class KeyValueLearningStorage(
     private fun decode(raw: String): List<LearnedInstruction> = try {
         json.decodeFromString(INSTRUCTION_LIST, raw)
     } catch (e: IllegalArgumentException) {
-        log.w(e.withoutStoredText()) { "stored learned instructions are unreadable" }
+        // The effect runtime logs the failed load; only the cleaned failure leaves this place.
         throw e.withoutStoredText()
     }
 

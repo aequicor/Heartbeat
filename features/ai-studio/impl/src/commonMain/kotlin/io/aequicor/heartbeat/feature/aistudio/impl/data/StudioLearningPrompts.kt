@@ -45,13 +45,23 @@ internal class StudioLearningPrompts(
     /** The prompt the engine receives for [prompt] typed by the user in chat [id]. */
     suspend fun prompt(id: String, prompt: String): String {
         if (!toggles.get(AgentLearningEnabled)) {
-            lock.withLock { signals.remove(id) }
+            lock.withLock {
+                signals.remove(id)
+                hinted.remove(id)
+            }
             return withHostDirectives(prompt, emptyList())
         }
         val isRemember = rememberText(prompt) != null
-        // A hint would turn into arguments of the user's own CLI command; it waits for the next prompt.
-        val isCommand = !isRemember && prompt.trimStart().startsWith("/")
-        val pending = if (isCommand) emptySet() else lock.withLock { signals.remove(id).orEmpty() }
+        // A hint would turn into arguments of the user's own CLI command, and a /remember turn does no other work:
+        // the hint waits for the next prompt. A delivered hint is not given again in this chat.
+        val isDeferred = isRemember || prompt.trimStart().startsWith("/")
+        val pending = if (isDeferred) {
+            emptySet()
+        } else {
+            lock.withLock {
+                signals.remove(id).orEmpty().also { if (it.isNotEmpty()) hinted[id] = hinted[id].orEmpty() + it }
+            }
+        }
         val hint = pending.takeIf { it.isNotEmpty() }?.let(::learningHint)
         if (isRemember || hint != null) {
             log.i { "Learning directives sent: remember=$isRemember, signals ${pending.size}" }
@@ -75,11 +85,8 @@ internal class StudioLearningPrompts(
                 turn.lastTurn().commandOutputs().flatMap(::detectLearningSignals).toSet()
             }
             val fresh = lock.withLock {
-                val new = found - hinted[id].orEmpty()
-                if (new.isNotEmpty()) {
-                    signals[id] = signals[id].orEmpty() + new
-                    hinted[id] = hinted[id].orEmpty() + new
-                }
+                val new = found - hinted[id].orEmpty() - signals[id].orEmpty()
+                if (new.isNotEmpty()) signals[id] = signals[id].orEmpty() + new
                 new
             }
             if (fresh.isNotEmpty()) log.i { "Frequent tool problems noticed: $fresh" }

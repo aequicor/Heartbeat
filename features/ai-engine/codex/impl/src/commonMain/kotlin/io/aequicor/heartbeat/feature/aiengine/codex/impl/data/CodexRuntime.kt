@@ -224,6 +224,12 @@ internal class CodexRuntime(
         return open(ref.nativeId, request.target, request.workspace, request.areDetachedToolsEnabled)
     }
 
+    /**
+     * Hosted tools are fixed when a thread starts: a thread without a project declares detached tools only when the
+     * creating request enabled [areDetachedToolsEnabled]. A thread already open in this runtime is reused with its
+     * choice; a resume after a restart never adds or removes declarations, and without the resuming caller's opt-in
+     * a chat's declared tools are refused when called.
+     */
     private suspend fun open(
         nativeId: String?,
         target: EngineTarget,
@@ -264,23 +270,24 @@ internal class CodexRuntime(
         areDetachedToolsEnabled: Boolean,
     ): ActiveSession {
         val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
-        val isEligible = route.workspace != null || areDetachedToolsEnabled
-        val hostedManifest = if (isEligible) hostedManifest(route.workspace) else null
-        val hosted = validateHostedResume(nativeId, route.workspace, hostedManifest)
-        val isHosted = isEligible && hosted != null
-        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, hosted.takeIf { isEligible })
+        val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
+            detachedOpening(nativeId, target)
+        } else {
+            hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
+        }
+        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, hosted.parameters)
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = validateNativeThread(nativeId, response)
         val id = checkNotNull(thread.text("id"))
         val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
-        if (nativeId == null && hostedManifest != null) host.manifests.save(id, hostedManifest)
+        if (nativeId == null && hosted.manifest != null) host.manifests.save(id, hosted.manifest)
         val session = CodexSession(
             SessionRef(identity.engine, config.historySource, id),
             route,
             target,
             this,
             rpc,
-            isHosted,
+            hosted.isServed,
         )
         try {
             val isUnpaged = listOf("turnsBackwardsCursor", "itemsBackwardsCursor").all { field ->
@@ -302,6 +309,37 @@ internal class CodexRuntime(
         queued.forEach { session.event(it) }
         log.i { "Codex session attached" }
         return session.lease()
+    }
+
+    /** Hosted tools of a thread being opened; a thread [isEligible] for them fails to open when they fail. */
+    private suspend fun hostedOpening(
+        nativeId: String?,
+        target: EngineTarget,
+        workspace: WorkspaceRef?,
+        isEligible: Boolean,
+    ): HostedOpening {
+        val manifest = if (isEligible) hostedManifest(workspace) else null
+        val hosted = validateHostedResume(nativeId, workspace, manifest)
+        val parameters = hosted.takeIf { isEligible }?.let { hostedParameters(workspace, target, it) }
+        return HostedOpening(manifest, parameters, isServed = isEligible && hosted != null)
+    }
+
+    /**
+     * Detached hosted tools are optional: a failing contribution opens the chat thread as if its caller had not
+     * opted in. Engine failures, such as a stored manifest incompatible with a resume, still fail the open.
+     */
+    private suspend fun detachedOpening(nativeId: String?, target: EngineTarget): HostedOpening = try {
+        hostedOpening(nativeId, target, workspace = null, isEligible = true)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        throw e
+    } catch (e: Exception) {
+        // Contribution failures may quote instructions or arguments; only the type is logged.
+        log.w(IllegalStateException("Detached hosted tools failed (${e::class.simpleName.orEmpty()})")) {
+            "Detached hosted tools unavailable; the chat thread opens without them"
+        }
+        hostedOpening(nativeId, target, workspace = null, isEligible = false)
     }
 
     /**
@@ -376,15 +414,14 @@ internal class CodexRuntime(
         target: EngineTarget,
         workspace: WorkspaceRef?,
         tools: Boolean,
-        hostedThread: HostedThread?,
+        hosted: Pair<List<JsonObject>, String>?,
     ): JsonObject {
         val path = workspace?.let {
             host.workspaces.resolve(it) ?: config.workspaces[it]
                 ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        val hosted = hostedThread?.let { hostedParameters(workspace, target, it) } ?: (emptyList<JsonObject>() to "")
-        val declarations = hosted.first + if (tools) searchToolSpecs() else emptyList()
-        val instructions = hosted.second
+        val declarations = hosted?.first.orEmpty() + if (tools) searchToolSpecs() else emptyList()
+        val instructions = hosted?.second.orEmpty()
         val isolation = codexIsolationConfig(rpc, path, tools)
         return buildJsonObject {
             put("model", target.model.value)

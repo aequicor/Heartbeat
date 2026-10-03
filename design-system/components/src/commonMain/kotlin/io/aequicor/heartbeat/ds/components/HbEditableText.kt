@@ -53,6 +53,8 @@ private const val REJECTION_GRACE_FRAMES = 2
  * Controlled text with a hoisted editor scroll state, shared by fields and the composer.
  * Owners may answer asynchronously (for example a store on the main dispatcher): an edit is only
  * treated as rejected when [value] is still unchanged a few frames later, and late answers keep the caret.
+ * When the owner replaces the text itself, a caret at the end stays at the end and a prefix the owner adds moves the
+ * caret with the text after it; any other selection is clamped to the new text.
  * Selection uses the current scoped palette without replacing selection of surrounding read-only text.
  *
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,

@@ -44,9 +44,9 @@ public interface AgentToolBindings {
 /**
  * One authorization boundary for tool calls; adapters never implement a second trust gate for these tools.
  * A session without a project sees only contributions supporting it; the turn barrier still reaches every
- * contribution. Whether such a session gets hosted tools at all is its creator's opt-in (`areDetachedToolsEnabled`
- * of the create or resume request): adapters check it before attaching tools, this dispatcher never sees it and
- * answers any request without a workspace.
+ * contribution. Whether such a session gets hosted tools at all is the opt-in of the request that opens it
+ * (`CreateSessionRequest.areDetachedToolsEnabled` tells which one decides per adapter): adapters check it before
+ * attaching tools, this dispatcher never sees it and answers any request without a workspace.
  */
 @Inject
 @SingleIn(ProfileScope::class)

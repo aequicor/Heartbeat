@@ -11,7 +11,8 @@ internal enum class ModelReach { Engine, Model }
 
 /**
  * A validated `remember` call; scope and identity are added by the host, never taken from the model. [title] and
- * [description] are single lines; [reason] is shown to the user only, folded into one line.
+ * [description] are single lines with every run of whitespace folded into one space; [content] has no two blank lines
+ * in a row; [reason] is shown to the user only, folded into one line.
  */
 internal data class RememberDraft(
     val kind: InstructionKind,
@@ -34,7 +35,10 @@ internal sealed interface DraftResult {
     data class Invalid(val message: String) : DraftResult
 }
 
-/** Reads and validates `remember` arguments; texts are trimmed and checked against [LearningLimits]. */
+/**
+ * Reads and validates `remember` arguments; texts are trimmed, the title and description folded onto one line, and
+ * checked against [LearningLimits].
+ */
 internal fun parseRemember(arguments: JsonObject): DraftResult {
     val kind = kindOf(arguments.text(Arguments.KIND))
         ?: return DraftResult.Invalid("${Arguments.KIND} must be general, model or skill")
@@ -42,20 +46,28 @@ internal fun parseRemember(arguments: JsonObject): DraftResult {
         null -> ModelReach.Model
         else -> reachOf(value) ?: return DraftResult.Invalid("${Arguments.MODEL_SCOPE} must be engine or model")
     }
+    val title = arguments.text(Arguments.TITLE).orEmpty()
+    val description = arguments.text(Arguments.DESCRIPTION).orEmpty()
     val draft = RememberDraft(
         kind,
-        title = arguments.text(Arguments.TITLE).orEmpty(),
+        // A long run of spaces would wrap like a line break, so the stored text keeps a single space instead.
+        title = singleLine(title),
         content = arguments.text(Arguments.CONTENT).orEmpty(),
-        description = arguments.text(Arguments.DESCRIPTION).orEmpty(),
+        description = singleLine(description),
         reach = reach.takeIf { kind == InstructionKind.Model },
         isSafe = isRatedSafe(arguments),
         reason = arguments.text(Arguments.REASON).orEmpty().truncated(LearningLimits.DESCRIPTION),
     )
     val safety = arguments.text(Arguments.SAFETY)
-    val problem = if (safety != "safe" && safety != "review") {
-        "${Arguments.SAFETY} must be safe or review"
-    } else {
-        draft.problem()
+    val problem = when {
+        safety != "safe" && safety != "review" -> "${Arguments.SAFETY} must be safe or review"
+
+        // A line break would let the title or description pose as other text in the approval or the prompt.
+        title.hasLineBreak() -> "title must be a single line"
+
+        description.hasLineBreak() -> "description must be a single line; put details into content"
+
+        else -> draft.problem()
     }
     return problem?.let(DraftResult::Invalid) ?: DraftResult.Valid(draft)
 }
@@ -89,10 +101,9 @@ private fun RememberDraft.problem(): String? = when {
     content.length > LearningLimits.content(kind) ->
         "content is longer than ${LearningLimits.content(kind)} characters; make it shorter"
 
-    // A line break would let the title or description pose as other text in the approval or the prompt.
-    title.hasLineBreak() -> "title must be a single line"
-
-    description.hasLineBreak() -> "description must be a single line; put details into content"
+    // Blank lines could push the rest of the approval out of its window.
+    content.hasBlankLines() ->
+        "content has several blank lines in a row; use at most one blank line between paragraphs"
 
     hasHiddenCharacters(title + description + content + reason) ->
         "it contains invisible or control characters; use plain text"
@@ -119,6 +130,13 @@ internal fun singleLine(text: String): String = buildString {
 }
 
 private fun String.hasLineBreak(): Boolean = any { it == '\n' || it == '\r' || it == '\u2028' || it == '\u2029' }
+
+/** Whether two lines in a row are blank; a line of whitespace only counts as blank. */
+private fun String.hasBlankLines(): Boolean = split(LINE_BREAK).zipWithNext().any { (line, next) ->
+    line.isBlank() && next.isBlank()
+}
+
+private val LINE_BREAK = Regex("\r\n|[\n\r\u2028\u2029]")
 
 /** At most [limit] characters, never ending in half of a surrogate pair. */
 private fun String.truncated(limit: Int): String = when {

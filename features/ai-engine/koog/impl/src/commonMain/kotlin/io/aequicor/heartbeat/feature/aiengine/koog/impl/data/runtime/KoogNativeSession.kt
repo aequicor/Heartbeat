@@ -83,7 +83,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
-import kotlin.concurrent.Volatile
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
@@ -107,9 +106,14 @@ internal class KoogNativeSession(
     /** Set by the owning runtime before the first lease is issued. */
     var onIdle: (KoogNativeSession) -> Unit = {}
 
-    /** Chosen by the request that opened the session; only callers answering hosted permissions enable it. */
-    @Volatile
-    var areDetachedToolsEnabled: Boolean = false
+    /**
+     * Hosted tools for a session without a project. Chosen by the lease that attaches without other holders;
+     * only callers answering hosted permissions enable it.
+     */
+    private var areDetachedToolsEnabled = false
+
+    // The opt-in of the running turn, captured at its acceptance; a later lease changes only later turns.
+    private var isTurnDetached = false
     private val log = Log.tag("KoogSession")
     val history = snapshot.history
     private val mutex = Mutex()
@@ -134,8 +138,14 @@ internal class KoogNativeSession(
     val ref: SessionRef = initial.summary.ref
     val model: ModelId get() = configuration.value.model
 
-    fun attach(): ActiveSession {
+    /**
+     * Issues a lease. Without other holders [areDetachedToolsEnabled] decides hosted tools for later turns of a
+     * session without a project, even while a turn accepted for an earlier lease still runs; a lease on a session
+     * that is already held keeps the holders' choice.
+     */
+    fun attach(areDetachedToolsEnabled: Boolean): ActiveSession {
         checkOpen()
+        if (handles.isEmpty()) this.areDetachedToolsEnabled = areDetachedToolsEnabled
         val state = MutableStateFlow(current)
         handles += state
         return object : ActiveSession {
@@ -277,6 +287,7 @@ internal class KoogNativeSession(
         history.append { SessionEvent.TurnStarted(it, turn) }
         history.append { SessionEvent.ItemUpserted(it, user) }
         active = turn
+        isTurnDetached = areDetachedToolsEnabled
         publish(ActiveSessionState.Running(turn))
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             runTurn(turn, client, provider, model.value, request.trust ?: TrustLevel.Ask)
@@ -293,7 +304,7 @@ internal class KoogNativeSession(
                 ?.let { workspaces.open(it, context) }
                 ?.withCodingTools(isCodingEnabled)
 
-            areDetachedToolsEnabled -> openDetached(context)
+            isTurnDetached -> openDetached(context)
 
             else -> null
         }

@@ -22,7 +22,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | Saved | | Ready | Learned(receipt) |
  * | Ready | SetEnabled | known id, value differs | Ready(updated, revision + 1) | Persist |
  * | Ready | Edit | known id, trimmed texts unchanged | Ready | |
- * | Ready | Edit | known id, texts differ and are valid | Ready(updated, revision + 1) | Persist |
+ * | Ready | Edit | known id, texts differ, are valid and the title is free | Ready(updated, revision + 1) | Persist |
  * | Ready | Delete | known id | Ready(without it, revision + 1) | Persist |
  * | Ready | SetApproval | level differs | Ready(approval, approvalRevision + 1) | PersistApproval |
  * | Ready | SaveFailed | receipt of a held one | Ready(without it, revision + 1) | Persist, StorageFailed, Rejected |

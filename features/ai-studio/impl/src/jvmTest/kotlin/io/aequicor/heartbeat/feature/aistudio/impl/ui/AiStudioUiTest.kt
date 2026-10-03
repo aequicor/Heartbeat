@@ -8,6 +8,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
@@ -22,7 +24,10 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performMouseInput
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.core.navigation.compose.ComposableComponent
 import io.aequicor.heartbeat.ds.theme.HbTheme
@@ -269,6 +274,18 @@ class AiStudioUiTest {
             onNodeWithTag("permission-request-once").assertIsDisplayed()
             onNodeWithTag("permission-request-deny").assertIsDisplayed()
             onNodeWithTag("composer-0").assertIsDisplayed()
+
+            // A keyboard reaches the hidden part, and the decisions stay in place once the end is reached.
+            val text = onNodeWithTag("permission-request-description")
+            // Unclipped position: the clipped bounds of the text stay at the top of the scrolled area.
+            val top = text.fetchSemanticsNode().positionInRoot.y
+            val decision = onNodeWithTag("permission-request-once").fetchSemanticsNode().boundsInRoot.top
+            onNodeWithTag("permission-request-scroll").performSemanticsAction(SemanticsActions.RequestFocus)
+            onNodeWithTag("permission-request-scroll").performKeyInput { repeat(20) { pressKey(Key.PageDown) } }
+            waitForIdle()
+            assertTrue(text.fetchSemanticsNode().positionInRoot.y < top)
+            onNodeWithTag("permission-request-more").assertIsDisplayed()
+            assertEquals(decision, onNodeWithTag("permission-request-once").fetchSemanticsNode().boundsInRoot.top)
         }
 
     @Test

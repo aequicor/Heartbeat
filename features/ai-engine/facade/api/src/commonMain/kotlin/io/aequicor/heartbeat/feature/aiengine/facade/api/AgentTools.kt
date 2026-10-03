@@ -86,8 +86,8 @@ public interface AgentToolContribution {
     /**
      * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
      * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
-     * answers any request without a workspace with these; adapters attach them only to sessions whose creator
-     * enabled [CreateSessionRequest.areDetachedToolsEnabled].
+     * answers any request without a workspace with these; adapters attach them only to sessions opened with
+     * [CreateSessionRequest.areDetachedToolsEnabled], which also tells which request decides.
      */
     public val isDetachedSupported: Boolean get() = false
 

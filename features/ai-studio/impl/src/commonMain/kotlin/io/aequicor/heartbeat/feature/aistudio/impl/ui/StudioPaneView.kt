@@ -2,11 +2,11 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +51,7 @@ import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTone
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.components.HbWindowDragArea
+import io.aequicor.heartbeat.ds.layouts.HbBoxWithConstraints
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
@@ -253,10 +255,11 @@ private fun PaneNotices(
     content: PaneContent,
     onIntent: (AiStudioScreenIntent) -> Unit,
     questions: ImmutableMap<String, ComposableComponent>,
-) = BoxWithConstraints(Modifier.fillMaxWidth()) {
-    // A share of the pane, so a long description never pushes the decision or the composer off a low pane.
+) = HbBoxWithConstraints(Modifier.fillMaxWidth()) {
+    // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
+    val described = content.permissions.count { !it.description.isNullOrBlank() }.coerceAtLeast(1)
     val descriptionMaxHeight = if (constraints.hasBoundedHeight) {
-        minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / PANE_SHARE_OF_DESCRIPTION)
+        minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / (PANE_SHARE_OF_DESCRIPTIONS * described))
     } else {
         HbTheme.dimensions.toolPayloadMaxHeight
     }
@@ -307,22 +310,30 @@ private fun PaneNotices(
     }
 }
 
-/** Panes this many times taller than a permission description still show its decision and the composer. */
-private const val PANE_SHARE_OF_DESCRIPTION = 3
+/** Panes this many times taller than all permission descriptions together still show decisions and the composer. */
+private const val PANE_SHARE_OF_DESCRIPTIONS = 3
 
 /**
- * What a permission request approves, bounded and scrollable. Text below the visible part is announced by a line
- * that stays until the end is reached: the scrollbar alone appears only on hover, and the hidden tail is part of
- * what the user approves.
+ * What a permission request approves, bounded and scrollable. A long text keeps a line saying so: the scrollbar
+ * alone appears only on hover, and the hidden part is part of what the user approves. The text area takes focus,
+ * so a keyboard scrolls it with the arrow and page keys.
  */
 @Composable
 private fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
     val scroll = rememberScrollState()
+    // Kept while the text is scrollable at all, so the decisions do not move once the end is reached.
+    val isLong by remember(scroll) { derivedStateOf { scroll.maxValue in 1 until Int.MAX_VALUE } }
     HbColumn(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs) {
-        Box(Modifier.fillMaxWidth().heightIn(max = maxHeight).hbVerticalScroll(scroll)) {
+        Box(
+            Modifier.fillMaxWidth()
+                .heightIn(max = maxHeight)
+                .hbVerticalScroll(scroll)
+                .focusable()
+                .testTag("permission-$requestId-scroll"),
+        ) {
             HbText(description, Modifier.testTag("permission-$requestId-description"))
         }
-        if (scroll.canScrollForward) {
+        if (isLong) {
             HbText(
                 stringResource(Res.string.permission_more),
                 Modifier.testTag("permission-$requestId-more"),

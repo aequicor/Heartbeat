@@ -94,7 +94,7 @@ internal class KoogRuntime(
             koogCall { records.save(record) }
             checkOpen()
             log.i { "Created native session" }
-            native(record).also { it.areDetachedToolsEnabled = request.areDetachedToolsEnabled }.attach()
+            native(record).attach(request.areDetachedToolsEnabled)
         }
     }
 
@@ -112,17 +112,15 @@ internal class KoogRuntime(
             if (!isSameStore || !isSameCredentials || !isSameContext) {
                 fail(EngineFailure.Session(SessionFailureReason.NotResumable))
             }
-            // The request that opens the session decides; another holder of an open session keeps its tools.
+            // A session kept only by its running turn is reopened too; another holder keeps its choice of tools.
             val session = sessions[ref] ?: run {
                 val recovered = recover(record, route)
                 koogCall { records.save(recovered) }
-                val opened = native(recovered)
-                opened.areDetachedToolsEnabled = request.areDetachedToolsEnabled
-                opened
+                native(recovered)
             }
             checkOpen()
             log.i { "Attached native session" }
-            session.attach()
+            session.attach(request.areDetachedToolsEnabled)
         }
     }
 

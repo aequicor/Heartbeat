@@ -24,6 +24,16 @@ internal sealed interface HostedThread {
 }
 
 /**
+ * Hosted tools of a thread being opened: the [manifest] saved for a new thread, the declarations and instructions
+ * sent with its start or resume ([parameters]), and whether its hosted tool calls are served ([isServed]).
+ */
+internal class HostedOpening(
+    val manifest: String?,
+    val parameters: Pair<List<JsonObject>, String>?,
+    val isServed: Boolean,
+)
+
+/**
  * Whether a thread created with [stored] declarations may resume while the host offers [expected]. Version and
  * workspace must match; a tool present in both must be declared identically. Added tools stay invisible to the
  * thread and removed ones are refused when called, so neither blocks the resume.

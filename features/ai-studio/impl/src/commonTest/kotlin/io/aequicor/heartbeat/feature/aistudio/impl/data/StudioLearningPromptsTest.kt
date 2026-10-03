@@ -86,6 +86,7 @@ class StudioLearningPromptsTest {
                 command(1, "a", "UnicodeDecodeError")
         }
         assertEquals("/compact", learning.prompt("chat", "/compact"))
+        assertFalse("text encoding" in learning.prompt("chat", "/remember Use UTF-8"))
         assertTrue("text encoding" in learning.prompt("chat", "Continue"))
 
         val disabled = StudioLearningPrompts(LearningToggle(isEnabled = false), TestDispatchers)

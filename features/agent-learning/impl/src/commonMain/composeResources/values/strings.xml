@@ -32,7 +32,7 @@
     <string name="learning_delete_text">“%1$s” will no longer reach new sessions. This cannot be undone.</string>
     <string name="learning_load_failed">The instruction registry could not be read.</string>
     <string name="learning_retry">Retry</string>
-    <string name="learning_save_failed">The change was not saved. It applies until the profile closes.</string>
+    <string name="learning_save_failed">The last change was not saved. If it was an instruction from the agent, it is discarded; otherwise the change stays for now but may be lost when the profile closes.</string>
     <string name="learning_edit_rejected">The edit was not accepted: a text is over its limit or another instruction already has this title.</string>
     <string name="learning_filter_menu">Filter by project</string>
     <string name="learning_empty_filtered">No instructions for this choice.</string>

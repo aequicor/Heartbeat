@@ -101,7 +101,8 @@ internal class PiHostedSessionTools(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            log.w(e) { "Hosted tools failed to attach; the chat starts without them" }
+            // Contribution failures may quote instructions or arguments; only the type is logged.
+            log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
             null
         }
     }

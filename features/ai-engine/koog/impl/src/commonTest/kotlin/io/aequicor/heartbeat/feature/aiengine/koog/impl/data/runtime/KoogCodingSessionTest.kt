@@ -176,6 +176,28 @@ class KoogCodingSessionTest {
     }
 
     @Test
+    fun `chat attached while only its running turn holds it takes the opt in of the attaching caller`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        f.hostedTools = DetachedTools()
+        val runtime = f.runtime()
+        val created = runtime.create(CreateSessionRequest(f.target))
+        created.features.require(SendsPrompts).send(f.request("plain"))
+        runCurrent()
+        // The running turn keeps the session in the runtime after its last lease is gone.
+        created.close()
+        val chat = runtime.attach(created.ref, ResumeSessionRequest(f.target, areDetachedToolsEnabled = true))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(emptyList(), f.executor.tools.single())
+
+        chat.features.require(SendsPrompts).send(f.request("chat"))
+        f.executor.complete()
+        runCurrent()
+        assertEquals(listOf("remember"), f.executor.tools.last().map { it.name })
+    }
+
+    @Test
     fun `chat without a project answers when its detached tools fail`() = runTest {
         val f = fixture()
         f.isSearchEnabled = false

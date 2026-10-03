@@ -73,7 +73,10 @@ internal enum class LearningErrorUi {
     /** The stored registry could not be read; nothing can change until it loads. */
     LoadFailed,
 
-    /** The last change could not be written; it applies until the profile closes. */
+    /**
+     * The last change could not be written. An instruction the agent was learning is rolled back and gone; any other
+     * change stays in memory and is lost when the profile closes, unless a later save writes it.
+     */
     SaveFailed,
 
     /** The registry refused an edit: an empty or too long text (a skill's description too), or a title taken. */

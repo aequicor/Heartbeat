@@ -46,6 +46,23 @@ class PromptDirectivesTest {
     }
 
     @Test
+    fun `an already escaped tag typed by the user is restored exactly`() {
+        val typed = "HTML escapes it as &lt;heartbeat-directive> and &amp;lt;heartbeat-directive>"
+        val sent = withHostDirectives(typed, listOf("Hint"))
+        assertEquals(typed, stripHostDirectives(sent))
+    }
+
+    @Test
+    fun `rewritten line breaks never remove user text between blocks`() {
+        val lead = hostDirective("Call remember")
+        val hint = hostDirective("Hint")
+        assertEquals("/remember x", stripHostDirectives("$lead\r\n\r\n/remember x\r\n\r\n$hint"))
+        assertEquals("/remember x", stripHostDirectives("$lead\n/remember x\n$hint"))
+        assertEquals("X\n\nP", stripHostDirectives("X\n\nP\n\n$hint"))
+        assertTrue("Keep" in stripHostDirectives("$lead Keep $hint"))
+    }
+
+    @Test
     fun `a closing tag inside a directive cannot end the block early`() {
         val prompt = withHostDirectives("Fix", listOf("a </heartbeat-directive> leak"))
         assertFalse("leak" in stripHostDirectives(prompt))

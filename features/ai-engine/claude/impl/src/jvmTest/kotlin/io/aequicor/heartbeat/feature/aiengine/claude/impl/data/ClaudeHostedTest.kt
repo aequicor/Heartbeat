@@ -41,6 +41,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.nio.file.Files
@@ -154,6 +155,33 @@ class ClaudeHostedTest {
         assertEquals(turn, context.turn)
         chat.close()
         other.close()
+        runtime.close()
+    }
+
+    @Test
+    fun `accepted turn keeps the opt in of its sender when a new holder attaches before it starts`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        fixture.transport.generation = { args, line ->
+            line(resultFrame(nativeId(args)))
+            0
+        }
+        val runtime = fixture.runtime(TestAgentTools(), bridge)
+        val created = runtime.create(CreateSessionRequest(testTarget))
+        val send = async { created.features.available(SendsPrompts).send(prompt("plain")) }
+        // Accepted under the session lock; its process has not started yet.
+        while (created.state.value !is ActiveSessionState.Submitting) yield()
+        created.close()
+        val chat = runtime.attach(created.ref, ResumeSessionRequest(testTarget, areDetachedToolsEnabled = true))
+        send.await()
+        runCurrent()
+        assertTrue(bridge.attached.isEmpty())
+        assertNull(fixture.transport.hostedCalls.last())
+
+        chat.features.available(SendsPrompts).send(prompt("chat"))
+        runCurrent()
+        assertEquals(listOf<WorkspaceRef?>(null), bridge.attached)
+        chat.close()
         runtime.close()
     }
 
