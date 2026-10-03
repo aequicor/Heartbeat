@@ -40,7 +40,12 @@ internal fun codexHostedInstructions(workflow: String): String = """
  * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
  * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
  */
-internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, search: Boolean): JsonObject {
+internal suspend fun codexIsolationConfig(
+    rpc: CodexRpc,
+    cwd: String?,
+    search: Boolean,
+    questions: Boolean,
+): JsonObject {
     val effective = rpc.request(
         "config/read",
         buildJsonObject {
@@ -61,7 +66,14 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, search: B
                 servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
             },
         )
-        put("features", buildJsonObject { CodexDisabledCapabilities.forEach { put(it, false) } })
+        put(
+            "features",
+            buildJsonObject {
+                CodexDisabledCapabilities.forEach { put(it, false) }
+                // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
+                put("default_mode_request_user_input", questions)
+            },
+        )
         if (search) put("web_search", "live")
     }
 }
