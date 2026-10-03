@@ -61,6 +61,7 @@ private class TimelineChangeLog {
  * [showSectionHeaders] can hide date/session headings when their context is already shown outside the transcript.
  * [overlapInsets] softly fades rows beneath floating controls without fading the scrollbar or jump action.
  * [onToolAction] receives the pressed action of a tool call together with that call.
+ * [onLinkClick] opens web/mail links through the platform by default; pass null to disable links.
  */
 @Composable
 public fun HbChatTranscript(
@@ -75,7 +76,7 @@ public fun HbChatTranscript(
     messageAppearance: ((HbChatMessage) -> HbMessageAppearance)? = null,
     toolLabels: HbToolLabels = HbToolLabels(),
     toolExpansionState: HbToolExpansionState = rememberHbToolExpansionState(),
-    onLinkClick: ((String) -> Unit)? = null,
+    onLinkClick: ((String) -> Unit)? = rememberChatLinkHandler(),
     contentPadding: PaddingValues = PaddingValues(HbTheme.spacing.l),
     showSectionHeaders: Boolean = true,
     overlapInsets: PaddingValues = PaddingValues(),

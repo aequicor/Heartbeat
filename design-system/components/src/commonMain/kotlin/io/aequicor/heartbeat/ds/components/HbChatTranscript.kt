@@ -29,6 +29,7 @@ private val log = Log.tag("DS/ChatTranscript")
  * User scrolling pauses following; scrolling back to the bottom or the explicit action resumes it.
  * Stable message ids preserve item state during incremental text updates and history insertion.
  * [onToolAction] receives the pressed action of a tool call together with that call.
+ * [onLinkClick] opens web/mail links through the platform by default; pass null to disable links.
  */
 @Composable
 public fun HbChatTranscript(
@@ -40,6 +41,7 @@ public fun HbChatTranscript(
     onJumpToLatest: () -> Unit = {},
     onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     messageContent: (@Composable (HbChatMessage) -> Unit)? = null,
+    onLinkClick: ((String) -> Unit)? = rememberChatLinkHandler(),
 ) {
     var followState by remember(state) {
         mutableStateOf(ChatFollowState(isChatAtLatest(state.firstVisibleItemIndex, state.firstVisibleItemScrollOffset)))
@@ -84,6 +86,7 @@ public fun HbChatTranscript(
                     message = message,
                     streamingLabel = streamingLabel,
                     onToolAction = onToolAction,
+                    onLinkClick = onLinkClick,
                     content = messageContent?.let { render -> { render(message) } },
                 )
             }
