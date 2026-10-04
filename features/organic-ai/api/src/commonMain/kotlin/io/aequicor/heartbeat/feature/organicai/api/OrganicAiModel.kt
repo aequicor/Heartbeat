@@ -300,6 +300,10 @@ public sealed interface Breakdown {
     /** The turn was cancelled outside of the organism. */
     @Serializable
     public data object Interrupted : Breakdown
+
+    /** The engine could not confirm how the turn ended and its history holds no answer. */
+    @Serializable
+    public data object Unconfirmed : Breakdown
 }
 
 /** Why a cell ended without an answer. */
@@ -442,9 +446,6 @@ public enum class ReleaseMode {
     /** The cell was killed: cancel its turn, close the handle and archive the session. */
     Lyse,
 }
-
-/** A living cell of a developing organism, as the host found it from a trusted session identity. */
-public data class CellAddress(val organism: OrganismId, val cell: CellId)
 
 /** Names of the hosted tools a cell uses; transcripts can match them. */
 public object OrganismTools {

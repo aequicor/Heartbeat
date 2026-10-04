@@ -51,6 +51,51 @@ class OrganicAiMachineTest {
     }
 
     @Test
+    fun `waking without developing organisms revives nothing`() {
+        val ended = organism(status = OrganismStatus.Aborted)
+        spec.assertTransition(OrganicAiState.Awakening, OrganicAiIntent.Internal.Restored(listOf(ended)), living(ended))
+        spec.assertTransition(OrganicAiState.Awakening, OrganicAiIntent.Internal.Restored(emptyList()), living())
+    }
+
+    @Test
+    fun `an ended organism ignores every late request and feedback`() {
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
+        val aborted = spec.resolve(
+            living(organism(cell(C1), cases = listOf(complaint))),
+            OrganicAiIntent.Public.Abort(ORGANISM),
+        )!!.to
+        val late = listOf(
+            settled(ZYGOTE),
+            settled(C1),
+            OrganicAiIntent.Internal.Divide(ORGANISM, ZYGOTE, C2, "late", "late work"),
+            OrganicAiIntent.Internal.Complain(ORGANISM, ImmuneCase.Complaint(CaseId("k2"), ZYGOTE, C1, "late")),
+            OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("late")),
+            OrganicAiIntent.Public.Resume(ORGANISM),
+            OrganicAiIntent.Internal.Targeted(ORGANISM, TARGET),
+        )
+        late.forEach { spec.assertIgnored(aborted, it) }
+
+        val withCase = organism(cell(C1, phase = CellPhase.Completed("ok")), cases = listOf(complaint))
+        val completed = spec.resolve(living(withCase), settled(ZYGOTE))!!.to.organism()
+        assertEquals(OrganismStatus.Completed("answer"), completed.status)
+        assertEquals(emptyList(), completed.cases)
+        spec.assertIgnored(living(completed), OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("x")))
+    }
+
+    @Test
+    fun `feedback of a lysed cell is ignored`() {
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
+        val lysed = spec.resolve(
+            living(organism(cell(C1), cell(C2, parent = C1), cases = listOf(complaint))),
+            OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("loops")),
+        )!!.to
+        spec.assertIgnored(lysed, settled(C1))
+        spec.assertIgnored(lysed, settled(C2))
+        spec.assertIgnored(lysed, OrganicAiIntent.Internal.TurnAccepted(ORGANISM, C2, request(C2), TurnId("t")))
+        spec.assertIgnored(lysed, OrganicAiIntent.Internal.Divide(ORGANISM, C1, C3, "late", "late work"))
+    }
+
+    @Test
     fun `a germinating cell starts over without recovery`() {
         val germinating = organism(zygote = zygoteCell().copy(session = null))
         val awakened = germinating.awakened()
@@ -74,7 +119,7 @@ class OrganicAiMachineTest {
             living(developing, aborted),
             OrganicAiIntent.Public.Sleep,
             OrganicAiState.Hibernating,
-            effects = listOf(OrganicAiEffect.Hibernate(listOf(developing))),
+            effects = listOf(OrganicAiEffect.Hibernate(listOf(developing, aborted))),
         )
         spec.assertTransition(OrganicAiState.Hibernating, OrganicAiIntent.Internal.Hibernated, OrganicAiState.Dormant)
         spec.assertIgnored(OrganicAiState.Hibernating, OrganicAiIntent.Public.Awaken)

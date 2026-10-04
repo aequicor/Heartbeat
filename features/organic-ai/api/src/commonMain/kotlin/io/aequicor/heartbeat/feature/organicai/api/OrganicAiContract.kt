@@ -198,7 +198,7 @@ public sealed interface OrganicAiEffect : MachineEffect {
     /** Saves the awakened [organisms] first, then drives their working cells and judges their open cases. */
     public data class Revive(val organisms: List<Organism>) : OrganicAiEffect
 
-    /** Saves [organisms], cancels their turns and releases their handles, then reports Hibernated. */
+    /** Saves [organisms] (versions already written are skipped), cancels turns, releases handles, then Hibernated. */
     public data class Hibernate(val organisms: List<Organism>) : OrganicAiEffect
 
     /** Writes [organism] unless the journal has a newer version. */
@@ -232,8 +232,9 @@ public sealed interface OrganicAiOutput : MachineOutput {
 }
 
 /**
- * Profile-scoped organic AI machine. It is launched only while [OrganicAiEnabled] is on, so `MachineRegistry.send`
- * returns `NotRunning` before that.
+ * Profile-scoped organic AI machine. It is launched once [OrganicAiEnabled] is on in the profile, so before that
+ * `MachineRegistry.send` returns `NotRunning`; after the toggle is turned off it sleeps in Dormant and ignores
+ * organism intents.
  */
 public object OrganicAiMachineKey :
     MachineKey<OrganicAiState, OrganicAiIntent, OrganicAiIntent.Public, OrganicAiEffect, OrganicAiOutput> {

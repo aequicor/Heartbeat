@@ -17,10 +17,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | From | Intent | Guard | To / update | Effects | Output |
  * |---|---|---|---|---|---|
  * | Dormant, Broken | Awaken | — | Awakening | Restore | — |
- * | Awakening | Restored | — | Living(awakened) | Revive(developing) | — |
+ * | Awakening | Restored | — | Living(awakened) | Revive(developing), if any | — |
  * | Awakening | RestoreFailed | — | Broken, journal untouched | — | — |
  * | Awakening, Broken | Sleep | — | Dormant | — | — |
- * | Living | Sleep | — | Hibernating | Hibernate(developing) | — |
+ * | Living | Sleep | — | Hibernating | Hibernate(all) | — |
  * | Hibernating | Hibernated | — | Dormant | — | — |
  * | Living | Conceive | new id | + organism, zygote Working(Genesis) | Persist; Drive, or Resolve without a model | — |
  * | Living | Targeted / Unresolved | developing, no model yet | model / zygote Stalled(NoModel) | Persist; Drive | — |
@@ -54,7 +54,12 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
                 goto<OrganicAiState.Living> {
                     OrganicAiState.Living(intent.organisms.map(Organism::awakened).associateBy(Organism::id))
                 }
-                effect { OrganicAiEffect.Revive(intent.organisms.map(Organism::awakened).filter { it.isDeveloping }) }
+                effect {
+                    intent.organisms.map(Organism::awakened)
+                        .filter { it.isDeveloping }
+                        .takeIf { it.isNotEmpty() }
+                        ?.let(OrganicAiEffect::Revive)
+                }
             }
             on<OrganicAiIntent.Internal.RestoreFailed> { goto<OrganicAiState.Broken> { OrganicAiState.Broken } }
             on<OrganicAiIntent.Public.Sleep> { goto<OrganicAiState.Dormant> { OrganicAiState.Dormant } }
@@ -82,7 +87,8 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
             }
             on<OrganicAiIntent.Public.Sleep> {
                 goto<OrganicAiState.Hibernating> { OrganicAiState.Hibernating }
-                effect { OrganicAiEffect.Hibernate(state.organisms.values.filter { it.isDeveloping }) }
+                // Every organism is saved again: an ending whose own write was cut off must not wake up developing.
+                effect { OrganicAiEffect.Hibernate(state.organisms.values.toList()) }
             }
         }
         state<OrganicAiState.Hibernating> {

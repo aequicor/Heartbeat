@@ -53,7 +53,7 @@ class OrganicAiEffectsTest {
         journal,
         { TARGET },
         cells,
-        CellDriver(cells),
+        CellDriver(cells, journal),
         ImmunityCourt(judges, transcripts),
     )
     private val machine = Recorder()
@@ -77,6 +77,14 @@ class OrganicAiEffectsTest {
         assertEquals(request(C1), submitted.first)
         assertTrue("task of c1" in submitted.second)
         assertEquals(listOf<Pair<CellKey, SessionRef?>>(CellKey(ORGANISM, C1) to null), cells.opened)
+    }
+
+    @Test
+    fun `the organism is journaled before a request reaches the engine`() = runTest {
+        val organism = organism(cell(C1))
+        cells.handle.onSubmit = { assertEquals(listOf(organism), journal.saved) }
+        effects.handle(OrganicAiEffect.Drive(organism, C1, request(C1)), machine)
+        assertEquals(1, cells.handle.submitted.size)
     }
 
     @Test
@@ -121,14 +129,20 @@ class OrganicAiEffectsTest {
     @Test
     fun `turn outcomes settle as answers or breakdowns`() = runTest {
         val failure = EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed)
-        val expected = mapOf(
-            TurnOutcome.Failed(failure) to Settlement.Broke(Breakdown.Engine(failure)),
-            TurnOutcome.Cancelled to Settlement.Broke(Breakdown.Interrupted),
-            TurnOutcome.Unknown to Settlement.Answered("(The cell ended its turn without a written answer.)"),
+        val expected = listOf(
+            Triple(TurnOutcome.Failed(failure), null, Settlement.Broke(Breakdown.Engine(failure))),
+            Triple(TurnOutcome.Cancelled, null, Settlement.Broke(Breakdown.Interrupted)),
+            Triple(TurnOutcome.Unknown, null, Settlement.Broke(Breakdown.Unconfirmed)),
+            Triple(TurnOutcome.Unknown, "found", Settlement.Answered("found")),
+            Triple(
+                TurnOutcome.Completed,
+                null,
+                Settlement.Answered("(The cell ended its turn without a written answer.)"),
+            ),
         )
-        cells.handle.answer = null
-        expected.forEach { (outcome, settlement) ->
+        expected.forEach { (outcome, answer, settlement) ->
             cells.handle.outcome = outcome
+            cells.handle.answer = answer
             machine.sent.clear()
             effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
             assertEquals(settlement, (machine.sent.last() as OrganicAiIntent.Internal.TurnSettled).settlement)
@@ -166,7 +180,7 @@ class OrganicAiEffectsTest {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "it loops")
         val organism = organism(cell(C1), cell(C2, phase = CellPhase.Resting), cases = listOf(complaint))
         judges.answer = "nothing"
-        cells.handle.onSubmit = { assertEquals(listOf(organism), journal.saved) }
+        cells.handle.onSubmit = { assertEquals(organism, journal.saved.first()) }
         effects.handle(OrganicAiEffect.Revive(listOf(organism)), machine)
         assertEquals(2, cells.handle.submitted.size)
         assertTrue(machine.sent.any { it is OrganicAiIntent.Internal.Ruled })
@@ -185,7 +199,13 @@ class OrganicAiEffectsTest {
     fun `an organism without a model is resolved first`() = runTest {
         effects.handle(OrganicAiEffect.Revive(listOf(organism(target = null))), machine)
         assertEquals(listOf<OrganicAiIntent>(OrganicAiIntent.Internal.Targeted(ORGANISM, TARGET)), machine.sent)
-        val missing = OrganicAiEffects(journal, { null }, cells, CellDriver(cells), ImmunityCourt(judges, transcripts))
+        val missing = OrganicAiEffects(
+            journal,
+            { null },
+            cells,
+            CellDriver(cells, journal),
+            ImmunityCourt(judges, transcripts),
+        )
         machine.sent.clear()
         missing.handle(OrganicAiEffect.Resolve(ORGANISM), machine)
         assertEquals(listOf<OrganicAiIntent>(OrganicAiIntent.Internal.Unresolved(ORGANISM)), machine.sent)

@@ -184,8 +184,9 @@ private fun Organism.answered(cell: Cell, text: String): Step = when {
     else -> {
         val completed = updated(cell.id) { it.copy(phase = CellPhase.Completed(text)) }
         if (cell.isZygote) {
+            // Complaints still open against ended cells are moot; their judges' rulings are ignored.
             Step(
-                completed.copy(status = OrganismStatus.Completed(text)),
+                completed.copy(status = OrganismStatus.Completed(text), cases = emptyList()),
                 release = listOf(cell.id),
                 isFinished = true,
             )

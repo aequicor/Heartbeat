@@ -12,8 +12,10 @@ import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isDeveloping
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Executes organic AI effects; failures are mapped by the spec's `onEffectFailure`. */
 internal class OrganicAiEffects(
@@ -33,7 +35,8 @@ internal class OrganicAiEffects(
 
             is OrganicAiEffect.Hibernate -> hibernate(effect.organisms, machine)
 
-            is OrganicAiEffect.Persist -> journal.save(effect.organism)
+            // An ending has no later change to carry it: its write must outlive a sleep that leaves Living.
+            is OrganicAiEffect.Persist -> withContext(NonCancellable) { journal.save(effect.organism) }
 
             is OrganicAiEffect.Resolve -> resolve(effect, machine)
 
@@ -119,7 +122,7 @@ internal class OrganicAiEffects(
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
     }
 
-    /** A snapshot that cannot be written now is written by the next change of its organism. */
+    /** A snapshot that cannot be written now is written by the next change of its organism or the next sleep. */
     private suspend fun saveQuietly(organism: Organism) {
         try {
             journal.save(organism)

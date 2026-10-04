@@ -37,6 +37,9 @@ internal fun interface DefaultTargets {
     suspend fun default(): EngineTarget?
 }
 
+/** A living cell of a developing organism, as the host found it from a trusted session identity. */
+internal data class CellAddress(val organism: OrganismId, val cell: CellId)
+
 /** Address of the session of one cell. */
 internal data class CellKey(val organism: OrganismId, val cell: CellId)
 
@@ -81,7 +84,7 @@ internal interface CellHandle {
     /** Waits for [turn] to end, reporting the permission requests that await the user whenever they change. */
     suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome
 
-    /** The final answer of [turn] from the session history, or null when it has none or cannot be read. */
+    /** The final answer of [turn] from the session history, or null when it has none; throws when unreadable. */
     suspend fun answer(turn: TurnId): String?
 }
 

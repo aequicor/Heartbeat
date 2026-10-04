@@ -19,9 +19,10 @@ import io.aequicor.heartbeat.feature.organicai.api.cell
 /**
  * Runs one turn of a cell: opens its session, submits the turn's prompt (or adopts the native turn a recovery finds
  * still running), reports acceptance and pending permission requests, and settles the turn with its final answer.
- * Feedback the machine no longer takes means the cell ended meanwhile: the driver lets go and stops.
+ * The organism is journaled before a submission, so a request id never reaches an engine unsaved and a restart never
+ * reuses it. Feedback the machine no longer takes means the cell ended meanwhile: the driver lets go and stops.
  */
-internal class CellDriver(private val cells: CellSessions) {
+internal class CellDriver(private val cells: CellSessions, private val journal: OrganismJournal) {
     private val log = Log.tag("CellDriver")
 
     suspend fun drive(organism: Organism, id: CellId, request: RequestId, machine: EffectScope<OrganicAiIntent>) {
@@ -39,8 +40,10 @@ internal class CellDriver(private val cells: CellSessions) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, id, request, handle.session)
             if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null)
         }
-        val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() }
-            ?: handle.submit(request, turnPrompt(organism, cell), organism.trust)
+        val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() } ?: run {
+            journal.save(organism)
+            handle.submit(request, turnPrompt(organism, cell), organism.trust)
+        }
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
         if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn)
         val outcome = handle.await(turn) { pending ->
@@ -53,10 +56,19 @@ internal class CellDriver(private val cells: CellSessions) {
         }
     }
 
+    /**
+     * An unknown outcome is neither success nor failure: only an answer found in history settles it as answered,
+     * otherwise the turn broke (a zygote stalls and can be resumed instead of completing on nothing).
+     */
     private suspend fun settlement(handle: CellHandle, turn: TurnId, outcome: TurnOutcome): Settlement =
         when (outcome) {
-            TurnOutcome.Completed, TurnOutcome.Unknown -> Settlement.Answered(handle.answer(turn) ?: NO_ANSWER)
+            TurnOutcome.Completed -> Settlement.Answered(handle.answer(turn) ?: NO_ANSWER)
+
+            TurnOutcome.Unknown -> handle.answer(turn)?.let(Settlement::Answered)
+                ?: Settlement.Broke(Breakdown.Unconfirmed)
+
             TurnOutcome.Cancelled -> Settlement.Broke(Breakdown.Interrupted)
+
             is TurnOutcome.Failed -> Settlement.Broke(Breakdown.Engine(outcome.failure))
         }
 

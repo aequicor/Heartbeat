@@ -49,7 +49,7 @@ public object OrganicAiBindings {
         journal = journal,
         targets = targets,
         cells = cells,
-        driver = CellDriver(cells),
+        driver = CellDriver(cells, journal),
         court = ImmunityCourt(judges, transcripts),
     )
 

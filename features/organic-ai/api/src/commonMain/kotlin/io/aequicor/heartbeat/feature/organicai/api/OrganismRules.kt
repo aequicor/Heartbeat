@@ -9,7 +9,7 @@ public fun Organism.nextCellId(): CellId = CellId("c${cells.size}")
 public fun Organism.nextCaseId(): CaseId = CaseId("k${casesFiled + 1}")
 
 /** Request id of [cell]'s [turn]; unique per organism, cell and turn number. */
-public fun Organism.requestFor(cell: CellId, turn: Int): RequestId =
+internal fun Organism.requestFor(cell: CellId, turn: Int): RequestId =
     RequestId("organic-${id.value}-${cell.value}-$turn")
 
 /** Why [parent] may not divide now, or null when it may. */

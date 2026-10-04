@@ -149,8 +149,6 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
 /** One cell's open session. */
 private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
-    private val log = Log.tag("FacadeCellSessions")
-
     override val session: SessionRef get() = active.ref
 
     override fun activeTurn(): TurnId? = active.state.value.activeTurn()?.id
@@ -163,14 +161,9 @@ private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
     override suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome =
         active.awaitTurn(turn, onPending)
 
-    override suspend fun answer(turn: TurnId): String? = try {
+    override suspend fun answer(turn: TurnId): String? {
         val history = active.features.resolve(SessionHistory).orThrow()
-        answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: EngineException) {
-        log.w(e) { "answer of a turn on ${active.ref.engine.value} is unreadable" }
-        null
+        return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn)
     }
 
     private companion object {
