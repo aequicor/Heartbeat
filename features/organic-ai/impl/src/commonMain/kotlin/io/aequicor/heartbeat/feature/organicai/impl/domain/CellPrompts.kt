@@ -69,8 +69,10 @@ private fun role(organism: Organism, cell: Cell): String = buildString {
 
 private fun reminder(organism: Organism, cell: Cell): String {
     val working = organism.children(cell.id).filter { it.isAlive }.joinToString { it.id.value }
+    val open = organism.cases.filter { it.filedBy == cell.id }.joinToString { it.id.value }
     return "You are ${cell.label()} of an organic AI organism; below are letters the organism delivered to you. " +
         (if (working.isEmpty()) "None of your children is alive. " else "Your children still alive: $working. ") +
+        (if (open.isEmpty()) "" else "Your cases still open: $open. ") +
         RULES
 }
 
@@ -116,10 +118,10 @@ private const val MIN_LETTER_CHARS = 2_000
 private const val RULES =
     "Tool results are only receipts: results of children, verdicts and binding answers arrive later as a new " +
         "message after you end your turn, so never wait or poll for them. When you have started work you depend " +
-        "on, end your turn briefly. When you end a turn while none of your children is alive and no dispute of " +
-        "yours is open, your final message is your result for your parent (for the zygote: the organism's answer), " +
-        "so make it complete and self-contained. Never ask the user questions; an action that needs approval " +
-        "waits for the user's decision."
+        "on, end your turn briefly. When you end a turn while none of your children is alive and no case you filed " +
+        "(complaint or dispute) is open, your final message is your result for your parent (for the zygote: the " +
+        "organism's answer), so make it complete and self-contained. Never ask the user questions; an action " +
+        "that needs approval waits for the user's decision."
 
 private const val RECOVERY =
     "Heartbeat restarted while your previous turn was running, so that turn may have partly happened. Check the " +

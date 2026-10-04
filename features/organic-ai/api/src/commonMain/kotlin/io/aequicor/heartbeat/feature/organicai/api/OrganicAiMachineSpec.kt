@@ -11,8 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * Organic AI: sessions organized as organisms. A zygote grows from the goal; working cells divide, complain about
  * cancerous cells and ask for binding answers through their hosted tools; each case goes to a fresh immune session.
  * Results travel as letters: a resting cell wakes when an awaited result arrives, other letters wait for the next
- * turn. A step wakes at most one cell. Every change of an organism inside [OrganicAiState.Living] is a data update,
- * so turns and judgements of other cells keep running.
+ * turn. A step wakes one cell, a kill up to two (the killed cell's parent and the plaintiff). Every change of an
+ * organism inside [OrganicAiState.Living] is a data update, so turns and judgements of other cells keep running.
  *
  * | From | Intent | Guard | To / update | Effects | Output |
  * |---|---|---|---|---|---|
@@ -34,12 +34,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Decide | an awaited request accepts the decision | — | Respond | — |
  * | Living | TurnSettled(Answered) | turn of request | see below | Persist; Drive?; Release(Retire)? | Finished? |
  * | Living | TurnSettled(Broke) | turn of request | see below | Persist; Drive?; Release(Lyse)? | — |
- * | Living | Ruled | open case, developing | see below | Persist; Drive?; Release(Lyse)? | — |
+ * | Living | Ruled | open case, developing | see below | Persist; Drive?; Drive(plaintiff)?; Release(Lyse)? | — |
  *
- * An answer starts the next turn on letters that came meanwhile; a cell that still awaits children or its dispute
- * rests; otherwise the cell completes and its parent is told (the zygote completes the organism). A broken zygote
- * stalls; any other broken cell dies with its descendants and its parent is told. A kill lyses the accused subtree,
- * tells its parent and the plaintiff; a spared complaint or an answered dispute only sends letters.
+ * An answer starts the next turn on letters that came meanwhile; a cell that still awaits children or a case it
+ * filed rests; otherwise the cell completes and its parent is told (the zygote completes the organism). A broken
+ * zygote stalls; any other broken cell dies with its descendants and its parent is told. A kill lyses the accused
+ * subtree and wakes its parent and the plaintiff; any other ruling wakes the cell that filed the case, and the
+ * parties of a dispute read the answer with their next letters.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →
@@ -70,7 +71,8 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
                 stay { state.evolve(intent)?.let(state::apply) ?: state }
                 effect { step()?.takeIf { it.isDurable }?.let { OrganicAiEffect.Persist(it.organism) } }
                 effect { step()?.takeIf { it.isResolving }?.let { OrganicAiEffect.Resolve(it.organism.id) } }
-                effect { step()?.driveEffect() }
+                effect { step()?.let { it.driveEffect(it.drive) } }
+                effect { step()?.let { it.driveEffect(it.rouse) } }
                 effect { step()?.let { step -> step.judge?.let { OrganicAiEffect.Judge(step.organism, it) } } }
                 effect {
                     step()?.takeIf { it.release.isNotEmpty() }
@@ -113,9 +115,9 @@ private fun <T : OrganicAiState> OrganicTransition<T, OrganicAiIntent.Public.Awa
 /** The step of the current organism intent; recomputed per lambda, the rules are pure. */
 private fun TransitionScope<OrganicAiState.Living, OrganismIntent>.step(): Step? = state.evolve(intent)
 
-/** The turn the step started, as a drive of that cell's request. */
-private fun Step.driveEffect(): OrganicAiEffect.Drive? {
-    val cell = drive ?: return null
+/** The turn the step started for [cell], as a drive of that cell's request. */
+private fun Step.driveEffect(cell: CellId?): OrganicAiEffect.Drive? {
+    cell ?: return null
     val phase = organism.cell(cell)?.phase as? CellPhase.Working ?: return null
     return OrganicAiEffect.Drive(organism, cell, phase.request)
 }

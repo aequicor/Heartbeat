@@ -50,9 +50,8 @@ public fun Organism.lineage(id: CellId): List<Cell> {
 /** Generations between [id] and the zygote (0 for the zygote). */
 public fun Organism.depth(id: CellId): Int = (lineage(id).size - 1).coerceAtLeast(0)
 
-/** Whether [id] must wait before its answer is final: a child is alive or its own dispute is open. */
-public fun Organism.isWaiting(id: CellId): Boolean =
-    children(id).any(Cell::isAlive) || cases.any { it is ImmuneCase.Dispute && it.asker == id }
+/** Whether [id] must wait before its answer is final: a child is alive or a case it filed is open. */
+public fun Organism.isWaiting(id: CellId): Boolean = children(id).any(Cell::isAlive) || cases.any { it.filedBy == id }
 
 /**
  * The session of the sub-session [key] (a cell id, or a case id for its last judge) and how to reopen it as the

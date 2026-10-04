@@ -57,7 +57,7 @@ class PromptsTest {
     }
 
     @Test
-    fun `letters are numbered and remind the cell of its living children`() {
+    fun `letters are numbered and remind the cell of its living children and open cases`() {
         val letters = listOf(
             Letter.ChildFinished(C1, "scout", "found 3 files"),
             Letter.ChildDied(C2, "builder", DeathCause.Lysed(CaseId("k1"), "it deleted files")),
@@ -67,9 +67,11 @@ class PromptsTest {
         val organism = organism(
             cell(C1),
             zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(letters))),
+            cases = listOf(ImmuneCase.Complaint(CaseId("k4"), ZYGOTE, C1, "loops")),
         )
         val prompt = turnPrompt(organism, organism.zygote)
         val body = stripHostDirectives(prompt)
+        assertTrue("Your cases still open: k4." in prompt)
         assertTrue(body.startsWith("Letter 1: your child c1 \"scout\" finished. Its result:\nfound 3 files"))
         assertTrue("Letter 2: your child c2 \"builder\" ended without a result: killed by the immune system" in body)
         assertTrue("Binding answer: REST" in body)

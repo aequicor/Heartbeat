@@ -75,11 +75,17 @@ class OrganicAiMachineTest {
         )
         late.forEach { spec.assertIgnored(aborted, it) }
 
-        val withCase = organism(cell(C1, phase = CellPhase.Completed("ok")), cases = listOf(complaint))
+        // A case left open by a plaintiff that already ended is dropped when the organism completes.
+        val orphaned = ImmuneCase.Complaint(CaseId("k1"), C2, C1, "loops")
+        val withCase = organism(
+            cell(C1, phase = CellPhase.Completed("ok")),
+            cell(C2, phase = CellPhase.Dead(DeathCause.Aborted)),
+            cases = listOf(orphaned),
+        )
         val completed = spec.resolve(living(withCase), settled(ZYGOTE))!!.to.organism()
         assertEquals(OrganismStatus.Completed("answer"), completed.status)
         assertEquals(emptyList(), completed.cases)
-        spec.assertIgnored(living(completed), OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("x")))
+        spec.assertIgnored(living(completed), OrganicAiIntent.Internal.Ruled(ORGANISM, orphaned.id, Ruling.Kill("x")))
     }
 
     @Test
@@ -425,7 +431,7 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `a kill lyses the accused subtree and tells its parent and the plaintiff`() {
+    fun `a kill lyses the accused subtree and wakes its parent and the plaintiff`() {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), C3, C1, "it deletes files")
         val before = organism(
             cell(C1),
@@ -440,7 +446,7 @@ class OrganicAiMachineTest {
         val after = organism(
             cell(C1, phase = CellPhase.Dead(cause)),
             cell(C2, parent = C1, phase = CellPhase.Dead(DeathCause.Orphaned(C1))),
-            cell(C3, phase = CellPhase.Resting, inbox = listOf(verdict)),
+            cell(C3, phase = working(C3, turn = 2, work = Work.Letters(listOf(verdict))), turns = 2),
             zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(died))), turns = 2),
             casesFiled = 1,
             version = 2,
@@ -452,6 +458,7 @@ class OrganicAiMachineTest {
             effects = listOf(
                 OrganicAiEffect.Persist(after),
                 OrganicAiEffect.Drive(after, ZYGOTE, request(ZYGOTE, 2)),
+                OrganicAiEffect.Drive(after, C3, request(C3, 2)),
                 OrganicAiEffect.Release(after, listOf(C1, C2), ReleaseMode.Lyse),
             ),
         )
@@ -479,6 +486,22 @@ class OrganicAiMachineTest {
             OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("late")),
         )!!
         assertEquals(VerdictOutcome.Moot, (moot.to.organism().zygote.inbox.single() as Letter.Verdict).outcome)
+    }
+
+    @Test
+    fun `a plaintiff rests until its verdict, which wakes it`() {
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
+        val filed = organism(cell(C1, phase = CellPhase.Completed("ok")), cases = listOf(complaint))
+        val answered = spec.resolve(living(filed), settled(ZYGOTE))!!
+        assertEquals(CellPhase.Resting, answered.to.organism().zygote.phase)
+        assertEquals(OrganismStatus.Developing, answered.to.organism().status)
+
+        val spare = OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Spare("ok"))
+        val ruled = spec.resolve(answered.to, spare)!!
+        val verdict = Letter.Verdict(complaint.id, C1, "cell c1", VerdictOutcome.Spared, "ok")
+        val woken = ruled.to.organism()
+        assertEquals(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(verdict))), woken.zygote.phase)
+        assertTrue(OrganicAiEffect.Drive(woken, ZYGOTE, request(ZYGOTE, 2)) in ruled.effects)
     }
 
     @Test

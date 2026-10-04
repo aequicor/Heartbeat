@@ -61,11 +61,14 @@ class OrganismLifeTest {
     }
 
     @Test
-    fun `a cell waits for living children and its own dispute`() {
+    fun `a cell waits for living children and the cases it filed`() {
         assertTrue(grown.isWaiting(C1))
         assertFalse(grown.isWaiting(C2))
         val asked = grown.copy(cases = listOf(ImmuneCase.Dispute(CaseId("k1"), C2, "Which?")))
         assertTrue(asked.isWaiting(C2))
+        val accused = grown.copy(cases = listOf(ImmuneCase.Complaint(CaseId("k1"), C2, C1, "loops")))
+        assertTrue(accused.isWaiting(C2))
+        assertFalse(accused.isWaiting(C3))
     }
 
     @Test

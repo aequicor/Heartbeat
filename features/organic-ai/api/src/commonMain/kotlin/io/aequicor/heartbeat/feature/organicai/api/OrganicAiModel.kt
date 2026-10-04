@@ -201,7 +201,7 @@ public sealed interface CellPhase {
             "Working(request=${request.value}, recovery=$isRecovery, awaiting=${awaiting.size})"
     }
 
-    /** The last turn ended while children are alive or the cell's own dispute is open; a result wakes it. */
+    /** The last turn ended while children are alive or a case the cell filed is open; a result wakes it. */
     @Serializable
     public data object Resting : CellPhase
 

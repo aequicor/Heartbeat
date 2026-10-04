@@ -6,14 +6,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 
 /**
- * One change of one organism and what the host must do for it. A step wakes at most one cell ([drive]): only
- * the cell a letter is addressed to as its awaited result wakes, other letters wait in inboxes.
+ * One change of one organism and what the host must do for it. Only a cell a letter is addressed to as its awaited
+ * result wakes ([drive]); other letters wait in inboxes. A kill is the one step that may wake a second cell
+ * ([rouse]): the plaintiff learning its verdict besides the parent of the killed cell.
  */
 internal data class Step(
     val organism: Organism,
     val isDurable: Boolean = true,
     val isResolving: Boolean = false,
     val drive: CellId? = null,
+    val rouse: CellId? = null,
     val judge: CaseId? = null,
     val release: List<CellId> = emptyList(),
     val releaseMode: ReleaseMode = ReleaseMode.Retire,
@@ -217,8 +219,9 @@ private fun Organism.rule(case: ImmuneCase, ruling: Ruling): Step {
 }
 
 /**
- * Executes a kill on a living non-zygote accused: it is lysed with its descendants and its parent is told; the
- * plaintiff always learns the verdict, queued before the parent's letter so a parent that filed reads both.
+ * Executes a kill on a living non-zygote accused: it is lysed with its descendants and its parent is told. The
+ * plaintiff, which waits for its verdict, wakes with it; the verdict is queued before the parent's letter, so a parent
+ * that filed reads both in one turn.
  */
 private fun Organism.sentence(case: ImmuneCase.Complaint, ruling: Ruling): Step {
     val name = cell(case.accused)?.name.orEmpty()
@@ -230,14 +233,22 @@ private fun Organism.sentence(case: ImmuneCase.Complaint, ruling: Ruling): Step 
             is Ruling.Answer, is Ruling.None -> VerdictOutcome.Undecided
         }
         val verdict = Letter.Verdict(case.id, case.accused, name, outcome, ruling.reason)
-        return Step(post(case.plaintiff, verdict, wakes = false).first)
+        val (posted, woken) = post(case.plaintiff, verdict, wakes = true)
+        return Step(posted, drive = woken)
     }
     val cause = DeathCause.Lysed(case.id, ruling.reason)
     val (excised, ended) = excise(accused.id, cause)
     val verdict = Letter.Verdict(case.id, accused.id, name, VerdictOutcome.Killed, ruling.reason)
     val (told, _) = excised.post(case.plaintiff, verdict, wakes = false)
     val (posted, woken) = told.post(accused.parent, Letter.ChildDied(accused.id, name, cause), wakes = true)
-    return Step(posted, drive = woken, release = ended, releaseMode = ReleaseMode.Lyse)
+    val (roused, plaintiff) = posted.rouse(case.plaintiff)
+    return Step(roused, drive = woken, rouse = plaintiff, release = ended, releaseMode = ReleaseMode.Lyse)
+}
+
+/** Wakes [id] when it still rests with letters, such as a plaintiff other than the parent of the killed cell. */
+private fun Organism.rouse(id: CellId): Pair<Organism, CellId?> {
+    cell(id)?.takeIf { it.phase == CellPhase.Resting && it.inbox.isNotEmpty() } ?: return this to null
+    return updated(id) { wake(it) } to id
 }
 
 /** The asker wakes with the answer; the parties read it with their next letters. */
