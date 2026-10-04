@@ -1,0 +1,293 @@
+package io.aequicor.heartbeat.feature.organicai.api
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
+
+/**
+ * One change of one organism and what the host must do for it. A step wakes at most one cell ([drive]): only
+ * the cell a letter is addressed to as its awaited result wakes, other letters wait in inboxes.
+ */
+internal data class Step(
+    val organism: Organism,
+    val isDurable: Boolean = true,
+    val isResolving: Boolean = false,
+    val drive: CellId? = null,
+    val judge: CaseId? = null,
+    val release: List<CellId> = emptyList(),
+    val releaseMode: ReleaseMode = ReleaseMode.Retire,
+    val response: Response? = null,
+    val isFinished: Boolean = false,
+)
+
+/** A user decision to deliver to [cell]. */
+internal data class Response(val cell: CellId, val decision: PermissionDecision)
+
+/** What [intent] does to the organisms, or null when it does not apply (unknown organism, stale or refused). */
+internal fun OrganicAiState.Living.evolve(intent: OrganismIntent): Step? {
+    val organism = organisms[intent.organism]
+    if (intent is OrganicAiIntent.Public.Conceive) return if (organism == null) intent.conception.conceive() else null
+    return organism?.evolve(intent)?.let { step ->
+        if (step.isDurable) step.copy(organism = step.organism.copy(version = organism.version + 1)) else step
+    }
+}
+
+/** [step] applied to the organisms. */
+internal fun OrganicAiState.Living.apply(step: Step): OrganicAiState.Living =
+    copy(organisms = organisms + (step.organism.id to step.organism))
+
+/**
+ * The organism as it continues after a restart: every working cell starts a fresh turn of the same work, a
+ * recovery turn when its session exists. Observed turns and permission requests are gone.
+ */
+internal fun Organism.awakened(): Organism {
+    if (!isDeveloping) return this
+    val cells = cells.map { cell ->
+        when (val phase = cell.phase) {
+            is CellPhase.Working -> begin(cell, phase.work, isRecovery = cell.session != null)
+            else -> cell
+        }
+    }
+    return copy(cells = cells, version = version + 1)
+}
+
+internal fun Conception.conceive(): Step {
+    val zygote = Cell(CellId.ZYGOTE, "zygote", parent = null, task = goal, phase = CellPhase.Resting)
+    val organism = Organism(id, goal, target, immunityTarget, workspace, trust, limits, listOf(zygote), version = 1)
+    val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
+    return if (target == null) {
+        Step(started, isResolving = true)
+    } else {
+        Step(started, drive = CellId.ZYGOTE)
+    }
+}
+
+private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
+    is OrganicAiIntent.Public.Conceive -> null
+
+    is OrganicAiIntent.Public.Abort -> abort()
+
+    is OrganicAiIntent.Public.Resume -> resume()
+
+    is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
+
+    is OrganicAiIntent.Internal.Targeted -> targeted(intent.target)
+
+    is OrganicAiIntent.Internal.Unresolved -> unresolved()
+
+    is OrganicAiIntent.Internal.Divide -> divide(intent)
+
+    is OrganicAiIntent.Internal.Complain -> file(
+        intent.complaint,
+        complaintRefusal(intent.complaint.plaintiff, intent.complaint.accused),
+    )
+
+    is OrganicAiIntent.Internal.Dispute -> file(
+        intent.dispute,
+        disputeRefusal(intent.dispute.asker, intent.dispute.parties),
+    )
+
+    is TurnIntent -> working(intent.cell, intent.request)?.let { follow(it, intent) }
+
+    is OrganicAiIntent.Internal.Ruled -> cases.firstOrNull { it.id == intent.case }
+        ?.takeIf { isDeveloping }
+        ?.let { rule(it, intent.ruling) }
+}
+
+/** Driver feedback for the turn [cell] is working on. */
+private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
+    val phase = cell.phase as CellPhase.Working
+    return when (intent) {
+        is OrganicAiIntent.Internal.SessionBound -> if (cell.session == null) {
+            Step(updated(cell.id) { it.copy(session = intent.session) })
+        } else {
+            null
+        }
+
+        is OrganicAiIntent.Internal.TurnAccepted -> observe(cell, phase.copy(turn = intent.turn))
+
+        is OrganicAiIntent.Internal.PermissionsChanged -> observe(cell, phase.copy(awaiting = intent.pending))
+
+        is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
+    }
+}
+
+/** The living [id] while its turn of [request] is under way. */
+private fun Organism.working(id: CellId, request: RequestId): Cell? =
+    cell(id)?.takeIf { isDeveloping && (it.phase as? CellPhase.Working)?.request == request }
+
+/** A change of observed, unsaved facts of a working turn. */
+private fun Organism.observe(cell: Cell, phase: CellPhase.Working): Step =
+    Step(updated(cell.id) { it.copy(phase = phase) }, isDurable = false)
+
+private fun Organism.decide(id: CellId, decision: PermissionDecision): Step? {
+    val phase = cell(id)?.phase as? CellPhase.Working ?: return null
+    if (!isDeveloping || phase.awaiting.none { it.accepts(decision) }) return null
+    return Step(this, isDurable = false, response = Response(id, decision))
+}
+
+private fun Organism.targeted(target: EngineTarget): Step? {
+    if (!isDeveloping || this.target != null) return null
+    val zygote = zygote
+    return Step(copy(target = target), drive = zygote.id.takeIf { zygote.phase is CellPhase.Working })
+}
+
+private fun Organism.unresolved(): Step? {
+    val zygote = zygote
+    val phase = zygote.phase as? CellPhase.Working ?: return null
+    if (!isDeveloping || target != null) return null
+    return Step(updated(zygote.id) { it.copy(phase = CellPhase.Stalled(Breakdown.NoModel, phase.work)) })
+}
+
+private fun Organism.resume(): Step? {
+    val zygote = zygote
+    val phase = zygote.phase as? CellPhase.Stalled ?: return null
+    if (!isDeveloping) return null
+    val resumed = updated(zygote.id) { begin(it, phase.work, isRecovery = it.session != null) }
+    return if (target == null) Step(resumed, isResolving = true) else Step(resumed, drive = zygote.id)
+}
+
+private fun Organism.abort(): Step? {
+    if (!isDeveloping) return null
+    val ended = cells.filter(Cell::isAlive).map(Cell::id)
+    val aborted = copy(
+        cells = cells.map { if (it.isAlive) it.copy(phase = CellPhase.Dead(DeathCause.Aborted)) else it },
+        cases = emptyList(),
+        status = OrganismStatus.Aborted,
+    )
+    return Step(aborted, release = ended, releaseMode = ReleaseMode.Lyse, isFinished = true)
+}
+
+private fun Organism.divide(intent: OrganicAiIntent.Internal.Divide): Step? {
+    if (divisionRefusal(intent.parent) != null || intent.child != nextCellId()) return null
+    val child = Cell(intent.child, intent.name, intent.parent, intent.task, CellPhase.Resting)
+    return Step(copy(cells = cells + begin(child, Work.Genesis)), drive = child.id)
+}
+
+private fun Organism.file(case: ImmuneCase, refusal: Refusal?): Step? {
+    if (refusal != null || case.id != nextCaseId()) return null
+    return Step(copy(cases = cases + case, casesFiled = casesFiled + 1), judge = case.id)
+}
+
+private fun Organism.settle(cell: Cell, settlement: Settlement): Step = when (settlement) {
+    is Settlement.Answered -> answered(cell, settlement.text)
+    is Settlement.Broke -> broke(cell, settlement.breakdown)
+}
+
+/** Letters that came meanwhile are worked on first; the answer is final once nothing is awaited. */
+private fun Organism.answered(cell: Cell, text: String): Step = when {
+    cell.inbox.isNotEmpty() -> Step(updated(cell.id) { wake(it) }, drive = cell.id)
+
+    isWaiting(cell.id) -> Step(updated(cell.id) { it.copy(phase = CellPhase.Resting) })
+
+    else -> {
+        val completed = updated(cell.id) { it.copy(phase = CellPhase.Completed(text)) }
+        if (cell.isZygote) {
+            Step(
+                completed.copy(status = OrganismStatus.Completed(text)),
+                release = listOf(cell.id),
+                isFinished = true,
+            )
+        } else {
+            val (posted, woken) = completed.post(cell.parent, Letter.ChildFinished(cell.id, cell.name, text), true)
+            Step(posted, drive = woken, release = listOf(cell.id))
+        }
+    }
+}
+
+/** A broken zygote stalls until resumed; any other cell dies with its descendants and its parent is told. */
+private fun Organism.broke(cell: Cell, breakdown: Breakdown): Step {
+    val phase = cell.phase as CellPhase.Working
+    if (cell.isZygote) return Step(updated(cell.id) { it.copy(phase = CellPhase.Stalled(breakdown, phase.work)) })
+    val cause = DeathCause.Failed(breakdown)
+    val (excised, ended) = excise(cell.id, cause)
+    val (posted, woken) = excised.post(cell.parent, Letter.ChildDied(cell.id, cell.name, cause), wakes = true)
+    return Step(posted, drive = woken, release = ended, releaseMode = ReleaseMode.Lyse)
+}
+
+private fun Organism.rule(case: ImmuneCase, ruling: Ruling): Step {
+    val closed = copy(cases = cases - case)
+    return when (case) {
+        is ImmuneCase.Complaint -> closed.sentence(case, ruling)
+        is ImmuneCase.Dispute -> closed.answer(case, ruling)
+    }
+}
+
+/**
+ * Executes a kill on a living non-zygote accused: it is lysed with its descendants and its parent is told; the
+ * plaintiff always learns the verdict, queued before the parent's letter so a parent that filed reads both.
+ */
+private fun Organism.sentence(case: ImmuneCase.Complaint, ruling: Ruling): Step {
+    val name = cell(case.accused)?.name.orEmpty()
+    val accused = cell(case.accused)?.takeIf { ruling is Ruling.Kill && it.isAlive && !it.isZygote }
+    if (accused == null) {
+        val outcome = when (ruling) {
+            is Ruling.Kill -> VerdictOutcome.Moot
+            is Ruling.Spare -> VerdictOutcome.Spared
+            is Ruling.Answer, is Ruling.None -> VerdictOutcome.Undecided
+        }
+        val verdict = Letter.Verdict(case.id, case.accused, name, outcome, ruling.reason)
+        return Step(post(case.plaintiff, verdict, wakes = false).first)
+    }
+    val cause = DeathCause.Lysed(case.id, ruling.reason)
+    val (excised, ended) = excise(accused.id, cause)
+    val verdict = Letter.Verdict(case.id, accused.id, name, VerdictOutcome.Killed, ruling.reason)
+    val (told, _) = excised.post(case.plaintiff, verdict, wakes = false)
+    val (posted, woken) = told.post(accused.parent, Letter.ChildDied(accused.id, name, cause), wakes = true)
+    return Step(posted, drive = woken, release = ended, releaseMode = ReleaseMode.Lyse)
+}
+
+/** The asker wakes with the answer; the parties read it with their next letters. */
+private fun Organism.answer(case: ImmuneCase.Dispute, ruling: Ruling): Step {
+    val letter = Letter.DisputeResolved(case.id, case.question, (ruling as? Ruling.Answer)?.text, ruling.reason)
+    val told = case.parties.fold(this) { organism, party -> organism.post(party, letter, wakes = false).first }
+    val (posted, woken) = told.post(case.asker, letter, wakes = true)
+    return Step(posted, drive = woken)
+}
+
+/**
+ * Posts [letter] to [to]: an ended cell drops it, a resting one is woken by a letter that [wakes] it (with its whole
+ * inbox), any other cell keeps it for its next turn. Returns the organism and the woken cell.
+ */
+private fun Organism.post(to: CellId?, letter: Letter, wakes: Boolean): Pair<Organism, CellId?> {
+    val target = to?.let(::cell) ?: return this to null
+    return when (target.phase) {
+        is CellPhase.Completed, is CellPhase.Dead -> this to null
+
+        CellPhase.Resting -> if (wakes) {
+            updated(target.id) { wake(it.copy(inbox = it.inbox + letter)) } to target.id
+        } else {
+            updated(target.id) { it.copy(inbox = it.inbox + letter) } to null
+        }
+
+        is CellPhase.Working, is CellPhase.Stalled -> updated(target.id) { it.copy(inbox = it.inbox + letter) } to null
+    }
+}
+
+/** Ends [root] with [cause] and its living descendants as its orphans; returns the cells that were alive. */
+private fun Organism.excise(root: CellId, cause: DeathCause): Pair<Organism, List<CellId>> {
+    val ended = subtree(root).filter(Cell::isAlive).map(Cell::id)
+    val excised = copy(
+        cells = cells.map { cell ->
+            when (cell.id) {
+                root -> cell.copy(phase = CellPhase.Dead(cause))
+                in ended -> cell.copy(phase = CellPhase.Dead(DeathCause.Orphaned(root)))
+                else -> cell
+            }
+        },
+    )
+    return excised to ended
+}
+
+/** A turn of [cell] on its whole inbox. */
+private fun Organism.wake(cell: Cell): Cell = begin(cell.copy(inbox = emptyList()), Work.Letters(cell.inbox))
+
+/** [cell] starting its next turn on [work] with a fresh request id. */
+private fun Organism.begin(cell: Cell, work: Work, isRecovery: Boolean = false): Cell {
+    val turn = cell.turns + 1
+    return cell.copy(phase = CellPhase.Working(requestFor(cell.id, turn), work, isRecovery), turns = turn)
+}
+
+private fun Organism.updated(id: CellId, change: (Cell) -> Cell): Organism =
+    copy(cells = cells.map { if (it.id == id) change(it) else it })
