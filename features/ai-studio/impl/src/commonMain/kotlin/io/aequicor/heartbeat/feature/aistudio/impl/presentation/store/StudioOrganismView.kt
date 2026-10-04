@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -19,6 +18,8 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
+import io.aequicor.heartbeat.feature.organicai.api.sessionOf
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
@@ -121,16 +122,16 @@ internal class StudioOrganismView(
             .collect { transcripts -> pipeline.updateState { copy(subTranscripts = transcripts.toImmutableMap()) } }
     }
 
-    private fun transcriptsOf(refs: Map<String, SessionRef?>): Flow<Map<String, ImmutableList<MessageUi>>> =
-        if (refs.isEmpty()) {
+    private fun transcriptsOf(shown: Map<String, OrganismSession?>): Flow<Map<String, ImmutableList<MessageUi>>> =
+        if (shown.isEmpty()) {
             flowOf(emptyMap())
         } else {
             flow {
                 val views = backend.sessionViews()
                 emitAll(
                     combine(
-                        refs.map { (chat, ref) ->
-                            (ref?.let(views::observe) ?: flowOf(emptyList()))
+                        shown.map { (chat, session) ->
+                            (session?.let { views.observe(it.ref, it.reopening) } ?: flowOf(emptyList()))
                                 .map { messages -> chat to messages.map { it.toUi() }.toImmutableList() }
                         },
                     ) { it.toMap() },

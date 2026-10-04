@@ -26,7 +26,6 @@ import io.aequicor.heartbeat.feature.organicai.api.Trial
 import io.aequicor.heartbeat.feature.organicai.api.Work
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class OrganismUiTest {
     private fun ref(native: String) = SessionRef(EngineId("pi"), SessionSourceId("local"), native)
@@ -90,13 +89,6 @@ class OrganismUiTest {
             listOf("c1", "tests", "t1", "p1"),
             listOf(request.cell, request.cellName, request.turn, request.requestId),
         )
-    }
-
-    @Test
-    fun `sub-session keys resolve to cell and judge sessions`() {
-        assertEquals(ref("c1"), organism.sessionOf("c1"))
-        assertEquals(ref("judge"), organism.sessionOf("k1"))
-        assertNull(organism.sessionOf("c2"))
     }
 
     @Test

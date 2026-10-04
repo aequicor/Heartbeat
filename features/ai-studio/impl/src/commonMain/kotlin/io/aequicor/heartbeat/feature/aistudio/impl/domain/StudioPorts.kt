@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
@@ -103,8 +104,11 @@ interface StudioAvailability {
 
 /** Read-only live transcripts of native sessions the studio does not drive, such as the cells of an organism. */
 fun interface StudioSessionViews {
-    /** The transcript of [ref], updated while it is collected. */
-    fun observe(ref: SessionRef): Flow<List<StudioMessage>>
+    /**
+     * The transcript of [ref], updated while it is collected. An engine that serves history only to open sessions
+     * gets [ref] reopened with [reopening], the request its owner opened it with, so viewing never changes it.
+     */
+    fun observe(ref: SessionRef, reopening: ResumeSessionRequest): Flow<List<StudioMessage>>
 }
 
 /** The workspace backend chosen once for the feature scope: engine-backed profile chats or the demo workspace. */
@@ -113,7 +117,7 @@ interface StudioBackend {
     suspend fun repository(): StudioRepository
 
     /** Views of foreign sessions; the demo workspace has none. */
-    suspend fun sessionViews(): StudioSessionViews = StudioSessionViews { flowOf(emptyList()) }
+    suspend fun sessionViews(): StudioSessionViews = StudioSessionViews { _, _ -> flowOf(emptyList()) }
 
     /** Handler of the studio machine effects. */
     suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>

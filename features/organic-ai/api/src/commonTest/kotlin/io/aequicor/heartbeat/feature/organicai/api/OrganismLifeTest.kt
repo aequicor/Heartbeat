@@ -1,10 +1,13 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,6 +38,26 @@ class OrganismLifeTest {
         assertEquals(CellId("c4"), grown.nextCellId())
         assertEquals(CaseId("k3"), grown.copy(casesFiled = 2).nextCaseId())
         assertEquals(request(C1, 2), grown.requestFor(C1, 2))
+    }
+
+    @Test
+    fun `sub-sessions reopen as the organism opened them`() {
+        val workspace = WorkspaceRef("project")
+        val judge = TARGET.copy(model = ModelId("judge"))
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
+        val judged = grown.copy(
+            workspace = workspace,
+            immunityTarget = judge,
+            trials = listOf(Trial(complaint, session("j"))),
+        )
+        assertEquals(
+            OrganismSession(session("c1"), ResumeSessionRequest(TARGET, workspace, areDetachedToolsEnabled = true)),
+            judged.sessionOf("c1"),
+        )
+        assertEquals(OrganismSession(session("j"), ResumeSessionRequest(judge)), judged.sessionOf("k1"))
+        assertEquals(TARGET, judged.copy(immunityTarget = null).sessionOf("k1")?.reopening?.target)
+        assertNull(judged.copy(cells = listOf(zygoteCell(), cell(C1).copy(session = null))).sessionOf("c1"))
+        assertNull(judged.sessionOf("k2"))
     }
 
     @Test

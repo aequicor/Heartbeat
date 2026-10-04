@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -380,6 +381,12 @@ public sealed interface ImmuneCase {
  */
 @Serializable
 public data class Trial(val case: ImmuneCase, val judge: SessionRef? = null, val ruling: Ruling? = null)
+
+/**
+ * A native session of an organism and the request that reopens it the way the organism opened it, for reading its
+ * history where an engine serves history only to open sessions.
+ */
+public data class OrganismSession(val ref: SessionRef, val reopening: ResumeSessionRequest)
 
 /** Decision of the immune system on one case. */
 @Serializable

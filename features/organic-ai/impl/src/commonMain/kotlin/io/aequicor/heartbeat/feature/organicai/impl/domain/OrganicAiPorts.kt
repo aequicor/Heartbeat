@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 
 /** The running organic AI machine of the profile. */
@@ -96,6 +97,6 @@ internal fun interface JudgeSessions {
 
 /** Recent history of a cell session, for the judge's dossier. */
 internal fun interface SessionTranscripts {
-    /** The newest items of [session]. */
-    suspend fun recent(session: SessionRef): List<SessionItem>
+    /** The newest items of [session], reopened as the organism opened it when only an open session has history. */
+    suspend fun recent(session: OrganismSession): List<SessionItem>
 }

@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
@@ -92,10 +91,6 @@ internal fun Organism.toUi(): OrganismUi = OrganismUi(
         (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { it.toUi(cell) }
     }.toImmutableList(),
 )
-
-/** The native session of the sub-session [key]: a cell's session or the last judge of a case. */
-internal fun Organism.sessionOf(key: String): SessionRef? =
-    cells.firstOrNull { it.id.value == key }?.session ?: trials.firstOrNull { it.case.id.value == key }?.judge
 
 private fun Cell.toSubSession() = SubSessionUi(
     key = id.value,

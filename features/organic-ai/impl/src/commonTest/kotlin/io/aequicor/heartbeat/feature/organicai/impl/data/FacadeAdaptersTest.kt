@@ -11,11 +11,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
@@ -218,8 +220,21 @@ class FacadeAdaptersTest {
     @Test
     fun `transcripts are read from the stored session`() = runTest {
         val stored = FakeSession(session("stored")).apply { items = listOf(message(MessageRole.User, "hi")) }
-        val items = FacadeTranscripts(FakeFacade(stored = mapOf(stored.ref to stored))).recent(stored.ref)
+        val facade = FakeFacade(stored = mapOf(stored.ref to stored))
+        val items = FacadeTranscripts(facade).recent(OrganismSession(stored.ref, ResumeSessionRequest(TARGET)))
         assertEquals(stored.items, items)
+        assertEquals(emptyList<ResumeSessionRequest>(), facade.resumptions)
+    }
+
+    @Test
+    fun `transcripts of an engine without stored history are read from a reopened session`() = runTest {
+        val stored = FakeSession(session("stored")).apply { items = listOf(message(MessageRole.User, "hi")) }
+        val facade = FakeFacade(stored = mapOf(stored.ref to stored), hasStoredHistory = false)
+        val reopening = ResumeSessionRequest(TARGET, areDetachedToolsEnabled = true)
+        val items = FacadeTranscripts(facade).recent(OrganismSession(stored.ref, reopening))
+        assertEquals(stored.items, items)
+        assertEquals(listOf(reopening), facade.resumptions)
+        assertEquals(1, stored.closes)
     }
 
     private fun permission(turn: TurnId) = PermissionRequest(

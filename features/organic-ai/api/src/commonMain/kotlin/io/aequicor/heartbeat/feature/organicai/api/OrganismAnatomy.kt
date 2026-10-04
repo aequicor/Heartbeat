@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+
 /** The progenitor of every other cell: the one cell without a parent. */
 public val Organism.zygote: Cell get() = cells.first(Cell::isZygote)
 
@@ -51,3 +53,19 @@ public fun Organism.depth(id: CellId): Int = (lineage(id).size - 1).coerceAtLeas
 /** Whether [id] must wait before its answer is final: a child is alive or its own dispute is open. */
 public fun Organism.isWaiting(id: CellId): Boolean =
     children(id).any(Cell::isAlive) || cases.any { it is ImmuneCase.Dispute && it.asker == id }
+
+/**
+ * The session of the sub-session [key] (a cell id, or a case id for its last judge) and how to reopen it as the
+ * organism opened it: a cell on the organism's model and project with the detached hosted tools, a judge on the
+ * immune model with neither. Reopening it so never changes what a cell may do. Null while it has no session.
+ */
+public fun Organism.sessionOf(key: String): OrganismSession? {
+    cells.firstOrNull { it.id.value == key }?.let { cell ->
+        val ref = cell.session ?: return null
+        val target = target ?: return null
+        return OrganismSession(ref, ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+    }
+    val judge = trials.firstOrNull { it.case.id.value == key }?.judge ?: return null
+    val target = immunityTarget ?: target ?: return null
+    return OrganismSession(judge, ResumeSessionRequest(target, workspace = null, areDetachedToolsEnabled = false))
+}

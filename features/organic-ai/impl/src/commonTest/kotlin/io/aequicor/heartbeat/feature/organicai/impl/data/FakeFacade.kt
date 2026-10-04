@@ -141,10 +141,14 @@ internal class FakeFeatures(private val features: Map<EngineFeatureKey<*>, Featu
         features[key] as FeatureAccess<F>? ?: FeatureAccess.Unsupported
 }
 
-/** A facade that creates [created] sessions in order and resumes or reads the [stored] ones. */
+/**
+ * A facade that creates [created] sessions in order and resumes or reads the [stored] ones. Without [hasStoredHistory]
+ * stored sessions serve history only once reopened, as Codex sessions do.
+ */
 internal class FakeFacade(
     private val created: ArrayDeque<FakeSession> = ArrayDeque(),
     private val stored: Map<SessionRef, FakeSession> = emptyMap(),
+    private val hasStoredHistory: Boolean = true,
 ) : EngineFacade {
     val creations = mutableListOf<CreateSessionRequest>()
     var onCreate: suspend () -> Unit = {}
@@ -180,11 +184,11 @@ internal class FakeFacade(
             return object : EngineSession {
                 override val summary: StateFlow<SessionSummary> = MutableStateFlow(SessionSummary(ref))
                 override val features: EngineFeatures = FakeFeatures(
-                    mapOf(
-                        ResumesSessions to FeatureAccess.Available(resumes),
-                        SessionHistory to FeatureAccess.Available(session.history),
-                        ArchivesSessions to FeatureAccess.Available(session.archives),
-                    ),
+                    buildMap {
+                        put(ResumesSessions, FeatureAccess.Available(resumes))
+                        if (hasStoredHistory) put(SessionHistory, FeatureAccess.Available(session.history))
+                        put(ArchivesSessions, FeatureAccess.Available(session.archives))
+                    },
                 )
             }
         }

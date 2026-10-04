@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
@@ -21,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCheckpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
@@ -33,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -129,17 +134,37 @@ class StudioOrganismsTest {
             SessionItem.Message(ItemInfo(ItemId("p"), 0, 0), MessageRole.User, listOf(ContentPart.Text("Task"))),
             SessionItem.Message(ItemInfo(ItemId("r"), 1, 0), MessageRole.Assistant, listOf(ContentPart.Text("Done"))),
         )
-        val messages = StudioSessionViewer(ViewedFacade(ref, history)).observe(ref).first { it.size == 2 }
+        val facade = ViewedFacade(ref, history)
+        val messages = StudioSessionViewer(facade).observe(ref, reopening).first { it.size == 2 }
         assertEquals("Task", (messages[0] as StudioMessage.Prompt).text)
         assertEquals("Done", (messages[1] as StudioMessage.Reply).text)
+        assertEquals(emptyList<ResumeSessionRequest>(), facade.resumptions)
+    }
+
+    @Test
+    fun `a session whose engine keeps no stored history is viewed through a reopened handle`() = runTest {
+        val ref = SessionRef(EngineId("codex"), SessionSourceId("codex"), "cell")
+        val history = listOf(
+            SessionItem.Message(ItemInfo(ItemId("p"), 0, 0), MessageRole.User, listOf(ContentPart.Text("Task"))),
+        )
+        val facade = ViewedFacade(ref, history, hasStoredHistory = false)
+        val messages = StudioSessionViewer(facade).observe(ref, reopening).first { it.size == 1 }
+        assertEquals("Task", (messages.single() as StudioMessage.Prompt).text)
+        assertEquals(listOf(reopening), facade.resumptions)
+        assertEquals(1, facade.closes)
     }
 
     @Test
     fun `an unreadable viewed session stays empty instead of failing the screen`() = runTest {
         val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "gone")
-        val messages = StudioSessionViewer(ViewedFacade(ref = null, emptyList())).observe(ref).first()
+        val messages = StudioSessionViewer(ViewedFacade(ref = null, emptyList())).observe(ref, reopening).first()
         assertTrue(messages.isEmpty())
     }
+
+    private val reopening = ResumeSessionRequest(
+        EngineTarget(EngineId("pi"), EngineBindingId("binding"), ModelId("model")),
+        areDetachedToolsEnabled = true,
+    )
 }
 
 private class OrganicMachine(initial: OrganicAiState) :
@@ -172,8 +197,18 @@ private class Registry(private val machine: OrganicMachine?) : MachineRegistry {
     ): SendResult = SendResult.NotRunning
 }
 
-/** A facade storing one session [ref] with [items] in its history; any other session cannot be read. */
-private class ViewedFacade(private val ref: SessionRef?, private val items: List<SessionItem>) : EngineFacade {
+/**
+ * A facade storing one session [ref] with [items] in its history; any other session cannot be read. Without
+ * [hasStoredHistory] the history is served only by a reopened handle, as Codex serves it.
+ */
+private class ViewedFacade(
+    private val ref: SessionRef?,
+    private val items: List<SessionItem>,
+    private val hasStoredHistory: Boolean = true,
+) : EngineFacade {
+    val resumptions = mutableListOf<ResumeSessionRequest>()
+    var closes = 0
+
     override val engines: EngineCatalog get() = error("unused")
     override val bindings: EngineBindings get() = error("unused")
     override val models: ModelCatalog get() = error("unused")
@@ -188,11 +223,36 @@ private class ViewedFacade(private val ref: SessionRef?, private val items: List
             return object : EngineSession {
                 override val summary: StateFlow<SessionSummary> = MutableStateFlow(SessionSummary(ref))
                 override val features: EngineFeatures = object : EngineFeatures {
-                    @Suppress("UNCHECKED_CAST") // The fake offers only its history.
-                    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-                        if (key == SessionHistory) FeatureAccess.Available(history as F) else FeatureAccess.Unsupported
+                    @Suppress("UNCHECKED_CAST") // The fake offers only its history or its resumption.
+                    override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = when {
+                        key == SessionHistory && hasStoredHistory -> FeatureAccess.Available(history as F)
+                        key == ResumesSessions && !hasStoredHistory -> FeatureAccess.Available(resumes as F)
+                        else -> FeatureAccess.Unsupported
+                    }
                 }
             }
+        }
+    }
+
+    private val resumes = object : ResumesSessions {
+        override suspend fun resume(request: ResumeSessionRequest): ActiveSession {
+            resumptions += request
+            return opened(checkNotNull(ref))
+        }
+    }
+
+    private fun opened(ref: SessionRef) = object : ActiveSession {
+        override val ref: SessionRef = ref
+        override val route: ExecutionRoute get() = error("unused")
+        override val state: StateFlow<ActiveSessionState> = MutableStateFlow(ActiveSessionState.Ready())
+        override val features: EngineFeatures = object : EngineFeatures {
+            @Suppress("UNCHECKED_CAST") // The open handle offers only its history.
+            override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+                if (key == SessionHistory) FeatureAccess.Available(history as F) else FeatureAccess.Unsupported
+        }
+
+        override suspend fun close() {
+            closes++
         }
     }
 
