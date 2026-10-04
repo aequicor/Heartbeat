@@ -78,6 +78,15 @@ class PromptsTest {
     }
 
     @Test
+    fun `letters of one turn share a bounded budget`() {
+        val letters = (1..10).map { Letter.ChildFinished(C1, "scout", "x".repeat(OrganismBounds.MAX_RESULT)) }
+        val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(letters))))
+        val body = stripHostDirectives(turnPrompt(organism, organism.zygote))
+        assertTrue(body.length < 62_000, "${body.length}")
+        assertTrue("Letter 10:" in body)
+    }
+
+    @Test
     fun `a recovery turn repeats the role, warns about the interrupted turn and repeats the work`() {
         val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, isRecovery = true)))
         val prompt = turnPrompt(organism, organism.zygote)

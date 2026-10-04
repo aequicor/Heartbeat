@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.organicai.api.zygote
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -80,7 +81,13 @@ internal class OrganicAiEffects(
         val work = organisms.flatMap(::revival)
         log.i { "reviving ${organisms.size} organisms: ${work.size} turns, models and cases" }
         coroutineScope {
-            work.forEach { effect -> launch { isolated(effect, machine) } }
+            work.forEach { effect ->
+                launch { isolated(effect, machine) }.invokeOnCompletion { cause ->
+                    // As the runtime does for its own effects: a cancellation from inside a revival that goes on
+                    // (a timeout) is a failure, or the cell would keep no driver.
+                    if (cause is CancellationException && isActive) launch { cancelledInside(effect, cause, machine) }
+                }
+            }
         }
     }
 
@@ -106,6 +113,15 @@ internal class OrganicAiEffects(
             log.w(e) { "revived ${effect::class.simpleName.orEmpty()} failed" }
             OrganicAiMachineSpec.onEffectFailure(effect, e)?.let { machine.send(it) }
         }
+    }
+
+    private suspend fun cancelledInside(
+        effect: OrganicAiEffect,
+        cause: CancellationException,
+        machine: EffectScope<OrganicAiIntent>,
+    ) {
+        log.e(cause) { "revived ${effect::class.simpleName.orEmpty()} failed: cancelled from inside" }
+        OrganicAiMachineSpec.onEffectFailure(effect, cause)?.let { machine.send(it) }
     }
 
     private suspend fun hibernate(organisms: List<Organism>, machine: EffectScope<OrganicAiIntent>) {

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.data
 
 import androidx.room.RoomDatabase
+import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.datastore.DataEvent
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
@@ -15,6 +16,8 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.organism
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -27,14 +30,14 @@ import kotlin.test.assertTrue
 
 class KeyValueOrganismJournalTest {
     private val stores = MemoryStores()
-    private val journal = KeyValueOrganismJournal(stores)
+    private val journal = KeyValueOrganismJournal(stores, TestDispatchers)
 
     @Test
     fun `organisms survive a round trip through the journal`() = runTest {
         val organism = organism()
         journal.save(organism)
         assertEquals(setOf(organism.id.value), stores.store.values["index"])
-        assertEquals(listOf(organism), KeyValueOrganismJournal(stores).load())
+        assertEquals(listOf(organism), KeyValueOrganismJournal(stores, TestDispatchers).load())
     }
 
     @Test
@@ -51,7 +54,7 @@ class KeyValueOrganismJournalTest {
     @Test
     fun `a loaded version guards later writes of a fresh journal`() = runTest {
         journal.save(organism().copy(version = 3))
-        val reopened = KeyValueOrganismJournal(stores)
+        val reopened = KeyValueOrganismJournal(stores, TestDispatchers)
         reopened.load()
         reopened.save(organism().copy(version = 2, goal = "stale"))
         assertEquals(3, reopened.load().single().version)
@@ -62,7 +65,7 @@ class KeyValueOrganismJournalTest {
         journal.save(organism())
         stores.store.values["organism.broken"] = """{"id":{"value":"broken"},"goal":""}"""
         stores.store.values["index"] = setOf("o1", "broken", "expired")
-        val loaded = KeyValueOrganismJournal(stores).load()
+        val loaded = KeyValueOrganismJournal(stores, TestDispatchers).load()
         assertEquals(listOf(OrganismId("o1")), loaded.map { it.id })
         assertEquals(setOf("o1", "broken"), stores.store.values["index"])
         assertTrue("organism.broken" in stores.store.values)
@@ -86,6 +89,12 @@ class KeyValueOrganismJournalTest {
         assertNull(SelectedModelTargets(selections).default())
         selection = ModelSelection().withDefault(TARGET)
         assertEquals(TARGET, SelectedModelTargets(selections).default())
+    }
+
+    private object TestDispatchers : DispatcherProvider {
+        override val main: CoroutineDispatcher = Dispatchers.Unconfined
+        override val default: CoroutineDispatcher = Dispatchers.Unconfined
+        override val io: CoroutineDispatcher = Dispatchers.Unconfined
     }
 
     private class MemoryStores : DataStores {

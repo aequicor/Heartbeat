@@ -20,7 +20,7 @@ internal class FacadeTranscripts(private val facade: EngineFacade) : SessionTran
     override suspend fun recent(session: SessionRef): List<SessionItem> {
         val history = facade.sessions.get(session).features.resolve(SessionHistory).orThrow()
         val items = history.page(HistoryPageRequest(limit = ITEMS)).items
-        log.d { "read ${items.size} recent items from ${session.engine.value}" }
+        log.v { "read ${items.size} recent items from ${session.engine.value}" }
         return items
     }
 

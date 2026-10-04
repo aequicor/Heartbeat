@@ -65,7 +65,13 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         val kept = mutex.withLock {
             if (key in lysed) null else handles[key]?.takeIf { it.isOpen() } ?: opened.also { handles[key] = it }
         }
-        if (kept !== opened) withContext(NonCancellable) { opened.close() }
+        if (kept !== opened) {
+            withContext(NonCancellable) {
+                opened.close()
+                // The cell was lysed while its session was being created: the new session must not stay listed.
+                if (kept == null) archiveQuietly(opened.ref)
+            }
+        }
         return FacadeCellHandle(kept ?: throw closed())
     }
 
@@ -79,20 +85,23 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             if (mode == ReleaseMode.Lyse) lysed += key
             handles.remove(key)
         }
-        try {
-            when (mode) {
-                ReleaseMode.Retire -> handle?.let { withContext(NonCancellable) { it.close() } }
+        // The handle is already out of the cache, so nothing else would release it: finish even when cancelled.
+        withContext(NonCancellable) {
+            try {
+                when (mode) {
+                    ReleaseMode.Retire -> handle?.close()
 
-                ReleaseMode.Lyse -> {
-                    handle?.stop(LYSIS_WAIT)
-                    session?.let { archive(it) }
+                    ReleaseMode.Lyse -> {
+                        handle?.stop(LYSIS_WAIT)
+                        session?.let { archive(it) }
+                    }
                 }
+                log.d { "cell ${key.cell.value} of ${key.organism.value} released ($mode)" }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "cell ${key.cell.value} of ${key.organism.value} was not fully released ($mode)" }
             }
-            log.d { "cell ${key.cell.value} of ${key.organism.value} released ($mode)" }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "cell ${key.cell.value} of ${key.organism.value} was not fully released ($mode)" }
         }
     }
 
@@ -134,6 +143,16 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             is FeatureAccess.Available -> archives.feature.setArchived(true)
             is FeatureAccess.Unavailable -> log.w(EngineException(archives.reason)) { "session was not archived" }
             FeatureAccess.Unsupported -> log.d { "${session.engine.value} sessions cannot be archived" }
+        }
+    }
+
+    private suspend fun archiveQuietly(session: SessionRef) {
+        try {
+            archive(session)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "abandoned session on ${session.engine.value} was not archived" }
         }
     }
 

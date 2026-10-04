@@ -74,9 +74,13 @@ private fun reminder(organism: Organism, cell: Cell): String {
         RULES
 }
 
-private fun letters(organism: Organism, letters: List<Letter>): String = letters
-    .mapIndexed { index, letter -> "Letter ${index + 1}: " + letter.render(organism) }
-    .joinToString("\n\n")
+/** Letters of one turn share a budget, so many large results cannot overflow the context of the turn. */
+private fun letters(organism: Organism, letters: List<Letter>): String {
+    val share = (LETTERS_CHARS / letters.size.coerceAtLeast(1)).coerceAtLeast(MIN_LETTER_CHARS)
+    return letters
+        .mapIndexed { index, letter -> "Letter ${index + 1}: " + cut(letter.render(organism), share) }
+        .joinToString("\n\n")
+}
 
 private fun Letter.render(organism: Organism): String = when (this) {
     is Letter.ChildFinished -> "your child ${child.value} \"$name\" finished. Its result:\n$result"
@@ -106,14 +110,16 @@ private fun Letter.render(organism: Organism): String = when (this) {
 }
 
 private const val GOAL_CONTEXT_CHARS = 2_000
+private const val LETTERS_CHARS = 60_000
+private const val MIN_LETTER_CHARS = 2_000
 
 private const val RULES =
     "Tool results are only receipts: results of children, verdicts and binding answers arrive later as a new " +
         "message after you end your turn, so never wait or poll for them. When you have started work you depend " +
         "on, end your turn briefly. When you end a turn while none of your children is alive and no dispute of " +
         "yours is open, your final message is your result for your parent (for the zygote: the organism's answer), " +
-        "so make it complete and self-contained. Never ask the user questions; actions that need approval are " +
-        "shown to the user."
+        "so make it complete and self-contained. Never ask the user questions; an action that needs approval " +
+        "waits for the user's decision."
 
 private const val RECOVERY =
     "Heartbeat restarted while your previous turn was running, so that turn may have partly happened. Check the " +

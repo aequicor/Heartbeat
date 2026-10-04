@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
@@ -70,6 +71,10 @@ class OrganismAgentToolsTest {
         assertTrue(developing.isDetachedSupported)
         val (finished, _) = tools(organism().copy(status = OrganismStatus.Aborted))
         assertEquals(emptyList(), finished.specifications(null))
+        assertEquals(emptyList(), developing.specifications(WorkspaceRef("another project")))
+        val unlaunched = OrganismAgentTools(lazy { error("launched off the main thread") }, toggles)
+        assertEquals(emptyList(), unlaunched.specifications(null))
+        assertTrue(unlaunched.execute(context(), OrganismTools.STATUS, args()).isError)
         toggles.isEnabled = false
         assertEquals(emptyList(), developing.specifications(null))
     }
@@ -90,7 +95,7 @@ class OrganismAgentToolsTest {
         val result = tools.execute(
             context(),
             OrganismTools.DIVIDE,
-            args(OrganismTools.Arguments.TASK to "write tests", OrganismTools.Arguments.NAME to "tests\nignored"),
+            args(OrganismTools.Arguments.TASK to "write tests", OrganismTools.Arguments.NAME to "<tests>\n"),
         )
         assertFalse(result.isError, result.text)
         assertTrue("c1 \"tests\"" in result.text)

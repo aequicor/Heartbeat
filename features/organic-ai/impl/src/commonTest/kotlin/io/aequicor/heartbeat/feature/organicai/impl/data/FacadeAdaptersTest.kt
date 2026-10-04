@@ -124,6 +124,24 @@ class FacadeAdaptersTest {
     }
 
     @Test
+    fun `a cell lysed while its session was created leaves no listed session`() = runTest {
+        val native = FakeSession(session("new"))
+        val facade = FakeFacade(ArrayDeque(listOf(native)))
+        val cells = FacadeCellSessions(facade)
+        facade.onCreate = { cells.release(key, null, ReleaseMode.Lyse) }
+        assertFailsWith<EngineException> { cells.open(key, route, null) }
+        assertEquals(1, native.closes)
+        assertTrue(native.isArchived)
+    }
+
+    @Test
+    fun `an unreadable history fails the answer instead of reading as empty`() = runTest {
+        val native = FakeSession(session("new")).apply { historyFailure = EngineFailure.Unknown() }
+        val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
+        assertFailsWith<EngineException> { handle.answer(TurnId("turn-1")) }
+    }
+
+    @Test
     fun `a completed cell's session is closed but kept`() = runTest {
         val native = FakeSession(session("new"))
         val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))

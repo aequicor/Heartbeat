@@ -13,7 +13,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
@@ -61,6 +63,7 @@ import kotlinx.coroutines.flow.emptyFlow
  * whose history is [items]. It records prompts, cancellations, decisions, archiving and closes.
  */
 internal class FakeSession(override val ref: SessionRef, private val hasTrust: Boolean = true) : ActiveSession {
+    var historyFailure: EngineFailure? = null
     val prompts = mutableListOf<PromptRequest>()
     val cancelled = mutableListOf<TurnId>()
     val decisions = mutableListOf<PermissionDecision>()
@@ -106,8 +109,10 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     }
 
     val history = object : SessionHistory {
-        override suspend fun page(request: HistoryPageRequest): HistoryPage =
-            HistoryPage(items, null, null, HistoryCheckpoint("checkpoint"), HistoryCoverage.Complete)
+        override suspend fun page(request: HistoryPageRequest): HistoryPage {
+            historyFailure?.let { throw EngineException(it) }
+            return HistoryPage(items, null, null, HistoryCheckpoint("checkpoint"), HistoryCoverage.Complete)
+        }
 
         override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> = emptyFlow()
     }
@@ -142,11 +147,13 @@ internal class FakeFacade(
     private val stored: Map<SessionRef, FakeSession> = emptyMap(),
 ) : EngineFacade {
     val creations = mutableListOf<CreateSessionRequest>()
+    var onCreate: suspend () -> Unit = {}
     val resumptions = mutableListOf<ResumeSessionRequest>()
 
     private val creates = object : CreatesSessions {
         override suspend fun create(request: CreateSessionRequest): ActiveSession {
             creations += request
+            onCreate()
             return created.removeFirst()
         }
     }

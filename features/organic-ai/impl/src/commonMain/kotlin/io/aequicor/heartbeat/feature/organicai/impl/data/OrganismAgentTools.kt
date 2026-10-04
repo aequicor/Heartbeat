@@ -51,12 +51,12 @@ internal class OrganismAgentTools(
 
     override val isDetachedSupported: Boolean get() = true
 
-    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
-        if (toggles.get(OrganicAiEnabled) && living()?.organisms?.values.orEmpty().any { it.isDeveloping }) {
-            organismToolSpecs
-        } else {
-            emptyList()
-        }
+    /** Declared only where a developing organism works: its project, or sessions without one. */
+    override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> {
+        val organisms = living()?.organisms?.values.orEmpty()
+        val isDeveloping = organisms.any { it.isDeveloping && it.workspace == workspace }
+        return if (isDeveloping && toggles.get(OrganicAiEnabled)) organismToolSpecs else emptyList()
+    }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(OrganicAiEnabled)) return failure("organic AI is turned off")
@@ -77,7 +77,10 @@ internal class OrganismAgentTools(
             ?.takeIf { it.length <= OrganismBounds.MAX_TASK }
             ?: return failure("give a task of up to ${OrganismBounds.MAX_TASK} characters")
         val child = organism.nextCellId()
-        val label = arguments.text(OrganismTools.Arguments.NAME)?.lineSequence()?.first()?.trim()
+        // Names reach other cells' prompts and the judge's dossier: plain words only.
+        val label = arguments.text(OrganismTools.Arguments.NAME)
+            ?.filter { it.isLetterOrDigit() || it in NAME_PUNCTUATION }
+            ?.trim()
             ?.take(OrganismBounds.MAX_NAME)
             ?.takeIf(String::isNotBlank)
             ?: "cell ${child.value}"
@@ -125,7 +128,9 @@ internal class OrganismAgentTools(
         }
     }
 
-    private fun living(): OrganicAiState.Living? = machine.value.state.value as? OrganicAiState.Living
+    /** The machine is launched only by the profile startup (on the main thread); before that there is no cell. */
+    private fun living(): OrganicAiState.Living? =
+        machine.takeIf { it.isInitialized() }?.value?.state?.value as? OrganicAiState.Living
 
     private suspend fun send(intent: OrganicAiIntent): SendResult = machine.value.send(intent)
 
@@ -143,5 +148,6 @@ internal class OrganismAgentTools(
 
     private companion object {
         const val NOT_A_CELL = "only cells of a developing organic AI organism can use this tool"
+        const val NAME_PUNCTUATION = " -_."
     }
 }

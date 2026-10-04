@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.heartbeat.kmp.library)
     alias(libs.plugins.heartbeat.metro)
-    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -15,6 +14,7 @@ kotlin {
             implementation(projects.core.di.api)
             implementation(projects.core.datastore.api)
             implementation(projects.core.featureToggles.api)
+            implementation(projects.core.common)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.serialization.json)
         }
