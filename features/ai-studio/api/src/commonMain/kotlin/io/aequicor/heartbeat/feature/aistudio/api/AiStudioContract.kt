@@ -112,6 +112,9 @@ public sealed interface AiStudioIntent : MachineIntent {
         /** Selects isolated execution before the first native session is created. */
         public data class SelectWorktree(val paneId: Int, val isEnabled: Boolean) : Public
 
+        /** Selects the organic AI mode before the first message of a new-session pane. */
+        public data class SelectOrganism(val paneId: Int, val isEnabled: Boolean) : Public
+
         /** Opens the local folder picker for a new-session pane; paths never enter machine state. */
         public data class AddProject(val paneId: Int) : Public
 
@@ -297,6 +300,8 @@ public sealed interface AiStudioEffect : MachineEffect {
         val submissionId: String = "",
         /** Prepare an isolated checkout before the first native create. */
         val isWorktree: Boolean = false,
+        /** The conversation is an organic AI organism conceived from [prompt]; it has no native session of its own. */
+        val isOrganism: Boolean = false,
     ) : AiStudioEffect
 
     /** Records [prompt] and streams the agent reply into [sessionId] until it completes or is stopped. */
