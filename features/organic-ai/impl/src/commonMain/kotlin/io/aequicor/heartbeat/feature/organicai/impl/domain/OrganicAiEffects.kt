@@ -49,7 +49,9 @@ internal class OrganicAiEffects(
             }
 
             is OrganicAiEffect.Judge -> {
-                val ruling = court.judge(effect.organism, effect.case)
+                val ruling = court.judge(effect.organism, effect.case) { session ->
+                    machine.send(OrganicAiIntent.Internal.JudgeConvened(effect.organism.id, effect.case, session))
+                }
                 machine.send(OrganicAiIntent.Internal.Ruled(effect.organism.id, effect.case, ruling))
             }
 

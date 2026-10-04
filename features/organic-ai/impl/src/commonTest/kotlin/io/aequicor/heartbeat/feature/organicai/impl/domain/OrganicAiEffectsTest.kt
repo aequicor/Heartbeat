@@ -160,8 +160,11 @@ class OrganicAiEffectsTest {
         assertTrue("looping again" in judges.prompts.first().second)
         assertEquals(TARGET, judges.prompts.first().first)
         assertEquals(
-            OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("loops")),
-            machine.sent.first(),
+            listOf<OrganicAiIntent>(
+                OrganicAiIntent.Internal.JudgeConvened(ORGANISM, complaint.id, session("judge-1")),
+                OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Kill("loops")),
+            ),
+            machine.sent.take(2),
         )
     }
 
@@ -265,8 +268,13 @@ class OrganicAiEffectsTest {
     private class Judges : JudgeSessions {
         var answer = ""
         val prompts = mutableListOf<Pair<EngineTarget, String>>()
-        override suspend fun deliberate(target: EngineTarget, prompt: String): String {
+        override suspend fun deliberate(
+            target: EngineTarget,
+            prompt: String,
+            onSession: suspend (SessionRef) -> Unit,
+        ): String {
             prompts += target to prompt
+            onSession(session("judge-${prompts.size}"))
             return answer
         }
     }

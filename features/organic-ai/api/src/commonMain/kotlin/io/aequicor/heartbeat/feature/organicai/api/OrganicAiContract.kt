@@ -114,12 +114,12 @@ public sealed interface OrganicAiIntent : MachineIntent {
         /** Working [complaint] plaintiff files the next case. */
         public data class Complain(override val organism: OrganismId, val complaint: ImmuneCase.Complaint) :
             Internal,
-            OrganismIntent
+            CaseIntent
 
         /** Working [dispute] asker files the next case. */
         public data class Dispute(override val organism: OrganismId, val dispute: ImmuneCase.Dispute) :
             Internal,
-            OrganismIntent
+            CaseIntent
 
         /** The germinating [cell] got its native [session] for [request]. */
         public data class SessionBound(
@@ -157,10 +157,15 @@ public sealed interface OrganicAiIntent : MachineIntent {
         ) : Internal,
             TurnIntent
 
+        /** A fresh judge session for [case] exists; observers can read it. */
+        public data class JudgeConvened(override val organism: OrganismId, val case: CaseId, val session: SessionRef) :
+            Internal,
+            CaseIntent
+
         /** The immune system decided [case]. */
         public data class Ruled(override val organism: OrganismId, val case: CaseId, val ruling: Ruling) :
             Internal,
-            OrganismIntent
+            CaseIntent
     }
 }
 
@@ -169,6 +174,9 @@ public sealed interface OrganismIntent : OrganicAiIntent {
     /** The organism changed. */
     public val organism: OrganismId
 }
+
+/** A matter of the immune system: filing a case, convening its judge or its ruling. */
+public sealed interface CaseIntent : OrganismIntent
 
 /** Feedback of the driver of one turn; it applies only while [cell] still works on [request]. */
 public sealed interface TurnIntent : OrganismIntent {

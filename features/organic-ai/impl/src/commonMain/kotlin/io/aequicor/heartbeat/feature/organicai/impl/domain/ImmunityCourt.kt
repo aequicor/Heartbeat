@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.Organism
@@ -16,13 +17,13 @@ import kotlinx.coroutines.CancellationException
 internal class ImmunityCourt(private val judges: JudgeSessions, private val transcripts: SessionTranscripts) {
     private val log = Log.tag("ImmunityCourt")
 
-    suspend fun judge(organism: Organism, id: CaseId): Ruling {
+    suspend fun judge(organism: Organism, id: CaseId, onSession: suspend (SessionRef) -> Unit = {}): Ruling {
         val case = organism.cases.firstOrNull { it.id == id } ?: return Ruling.None("The case is already closed.")
         val target = organism.immunityTarget ?: organism.target
             ?: return Ruling.None("The immune system has no model.")
         val dossier = case.subjects().associateWith { transcriptOf(organism.cell(it)) }
         log.i { "organism ${organism.id.value} case ${id.value}: judging in a fresh session" }
-        val ruling = parseRuling(case, judges.deliberate(target, judgePrompt(organism, case, dossier)))
+        val ruling = parseRuling(case, judges.deliberate(target, judgePrompt(organism, case, dossier), onSession))
         log.i { "organism ${organism.id.value} case ${id.value}: ruling $ruling" }
         return ruling
     }

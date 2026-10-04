@@ -27,7 +27,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Resume | zygote Stalled | zygote recovery turn | Persist; Drive or Resolve | — |
  * | Living | Abort | developing | living cells Dead(Aborted), Aborted | Persist; Release(Lyse) | Finished |
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
- * | Living | Complain / Dispute | filer working, no refusal, next case id | + case | Persist; Judge | — |
+ * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
+ * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
  * | Living | SessionBound | turn of request, no session yet | session | Persist | — |
  * | Living | TurnAccepted / PermissionsChanged | turn of request | observed turn / awaiting | — | — |
  * | Living | Decide | an awaited request accepts the decision | — | Respond | — |

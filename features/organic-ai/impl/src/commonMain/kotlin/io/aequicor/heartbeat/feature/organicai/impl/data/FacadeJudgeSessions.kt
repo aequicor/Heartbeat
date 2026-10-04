@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -39,11 +40,16 @@ import kotlin.uuid.Uuid
 internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSessions {
     private val log = Log.tag("FacadeJudgeSessions")
 
-    override suspend fun deliberate(target: EngineTarget, prompt: String): String {
+    override suspend fun deliberate(
+        target: EngineTarget,
+        prompt: String,
+        onSession: suspend (SessionRef) -> Unit,
+    ): String {
         val creates = facade.engines.features(target.engine).resolve(CreatesSessions).orThrow()
         val session = creates.create(CreateSessionRequest(target, workspace = null, areDetachedToolsEnabled = false))
         log.i { "judge session opened on ${target.engine.value}" }
         try {
+            onSession(session.ref)
             val turn = session.submit(newRequest(), prompt, TrustLevel.Ask)
             val outcome = withTimeoutOrNull(DELIBERATION) {
                 session.awaitTurn(turn) { pending -> if (pending.isNotEmpty()) session.cancelQuietly(turn) }

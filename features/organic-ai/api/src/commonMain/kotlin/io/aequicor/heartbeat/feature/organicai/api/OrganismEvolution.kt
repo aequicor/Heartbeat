@@ -65,19 +65,18 @@ internal fun Conception.conceive(): Step {
 
 private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Public.Conceive -> null
-
     is OrganicAiIntent.Public.Abort -> abort()
-
     is OrganicAiIntent.Public.Resume -> resume()
-
     is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
-
     is OrganicAiIntent.Internal.Targeted -> targeted(intent.target)
-
     is OrganicAiIntent.Internal.Unresolved -> unresolved()
-
     is OrganicAiIntent.Internal.Divide -> divide(intent)
+    is CaseIntent -> immunity(intent)
+    is TurnIntent -> working(intent.cell, intent.request)?.let { follow(it, intent) }
+}
 
+/** Cases before the immune system: filing, the judge's session and the ruling. */
+private fun Organism.immunity(intent: CaseIntent): Step? = when (intent) {
     is OrganicAiIntent.Internal.Complain -> file(
         intent.complaint,
         complaintRefusal(intent.complaint.plaintiff, intent.complaint.accused),
@@ -88,7 +87,8 @@ private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
         disputeRefusal(intent.dispute.asker, intent.dispute.parties),
     )
 
-    is TurnIntent -> working(intent.cell, intent.request)?.let { follow(it, intent) }
+    is OrganicAiIntent.Internal.JudgeConvened -> trials.firstOrNull { it.case.id == intent.case && it.ruling == null }
+        ?.let { trial -> Step(copy(trials = trials.replaced(trial.copy(judge = intent.session)))) }
 
     is OrganicAiIntent.Internal.Ruled -> cases.firstOrNull { it.id == intent.case }
         ?.takeIf { isDeveloping }
@@ -167,7 +167,7 @@ private fun Organism.divide(intent: OrganicAiIntent.Internal.Divide): Step? {
 
 private fun Organism.file(case: ImmuneCase, refusal: Refusal?): Step? {
     if (refusal != null || case.id != nextCaseId()) return null
-    return Step(copy(cases = cases + case, casesFiled = casesFiled + 1), judge = case.id)
+    return Step(copy(cases = cases + case, trials = trials + Trial(case), casesFiled = casesFiled + 1), judge = case.id)
 }
 
 private fun Organism.settle(cell: Cell, settlement: Settlement): Step = when (settlement) {
@@ -208,7 +208,8 @@ private fun Organism.broke(cell: Cell, breakdown: Breakdown): Step {
 }
 
 private fun Organism.rule(case: ImmuneCase, ruling: Ruling): Step {
-    val closed = copy(cases = cases - case)
+    val trial = trials.firstOrNull { it.case.id == case.id }
+    val closed = copy(cases = cases - case, trials = trial?.let { trials.replaced(it.copy(ruling = ruling)) } ?: trials)
     return when (case) {
         is ImmuneCase.Complaint -> closed.sentence(case, ruling)
         is ImmuneCase.Dispute -> closed.answer(case, ruling)
@@ -289,6 +290,8 @@ private fun Organism.begin(cell: Cell, work: Work, isRecovery: Boolean = false):
     val turn = cell.turns + 1
     return cell.copy(phase = CellPhase.Working(requestFor(cell.id, turn), work, isRecovery), turns = turn)
 }
+
+private fun List<Trial>.replaced(trial: Trial): List<Trial> = map { if (it.case.id == trial.case.id) trial else it }
 
 private fun Organism.updated(id: CellId, change: (Cell) -> Cell): Organism =
     copy(cells = cells.map { if (it.id == id) change(it) else it })

@@ -173,8 +173,10 @@ class FacadeAdaptersTest {
         val facade = FakeFacade(ArrayDeque(listOf(first, second)))
         val judges = FacadeJudgeSessions(facade)
         first.items = listOf(message(MessageRole.Assistant, "VERDICT spare", turn = "turn-1"))
-        assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier"))
-        judges.deliberate(TARGET, "dossier")
+        val sessions = mutableListOf<io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef>()
+        assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier") { sessions += it })
+        judges.deliberate(TARGET, "dossier") { sessions += it }
+        assertEquals(listOf(first.ref, second.ref), sessions)
         facade.creations.forEach {
             assertFalse(it.areDetachedToolsEnabled)
             assertNull(it.workspace)
@@ -192,7 +194,7 @@ class FacadeAdaptersTest {
         assertFailsWith<EngineException> {
             FacadeJudgeSessions(
                 FakeFacade(ArrayDeque(listOf(judge))),
-            ).deliberate(TARGET, "x")
+            ).deliberate(TARGET, "x") {}
         }
         assertEquals(1, judge.closes)
         assertTrue(judge.isArchived)
@@ -202,7 +204,7 @@ class FacadeAdaptersTest {
     fun `a judge that asks for permission is stopped`() = runTest {
         val judge = FakeSession(session("judge")).apply { finish = null }
         val facade = FakeFacade(ArrayDeque(listOf(judge)))
-        val answer = async { FacadeJudgeSessions(facade).deliberate(TARGET, "x") }
+        val answer = async { FacadeJudgeSessions(facade).deliberate(TARGET, "x") {} }
         runCurrent()
         val turn = TurnId("turn-1")
         judge.state.value = ActiveSessionState.AwaitingUserAction(

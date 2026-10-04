@@ -126,6 +126,8 @@ public data class Organism(
     val limits: GrowthLimits,
     val cells: List<Cell>,
     val cases: List<ImmuneCase> = emptyList(),
+    /** Every case ever filed with its judge session and ruling, for observers; [cases] holds the open ones. */
+    val trials: List<Trial> = emptyList(),
     /** Cases ever filed; the next case id is derived from it. */
     val casesFiled: Int = 0,
     val status: OrganismStatus = OrganismStatus.Developing,
@@ -371,6 +373,13 @@ public sealed interface ImmuneCase {
         override fun toString(): String = "Dispute(id=${id.value}, parties=${parties.size})"
     }
 }
+
+/**
+ * The record of one case: the fresh session that judged it last ([judge], null until one is created) and its
+ * [ruling] once given. A trial whose organism ended before the ruling keeps a null ruling.
+ */
+@Serializable
+public data class Trial(val case: ImmuneCase, val judge: SessionRef? = null, val ruling: Ruling? = null)
 
 /** Decision of the immune system on one case. */
 @Serializable

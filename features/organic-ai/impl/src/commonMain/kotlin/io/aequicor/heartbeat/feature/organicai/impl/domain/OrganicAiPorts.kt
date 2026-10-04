@@ -90,8 +90,8 @@ internal interface CellHandle {
 
 /** Judge sessions: each call is a new session with no tools and one turn, released afterwards. */
 internal fun interface JudgeSessions {
-    /** The judge's whole answer to [prompt]. */
-    suspend fun deliberate(target: EngineTarget, prompt: String): String
+    /** The judge's whole answer to [prompt]; [onSession] learns the new session before the turn starts. */
+    suspend fun deliberate(target: EngineTarget, prompt: String, onSession: suspend (SessionRef) -> Unit): String
 }
 
 /** Recent history of a cell session, for the judge's dossier. */

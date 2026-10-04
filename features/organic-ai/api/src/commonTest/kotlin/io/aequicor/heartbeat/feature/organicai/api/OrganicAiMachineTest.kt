@@ -232,7 +232,7 @@ class OrganicAiMachineTest {
     @Test
     fun `complaints and disputes open the next case for a fresh judge`() {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "it loops")
-        val filed = organism(cell(C1), cases = listOf(complaint), version = 2)
+        val filed = organism(cell(C1), cases = listOf(complaint), version = 2).copy(trials = listOf(Trial(complaint)))
         spec.assertTransition(
             living(organism(cell(C1))),
             OrganicAiIntent.Internal.Complain(ORGANISM, complaint),
@@ -246,13 +246,34 @@ class OrganicAiMachineTest {
             OrganicAiIntent.Internal.Complain(ORGANISM, complaint.copy(id = CaseId("k2"))),
         )
         val dispute = ImmuneCase.Dispute(CaseId("k2"), C1, "Which API?", listOf(ZYGOTE))
-        val asked = filed.copy(cases = listOf(complaint, dispute), casesFiled = 2, version = 3)
+        val asked = filed.copy(
+            cases = listOf(complaint, dispute),
+            trials = listOf(Trial(complaint), Trial(dispute)),
+            casesFiled = 2,
+            version = 3,
+        )
         spec.assertTransition(
             living(filed),
             OrganicAiIntent.Internal.Dispute(ORGANISM, dispute),
             living(asked),
             effects = listOf(OrganicAiEffect.Persist(asked), OrganicAiEffect.Judge(asked, dispute.id)),
         )
+    }
+
+    @Test
+    fun `a trial records its judge session and its ruling`() {
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
+        val open = organism(cell(C1), cases = listOf(complaint)).copy(trials = listOf(Trial(complaint)))
+        val convened = OrganicAiIntent.Internal.JudgeConvened(ORGANISM, complaint.id, session("judge"))
+        val judged = open.copy(trials = listOf(Trial(complaint, judge = session("judge"))), version = 2)
+        spec.assertTransition(living(open), convened, living(judged), effects = listOf(OrganicAiEffect.Persist(judged)))
+        val ruled = spec.resolve(
+            living(judged),
+            OrganicAiIntent.Internal.Ruled(ORGANISM, complaint.id, Ruling.Spare("fine")),
+        )!!.to.organism()
+        assertEquals(listOf(Trial(complaint, session("judge"), Ruling.Spare("fine"))), ruled.trials)
+        spec.assertIgnored(living(ruled), convened)
+        spec.assertIgnored(living(open), convened.copy(case = CaseId("k9")))
     }
 
     @Test
