@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -22,12 +23,23 @@ interface StudioRepository {
     /** The project new sessions belong to by default. */
     suspend fun defaultProjectId(): String?
 
-    /** Creates an empty session titled [title]. */
-    suspend fun createSession(projectId: String?, title: String): StudioSession
+    /** Creates an empty session titled [title]. A backend overrides this form or the full one below. */
+    suspend fun createSession(projectId: String?, title: String): StudioSession =
+        createSession(projectId, title, isWorktree = false)
 
-    /** An isolated execution request; demo backends never silently fall back to the source checkout. */
-    suspend fun createSession(projectId: String?, title: String, isWorktree: Boolean): StudioSession {
+    /**
+     * An isolated execution request or an organic AI organism ([isOrganism]); demo backends support neither and never
+     * silently fall back to an ordinary conversation. The default delegates to the short form, so a backend must
+     * override one of the two.
+     */
+    suspend fun createSession(
+        projectId: String?,
+        title: String,
+        isWorktree: Boolean,
+        isOrganism: Boolean = false,
+    ): StudioSession {
         check(!isWorktree) { "Worktree execution is unavailable in this backend" }
+        check(!isOrganism) { "Organic AI is unavailable in this backend" }
         return createSession(projectId, title)
     }
 
@@ -89,10 +101,19 @@ interface StudioAvailability {
     fun observe(): Flow<Boolean>
 }
 
+/** Read-only live transcripts of native sessions the studio does not drive, such as the cells of an organism. */
+fun interface StudioSessionViews {
+    /** The transcript of [ref], updated while it is collected. */
+    fun observe(ref: SessionRef): Flow<List<StudioMessage>>
+}
+
 /** The workspace backend chosen once for the feature scope: engine-backed profile chats or the demo workspace. */
 interface StudioBackend {
     /** Storage the screen observes. */
     suspend fun repository(): StudioRepository
+
+    /** Views of foreign sessions; the demo workspace has none. */
+    suspend fun sessionViews(): StudioSessionViews = StudioSessionViews { flowOf(emptyList()) }
 
     /** Handler of the studio machine effects. */
     suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>

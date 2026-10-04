@@ -128,6 +128,8 @@ internal data class StudioChatRecord(
     val executionWorkspace: WorkspaceRef? = null,
     val worktreeTaskId: String? = null,
     val configuration: StudioSessionSettings? = null,
+    /** Set for a conversation run as the organic AI organism of the same id. */
+    val organismId: String? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
@@ -154,6 +156,7 @@ internal class EngineStudioRepository(
     private val preferences: StudioPreferences,
     private val conversations: StudioConversationCreation,
     learning: StudioLearningPrompts,
+    private val organisms: StudioOrganisms,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
@@ -307,13 +310,13 @@ internal class EngineStudioRepository(
         return null
     }
 
-    override suspend fun createSession(projectId: String?, title: String): StudioSession {
-        log.i { "Create conversation in the selected project" }
-        return createSession(projectId, title, isWorktree = false)
-    }
-
-    override suspend fun createSession(projectId: String?, title: String, isWorktree: Boolean): StudioSession {
-        log.i { "Create studio conversation worktree=$isWorktree" }
+    override suspend fun createSession(
+        projectId: String?,
+        title: String,
+        isWorktree: Boolean,
+        isOrganism: Boolean,
+    ): StudioSession {
+        log.i { "Create studio conversation worktree=$isWorktree organism=$isOrganism" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
         }
@@ -325,10 +328,11 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
+            organismId = id.takeIf { isOrganism },
         )
         val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }
-        return StudioSession(record.id, record.projectId, title, record.updatedAt)
+        return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = isOrganism)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
@@ -382,7 +386,7 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
-        return launchRun(
+        return organisms.conceive(record(sessionId), prompt, settings, onAccepted) ?: launchRun(
             sessionId,
             prompt,
             settings,
@@ -705,11 +709,6 @@ internal class EngineStudioRepository(
     }
 
     /** Fails the answer so the machine shows the request again instead of hiding it forever. */
-    private fun rejectPermission(reason: String, requestId: String, optionId: String): Nothing {
-        log.w { "Permission answer rejected: $reason requestId=$requestId optionId=$optionId" }
-        error("Permission answer rejected: $reason")
-    }
-
     override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
         log.v { "Update pending permission projection" }
         val pending = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty().map { it.toStudio(id) }
@@ -923,7 +922,12 @@ internal fun ActiveSession.configurationModel(fallback: ModelId?): ModelId? =
 internal fun ApprovalMode.trustFor(offered: List<StudioModel>, target: EngineTarget): TrustLevel? =
     toTrust().takeIf { offered.isTrustSupported(target) }
 
-private fun ApprovalMode.toTrust(): TrustLevel = when (this) {
+private fun rejectPermission(reason: String, requestId: String, optionId: String): Nothing {
+    Log.tag("EngineStudio").w { "Permission answer rejected: $reason requestId=$requestId optionId=$optionId" }
+    error("Permission answer rejected: $reason")
+}
+
+internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.Ask -> TrustLevel.Ask
     ApprovalMode.AutoEdits -> TrustLevel.AutoEdits
     ApprovalMode.AutoApprove -> TrustLevel.Full

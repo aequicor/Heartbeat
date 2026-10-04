@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import io.aequicor.heartbeat.feature.settings.api.UnifiedSettings
@@ -56,6 +57,13 @@ internal class ToggleStudioEntries(
     // The demo runtime has no engine tools, so the command would reach no remember tool.
     override val showsRemember: Flow<Boolean> = combine(
         toggles.observe(AgentLearningEnabled),
+        toggles.observe(StudioEngineRuntime),
+        sessions.active,
+    ) { isEnabled, runtime, session -> isEnabled && runtime && session != null }
+
+    // Organisms live in the profile and grow through engine sessions, which the demo runtime does not have.
+    override val showsOrganism: Flow<Boolean> = combine(
+        toggles.observe(OrganicAiEnabled),
         toggles.observe(StudioEngineRuntime),
         sessions.active,
     ) { isEnabled, runtime, session -> isEnabled && runtime && session != null }
