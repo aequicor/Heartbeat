@@ -37,6 +37,8 @@ data class SessionUi(
     val modelId: String? = null,
     val isContinuable: Boolean = true,
     val isWorktree: Boolean = false,
+    /** An organic AI organism of the same id drives this chat; the chat only shows its sessions. */
+    val isOrganism: Boolean = false,
 )
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */
@@ -97,6 +99,14 @@ data class AiStudioScreenState(
     val isAttachmentsEnabled: Boolean = false,
     /** Whether the composer offers the `/remember` command. */
     val isRememberEnabled: Boolean = false,
+    /** Whether a new chat may be started as an organic AI organism. */
+    val isOrganismEnabled: Boolean = false,
+    /** Organisms of organism chats, by chat id. */
+    val organisms: ImmutableMap<String, OrganismUi> = persistentMapOf(),
+    /** The sub-session each organism chat shows, by chat id; the zygote when absent. */
+    val subSessions: ImmutableMap<String, String> = persistentMapOf(),
+    /** Live transcripts of the shown sub-sessions of open organism chats, by chat id. */
+    val subTranscripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
     val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),
@@ -133,6 +143,27 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
+
+    /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
+    sealed interface Organism : AiStudioScreenIntent
+
+    /** Switches the organic AI mode of a new chat in [paneId]. */
+    data class SelectOrganism(val paneId: Int, val isEnabled: Boolean) : Organism
+
+    /** Shows the sub-session [key] (a cell id or a case id) of the organism chat [sessionId]. */
+    data class SelectSubSession(val sessionId: String, val key: String) : Organism
+
+    /** Aborts the organism of [sessionId] or resumes its stalled zygote. */
+    data class ControlOrganism(val sessionId: String, val action: OrganismActionUi) : Organism
+
+    /** Answers the permission request [requestId] of the [turn] of [cell] in the organism of [sessionId]. */
+    data class DecideOrganism(
+        val sessionId: String,
+        val cell: String,
+        val turn: String,
+        val requestId: String,
+        val optionId: String,
+    ) : Organism
 
     /** Local attachment input and saved-file actions. */
     sealed interface Attachment : Composer

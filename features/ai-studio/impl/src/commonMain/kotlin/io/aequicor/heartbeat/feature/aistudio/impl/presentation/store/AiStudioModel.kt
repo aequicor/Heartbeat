@@ -100,6 +100,7 @@ class AiStudioModel(
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
+    private val organisms = StudioOrganismView(machine, machines, backend)
 
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
@@ -154,6 +155,8 @@ class AiStudioModel(
                     entries.showsAttachments.collect { updateState { copy(isAttachmentsEnabled = it) } }
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
+                launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
+                launch { organisms.observe(pipeline) }
                 launch {
                     machines.observe(AttachmentsMachineKey).collectLatest { ref ->
                         ref?.outputs?.collect { output ->
@@ -400,6 +403,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.Composer -> compose(pipeline, intent)
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
+            is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
         }
     }
 

@@ -316,6 +316,7 @@ private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStu
     is AiStudioScreenIntent.Navigation,
     is AiStudioScreenIntent.Composer,
     is AiStudioScreenIntent.SessionAction,
+    is AiStudioScreenIntent.Organism,
     -> this
 }
 

@@ -8,8 +8,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.Attachment
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
@@ -83,6 +85,9 @@ internal data class PaneContent(
     val attachments: ImmutableList<AttachmentUi> = persistentListOf(),
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
+    val isOrganismEnabled: Boolean = false,
+    val organism: OrganismUi? = null,
+    val subSession: String = PrimarySubSession,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
 ) {
@@ -114,7 +119,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         session = session,
         project = project(pane.projectId ?: session?.projectId),
         projects = projects,
-        transcript = pane.sessionId?.let { transcripts[it] },
+        transcript = transcriptOf(pane.sessionId, session),
         isFocused = pane.id == focusedPaneId,
         isStopping = session != null && session.id in stopping,
         elapsed = if (session?.isRunning == true) startedAt?.let { (now - it).coerceAtLeast(Duration.ZERO) } else null,
@@ -122,6 +127,9 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         attachments = attachments(pane.id),
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
+        isOrganismEnabled = isOrganismEnabled,
+        organism = organisms[pane.sessionId],
+        subSession = subSessions[pane.sessionId] ?: PrimarySubSession,
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
         isSubmitFailed = pane.id in failedPanes,
@@ -148,6 +156,14 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         worktreeJournal = worktreeJournal,
     )
 }
+
+/** An organism chat shows the live transcript of its chosen sub-session instead of a stored one. */
+private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: SessionUi?): ImmutableList<MessageUi>? =
+    when {
+        sessionId == null -> null
+        session?.isOrganism == true -> subTranscripts[sessionId] ?: persistentListOf()
+        else -> transcripts[sessionId]
+    }
 
 private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =
     if (configuration != null) {

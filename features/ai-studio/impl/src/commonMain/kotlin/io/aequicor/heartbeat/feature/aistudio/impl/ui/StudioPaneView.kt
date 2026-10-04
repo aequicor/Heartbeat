@@ -136,7 +136,7 @@ internal fun StudioPaneView(
             val labels = worktreeLabels()
             remember(worktreeFeed, labels) { worktreeTimeline(worktreeFeed, labels) }
         }
-        val feedId = pane.sessionId ?: worktreeFeed?.key
+        val feedId = content.feedId() ?: worktreeFeed?.key
         val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
         val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
         if (feedId == null && !isCenteredComposer) {
@@ -268,7 +268,9 @@ private fun PaneNotices(
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
     ) {
-        if (content.session?.isContinuable == false) {
+        if (content.session?.isOrganism == true) {
+            OrganismNotices(content, onIntent)
+        } else if (content.session?.isContinuable == false) {
             HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
         } else if (content.session?.isRunning == true && !content.isStoppable) {
             HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
@@ -384,6 +386,7 @@ private fun PaneHeader(
                 )
             }
             PaneTitle(content, onIntent, Modifier.weight(1f))
+            OrganismSwitcher(content, onIntent)
             PaneSessionMenu(content, onIntent)
             PaneLayoutActions(pane.id, layout, onIntent)
         }

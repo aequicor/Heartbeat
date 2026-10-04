@@ -208,4 +208,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     modelId = modelId,
     isContinuable = isContinuable,
     isWorktree = isWorktree,
+    isOrganism = isOrganism,
 )
