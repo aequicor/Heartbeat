@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.RunStartedEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -54,8 +55,10 @@ class ChecklistIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        // Cancellation finishes asynchronously; keep Main installed until profile cleanup completes.
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
