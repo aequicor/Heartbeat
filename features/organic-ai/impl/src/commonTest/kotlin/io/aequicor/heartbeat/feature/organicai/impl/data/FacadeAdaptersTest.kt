@@ -226,7 +226,23 @@ class FacadeAdaptersTest {
             message(MessageRole.Assistant, "done", turn = "native-1", position = 1),
         )
         assertEquals("done", handle.answer(TurnId("turn-1")))
-        assertNull(handle.answer(TurnId("turn-1"), isMarkedOnly = true))
+        // A turn the engine was seen to take keeps the answer after its prompt even when its end is unconfirmed.
+        assertEquals("done", handle.answer(TurnId("turn-1"), isUnconfirmed = true))
+    }
+
+    @Test
+    fun `an unconfirmed turn followed only from memory takes no answer of an earlier turn`() = runTest {
+        val native = FakeSession(session("new")).apply {
+            sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r2"))
+        }
+        val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
+        val turn = handle.submit(RequestId("r2"), "more", null)
+        native.items = listOf(
+            message(MessageRole.User, "work", turn = "native-1", position = 0),
+            message(MessageRole.Assistant, "old answer", turn = "native-1", position = 1),
+        )
+        assertNull(handle.answer(turn, isUnconfirmed = true))
+        assertEquals("old answer", handle.answer(turn))
     }
 
     @Test

@@ -40,8 +40,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -72,8 +70,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
         // neither step may be cancelled.
         return withContext(NonCancellable) {
-            // Bounded instead: a timeout cancels the facade call itself, which then releases what it opened.
-            val opened = withTimeout(OPEN_WAIT) { if (existing == null) create(route) else resume(existing, route) }
+            val opened = if (existing == null) create(route) else resume(existing, route)
             var isLysed = false
             val kept = mutex.withLock {
                 isLysed = key in lysed
@@ -210,27 +207,32 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     private companion object {
         val LYSIS_WAIT = 30.seconds
-        val OPEN_WAIT = 2.minutes
     }
 }
 
 /** One cell's open session. */
 private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
+    /** Turns followed only because the session remembered them after an ambiguous delivery. */
+    private val doubtful = mutableSetOf<TurnId>()
+
     override val session: SessionRef get() = active.ref
 
     override fun activeTurn(): TurnId? = active.state.value.activeTurn()?.id
 
     override suspend fun submit(request: RequestId, text: String, trust: TrustLevel?): TurnId =
-        active.submit(request, text, trust)
+        active.submit(request, text, trust).also {
+            if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
+        }
 
     override suspend fun cancel(turn: TurnId) = active.cancelQuietly(turn)
 
     override suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome =
         active.awaitTurn(turn, onPending)
 
-    override suspend fun answer(turn: TurnId, isMarkedOnly: Boolean): String? {
+    override suspend fun answer(turn: TurnId, isUnconfirmed: Boolean): String? {
         val history = active.features.resolve(SessionHistory).orThrow()
-        return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn, isMarkedOnly)
+        val items = history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items
+        return answerOf(items, turn, isMarkedOnly = isUnconfirmed && turn in doubtful)
     }
 
     private companion object {

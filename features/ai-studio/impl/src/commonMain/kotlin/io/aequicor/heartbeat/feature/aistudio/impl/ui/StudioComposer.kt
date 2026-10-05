@@ -125,7 +125,7 @@ internal fun StudioComposer(
         modifier = modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
         // An organism grows from a written goal alone, so files added before choosing it must go first.
-        canSend = !(pane.isOrganism && content.attachments.isNotEmpty()) &&
+        canSend = !(content.isOrganismGoal() && content.attachments.isNotEmpty()) &&
             (support?.accepts(content.attachments) ?: content.attachments.isEmpty()),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
@@ -302,11 +302,14 @@ private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model -
 private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
 /**
- * Whether the session takes prompts at all. An organism chat takes its goal again only while its organism is out of
- * view (never conceived, or no longer kept).
+ * Whether the session takes prompts at all. An organism chat takes its goal again only while organic AI is on and
+ * its organism is out of view (never conceived, or no longer kept).
  */
 private fun PaneContent.takesPrompts(): Boolean =
-    session?.isContinuable != false || (session.isOrganism && organism == null)
+    session?.isContinuable != false || (session.isOrganism && organism == null && isOrganismEnabled)
+
+/** A new chat in organism mode or an organism chat: it grows from a written goal alone. */
+private fun PaneContent.isOrganismGoal(): Boolean = pane.isOrganism || session?.isOrganism == true
 
 /** Running requests retain cancellation; pending permissions block another prompt. */
 private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&
@@ -524,6 +527,6 @@ private const val APPROVAL_PREFIX = "approval:"
 private fun PaneContent.canAddAttachments(): Boolean {
     val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
     // An organism grows from a written goal alone.
-    return isAttachmentsEnabled && !pane.isCreating && !pane.isOrganism && session?.isRunning != true &&
+    return isAttachmentsEnabled && !pane.isCreating && !isOrganismGoal() && session?.isRunning != true &&
         !support?.mediaTypes.isNullOrEmpty()
 }

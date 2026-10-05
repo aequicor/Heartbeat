@@ -182,10 +182,12 @@ class StudioOrganismUiTest {
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             var send = ""
             var isInView by mutableStateOf(true)
+            var isOrganicAiOn by mutableStateOf(true)
             val drafted = organismState().copy(drafts = persistentMapOf("chat" to "Build"))
             setContent {
                 send = stringResource(Res.string.composer_send)
-                val state = if (isInView) drafted else drafted.copy(organisms = persistentMapOf())
+                val shown = if (isInView) drafted else drafted.copy(organisms = persistentMapOf())
+                val state = shown.copy(isOrganismEnabled = isOrganicAiOn)
                 HbTheme(darkTheme = false) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
                         StudioComposer(state.paneContent(organismPane), {}, isCompact = false)
@@ -196,6 +198,10 @@ class StudioOrganismUiTest {
             isInView = false
             waitForIdle()
             onNodeWithContentDescription(send).assertIsEnabled()
+            // With organic AI off a goal could not be conceived, so the chat does not invite one.
+            isOrganicAiOn = false
+            waitForIdle()
+            onNodeWithContentDescription(send).assertIsNotEnabled()
         }
 
     @Test

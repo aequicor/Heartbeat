@@ -86,11 +86,12 @@ internal interface CellHandle {
     suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome
 
     /**
-     * The final answer of [turn] from the session history, or null when it has none; throws when unreadable. With
-     * [isMarkedOnly] only an answer the history marks as [turn]'s counts: a turn whose end is unconfirmed may never
-     * have reached the engine, and the answer after the last prompt would then be an earlier turn's.
+     * The final answer of [turn] from the session history, or null when it has none; throws when unreadable. When
+     * the end of the turn is [isUnconfirmed] and the handle followed it only because the session remembered it after
+     * an ambiguous delivery, only an answer history marks as [turn]'s counts: its prompt may never have reached the
+     * engine, and the answer after the last prompt would then be an earlier turn's.
      */
-    suspend fun answer(turn: TurnId, isMarkedOnly: Boolean = false): String?
+    suspend fun answer(turn: TurnId, isUnconfirmed: Boolean = false): String?
 }
 
 /** Judge sessions: each call is a new session with no tools and one turn, released afterwards. */
