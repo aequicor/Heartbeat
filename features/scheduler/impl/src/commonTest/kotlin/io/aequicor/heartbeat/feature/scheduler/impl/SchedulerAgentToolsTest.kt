@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.impl.data.InMemorySchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.impl.data.SchedulerAgentTools
+import io.aequicor.heartbeat.feature.scheduler.impl.data.WakeScheduler
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -45,7 +46,7 @@ class SchedulerAgentToolsTest {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
         val bus = InMemorySchedulerBus(clock)
-        return Fixture(machine, bus, SchedulerAgentTools(machine, bus, toggles, clock, network))
+        return Fixture(machine, bus, SchedulerAgentTools(machine, WakeScheduler(machine), bus, toggles, clock, network))
     }
 
     private suspend fun Fixture.call(name: String, vararg arguments: Pair<String, Any>): AgentToolResult =

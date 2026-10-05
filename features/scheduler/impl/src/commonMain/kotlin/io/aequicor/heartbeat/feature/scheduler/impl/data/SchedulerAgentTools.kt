@@ -22,21 +22,14 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Arguments
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
-import io.aequicor.heartbeat.feature.scheduler.api.WakeRejection
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -45,7 +38,6 @@ import kotlinx.serialization.json.putJsonObject
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlin.uuid.Uuid
 
 /**
  * The agent's side of the scheduler: sleep until an event or a deadline, publish a named signal, cancel and list own
@@ -56,6 +48,7 @@ import kotlin.uuid.Uuid
 @Inject
 internal class SchedulerAgentTools(
     private val machine: SchedulerMachine,
+    private val scheduler: WakeScheduler,
     private val bus: SchedulerBus,
     private val toggles: FeatureToggles,
     private val clock: Clock,
@@ -99,7 +92,7 @@ internal class SchedulerAgentTools(
         }
         alreadyHappened(condition)?.let { return failure(it) }
         val request = WakeRequest(
-            WakeId("w" + Uuid.random().toHexString().take(WAKE_ID_LENGTH)),
+            newWakeId(),
             context.session,
             context.workspace,
             condition,
@@ -107,7 +100,7 @@ internal class SchedulerAgentTools(
             WakeOrigin.Agent(context.turn),
             context.target,
         )
-        val outcome = schedule(request, now)
+        val outcome = scheduler.schedule(request, now)
         log.i { "sleep ${request.id} events=${condition.events.size} timed=${condition.deadline != null}: $outcome" }
         return when (outcome) {
             is ScheduleOutcome.Scheduled -> AgentToolResult(
@@ -115,13 +108,8 @@ internal class SchedulerAgentTools(
                     "message when ${condition.describe()}.",
             )
 
-            is ScheduleOutcome.Rejected -> failure(outcome.rejection.message())
-
-            ScheduleOutcome.NotTaken -> failure("the scheduler is still starting; try again in a moment")
-
-            ScheduleOutcome.Unconfirmed -> failure(
-                "the wake is not confirmed yet; check it with ${SchedulerTools.LIST}",
-            )
+            is ScheduleOutcome.Rejected, ScheduleOutcome.NotTaken, ScheduleOutcome.Unconfirmed ->
+                failure(outcome.failureMessage())
         }
     }
 
@@ -179,27 +167,10 @@ internal class SchedulerAgentTools(
         }
     }
 
-    /** Schedules [request] and waits for the machine's answer to this exact id. */
-    private suspend fun schedule(request: WakeRequest, now: Instant): ScheduleOutcome = coroutineScope {
-        val answer = async(start = CoroutineStart.UNDISPATCHED) {
-            machine.outputs.mapNotNull { it.outcomeOf(request.id) }.first()
-        }
-        val sent = machine.send(SchedulerIntent.Public.Schedule(request, now))
-        val outcome = if (sent == SendResult.Accepted) {
-            withTimeoutOrNull(ANSWER_TIMEOUT) { answer.await() } ?: ScheduleOutcome.Unconfirmed
-        } else {
-            ScheduleOutcome.NotTaken
-        }
-        answer.cancel()
-        outcome
-    }
-
     private fun failure(message: String) = AgentToolResult(message.replaceFirstChar(Char::uppercase), isError = true)
 
     private companion object {
-        const val WAKE_ID_LENGTH = 12
         val PUBLISH_TIMEOUT = 1.seconds
-        val ANSWER_TIMEOUT = 10.seconds
 
         val INSTRUCTIONS = """
             Scheduler: instead of waiting inside a turn (polling, sleep commands), call ${SchedulerTools.SLEEP} and end
@@ -282,30 +253,4 @@ private fun parseCondition(arguments: JsonObject, now: Instant): Parsed {
     }
     if (events.isEmpty() && deadline == null) return Parsed.Invalid("give events or a deadline")
     return Parsed.Valid(WakeCondition(events, deadline))
-}
-
-private fun WakeCondition.describe(): String = listOfNotNull(
-    events.takeIf { it.isNotEmpty() }?.joinToString(prefix = "one of [", postfix = "] arrives"),
-    deadline?.let { "the time is $it" },
-).joinToString(" or ")
-
-private fun WakeRejection.message(): String = when (this) {
-    WakeRejection.Duplicate -> "a wake with this id already exists"
-    WakeRejection.SessionLimit -> "this session already has ${SchedulerLimits.MAX_PER_SESSION} pending wakes"
-    WakeRejection.ProfileLimit -> "the profile already has ${SchedulerLimits.MAX_PER_PROFILE} pending wakes"
-    WakeRejection.TooFar -> "the deadline is further than ${SchedulerLimits.HORIZON} from now"
-}
-
-/** What became of a sleep request. */
-private sealed interface ScheduleOutcome {
-    data object Scheduled : ScheduleOutcome
-    data class Rejected(val rejection: WakeRejection) : ScheduleOutcome
-    data object NotTaken : ScheduleOutcome
-    data object Unconfirmed : ScheduleOutcome
-}
-
-private fun SchedulerOutput.outcomeOf(id: WakeId): ScheduleOutcome? = when (this) {
-    is SchedulerOutput.Scheduled -> ScheduleOutcome.Scheduled.takeIf { wake.id == id }
-    is SchedulerOutput.Rejected -> ScheduleOutcome.Rejected(rejection).takeIf { this.id == id }
-    is SchedulerOutput.Cancelled, is SchedulerOutput.Woke, is SchedulerOutput.DeliveryFailed -> null
 }

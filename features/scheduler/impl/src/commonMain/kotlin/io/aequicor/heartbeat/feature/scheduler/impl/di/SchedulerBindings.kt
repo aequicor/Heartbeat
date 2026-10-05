@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineSpec
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
+import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeDriver
@@ -65,18 +66,23 @@ public interface SchedulerMultibindings {
     public fun schedulerEventSources(): Set<SchedulerEventSource>
 }
 
-/** Starts the scheduler with the profile: loads stored wakes and feeds the machine with events and deadlines. */
+/**
+ * Starts the scheduler with the profile: loads stored wakes, feeds the machine with events and deadlines and reports
+ * background actions a previous run left unfinished.
+ */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class SchedulerStartup(
     private val machine: Lazy<SchedulerMachine>,
     private val driver: Lazy<WakeDriver>,
+    private val actions: Lazy<BackgroundActions>,
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
 ) : ProfileStartup {
     override fun start() {
         val scheduler = machine.value
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
+        scope.coroutineScope.launch { actions.value.recover() }
     }
 }
 
