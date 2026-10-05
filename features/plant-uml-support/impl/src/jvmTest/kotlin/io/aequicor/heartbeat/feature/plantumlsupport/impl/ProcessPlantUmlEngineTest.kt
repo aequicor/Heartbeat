@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PLANTUML_W
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerLauncher
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.WORKER_JVM_OPTIONS
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.WORKER_UNCAPPED_HEAP_EXIT
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.readReply
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.runPlantUmlWorker
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.workerEnvironment
@@ -125,6 +126,7 @@ class ProcessPlantUmlEngineTest {
         assertIs<PlantUmlResult.Image>(engine.draw(DIAGRAM))
         val worker = assertNotNull(engine.process)
         val result = CompletableFuture.supplyAsync { engine.draw(BACKTRACKING) }
+        // A real process: no virtual time; half a second is long enough for the request to reach the worker.
         Thread.sleep(500)
         assertTrue(!result.isDone, "the drawing hangs")
         scope.cancel()
@@ -161,8 +163,11 @@ class ProcessPlantUmlEngineTest {
 
     @Test
     fun `a worker without its heap cap refuses to start and starts pause after repeated failures`() {
-        var starts = 0
         val unbounded = JavaPlantUmlWorkerLauncher(heap("2g"))
+        val refused = unbounded.start()
+        assertTrue(refused.waitFor(30, TimeUnit.SECONDS))
+        assertEquals(WORKER_UNCAPPED_HEAP_EXIT, refused.exitValue())
+        var starts = 0
         val engine = engine(launcher = PlantUmlWorkerLauncher { unbounded.start().also { starts++ } })
         repeat(4) { assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), engine.draw(DIAGRAM)) }
         assertEquals(3, starts, "the fourth drawing starts no worker")
@@ -176,6 +181,7 @@ class ProcessPlantUmlEngineTest {
         }
         val replies = ByteArrayOutputStream()
         val diagnostics = DiagnosticsSink()
+        // The worker's process-wide logging, as in its main; nothing else in this module configures logging.
         Log.init(isDebug = false, sinks = listOf(diagnostics))
         try {
             runPlantUmlWorker(

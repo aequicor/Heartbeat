@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWo
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerReply
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.WORKER_OUT_OF_MEMORY_EXIT
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.WORKER_UNCAPPED_HEAP_EXIT
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.readReply
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.writeRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
@@ -44,7 +45,8 @@ import kotlin.time.TimeSource
  * square of the scale); a drawing that outlives its time limit is ended by killing the worker (a timeout). Either
  * way the app's heap and the renderer's worker thread stay free, and the next drawing starts a new worker.
  *
- * The worker starts on the first drawing — its start has a time limit of its own — serves drawings one at a time
+ * The worker starts on the first drawing — its start counts toward that drawing's time limit, the one the renderer's
+ * callers wait for — serves drawings one at a time
  * (callers are serialized by the renderer) and stops after [idleTimeout] without drawings or when [scope] is
  * cancelled; timers run in [scope] on [timers]. The worker also ends itself when the app's process does. After
  * [MAX_START_FAILURES] workers in a row fail to start, starts pause for [START_PAUSE].
@@ -82,11 +84,13 @@ internal class ProcessPlantUmlEngine(
     override fun render(source: PlantUmlSource, preamble: List<String>, limits: PlantUmlLimits): PlantUmlResult {
         val worker = acquire() ?: return PlantUmlResult.Failed(PlantUmlFailure.Internal)
         return try {
-            if (!worker.isReady) {
-                bounded(worker, limits.timeout) { worker.awaitReady() }
-                lock.withLock { startFailures = 0 }
+            val reply = bounded(worker, limits.timeout) {
+                if (!worker.isReady) {
+                    worker.awaitReady()
+                    lock.withLock { startFailures = 0 }
+                }
+                worker.draw(PlantUmlWorkerRequest(source, preamble, limits))
             }
-            val reply = bounded(worker, limits.timeout) { worker.draw(PlantUmlWorkerRequest(source, preamble, limits)) }
             reply.diagnostics.forEach(::logDiagnostic)
             reply.result
         } catch (e: IOException) {
@@ -102,13 +106,14 @@ internal class ProcessPlantUmlEngine(
 
     /**
      * Runs [block] on [worker] for at most [timeout]: past it the worker is killed, which ends [block] with an
-     * [IOException]. A kill that races a finished [block] only retires the worker; its result stands.
+     * [IOException]. The kill and the end of [block] settle under the lock that [release] takes, so a worker killed
+     * by a late deadline is always retired, and its result stands.
      */
     private inline fun <T> bounded(worker: Worker, timeout: Duration, block: () -> T): T {
         val isSettled = AtomicBoolean(false)
         val deadline = scope.launch(timers) {
             delay(timeout)
-            if (isSettled.compareAndSet(false, true)) worker.kill(isTimeout = true)
+            lock.withLock { if (isSettled.compareAndSet(false, true)) worker.kill(isTimeout = true) }
         }
         try {
             return block()
@@ -123,9 +128,13 @@ internal class ProcessPlantUmlEngine(
         idleStop?.cancel()
         idleStop = null
         if (isClosed) return null
-        worker?.takeIf { it.isUsable }?.let { current ->
-            current.isBusy = true
-            return current
+        worker?.let { current ->
+            if (current.isUsable) {
+                current.isBusy = true
+                return current
+            }
+            // Died while idle; no thread reads its streams.
+            current.dispose()
         }
         worker = null
         if (startsPausedAt?.let { it.elapsedNow() < START_PAUSE } == true) {
@@ -199,10 +208,11 @@ internal class ProcessPlantUmlEngine(
         val exit = worker.awaitExit()
         val end = lock.withLock {
             when {
+                isClosed -> WorkerEnd.Stopped
+                exit == WORKER_UNCAPPED_HEAP_EXIT -> WorkerEnd.HeapNotCapped.also { countStartFailure() }
+                !worker.isReady -> WorkerEnd.StartFailed.also { countStartFailure() }
                 worker.isTimedOut -> WorkerEnd.TimedOut
                 exit == WORKER_OUT_OF_MEMORY_EXIT -> WorkerEnd.OutOfMemory
-                isClosed -> WorkerEnd.Stopped
-                !worker.isReady -> WorkerEnd.StartFailed.also { countStartFailure() }
                 else -> WorkerEnd.Failed
             }
         }
@@ -210,17 +220,16 @@ internal class ProcessPlantUmlEngine(
     }
 
     private fun close() {
-        val stopped = lock.withLock {
+        val (stopped, isBusy) = lock.withLock {
             isClosed = true
             idleStop?.cancel()
             idleStop = null
-            worker.also { worker = null }
+            (worker to (worker?.isBusy == true)).also { worker = null }
         }
-        stopped?.let {
-            log.d { "PlantUML worker stopped with its scope" }
-            // A drawing may still read from it: its own thread releases the streams.
-            it.kill(isTimeout = false)
-        }
+        stopped ?: return
+        log.d { "PlantUML worker stopped with its scope" }
+        // A drawing still reads from a busy worker: its own thread releases the streams.
+        if (isBusy) stopped.kill(isTimeout = false) else stopped.dispose()
     }
 
     /** Logs a warning or error of the worker at its level, under the worker's tag. */
@@ -271,10 +280,13 @@ internal class ProcessPlantUmlEngine(
             process.destroyForcibly()
         }
 
-        /** Kills the process and closes its streams, whose handles would otherwise wait for collection (Windows). */
+        /**
+         * Kills the process and closes its streams, whose handles would otherwise wait for collection (Windows). The
+         * raw streams: flushing a buffered request into a killed process would only fail.
+         */
         fun dispose() {
             kill(isTimeout = false)
-            listOf(input, output, process.errorStream).forEach { stream ->
+            listOf(process.inputStream, process.errorStream, process.outputStream).forEach { stream ->
                 try {
                     stream.close()
                 } catch (e: IOException) {
@@ -308,11 +320,11 @@ private enum class WorkerEnd(val result: PlantUmlResult) {
     OutOfMemory(PlantUmlResult.Failed(PlantUmlFailure.TooLarge)),
     Stopped(PlantUmlResult.Failed(PlantUmlFailure.Internal)),
     StartFailed(PlantUmlResult.Failed(PlantUmlFailure.Internal)),
+    HeapNotCapped(PlantUmlResult.Failed(PlantUmlFailure.Internal)),
     Failed(PlantUmlResult.Failed(PlantUmlFailure.Internal)),
 }
 
 /** A warning or error the worker process logged; its message carries the worker's stack trace as text. */
-internal class PlantUmlWorkerException(diagnostic: String) : Exception(diagnostic) {
-    // The host's stack says nothing about the worker's failure.
-    override fun fillInStackTrace(): Throwable = this
-}
+internal class PlantUmlWorkerException(diagnostic: String) :
+    // Without a stack: the host's says nothing about the worker's failure.
+    Exception(diagnostic, null, false, false)

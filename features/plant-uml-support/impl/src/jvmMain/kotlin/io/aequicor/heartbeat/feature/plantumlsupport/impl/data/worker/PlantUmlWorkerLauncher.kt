@@ -65,6 +65,9 @@ internal val WORKER_JVM_OPTIONS: List<String> = listOf(
 /** The worker's heap cap in MiB; the worker checks it on start. */
 internal const val WORKER_HEAP_MIB: Long = 384
 
+/** The worker's exit code when it finds no heap cap of [WORKER_HEAP_MIB]. */
+internal const val WORKER_UNCAPPED_HEAP_EXIT: Int = 4
+
 /** HotSpot's exit code for `-XX:+ExitOnOutOfMemoryError`. */
 internal const val WORKER_OUT_OF_MEMORY_EXIT: Int = 3
 
@@ -74,6 +77,7 @@ internal fun workerEnvironment(parent: Map<String, String>): Map<String, String>
 
 /** core:logging's logging backend, not visible to this module at compile time. */
 private const val NAPIER = "io.github.aakira.napier.Napier"
+private val log = Log.tag("PlantUmlWorkerLauncher")
 
 private val WorkerEnvironment = setOf("TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE", "SystemRoot", "windir")
 
@@ -82,14 +86,19 @@ private fun workerClasspath(): String {
     val paths = linkedSetOf<String>()
     paths += System.getProperty("java.class.path").split(File.pathSeparator).filter { it.isNotBlank() }
     val loader = PlantUmlWorkerLauncher::class.java.classLoader
-    val types = listOf(
+    val types = mutableListOf<Class<*>>(
         PlantUmlWorkerLauncher::class.java,
         PlantUmlResult::class.java,
         Log::class.java,
-        Class.forName(NAPIER, false, loader),
         SourceStringReader::class.java,
         Unit::class.java,
     )
+    try {
+        types += Class.forName(NAPIER, false, loader)
+    } catch (e: ClassNotFoundException) {
+        // Only the fallback misses it; the classpath above normally holds it.
+        log.w(e) { "PlantUML worker classpath fallback misses the logging backend" }
+    }
     types.forEach { type ->
         type.protectionDomain?.codeSource?.location?.let { paths += Path.of(it.toURI()).toString() }
     }

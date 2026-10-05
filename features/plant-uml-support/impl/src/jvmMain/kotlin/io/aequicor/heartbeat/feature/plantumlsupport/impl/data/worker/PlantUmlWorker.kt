@@ -23,7 +23,7 @@ import kotlin.system.exitProcess
  * .ProcessPlantUmlEngine] with a Java launcher, or by the packaged app launcher in its private worker mode. Requests
  * arrive on standard input and replies leave on standard output; anything the engine prints goes to standard error.
  * The worker ends when its input closes or the app's process exits. It refuses to start without the heap cap of
- * [WORKER_HEAP_MIB] (exit code [UNBOUNDED_HEAP_EXIT]): app launcher options override `JAVA_TOOL_OPTIONS`.
+ * [WORKER_HEAP_MIB] (exit code [WORKER_UNCAPPED_HEAP_EXIT]): app launcher options override `JAVA_TOOL_OPTIONS`.
  */
 public fun main(arguments: Array<String>) {
     require(arguments.isEmpty()) { "InvalidPlantUmlWorkerArguments" }
@@ -32,7 +32,7 @@ public fun main(arguments: Array<String>) {
         app.onExit().thenRun { Runtime.getRuntime().halt(APP_GONE_EXIT) }
     }
     if (Runtime.getRuntime().maxMemory() > (WORKER_HEAP_MIB + HEAP_SLACK_MIB) * MEBIBYTE) {
-        exitProcess(UNBOUNDED_HEAP_EXIT)
+        exitProcess(WORKER_UNCAPPED_HEAP_EXIT)
     }
     System.setProperty("java.awt.headless", "true")
     val output = DataOutputStream(BufferedOutputStream(FileOutputStream(FileDescriptor.out)))
@@ -85,9 +85,8 @@ internal class DiagnosticsSink : LogSink {
     fun drain(): List<PlantUmlWorkerDiagnostic> = records.toList().also { records.clear() }
 }
 
-private val log = Log.tag("PlantUmlWorker")
+private val log = Log.tag("PlantUmlWorkerMain")
 private const val APP_GONE_EXIT = 2
-private const val UNBOUNDED_HEAP_EXIT = 4
 
 /** The JVM reports a little more than `-Xmx` with some collectors. */
 private const val HEAP_SLACK_MIB = 16L
