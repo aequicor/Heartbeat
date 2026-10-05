@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
+import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
@@ -219,6 +220,20 @@ class StudioQuestionBridgeTest {
         fixture.runtime.state.value = StudioRuntimeState(permissions = listOf(permission.copy(options = emptyList())))
         runCurrent()
         assertTrue(fixture.queue.sent.isEmpty())
+    }
+
+    @Test
+    fun `answers of live questions belong to their owner and are not followed up`() = runTest {
+        val fixture = Fixture(this)
+        fixture.runtime.state.value = StudioRuntimeState()
+        runCurrent()
+        val live = question.copy(id = QuestionnaireId("${LIVE_QUESTION_ID_PREFIX}s1/plan/q"))
+
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(live, Answer.Confirmed(true)))
+        runCurrent()
+
+        assertTrue(fixture.queue.sent.isEmpty())
+        assertTrue(fixture.studio.sent.isEmpty())
     }
 
     private class Fixture(scope: TestScope) {

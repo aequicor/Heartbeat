@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.questionnaire.impl.domain
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
@@ -26,6 +27,8 @@ interface QuestionnaireStorage {
  * only while the questionnaire is enabled, it asks the saved questions again and only then saves the queue on every
  * change: [Machine.send] returns after the transition, so the mirrored queue already holds every restored question.
  * Answers in flight (`submitting`) are not saved, so an answered question is never asked twice after a restart.
+ * Questions of live callers (`LIVE_QUESTION_ID_PREFIX`) stay out of storage: their owner delivers answers within its
+ * own turn and is gone after a restart.
  * Storage failures are logged and never stop the journal.
  */
 class QuestionnaireJournal(private val storage: QuestionnaireStorage) {
@@ -42,8 +45,10 @@ class QuestionnaireJournal(private val storage: QuestionnaireStorage) {
         var stored = saved
         machine.state
             .map { state ->
-                val asking = state as? QuestionnaireState.Asking
-                asking?.pending.orEmpty().filterNot { it.id in asking?.submitting.orEmpty() }
+                val asking = state as? QuestionnaireState.Asking ?: return@map emptyList()
+                asking.pending
+                    .filterNot { it.id in asking.submitting }
+                    .filterNot { it.id.value.startsWith(LIVE_QUESTION_ID_PREFIX) }
             }
             .distinctUntilChanged()
             // Writes only real changes: opening a profile with nothing new to save touches no storage.

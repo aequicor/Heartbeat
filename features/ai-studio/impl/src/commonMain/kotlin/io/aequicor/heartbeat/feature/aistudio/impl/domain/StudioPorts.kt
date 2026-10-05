@@ -64,6 +64,12 @@ interface StudioRepository {
     fun newMessageId(): String
 }
 
+/** Maps native session references to the studio chats that own them, for hosted features addressing the chat. */
+internal interface StudioChatResolver {
+    /** The studio session whose native session is [ref], or null when no studio chat owns it. */
+    suspend fun sessionIdOf(ref: SessionRef): String?
+}
+
 /** Input of one agent run: the new [prompt] after the existing [history] of the session. */
 data class AgentRequest(
     val prompt: String,

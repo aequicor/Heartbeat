@@ -9,6 +9,13 @@ import kotlin.jvm.JvmInline
 public value class QuestionnaireId(public val value: String)
 
 /**
+ * Prefix of question ids owned by a live caller, e.g. a hosted ask-user tool: it collects the answers itself
+ * while its turn runs. The journal does not persist such questions (their owner dies with the turn), and answer
+ * bridges do not follow them up.
+ */
+public const val LIVE_QUESTION_ID_PREFIX: String = "live/"
+
+/**
  * A question an agent (or any other [source]) asks the user.
  * [source] groups questions for one screen, e.g. the chat session that asked them.
  * [isSkippable] allows [Answer.Skipped]; otherwise only a valid answer resolves it.

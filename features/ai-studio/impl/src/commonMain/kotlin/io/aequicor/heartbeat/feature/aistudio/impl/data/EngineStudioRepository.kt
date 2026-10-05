@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioPreferences
@@ -140,6 +141,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @Inject
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
@@ -165,7 +167,8 @@ internal class EngineStudioRepository(
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
-    StudioConfigurationAccess {
+    StudioConfigurationAccess,
+    StudioChatResolver {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(configurations, learning)
     private val store = stores.keyValue(ChatSpec)
@@ -270,6 +273,11 @@ internal class EngineStudioRepository(
     override fun observeModels(): Flow<List<StudioModel>> {
         log.d { "Observe enabled models and their cached capabilities" }
         return offeredModels
+    }
+
+    override suspend fun sessionIdOf(ref: SessionRef): String? {
+        log.d { "sessionIdOf engine=${ref.engine.value} source=${ref.source.value}" }
+        return lock.withLock { store.get(ChatsKey).orEmpty().firstOrNull { record -> record.ref == ref }?.id }
     }
 
     override suspend fun defaults(): RunSettings {
