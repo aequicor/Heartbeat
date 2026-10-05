@@ -44,6 +44,8 @@ kotlin {
             implementation(projects.features.attachments.impl)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.agentLearning.impl)
+            api(projects.features.plantUmlSupport.api)
+            implementation(projects.features.plantUmlSupport.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)

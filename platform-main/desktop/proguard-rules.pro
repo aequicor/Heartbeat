@@ -56,3 +56,20 @@
 
 # Room's bundled SQLite registers all of its JNI methods on load; one stripped unused method fails the driver.
 -keepclassmembers class androidx.sqlite.driver.bundled.** { native <methods>; }
+
+# PlantUML (in-process diagram engine) builds diagrams, skins and commands reflectively (it ships a GraalVM
+# reflect-config); keep it whole.
+-keep class net.sourceforge.plantuml.** { *; }
+-keep class net.atmp.** { *; }
+-keep class smetana.** { *; }
+-keep class gen.** { *; }
+-keep class h.** { *; }
+-keep class com.plantuml.** { *; }
+-keep class org.stathissideris.** { *; }
+# The PlantUML jar also carries its browser (TeaVM), PDF export (OpenPDF) and Ant task entry points; the app renders
+# PNG through the JVM engine only.
+-dontwarn org.teavm.jso.**
+-dontwarn org.teavm.interop.**
+-dontwarn org.openpdf.text.**
+-dontwarn org.apache.tools.ant.**
+-dontwarn net.sourceforge.plantuml.ant.CheckZipTask,net.sourceforge.plantuml.ant.PlantUmlTask

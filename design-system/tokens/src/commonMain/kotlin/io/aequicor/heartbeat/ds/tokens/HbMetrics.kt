@@ -122,6 +122,10 @@ data class HbDimensions(
     val textOverflowFade: Dp = 24.dp,
     val toolPayloadMaxHeight: Dp = 320.dp,
     val markdownTableCellWidth: Dp = 200.dp,
+    /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
+    val diagramPreviewMaxHeight: Dp = 480.dp,
+    /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
+    val keyboardScrollStep: Dp = 40.dp,
     val swatchSize: Dp = 64.dp,
     val scrollbarThickness: Dp = 4.dp,
     val scrollbarHoverThickness: Dp = 6.dp,
@@ -185,6 +189,8 @@ data class HbDimensions(
     val settingsRowHeight: Dp = 56.dp,
     val dialogMinWidth: Dp = 320.dp,
     val dialogMaxWidth: Dp = 560.dp,
+    /** Wide dialog for content that needs room, such as a full-size diagram viewer. */
+    val dialogWideMaxWidth: Dp = 1040.dp,
 ) {
     /** Host presets; compact desktop geometry never reduces mobile touch targets. */
     companion object {

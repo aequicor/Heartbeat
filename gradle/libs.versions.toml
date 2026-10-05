@@ -23,6 +23,7 @@ material3 = "1.12.0-alpha03"
 metro = "1.4.5"
 napier = "2.7.1"
 markdown = "0.7.9"
+plantuml = "1.2026.8"
 essenty = "2.5.0"
 kotlinx-serialization = "1.11.0"
 kotlinx-datetime = "0.8.0"
@@ -86,6 +87,7 @@ androidx-datastore-preferencesCore = { module = "androidx.datastore:datastore-pr
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 napier = { module = "io.github.aakira:napier", version.ref = "napier" }
 markdown = { module = "org.jetbrains:markdown", version.ref = "markdown" }
+plantuml-mit = { module = "net.sourceforge.plantuml:plantuml-mit", version.ref = "plantuml" }
 essenty-instanceKeeper = { module = "com.arkivanov.essenty:instance-keeper", version.ref = "essenty" }
 essenty-stateKeeper = { module = "com.arkivanov.essenty:state-keeper", version.ref = "essenty" }
 decompose = { module = "com.arkivanov.decompose:decompose", version.ref = "decompose" }

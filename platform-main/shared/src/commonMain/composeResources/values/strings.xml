@@ -8,4 +8,20 @@
     <string name="computer_use_guide_instruction">Drag %1$s into the list in System Settings, then turn its switch on.</string>
     <string name="computer_use_guide_tile">%1$s: drag into System Settings</string>
     <string name="computer_use_guide_close">Close</string>
+    <string name="diagram_rendering">Rendering diagram…</string>
+    <string name="diagram_title">Diagram</string>
+    <string name="diagram_open_full_size">Open full size</string>
+    <string name="diagram_close">Close</string>
+    <string name="diagram_syntax_error">Diagram error: {message}</string>
+    <string name="diagram_syntax_error_at_line">Diagram error · line {line}: {message}</string>
+    <string name="diagram_too_large">The diagram is too large to draw.</string>
+    <string name="diagram_timeout">The diagram took too long to draw.</string>
+    <string name="diagram_busy">Another diagram is still drawing.</string>
+    <string name="diagram_failed">The diagram could not be drawn.</string>
+    <string name="diagram_retry">Retry</string>
+    <string name="diagram_show_source">Show source</string>
+    <string name="diagram_show_diagram">Show diagram</string>
+    <string name="diagram_copy_source">Copy source</string>
+    <string name="diagram_source_copied">Source copied</string>
+    <string name="diagram_copy_failed">Could not copy</string>
 </resources>

@@ -49,6 +49,22 @@ import io.aequicor.heartbeat.ds.resources.generated.en_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.en_dark
 import io.aequicor.heartbeat.ds.resources.generated.en_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.en_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_busy
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_close
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_copy_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_copy_source
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_failed
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_open_full_size
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_rendering
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_sample
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_show_diagram
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_show_source
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_source_copied
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_syntax_error
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_syntax_error_at_line
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_timeout
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_title
+import io.aequicor.heartbeat.ds.resources.generated.en_diagram_too_large
 import io.aequicor.heartbeat.ds.resources.generated.en_dialog_body
 import io.aequicor.heartbeat.ds.resources.generated.en_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.en_disabled
@@ -248,6 +264,22 @@ import io.aequicor.heartbeat.ds.resources.generated.ru_danger_action
 import io.aequicor.heartbeat.ds.resources.generated.ru_dark
 import io.aequicor.heartbeat.ds.resources.generated.ru_demo_model
 import io.aequicor.heartbeat.ds.resources.generated.ru_development_icons
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_busy
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_close
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_copy_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_copy_source
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_failed
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_open_full_size
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_rendering
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_sample
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_show_diagram
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_show_source
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_source_copied
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_syntax_error
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_syntax_error_at_line
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_timeout
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_title
+import io.aequicor.heartbeat.ds.resources.generated.ru_diagram_too_large
 import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_body
 import io.aequicor.heartbeat.ds.resources.generated.ru_dialog_title
 import io.aequicor.heartbeat.ds.resources.generated.ru_disabled
@@ -617,6 +649,22 @@ public enum class HbString(internal val english: StringResource, internal val ru
     WorktreeFailed(Res.string.en_worktree_failed, Res.string.ru_worktree_failed),
     WorktreeFailure(Res.string.en_worktree_failure, Res.string.ru_worktree_failure),
     WorktreeRecheck(Res.string.en_worktree_recheck, Res.string.ru_worktree_recheck),
+    DiagramSample(Res.string.en_diagram_sample, Res.string.ru_diagram_sample),
+    DiagramRendering(Res.string.en_diagram_rendering, Res.string.ru_diagram_rendering),
+    DiagramTitle(Res.string.en_diagram_title, Res.string.ru_diagram_title),
+    DiagramOpenFullSize(Res.string.en_diagram_open_full_size, Res.string.ru_diagram_open_full_size),
+    DiagramClose(Res.string.en_diagram_close, Res.string.ru_diagram_close),
+    DiagramSyntaxError(Res.string.en_diagram_syntax_error, Res.string.ru_diagram_syntax_error),
+    DiagramSyntaxErrorAtLine(Res.string.en_diagram_syntax_error_at_line, Res.string.ru_diagram_syntax_error_at_line),
+    DiagramTooLarge(Res.string.en_diagram_too_large, Res.string.ru_diagram_too_large),
+    DiagramTimeout(Res.string.en_diagram_timeout, Res.string.ru_diagram_timeout),
+    DiagramBusy(Res.string.en_diagram_busy, Res.string.ru_diagram_busy),
+    DiagramFailed(Res.string.en_diagram_failed, Res.string.ru_diagram_failed),
+    DiagramShowSource(Res.string.en_diagram_show_source, Res.string.ru_diagram_show_source),
+    DiagramShowDiagram(Res.string.en_diagram_show_diagram, Res.string.ru_diagram_show_diagram),
+    DiagramCopySource(Res.string.en_diagram_copy_source, Res.string.ru_diagram_copy_source),
+    DiagramSourceCopied(Res.string.en_diagram_source_copied, Res.string.ru_diagram_source_copied),
+    DiagramCopyFailed(Res.string.en_diagram_copy_failed, Res.string.ru_diagram_copy_failed),
     ;
 
     internal fun resource(locale: HbLocale): StringResource = when (locale) {

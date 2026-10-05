@@ -369,6 +369,7 @@ private fun chatDemoCopy(): ChatDemoCopy = ChatDemoCopy(
     response = hbString(HbString.StreamResponse),
     section = hbString(HbString.CurrentSection),
     historySection = hbString(HbString.HistorySection),
+    diagramSample = hbString(HbString.DiagramSample),
 )
 
 @Preview
