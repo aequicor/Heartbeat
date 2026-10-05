@@ -82,6 +82,7 @@ public fun HbChatTranscript(
     overlapInsets: PaddingValues = PaddingValues(),
     onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
     messageFooterContent: (@Composable (HbChatMessage) -> Unit)? = null,
+    messageEmbeddedContent: (@Composable (HbChatMessage) -> Unit)? = null,
 ) {
     val expandedKeys = toolExpansionState.expandedKeys
     val sections = remember(timeline, expandedKeys) { expandedTranscriptSections(timeline, expandedKeys) }
@@ -154,6 +155,7 @@ public fun HbChatTranscript(
                             toolLabels = toolLabels,
                             onLinkClick = onLinkClick,
                             footerContent = messageFooterContent,
+                            embeddedContent = messageEmbeddedContent,
                             appearance = messageAppearance?.invoke(message),
                             isLatestMessage = message.id == timeline.latestMessage?.id,
                             isToolExpanded = chunk.key in expandedKeys,
@@ -224,6 +226,7 @@ private fun TimelineMessageChunk(
     toolLabels: HbToolLabels,
     onLinkClick: ((String) -> Unit)?,
     footerContent: (@Composable (HbChatMessage) -> Unit)?,
+    embeddedContent: (@Composable (HbChatMessage) -> Unit)?,
     modifier: Modifier = Modifier,
     appearance: HbMessageAppearance? = null,
     isLatestMessage: Boolean = false,
@@ -250,6 +253,7 @@ private fun TimelineMessageChunk(
     ) {
         HbTranscriptChunkContent(
             chunk = chunk,
+            embeddedContent = if (chunk.isLast) embeddedContent?.let { render -> { render(message) } } else null,
             message = message.copy(
                 text = copyText,
                 parts = persistentListOf(),

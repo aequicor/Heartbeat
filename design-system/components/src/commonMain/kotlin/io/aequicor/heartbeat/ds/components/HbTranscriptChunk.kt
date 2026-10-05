@@ -14,6 +14,7 @@ import kotlinx.collections.immutable.toPersistentList
 
 @Immutable
 internal sealed interface HbTranscriptBody {
+    data object Embedded : HbTranscriptBody
     data class Text(
         val text: String,
         val kind: HbMessageKind,
@@ -35,6 +36,7 @@ internal data class HbTranscriptChunk(
 ) {
     val key: String get() = "message:${messageId.length}:$messageId:$id"
     val contentType: String get() = when (val current = body) {
+        HbTranscriptBody.Embedded -> "embedded"
         is HbTranscriptBody.Text -> "text:${current.kind}"
         is HbTranscriptBody.Markdown -> "markdown:${current.block.kind}"
         is HbTranscriptBody.Tool -> "tool"
@@ -64,6 +66,7 @@ internal fun transcriptChunks(
             }
         }
     }
+    if (message.hasEmbeddedContent) chunks.add(HbTranscriptChunk(message.id, "embedded", HbTranscriptBody.Embedded))
     if (chunks.isEmpty()) {
         chunks.add(HbTranscriptChunk(message.id, "empty", HbTranscriptBody.Text("", message.kind)))
     }
@@ -128,6 +131,7 @@ internal fun HbTranscriptChunkContent(
     isToolExpanded: Boolean = false,
     onToolExpandedChange: (Boolean) -> Unit = {},
     onToolAction: (HbToolCall, HbToolAction) -> Unit = { _, _ -> },
+    embeddedContent: (@Composable () -> Unit)? = null,
 ) {
     val palette = tonePalette(if (message.status == HbMessageStatus.Error) HbTone.Danger else message.appearance.tone)
     val foreground = if (message.appearance.foreground == Color.Unspecified) {
@@ -154,12 +158,11 @@ internal fun HbTranscriptChunkContent(
         } else {
             toolPanelChunkPadding(chunk)
         },
-        content = chunk.takeUnless {
-            it.isFirst && it.isLast && message.role == HbChatRole.User &&
-                (it.body as? HbTranscriptBody.Text)?.text?.isBlank() == true
-        }?.let {
+        content = chunk.takeUnless { it.isEmptyUserMessage(message) }?.let {
             {
                 when (val body = chunk.body) {
+                    HbTranscriptBody.Embedded -> embeddedContent?.invoke()
+
                     is HbTranscriptBody.Markdown -> HbMarkdownBlockContent(
                         body.block,
                         foreground = foreground,
@@ -263,3 +266,6 @@ private fun unifiedChunkPadding(chunk: HbTranscriptChunk, isHostEntry: Boolean):
         bottom = if (chunk.isLast) inset else HbTheme.spacing.none,
     )
 }
+
+private fun HbTranscriptChunk.isEmptyUserMessage(message: HbChatMessage): Boolean =
+    isFirst && isLast && message.role == HbChatRole.User && (body as? HbTranscriptBody.Text)?.text?.isBlank() == true

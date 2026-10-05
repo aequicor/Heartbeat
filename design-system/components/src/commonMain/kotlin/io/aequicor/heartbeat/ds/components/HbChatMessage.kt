@@ -86,6 +86,8 @@ public data class HbChatMessage(
     val codeLanguage: String? = null,
     /** When non-empty, replaces the legacy text-then-tools order without changing their identities. */
     val parts: ImmutableList<HbMessagePart> = persistentListOf(),
+    /** Reserves a stable final chunk for host-rendered interactive content inside this message. */
+    val hasEmbeddedContent: Boolean = false,
 ) {
     init {
         require(parts.map { it.id }.distinct().size == parts.size) { "Message part ids must be unique." }

@@ -1,0 +1,12 @@
+<resources>
+    <string name="checklist_complete">Завершить</string>
+    <string name="checklist_completed">Завершён</string>
+    <string name="checklist_failed">Не удалось сохранить изменения</string>
+    <string name="checklist_pending">Ожидает продолжения сессии</string>
+    <string name="checklist_range">Выберите %1$d–%2$d</string>
+    <string name="checklist_required">Обязательно</string>
+    <string name="checklist_retry">Повторить сохранение</string>
+    <string name="checklist_retry_delivery">Повторить продолжение (исход предыдущего запуска может быть неизвестен)</string>
+    <string name="checklist_saving">Сохраняется…</string>
+    <string name="checklist_superseded">Неактуален — нужна новая проверка</string>
+</resources>

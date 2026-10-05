@@ -3,6 +3,10 @@ package io.aequicor.heartbeat.ds.catalog
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import io.aequicor.heartbeat.ds.components.HbBadge
@@ -12,6 +16,7 @@ import io.aequicor.heartbeat.ds.components.HbCard
 import io.aequicor.heartbeat.ds.components.HbChatMessage
 import io.aequicor.heartbeat.ds.components.HbChatMessageBubble
 import io.aequicor.heartbeat.ds.components.HbChatRole
+import io.aequicor.heartbeat.ds.components.HbChoiceRow
 import io.aequicor.heartbeat.ds.components.HbCopyButton
 import io.aequicor.heartbeat.ds.components.HbDiffView
 import io.aequicor.heartbeat.ds.components.HbDivider
@@ -38,6 +43,14 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
         item { StudioExample() }
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
         item { SettingsExample() }
+        item {
+            var isChecked by remember { mutableStateOf(false) }
+            HbColumn {
+                HbChoiceRow(hbString(HbString.Ready), isChecked, true, { isChecked = !isChecked })
+                HbChoiceRow(hbString(HbString.Working), !isChecked, false, { isChecked = false })
+                HbChoiceRow(hbString(HbString.Disabled), true, true, {}, enabled = false)
+            }
+        }
         item { UsageCatalog() }
         item { AttachmentCatalog(state::showActionFeedback) }
         item {
