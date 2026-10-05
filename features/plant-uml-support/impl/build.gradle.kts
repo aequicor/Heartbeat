@@ -9,9 +9,17 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.plantUmlSupport.api)
             implementation(projects.core.logging)
-            implementation(projects.core.common)
-            implementation(projects.core.di.api)
             implementation(projects.core.featureToggles.api)
         }
+        jvmMain.dependencies {
+            implementation(projects.core.common)
+            implementation(projects.core.di.api)
+            implementation(libs.plantuml.mit)
+        }
     }
+}
+
+// PlantUML draws with AWT; tests run without a display.
+tasks.withType<Test>().configureEach {
+    systemProperty("java.awt.headless", "true")
 }
