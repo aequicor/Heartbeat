@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -14,6 +15,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 
@@ -30,6 +33,8 @@ internal class EngineStudioScheduledChats(
     private val runtime: StudioRuntime,
     private val runs: StudioRunCoordinator,
     private val host: StudioRunHost,
+    private val inbox: StudioWakeInbox,
+    private val toggles: FeatureToggles,
 ) : StudioScheduledChats {
     private val log = Log.tag("EngineStudioScheduledChats")
     private val store by lazy { stores.keyValue(ChatSpec) }
@@ -57,6 +62,16 @@ internal class EngineStudioScheduledChats(
         route: ScheduledRunRoute,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
+        when (if (prompt.isDeduplicationRequired) inbox.receipt(prompt.request) else null) {
+            WakeReceipt.Accepted -> {
+                onAccepted()
+                return RunOutcome.Completed
+            }
+
+            WakeReceipt.Submitting -> error("Previous wake acceptance is unknown; explicit retry is required")
+
+            null -> Unit
+        }
         val records = store.get(ChatsKey).orEmpty()
         val record = checkNotNull(records.firstOrNull { it.id == chatId }) { "Unknown studio conversation" }
         val configurations = runtime.state.value.configurations
@@ -78,10 +93,21 @@ internal class EngineStudioScheduledChats(
                 settings,
                 WorktreeRunKind.Coding,
                 prompt.request,
-                onAccepted = onAccepted,
+                onAccepted = {
+                    if (prompt.isDeduplicationRequired) inbox.accepted(prompt.request)
+                    onAccepted()
+                },
                 directives = listOf(prompt.directive),
             ),
             waitForIdle = true,
+            beforeExecute = { if (prompt.isDeduplicationRequired) inbox.submitting(prompt.request) },
+            isExecutionEnabled = if (prompt.ownerFeature == ChecklistEvents.OWNER) {
+                toggles.observe(
+                    ChecklistEnabled,
+                )
+            } else {
+                null
+            },
         )
     }
 }

@@ -7,10 +7,13 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,11 +47,20 @@ internal class StudioRunCoordinator(
         request: StudioTurnRequest,
         waitForIdle: Boolean = false,
         beforeExecute: suspend () -> Unit = {},
+        isExecutionEnabled: Flow<Boolean>? = null,
     ): RunOutcome {
         log.i { "Reserve profile-owned execution" }
         while (true) {
-            if (waitForIdle) busy.first { request.id !in it }
+            if (isExecutionEnabled != null) {
+                combine(busy, isExecutionEnabled) { occupied, enabled ->
+                    !enabled || !waitForIdle || request.id !in occupied
+                }.first { it }
+            } else if (waitForIdle) {
+                busy.first { request.id !in it }
+            }
             val job = lock.withLock {
+                // A disabled background request waits without reserving the chat or changing its visible state.
+                if (isExecutionEnabled?.first() == false) throw ScheduledWakeDeferredException()
                 check(!profile.isClosed) { "Profile is closed" }
                 if (waitForIdle && request.id in busy.value) return@withLock null
                 check(request.id !in busy.value) { "Session is busy" }

@@ -5,12 +5,16 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.WakeResultEvent
 import io.aequicor.heartbeat.feature.scheduler.api.isAwaited
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -21,6 +25,7 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -49,6 +54,23 @@ internal class WakeDriver(
 
     /** Runs until [scope] is cancelled. */
     fun start(scope: CoroutineScope) {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            machine.outputs.collect { output ->
+                val results = when (output) {
+                    is SchedulerOutput.Deferred -> listOf(WakeResultEvent(output.id, false, isDeferred = true))
+
+                    is SchedulerOutput.Woke -> listOf(WakeResultEvent(output.wake.id, true))
+
+                    is SchedulerOutput.DeliveryFailed -> output.wakes.map { WakeResultEvent(it.id, false) }
+
+                    is SchedulerOutput.Scheduled,
+                    is SchedulerOutput.Rejected,
+                    is SchedulerOutput.Cancelled,
+                    -> emptyList()
+                }
+                results.forEach { bus.publish(SchedulerEvents.WakeResult, EventOrigin.Host, Json.encodeToString(it)) }
+            }
+        }
         scope.launch {
             enabled.distinctUntilChanged().collectLatest { isEnabled ->
                 log.i { "scheduler ${if (isEnabled) "enabled" else "disabled"}" }

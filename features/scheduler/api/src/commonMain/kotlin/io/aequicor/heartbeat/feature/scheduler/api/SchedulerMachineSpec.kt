@@ -22,6 +22,7 @@ import kotlin.time.Instant
  * | Ready | CancelSession | the session has a pending wake not delivering | Ready(−wakes) | Persist; Cancelled |
  * | Ready | Observed | ≥1 pending wake matches the event | Ready(delivering+) | Deliver |
  * | Ready | Tick | ≥1 pending deadline ≤ now | Ready(delivering+) | Deliver |
+ * | Ready | Deferred | the wake is delivering | Ready(delivering−) | retain wake for replay |
  * | Ready | Delivered | the wake is delivering | Ready(−wake) | Persist; Woke |
  * | Ready | DeliveryFailed | ≥1 of the wakes is delivering | Ready(−wakes) | Persist; DeliveryFailed |
  * | Ready | Observed / Tick without a match | — | ignored | — |
@@ -80,6 +81,10 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
             on<SchedulerIntent.Internal.Tick>(guard = { state.cancellable { it.isDue(intent.now) }.isNotEmpty() }) {
                 stay { state.startDelivering(state.cancellable { it.isDue(intent.now) }) }
                 effect { SchedulerEffect.Deliver(state.cancellable { it.isDue(intent.now) }.map(::deadlineDelivery)) }
+            }
+            on<SchedulerIntent.Internal.Deferred>(guard = { intent.id in state.delivering }) {
+                stay { state.copy(delivering = state.delivering - intent.id) }
+                output { SchedulerOutput.Deferred(intent.id) }
             }
             on<SchedulerIntent.Internal.Delivered>(guard = { intent.id in state.delivering }) {
                 stay { state.settled(setOf(intent.id)) }

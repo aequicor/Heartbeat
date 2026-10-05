@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -15,6 +16,7 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -121,6 +123,40 @@ class StudioRunCoordinatorTest {
         assertEquals(RunOutcome.Completed, first.await())
         assertEquals(RunOutcome.Completed, second.await())
         assertEquals(listOf("started", "execute", "finished", "started", "handoff", "execute", "finished"), events)
+    }
+
+    @Test
+    fun `disabled continuation waits without reserving chat and resumes when enabled`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(mutableListOf())
+        val terminal = CompletableDeferred<RunOutcome>()
+        val executed = mutableListOf<String>()
+        host.execute = {
+            executed += it.request.value
+            if (it.request.value == "first") terminal.await() else RunOutcome.Completed
+        }
+        val first = async { coordinator.run(host, runRequest("first")) }
+        runCurrent()
+        val enabled = MutableStateFlow(true)
+        val wake = async {
+            assertFailsWith<ScheduledWakeDeferredException> {
+                coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled)
+            }
+        }
+        runCurrent()
+        enabled.value = false
+        terminal.complete(RunOutcome.Completed)
+        first.await()
+        runCurrent()
+        wake.await()
+        assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("manual")))
+        assertEquals(listOf("first", "manual"), executed)
+        enabled.value = true
+        assertEquals(
+            RunOutcome.Completed,
+            coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled),
+        )
+        assertEquals(listOf("first", "manual", "wake"), executed)
     }
 }
 
