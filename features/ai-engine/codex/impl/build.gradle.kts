@@ -8,6 +8,7 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.searchEngine.api)
+            implementation(projects.features.questionnaire.api)
             implementation(projects.core.common)
             implementation(projects.core.di.api)
             implementation(projects.core.datastore.api)
