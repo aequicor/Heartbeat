@@ -23,22 +23,24 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
+import kotlin.uuid.Uuid
 
 /**
  * The hosted tool behind the questionnaire (toggle `questionnaire.enabled`): the agent asks the user questions
@@ -46,7 +48,8 @@ import kotlinx.serialization.json.jsonObject
  * (`source` is its studio id), which the session pane already shows. The questions carry the
  * [LIVE_QUESTION_ID_PREFIX]: the tool collects answers itself, so the journal does not persist them and the
  * question bridge does not follow them up. An ended turn cancels the waiting call and withdraws the
- * questions that are still unanswered.
+ * questions whose withdrawal has not completed. Each invocation owns a distinct id namespace, so concurrent
+ * batches (including retries with the same key) cannot replace or withdraw one another's cards.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -86,25 +89,42 @@ internal class AskUserAgentTools(
         val sessionId = chats.value.sessionIdOf(context.session)
             ?: return AgentToolResult("Questions are available only in chats hosted by the studio", true)
         val questions = specification(arguments)
-        val asked = questions.associateWith { it.questionnaire(sessionId) }
+        val owner = Uuid.random().toString()
+        val asked = questions.associateWith { it.questionnaire(sessionId, owner) }
         val answers = HashMap<String, Answer>()
+        val withdrawn = mutableSetOf<QuestionnaireId>()
         try {
             // The queue runs from the profile start while the toggle is on; wait for it before asking.
-            registry.observe(QuestionnaireMachineKey).filterNotNull().first()
-            asked.values.forEach { questionnaire ->
-                val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Ask(questionnaire))
-                if (result != SendResult.Accepted) {
-                    return AgentToolResult("The question queue refused the questions; retry with the same key", true)
+            val machine = registry.observe(QuestionnaireMachineKey).filterNotNull().first()
+            val isAccepted = coroutineScope {
+                // Subscribe directly before publishing: outputs are hot and have no replay.
+                val collector = launch(start = CoroutineStart.UNDISPATCHED) {
+                    awaitAnswers(machine.outputs, asked, answers, withdrawn)
+                }
+                try {
+                    asked.values.forEach { questionnaire ->
+                        val result = registry.send(
+                            QuestionnaireMachineKey,
+                            QuestionnaireIntent.Public.Ask(questionnaire),
+                        )
+                        if (result != SendResult.Accepted) return@coroutineScope false
+                    }
+                    log.i { "Asked the user count=${asked.size}" }
+                    collector.join()
+                    true
+                } finally {
+                    collector.cancel()
                 }
             }
-            log.i { "Asked the user count=${asked.size}" }
-            awaitAnswers(asked, answers)
+            if (!isAccepted) {
+                return AgentToolResult("The question queue refused the questions; retry with the same key", true)
+            }
             log.i { "User answered count=${answers.size}/${asked.size}" }
         } finally {
             // A cancelled call (the turn ended) leaves no unanswered question behind.
             withContext(NonCancellable) {
-                asked.forEach { (question, questionnaire) ->
-                    if (question.id !in answers) withdraw(questionnaire.id)
+                asked.values.forEach { questionnaire ->
+                    if (questionnaire.id !in withdrawn) withdraw(questionnaire.id)
                 }
             }
         }
@@ -112,24 +132,28 @@ internal class AskUserAgentTools(
     }
 
     /** Waits until every question of the batch is answered; an answer is withdrawn as soon as it arrives. */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun awaitAnswers(asked: Map<PreparedQuestion, Questionnaire>, answers: MutableMap<String, Answer>) {
-        registry.observe(QuestionnaireMachineKey)
-            .flatMapLatest { it?.outputs ?: emptyFlow() }
+    private suspend fun awaitAnswers(
+        outputs: Flow<QuestionnaireOutput>,
+        asked: Map<PreparedQuestion, Questionnaire>,
+        answers: MutableMap<String, Answer>,
+        withdrawn: MutableSet<QuestionnaireId>,
+    ) {
+        outputs
             .filterIsInstance<QuestionnaireOutput.Answered>()
             .filter { output -> asked.values.any { it.id == output.questionnaire.id } }
             .takeWhile { output ->
                 val question = asked.entries.first { it.value.id == output.questionnaire.id }.key
                 answers[question.id] = output.answer
-                withdraw(output.questionnaire.id)
+                if (withdraw(output.questionnaire.id)) withdrawn += output.questionnaire.id
                 answers.size < asked.size
             }
             .collect()
     }
 
-    private suspend fun withdraw(id: QuestionnaireId) {
+    private suspend fun withdraw(id: QuestionnaireId): Boolean {
         val result = registry.send(QuestionnaireMachineKey, QuestionnaireIntent.Public.Withdraw(id))
         if (result != SendResult.Accepted) log.w { "Question was not withdrawn: $result" }
+        return result == SendResult.Accepted
     }
 }
 
@@ -137,8 +161,8 @@ internal class AskUserAgentTools(
 private data class PreparedQuestion(val args: QuestionArgs) {
     val id: String get() = args.id
 
-    fun questionnaire(sessionId: String): Questionnaire = Questionnaire(
-        id = QuestionnaireId("$LIVE_QUESTION_ID_PREFIX$sessionId/${args.batchKey}/${args.id}"),
+    fun questionnaire(sessionId: String, owner: String): Questionnaire = Questionnaire(
+        id = QuestionnaireId("$LIVE_QUESTION_ID_PREFIX$sessionId/$owner/${args.batchKey}/${args.id}"),
         source = sessionId,
         title = args.title,
         question = question(),

@@ -20,9 +20,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioChatResolver
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireIntent
-import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireMachineKey
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireOutput
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireState
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,11 +66,14 @@ class AskUserToolsTest {
         repeat(ASK_SUBSCRIPTION_ROUNDS) { runCurrent() }
 
         val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
-        assertEquals(listOf("live/s1/plan/ios", "live/s1/plan/caller"), asked.map { it.questionnaire.id.value })
+        assertTrue(asked.all { it.questionnaire.id.value.startsWith("live/s1/") })
+        assertEquals(listOf("ios", "caller"), asked.map { it.questionnaire.id.value.substringAfterLast("/") })
         assertTrue(asked.all { it.questionnaire.source == "s1" })
 
         fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[0].questionnaire, Answer.Confirmed(false)))
-        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Selected(listOf("agent"))))
+        fixture.queue.outputs.emit(
+            QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Selected(listOf("agent"))),
+        )
         runCurrent()
         call.join()
 
@@ -121,10 +125,111 @@ class AskUserToolsTest {
 
         val withdrawn = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Withdraw>()
         assertEquals(
-            listOf("live/s1/plan/ios", "live/s1/plan/caller"),
+            asked.map { it.questionnaire.id.value },
             withdrawn.map { it.id.value }.distinct(),
         )
         assertEquals(2, withdrawn.size)
+    }
+
+    @Test
+    fun `answers received while the batch is still being published are not lost`() = runTest {
+        val fixture = Fixture(this)
+        fixture.queue.onSend = { intent ->
+            if (intent is QuestionnaireIntent.Public.Ask) {
+                val answer = if (intent.questionnaire.title == "iOS now?") {
+                    Answer.Confirmed(true)
+                } else {
+                    Answer.Selected(listOf("user"))
+                }
+                fixture.queue.outputs.emit(QuestionnaireOutput.Answered(intent.questionnaire, answer))
+            }
+        }
+
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+
+        assertTrue(call.isCompleted)
+        assertEquals(setOf("ios", "caller"), fixture.answers().keys)
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `cancellation during answer withdrawal retries cleanup without cancellation`() = runTest {
+        val fixture = Fixture(this)
+        val withdrawing = CompletableDeferred<Unit>()
+        val blocked = CompletableDeferred<Unit>()
+        var isFirstWithdrawal = true
+        fixture.queue.onSend = { intent ->
+            if (intent is QuestionnaireIntent.Public.Withdraw && isFirstWithdrawal) {
+                isFirstWithdrawal = false
+                withdrawing.complete(Unit)
+                blocked.await()
+            }
+        }
+        val call = launch { fixture.execute(arguments) }
+        runCurrent()
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked.first().questionnaire, Answer.Confirmed(true)))
+        withdrawing.await()
+
+        call.cancelAndJoin()
+
+        assertEquals(
+            asked.map { it.questionnaire.id }.toSet(),
+            fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>().map { it.id }.toSet(),
+        )
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
+    }
+
+    @Test
+    fun `parallel batches with repeated or ambiguous keys own different cards`() = runTest {
+        listOf("plan" to "q", "plan/a" to "q").forEach { (key, id) ->
+            val fixture = Fixture(this)
+            val firstArgs = Json.parseToJsonElement(
+                """{"key":"$key","questions":[{"id":"$id","title":"First","kind":"FreeText"}]}""",
+            ).jsonObject
+            val secondId = if (key == "plan") "q" else "a/q"
+            val secondArgs = Json.parseToJsonElement(
+                """{"key":"plan","questions":[
+                    {"id":"$secondId","title":"Second","kind":"Confirm","yes":"Yes","no":"No"}]}""",
+            ).jsonObject
+            val first = launch { fixture.execute(firstArgs) }
+            runCurrent()
+            val second = launch { fixture.execute(secondArgs) }
+            runCurrent()
+            val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+            assertEquals(2, asked.map { it.questionnaire.id }.distinct().size)
+
+            first.cancelAndJoin()
+            val withdrawn = fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>()
+            assertEquals(listOf(asked[0].questionnaire.id), withdrawn.map { it.id })
+            assertFalse(second.isCompleted)
+
+            fixture.queue.outputs.emit(QuestionnaireOutput.Answered(asked[1].questionnaire, Answer.Confirmed(false)))
+            runCurrent()
+            assertTrue(second.isCompleted)
+            assertEquals(setOf(secondId), fixture.answers().keys)
+        }
+    }
+
+    @Test
+    fun `a refused partial batch withdraws published questions and stops its collector`() = runTest {
+        val fixture = Fixture(this)
+        fixture.queue.result = { intent ->
+            if (intent is QuestionnaireIntent.Public.Ask && intent.questionnaire.title == "Who calls?") {
+                SendResult.NotRunning
+            } else {
+                SendResult.Accepted
+            }
+        }
+
+        fixture.execute(arguments)
+
+        assertTrue(fixture.errorText().contains("refused"))
+        val asked = fixture.queue.sent.filterIsInstance<QuestionnaireIntent.Public.Ask>()
+        val withdrawn = fixture.queue.applied.filterIsInstance<QuestionnaireIntent.Public.Withdraw>()
+        assertTrue(asked.first().questionnaire.id in withdrawn.map { it.id })
+        assertEquals(0, fixture.queue.outputs.subscriptionCount.value)
     }
 
     @Test
@@ -195,10 +300,14 @@ private class AskUserQueue : MachineRef<QuestionnaireState, QuestionnaireIntent.
     override val state = MutableStateFlow<QuestionnaireState>(QuestionnaireState.Idle)
     override val outputs = MutableSharedFlow<QuestionnaireOutput>()
     val sent = mutableListOf<QuestionnaireIntent>()
+    val applied = mutableListOf<QuestionnaireIntent>()
+    var onSend: suspend (QuestionnaireIntent.Public) -> Unit = {}
+    var result: (QuestionnaireIntent.Public) -> SendResult = { SendResult.Accepted }
 
     override suspend fun send(intent: QuestionnaireIntent.Public): SendResult {
         sent += intent
-        return SendResult.Accepted
+        onSend(intent)
+        return result(intent).also { if (it == SendResult.Accepted) applied += intent }
     }
 }
 
