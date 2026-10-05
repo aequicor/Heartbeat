@@ -46,6 +46,8 @@ kotlin {
             implementation(projects.features.agentLearning.impl)
             implementation(projects.features.organicAi.api)
             implementation(projects.features.organicAi.impl)
+            api(projects.features.plantUmlSupport.api)
+            implementation(projects.features.plantUmlSupport.impl)
             api(projects.core.di.api)
             api(projects.core.profileFacade.api)
             api(projects.core.navigation.api)

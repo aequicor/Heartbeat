@@ -26,7 +26,21 @@ internal fun seedTimeline(copy: ChatDemoCopy): HbChatTimeline {
         )
         .append(section, markdownExample(copy, "sample-agent"))
         .append(section, toolExample(copy, "sample-tool"))
+        .let { timeline ->
+            if (copy.diagramSample.isBlank()) {
+                timeline
+            } else {
+                timeline.append(section, diagramExample(copy, "sample-diagram"))
+            }
+        }
 }
+
+internal fun diagramExample(copy: ChatDemoCopy, id: String): HbChatMessage = HbChatMessage(
+    id = id,
+    author = copy.agent,
+    text = copy.diagramSample,
+    kind = HbMessageKind.Markdown,
+)
 
 internal fun markdownExample(copy: ChatDemoCopy, id: String): HbChatMessage = HbChatMessage(
     id = id,

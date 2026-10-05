@@ -13,7 +13,8 @@ import org.intellij.markdown.MarkdownTokenTypes as Tokens
 
 /**
  * Parses CommonMark/GFM into immutable, bounded display rows. Call during model preparation, not per row.
- * Unfinished fences remain code while streaming. HTML and images never execute or fetch resources.
+ * Unfinished fences remain code while streaming; a closed fence in a [HbDiagramLanguage] becomes one
+ * [HbMarkdownBlockKind.Diagram] row. HTML and images never execute or fetch resources.
  * CRLF and CR line endings are normalized first: the parser only recognizes `\n` line ends.
  * Container nesting deeper than a fixed bound renders as literal text instead of recursing.
  */
@@ -95,6 +96,19 @@ private class MarkdownBlockParser(private val source: String) {
     private fun code(node: ASTNode) {
         val language = node.children.firstOrNull { it.type == Tokens.FENCE_LANG }?.raw(source)?.trim()
         val code = if (node.type == Elements.CODE_FENCE) fencedCode(node) else indentedCode(node)
+        // A diagram renders only once its fence is closed; while streaming it stays code.
+        val isClosedFence = node.type == Elements.CODE_FENCE && node.children.any { it.type == Tokens.CODE_FENCE_END }
+        val diagram = if (isClosedFence) diagramLanguage(language, code) else null
+        if (diagram != null) {
+            rows += HbMarkdownBlock(
+                id = "${node.startOffset}:diagram",
+                kind = HbMarkdownBlockKind.Diagram,
+                content = HbMarkdownText(code),
+                language = language,
+                diagram = diagram,
+            )
+            return
+        }
         val chunks = chunkHbCode(code, language)
         chunks.forEachIndexed { index, chunk ->
             rows += HbMarkdownBlock(

@@ -8,4 +8,20 @@
     <string name="computer_use_guide_instruction">Перетащите %1$s в список в Системных настройках и включите переключатель.</string>
     <string name="computer_use_guide_tile">%1$s: перетащите в Системные настройки</string>
     <string name="computer_use_guide_close">Закрыть</string>
+    <string name="diagram_rendering">Рисуем диаграмму…</string>
+    <string name="diagram_title">Диаграмма</string>
+    <string name="diagram_open_full_size">Открыть в полном размере</string>
+    <string name="diagram_close">Закрыть</string>
+    <string name="diagram_syntax_error">Ошибка в диаграмме: {message}</string>
+    <string name="diagram_syntax_error_at_line">Ошибка в диаграмме · строка {line}: {message}</string>
+    <string name="diagram_too_large">Диаграмма слишком большая для отрисовки.</string>
+    <string name="diagram_timeout">Диаграмма рисовалась слишком долго.</string>
+    <string name="diagram_busy">Ещё рисуется другая диаграмма.</string>
+    <string name="diagram_failed">Не удалось нарисовать диаграмму.</string>
+    <string name="diagram_retry">Повторить</string>
+    <string name="diagram_show_source">Показать исходник</string>
+    <string name="diagram_show_diagram">Показать диаграмму</string>
+    <string name="diagram_copy_source">Копировать исходник</string>
+    <string name="diagram_source_copied">Исходник скопирован</string>
+    <string name="diagram_copy_failed">Не удалось скопировать</string>
 </resources>

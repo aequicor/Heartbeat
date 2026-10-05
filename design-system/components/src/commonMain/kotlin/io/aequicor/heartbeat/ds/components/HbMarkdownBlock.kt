@@ -20,14 +20,18 @@ public data class HbMarkdownSpan(
 @Immutable
 public data class HbMarkdownText(val text: String, val spans: ImmutableList<HbMarkdownSpan> = persistentListOf())
 
-/** Each block is small enough to be a separate item in the transcript's lazy list. */
-public enum class HbMarkdownBlockKind { Paragraph, Heading, Code, Quote, TableRow, Rule }
+/**
+ * Each block is small enough to be a separate item in the transcript's lazy list. [Diagram] is one complete
+ * fence in a [HbDiagramLanguage], bounded by its own size limit instead of being split into code segments.
+ */
+public enum class HbMarkdownBlockKind { Paragraph, Heading, Code, Quote, TableRow, Rule, Diagram }
 
 /**
  * Prepared Markdown row. [id] is based on source position and chunk number, stable while appending text.
  * Tables have one row per block; [level] is the heading level, or nesting depth for lists and quotes.
  * [codeSpans] preserves lexical context across code chunks; null highlights a manually supplied block.
  * [isFirstSegment]/[isLastSegment] mark bounded pieces of one source block so continuation rows have no paragraph gap.
+ * [diagram] is set only for [HbMarkdownBlockKind.Diagram]; [content] then holds the whole fence source.
  */
 @Immutable
 public data class HbMarkdownBlock(
@@ -42,4 +46,5 @@ public data class HbMarkdownBlock(
     val codeSpans: ImmutableList<HbCodeSpan>? = null,
     val isFirstSegment: Boolean = true,
     val isLastSegment: Boolean = true,
+    val diagram: HbDiagramLanguage? = null,
 )

@@ -40,10 +40,12 @@ class CodexIsolationTest {
     @Test
     fun `delegation only toggles the agent feature and retains isolation`() = runTest {
         val fixture = Fixture(this)
-        val off = codexIsolationConfig(fixture.rpc, null, search = false)
-        val on = codexIsolationConfig(fixture.rpc, null, search = false, subagents = true)
+        val off = codexIsolationConfig(fixture.rpc, null, search = false, questions = true)
+        val on = codexIsolationConfig(fixture.rpc, null, search = false, questions = false, subagents = true)
         assertEquals(JsonPrimitive(false), off.obj("features")["multi_agent"])
         assertEquals(JsonPrimitive(true), on.obj("features")["multi_agent"])
+        assertEquals(JsonPrimitive(true), off.obj("features")["default_mode_request_user_input"])
+        assertEquals(JsonPrimitive(false), on.obj("features")["default_mode_request_user_input"])
         CodexDisabledCapabilities.forEach { assertEquals(JsonPrimitive(false), on.obj("features")[it]) }
         fixture.runtime.close()
     }

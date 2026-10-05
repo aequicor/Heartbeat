@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -16,6 +17,7 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChatRole
 import io.aequicor.heartbeat.ds.components.HbChatTranscript
+import io.aequicor.heartbeat.ds.components.HbDiagramsProvider
 import io.aequicor.heartbeat.ds.components.HbDivider
 import io.aequicor.heartbeat.ds.components.HbMessageAlignment
 import io.aequicor.heartbeat.ds.components.HbMessageKind
@@ -54,40 +56,44 @@ private fun ConversationPanel(
     isCompact: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    HbPanel(modifier = modifier.testTag("chat-panel")) {
-        HbColumn(modifier = Modifier.fillMaxSize(), gap = HbTheme.elevation.none) {
-            ChatToolbar(
-                state = state,
-                copy = copy,
-                isCompact = isCompact,
-                modifier = Modifier.padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.m)
-                    .testTag("chat-toolbar"),
-            )
-            if (state.areControlsExpanded) {
-                MessageControls(
+    // The catalog renderer draws diagram fences of the sample conversation, including its error states.
+    val diagrams = remember { CatalogDiagramRenderer() }
+    HbDiagramsProvider(diagrams, catalogDiagramLabels()) {
+        HbPanel(modifier = modifier.testTag("chat-panel")) {
+            HbColumn(modifier = Modifier.fillMaxSize(), gap = HbTheme.elevation.none) {
+                ChatToolbar(
                     state = state,
-                    modifier = Modifier.padding(
-                        start = HbTheme.spacing.l,
-                        end = HbTheme.spacing.l,
-                        bottom = HbTheme.spacing.m,
-                    ).testTag("chat-controls"),
+                    copy = copy,
+                    isCompact = isCompact,
+                    modifier = Modifier.padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.m)
+                        .testTag("chat-toolbar"),
+                )
+                if (state.areControlsExpanded) {
+                    MessageControls(
+                        state = state,
+                        modifier = Modifier.padding(
+                            start = HbTheme.spacing.l,
+                            end = HbTheme.spacing.l,
+                            bottom = HbTheme.spacing.m,
+                        ).testTag("chat-controls"),
+                    )
+                }
+                HbDivider()
+                HbChatTranscript(
+                    timeline = state.timeline,
+                    modifier = Modifier.weight(1f).fillMaxWidth().testTag("chat-transcript"),
+                    streamingLabel = hbString(HbString.Streaming),
+                    jumpToLatestLabel = hbString(HbString.JumpToLatest),
+                    messageAppearance = { message ->
+                        if (message.role == HbChatRole.Assistant && message.kind != HbMessageKind.Tool) {
+                            state.appearance
+                        } else {
+                            message.appearance
+                        }
+                    },
+                    toolLabels = catalogToolLabels(),
                 )
             }
-            HbDivider()
-            HbChatTranscript(
-                timeline = state.timeline,
-                modifier = Modifier.weight(1f).fillMaxWidth().testTag("chat-transcript"),
-                streamingLabel = hbString(HbString.Streaming),
-                jumpToLatestLabel = hbString(HbString.JumpToLatest),
-                messageAppearance = { message ->
-                    if (message.role == HbChatRole.Assistant && message.kind != HbMessageKind.Tool) {
-                        state.appearance
-                    } else {
-                        message.appearance
-                    }
-                },
-                toolLabels = catalogToolLabels(),
-            )
         }
     }
 }

@@ -44,6 +44,7 @@ internal suspend fun codexIsolationConfig(
     rpc: CodexRpc,
     cwd: String?,
     search: Boolean,
+    questions: Boolean,
     subagents: Boolean = false,
 ): JsonObject {
     val effective = rpc.request(
@@ -71,6 +72,8 @@ internal suspend fun codexIsolationConfig(
             buildJsonObject {
                 CodexDisabledCapabilities.forEach { put(it, false) }
                 put("multi_agent", subagents)
+                // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
+                put("default_mode_request_user_input", questions)
             },
         )
         if (search) put("web_search", "live")

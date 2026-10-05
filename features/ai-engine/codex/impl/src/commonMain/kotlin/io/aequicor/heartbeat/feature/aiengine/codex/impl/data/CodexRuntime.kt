@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
+import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
@@ -133,6 +134,7 @@ internal class CodexRuntime(
     }
 
     suspend fun usageEnabled(): Boolean = toggles.get(EngineUsageEnabled)
+    suspend fun questionsEnabled(): Boolean = toggles.get(QuestionnaireEnabled)
 
     suspend fun checkAccount() {
         ensureOpen()
@@ -440,8 +442,9 @@ internal class CodexRuntime(
         val isolation = codexIsolationConfig(
             rpc,
             path,
-            tools.isSearchEnabled,
-            tools.areSubagentsAllowed && toggles.get(
+            search = tools.isSearchEnabled,
+            questions = questionsEnabled(),
+            subagents = tools.areSubagentsAllowed && toggles.get(
                 io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
             ),
         )

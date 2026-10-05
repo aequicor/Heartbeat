@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.ds.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -74,6 +75,8 @@ public fun HbMarkdownBlockContent(
     when (block.kind) {
         HbMarkdownBlockKind.Code -> MarkdownCode(block, modifier, foreground)
 
+        HbMarkdownBlockKind.Diagram -> MarkdownDiagram(block, modifier, foreground)
+
         HbMarkdownBlockKind.TableRow -> MarkdownTableRow(block, modifier, foreground, onLinkClick)
 
         HbMarkdownBlockKind.Rule -> Box(
@@ -102,25 +105,7 @@ private fun MarkdownCode(
     val spans = remember(block.content.text, block.language, block.codeSpans) {
         block.codeSpans ?: highlightHbCode(block.content.text, block.language)
     }
-    // Long fences arrive as bounded segments; seams stay square and unpadded so they read as one panel.
-    val corners = HbTheme.shapes.small
-    val square = CornerSize(HbTheme.elevation.none)
-    val shape = corners.copy(
-        topStart = if (block.isFirstSegment) corners.topStart else square,
-        topEnd = if (block.isFirstSegment) corners.topEnd else square,
-        bottomStart = if (block.isLastSegment) corners.bottomStart else square,
-        bottomEnd = if (block.isLastSegment) corners.bottomEnd else square,
-    )
-    HbColumn(
-        modifier = modifier.fillMaxWidth().background(HbTheme.colors.surfaceElevated, shape)
-            .padding(
-                start = HbTheme.spacing.m,
-                end = HbTheme.spacing.m,
-                top = if (block.isFirstSegment) HbTheme.spacing.m else HbTheme.elevation.none,
-                bottom = if (block.isLastSegment) HbTheme.spacing.m else HbTheme.elevation.none,
-            ),
-        gap = HbTheme.spacing.xs,
-    ) {
+    MarkdownCodePanel(modifier, isFirstSegment = block.isFirstSegment, isLastSegment = block.isLastSegment) {
         if (block.isFirstSegment && !block.language.isNullOrBlank()) {
             HbText(text = block.language, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
         }
@@ -130,6 +115,35 @@ private fun MarkdownCode(
             foreground = foreground,
         )
     }
+}
+
+/** Code fence surface. Long fences arrive as bounded segments; seams stay square and unpadded so they read as one. */
+@Composable
+internal fun MarkdownCodePanel(
+    modifier: Modifier = Modifier,
+    isFirstSegment: Boolean = true,
+    isLastSegment: Boolean = true,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val corners = HbTheme.shapes.small
+    val square = CornerSize(HbTheme.elevation.none)
+    val shape = corners.copy(
+        topStart = if (isFirstSegment) corners.topStart else square,
+        topEnd = if (isFirstSegment) corners.topEnd else square,
+        bottomStart = if (isLastSegment) corners.bottomStart else square,
+        bottomEnd = if (isLastSegment) corners.bottomEnd else square,
+    )
+    HbColumn(
+        modifier = modifier.fillMaxWidth().background(HbTheme.colors.surfaceElevated, shape)
+            .padding(
+                start = HbTheme.spacing.m,
+                end = HbTheme.spacing.m,
+                top = if (isFirstSegment) HbTheme.spacing.m else HbTheme.elevation.none,
+                bottom = if (isLastSegment) HbTheme.spacing.m else HbTheme.elevation.none,
+            ),
+        gap = HbTheme.spacing.xs,
+        content = content,
+    )
 }
 
 @Composable
