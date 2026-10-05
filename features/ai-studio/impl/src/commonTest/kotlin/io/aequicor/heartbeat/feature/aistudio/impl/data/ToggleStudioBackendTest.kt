@@ -31,6 +31,7 @@ class ToggleStudioBackendTest {
             lazy { demo },
             AlwaysAvailable,
             TestClock(this),
+            views = lazy { error("session views are not requested by this test") },
         )
         assertSame(demo, backend.repository())
         assertIs<AiStudioEffects>(backend.effects())
@@ -46,6 +47,7 @@ class ToggleStudioBackendTest {
             lazy { error("demo workspace must not be created") },
             AlwaysAvailable,
             TestClock(this),
+            views = lazy { error("session views are not requested by this test") },
         )
         assertSame(engine, backend.repository())
         assertIs<EngineStudioEffects>(backend.effects())

@@ -68,7 +68,9 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +78,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -84,6 +88,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class StudioOrganismsTest {
     private val target = EngineTarget(EngineId("pi"), EngineBindingId("binding"), ModelId("astra"))
     private val selections = object : ModelSelections {
@@ -170,7 +175,8 @@ class StudioOrganismsTest {
             SessionItem.Message(ItemInfo(ItemId("r"), 1, 0), MessageRole.Assistant, listOf(ContentPart.Text("Done"))),
         )
         val facade = ViewedFacade(ref, history)
-        val messages = StudioSessionViewer(facade).observe(ref, reopening).first { it.size == 2 }
+        val viewer = StudioSessionViewer(facade, MemoryTranscriptDao().transcripts())
+        val messages = viewer.observe(ref, reopening).first { it.size == 2 }
         assertEquals("Task", (messages[0] as StudioMessage.Prompt).text)
         assertEquals("Done", (messages[1] as StudioMessage.Reply).text)
         assertEquals(emptyList<ResumeSessionRequest>(), facade.resumptions)
@@ -183,7 +189,8 @@ class StudioOrganismsTest {
             SessionItem.Message(ItemInfo(ItemId("p"), 0, 0), MessageRole.User, listOf(ContentPart.Text("Task"))),
         )
         val facade = ViewedFacade(ref, history, hasStoredHistory = false)
-        val messages = StudioSessionViewer(facade).observe(ref, reopening).first { it.size == 1 }
+        val viewer = StudioSessionViewer(facade, MemoryTranscriptDao().transcripts())
+        val messages = viewer.observe(ref, reopening).first { it.size == 1 }
         assertEquals("Task", (messages.single() as StudioMessage.Prompt).text)
         assertEquals(listOf(reopening), facade.resumptions)
         assertEquals(1, facade.closes)
@@ -192,8 +199,69 @@ class StudioOrganismsTest {
     @Test
     fun `an unreadable viewed session stays empty instead of failing the screen`() = runTest {
         val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "gone")
-        val messages = StudioSessionViewer(ViewedFacade(ref = null, emptyList())).observe(ref, reopening).first()
+        val viewer = StudioSessionViewer(ViewedFacade(ref = null, emptyList()), MemoryTranscriptDao().transcripts())
+        val messages = viewer.observe(ref, reopening).first()
         assertTrue(messages.isEmpty())
+    }
+
+    @Test
+    fun `unviewed transcript survives a new viewer and empty partial native replay`() = runTest {
+        val ref = SessionRef(EngineId("codex"), SessionSourceId("local"), "cell")
+        val items = listOf(
+            SessionItem.Message(ItemInfo(ItemId("p"), 0, 0), MessageRole.User, listOf(ContentPart.Text("Task"))),
+            SessionItem.Message(ItemInfo(ItemId("r"), 1, 0), MessageRole.Assistant, listOf(ContentPart.Text("Done"))),
+        )
+        val dao = MemoryTranscriptDao()
+        StudioSessionViewer(ViewedFacade(ref, items), dao.transcripts()).record(ref, reopening, isLive = false)
+        val resumed = ViewedFacade(ref, emptyList(), coverage = HistoryCoverage.Partial)
+        val viewer = StudioSessionViewer(resumed, dao.transcripts())
+        viewer.record(ref, reopening, isLive = false)
+
+        val messages = viewer.observe(ref, reopening).first { it.size == 2 }
+        assertEquals("Done", (messages.last() as StudioMessage.Reply).text)
+    }
+
+    @Test
+    fun `native ids from different history sources never share a transcript`() = runTest {
+        val ref = SessionRef(EngineId("codex"), SessionSourceId("first"), "same-id")
+        val other = ref.copy(source = SessionSourceId("second"))
+        val items = listOf(
+            SessionItem.Message(ItemInfo(ItemId("r"), 0, 0), MessageRole.Assistant, listOf(ContentPart.Text("First"))),
+        )
+        val dao = MemoryTranscriptDao()
+        StudioSessionViewer(ViewedFacade(ref, items), dao.transcripts()).record(ref, reopening, isLive = false)
+        val viewer = StudioSessionViewer(
+            ViewedFacade(other, emptyList(), coverage = HistoryCoverage.Partial),
+            dao.transcripts(),
+        )
+        viewer.record(other, reopening, isLive = false)
+
+        assertTrue(viewer.observe(other, reopening).first().isEmpty())
+    }
+
+    @Test
+    fun `two observers share one native reader and its cancellation saves a final snapshot`() = runTest {
+        val ref = SessionRef(EngineId("codex"), SessionSourceId("local"), "cell")
+        val facade = ViewedFacade(ref, emptyList(), hasStoredHistory = false)
+        val dao = MemoryTranscriptDao()
+        val viewer = StudioSessionViewer(facade, dao.transcripts())
+        val first = backgroundScope.launch { viewer.observe(ref, reopening).collect {} }
+        val second = backgroundScope.launch { viewer.observe(ref, reopening).collect {} }
+        runCurrent()
+        assertEquals(1, facade.resumptions.size)
+        facade.items = listOf(
+            SessionItem.Message(ItemInfo(ItemId("r"), 0, 0), MessageRole.Assistant, listOf(ContentPart.Text("Final"))),
+        )
+        second.cancelAndJoin()
+        first.cancelAndJoin()
+        assertEquals(1, facade.closes)
+
+        val resumed = StudioSessionViewer(
+            ViewedFacade(ref, emptyList(), coverage = HistoryCoverage.Partial),
+            dao.transcripts(),
+        )
+        val answer = resumed.observe(ref, reopening).first { it.isNotEmpty() }.single() as StudioMessage.Reply
+        assertEquals("Final", answer.text)
     }
 
     private val reopening = ResumeSessionRequest(
@@ -238,8 +306,9 @@ private class Registry(private val machine: OrganicMachine?) : MachineRegistry {
  */
 private class ViewedFacade(
     private val ref: SessionRef?,
-    private val items: List<SessionItem>,
+    var items: List<SessionItem>,
     private val hasStoredHistory: Boolean = true,
+    private val coverage: HistoryCoverage = HistoryCoverage.Complete,
 ) : EngineFacade {
     val resumptions = mutableListOf<ResumeSessionRequest>()
     var closes = 0
@@ -293,7 +362,7 @@ private class ViewedFacade(
 
     private val history = object : SessionHistory {
         override suspend fun page(request: HistoryPageRequest): HistoryPage =
-            HistoryPage(items, null, null, HistoryCheckpoint("checkpoint"), HistoryCoverage.Complete)
+            HistoryPage(items, null, null, HistoryCheckpoint("checkpoint"), coverage)
 
         override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> = flow { awaitCancellation() }
     }

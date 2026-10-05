@@ -36,8 +36,8 @@ internal class ToggleStudioBackend(
     private val demoRepository: Lazy<InMemoryStudioRepository>,
     private val availability: StudioAvailability,
     private val clock: Clock,
+    private val views: Lazy<StudioSessionViews>,
     private val projects: Lazy<StudioProjects>? = null,
-    private val views: Lazy<StudioSessionViews>? = null,
 ) : StudioBackend {
     private val log = Log.tag("StudioBackend")
     private val lock = Mutex()
@@ -48,7 +48,7 @@ internal class ToggleStudioBackend(
     override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = select().effects
 
     override suspend fun sessionViews(): StudioSessionViews =
-        views?.takeIf { select().repository !is InMemoryStudioRepository }?.value ?: super.sessionViews()
+        if (select().repository !is InMemoryStudioRepository) views.value else super.sessionViews()
 
     private suspend fun select(): Selected = lock.withLock {
         selected ?: create().also { selected = it }

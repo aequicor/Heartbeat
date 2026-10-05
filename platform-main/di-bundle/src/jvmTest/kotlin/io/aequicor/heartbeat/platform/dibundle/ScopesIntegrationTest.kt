@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.di.ext.retainedShared
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -36,9 +37,10 @@ class ScopesIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
-        // the app scope is never closed in production; tests must not leak its coroutines
+    fun tearDown() = runTest {
+        // Cancellation may still resume IO continuations on Main; join them before resetting the test dispatcher.
         processes.forEach { (it.appScope as OwnedScope).close() }
+        processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
         Dispatchers.resetMain()
     }
 
