@@ -18,6 +18,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -50,7 +51,10 @@ internal class StudioOrganismHistory(
     }
 }
 
-/** Reconciles profile readers without restarting them for unrelated changes to an organism. */
+/**
+ * Reconciles profile readers without restarting them for unrelated changes to an organism. A live reader that
+ * returns after handling an engine failure retries independently of state updates; ended sessions are read once.
+ */
 internal suspend fun recordOrganismHistory(
     states: Flow<OrganicAiState.Living?>,
     record: suspend (OrganismSession, Boolean) -> Unit,
@@ -72,11 +76,24 @@ internal suspend fun recordOrganismHistory(
                 val hasEnded = previous?.get(session) == true && !isLive
                 val isRecordingRequired = isLive || isNewEnded || hasEnded
                 if (session !in running && isRecordingRequired) {
-                    running[session] = isLive to launch { record(session, isLive) }
+                    running[session] = isLive to launch {
+                        recordSessionHistory(session, isLive, record)
+                    }
                 }
             }
             previous = current
         }
+}
+
+private suspend fun recordSessionHistory(
+    session: OrganismSession,
+    isLive: Boolean,
+    record: suspend (OrganismSession, Boolean) -> Unit,
+) {
+    do {
+        record(session, isLive)
+        if (isLive) delay(HISTORY_RETRY_MILLIS)
+    } while (isLive)
 }
 
 /** Cells retain their reopen route; judges never inherit a project or the organism's hosted tools. */
@@ -87,3 +104,5 @@ private fun Organism.recordings(): List<Pair<OrganismSession, Boolean>> =
                 session to (isDeveloping && cases.any { it.id == trial.case.id })
             }
         }
+
+private const val HISTORY_RETRY_MILLIS = 2_000L

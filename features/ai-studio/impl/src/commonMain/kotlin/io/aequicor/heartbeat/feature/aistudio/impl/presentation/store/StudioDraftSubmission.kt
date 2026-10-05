@@ -21,8 +21,7 @@ internal suspend fun submitStudioDraft(
 ) = with(pipeline) {
     withState {
         val chat = panes.firstOrNull { it.id == paneId }?.sessionId
-        val selected = subSessions[chat]
-        if (selected != null && selected != PrimarySubSession && nativeTrees[chat] != null) return@withState
+        if (selectedNative(chat) != PrimarySubSession) return@withState
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }
@@ -39,3 +38,8 @@ internal suspend fun submitStudioDraft(
         if (result != SendResult.Accepted) updateState { rejectSubmission(submissionId) }
     }
 }
+
+/** Effective native selection shared by transcript projection and submission; missing children fall back to root. */
+internal fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
+    nativeTrees[sessionId]?.sessions?.any { it.key == key && it.kind == SubSessionKindUi.Agent } == true
+} ?: PrimarySubSession

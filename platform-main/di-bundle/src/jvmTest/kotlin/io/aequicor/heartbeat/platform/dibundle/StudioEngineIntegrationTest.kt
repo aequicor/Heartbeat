@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsE
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsIntent
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsMachineKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsRoute
+import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
@@ -30,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
+import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioRoute
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
@@ -39,21 +41,28 @@ import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoice
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -126,16 +135,23 @@ class StudioEngineIntegrationTest {
         app.machines.send(ConnectWizardMachineKey, ConnectWizardIntent.Public.Finish)
         wizard.state.first { it is ConnectWizardState.Finished }
         val target = EngineTarget(TestAdapter.engine, models.connection.binding, ModelId("m1"))
-        app.machines.send(
-            EngineConnectionsMachineKey,
-            EngineConnectionsIntent.Public.Apply(ConnectionOperation.SetDefaultModel(target)),
+        // Wizard completion and the parent catalog's first observation are independent.
+        requireNotNull(app.machines.find(EngineConnectionsMachineKey)).state.first {
+            it is EngineConnectionsState.Active && it.snapshot != null && it.pending == null
+        }
+        assertEquals(
+            SendResult.Accepted,
+            app.machines.send(
+                EngineConnectionsMachineKey,
+                EngineConnectionsIntent.Public.Apply(ConnectionOperation.SetDefaultModel(target)),
+            ),
         )
         services.modelSelections.observe().first { it.defaultTarget == target }
         return services
     }
 
     @Test
-    fun `configuration read failure after native acceptance preserves outcome observation`() = runTest {
+    fun `configuration read failure after native acceptance preserves outcome observation`() = runStudioTest {
         TestAdapter.isConfigurationFailureEnabled = true
         try {
             val services = configured()
@@ -161,7 +177,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `a fresh native conversation starts with the selected approval and effort defaults`() = runTest {
+    fun `a fresh native conversation starts with the selected approval and effort defaults`() = runStudioTest {
         TestAdapter.reasoningEfforts = listOf("low", "high")
         TestAdapter.isTrustSupported = true
         try {
@@ -176,7 +192,7 @@ class StudioEngineIntegrationTest {
             app.machines.send(EffortConfigurationMachineKey, EffortConfigurationIntent.Public.Select(target, "high"))
             val chat = repository.createSession(null, "Selected defaults")
             assertNull(runtime.state.value.configurations[chat.id])
-            val run = async { runtime.run(chat.id, "Use the selected defaults", settings) }
+            val run = startAcceptedRun(runtime, chat.id, "Use the selected defaults", settings)
             val applied = runtime.state.first { chat.id in it.configurations }.configurations.getValue(chat.id).applied
             val native = TestAdapter.runtimes.single().natives.single()
             assertEquals("high", native.sent.single().reasoningEffort)
@@ -192,7 +208,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `start page choices survive profile restart and configure successive new conversations`() = runTest {
+    fun `start page choices survive profile restart and configure successive new conversations`() = runStudioTest {
         TestAdapter.reasoningEfforts = listOf("low", "high")
         TestAdapter.isTrustSupported = true
         try {
@@ -210,7 +226,7 @@ class StudioEngineIntegrationTest {
             restored.studioRepository.observeModels().first { it.isNotEmpty() }
             repeat(2) { iteration ->
                 val chat = restored.studioRepository.createSession(null, "Restored defaults $iteration")
-                val run = async { restored.studioRuntime.run(chat.id, "Hello", restored.studioRuntime.defaults()) }
+                val run = startAcceptedRun(restored.studioRuntime, chat.id, "Hello", restored.studioRuntime.defaults())
                 restored.studioRuntime.state.first { chat.id in it.configurations }
                 val native = TestAdapter.runtimes.last().natives.last()
                 assertEquals("high", native.sent.single().reasoningEffort)
@@ -260,7 +276,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `explicitly disabling effort persistence preserves model and approval persistence`() = runTest {
+    fun `explicitly disabling effort persistence preserves model and approval persistence`() = runStudioTest {
         (app as TestToggleAccessors).toggleControl.setOverride(EffortConfiguration, false)
         val services = configured()
         val settings = services.studioRuntime.defaults().copy(approval = ApprovalMode.AutoApprove)
@@ -278,7 +294,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `legacy chat keeps its saved route when new chat defaults select another model`() = runTest {
+    fun `legacy chat keeps its saved route when new chat defaults select another model`() = runStudioTest {
         val services = configured()
         val repository = services.studioRepository
         val runtime = services.studioRuntime
@@ -298,7 +314,7 @@ class StudioEngineIntegrationTest {
             modelId = Json.encodeToString(EngineTarget.serializer(), savedTarget.copy(model = ModelId("other"))),
         )
 
-        val run = async { runtime.run(chat.id, "Continue on the saved model", otherDefaults) }
+        val run = startAcceptedRun(runtime, chat.id, "Continue on the saved model", otherDefaults)
         val messages = repository.observeMessages(chat.id).first { it.isNotEmpty() }
         assertIs<StudioMessage.Prompt>(messages.first())
         val native = TestAdapter.runtimes.single().natives.single()
@@ -308,7 +324,7 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun studioMachineSubmitsThroughProfileEffectsAndLeavingScreenPreservesTheTurn() = runTest {
+    fun studioMachineSubmitsThroughProfileEffectsAndLeavingScreenPreservesTheTurn() = runStudioTest {
         val services = configured()
         val lifecycle = LifecycleRegistry().apply { resume() }
         (services as ProfileNavigation).navigation.create(
@@ -320,7 +336,14 @@ class StudioEngineIntegrationTest {
         val ready = machine.state.first {
             it is AiStudioState.Ready && it.settings.modelId.isNotBlank()
         } as AiStudioState.Ready
-        app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.Submit(ready.focusedPaneId, "From the studio"))
+        val accepted = async(start = CoroutineStart.UNDISPATCHED) {
+            machine.outputs.first { it is AiStudioOutput.SubmitAccepted }
+        }
+        app.machines.send(
+            AiStudioMachineKey,
+            AiStudioIntent.Public.Submit(ready.focusedPaneId, "From the studio", submissionId = "screen-submit"),
+        )
+        accepted.await()
         val running = machine.state.first { it is AiStudioState.Ready && it.running.isNotEmpty() }
             as AiStudioState.Ready
         val chat = running.running.single()
@@ -335,14 +358,14 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun connectionSelectionFeedsChatAndScreenDetachmentPreservesNativeExecution() = runTest {
+    fun connectionSelectionFeedsChatAndScreenDetachmentPreservesNativeExecution() = runStudioTest {
         val services = configured()
         val repository = services.studioRepository
         val runtime = services.studioRuntime
         val settings = runtime.defaults()
         assertEquals(settings.modelId, repository.observeModels().first { it.isNotEmpty() }.single().id)
         val chat = repository.createSession(null, "Integrated conversation")
-        val waiter = async { runtime.run(chat.id, "Hello engine", settings) }
+        val waiter = startAcceptedRun(runtime, chat.id, "Hello engine", settings)
         repository.observeMessages(chat.id).first { it.any { item -> item is StudioMessage.Prompt } }
         val native = TestAdapter.runtimes.single().natives.single()
 
@@ -368,20 +391,18 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun indexedConversationResumesTheSameNativeSessionAfterHandleRelease() = runTest {
+    fun indexedConversationResumesTheSameNativeSessionAfterHandleRelease() = runStudioTest {
         val services = configured()
         val repository = services.studioRepository
         val runtime = services.studioRuntime
         val chat = repository.createSession(null, "Resume conversation")
-        val first = async { runtime.run(chat.id, "First turn", runtime.defaults()) }
-        repository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val first = startAcceptedRun(runtime, chat.id, "First turn", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         native.finish()
         assertEquals(RunOutcome.Completed, first.await())
         repository.edit(chat.id, SessionEdit.SetArchived(true))
         repository.edit(chat.id, SessionEdit.SetArchived(false))
-        val second = async { runtime.run(chat.id, "Follow up", runtime.defaults()) }
-        repository.observeMessages(chat.id).first { it.size == 3 }
+        val second = startAcceptedRun(runtime, chat.id, "Follow up", runtime.defaults())
         native.finish()
         assertEquals(RunOutcome.Completed, second.await())
         assertEquals(1, TestAdapter.runtimes.single().natives.size)
@@ -389,13 +410,12 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun `a conversation whose runtime was retired resumes its native session on the next run`() = runTest {
+    fun `a conversation whose runtime was retired resumes its native session on the next run`() = runStudioTest {
         val services = configured()
         val repository = services.studioRepository
         val runtime = services.studioRuntime
         val earlier = repository.createSession(null, "Before key rotation")
-        val first = async { runtime.run(earlier.id, "First turn", runtime.defaults()) }
-        repository.observeMessages(earlier.id).first { it.isNotEmpty() }
+        val first = startAcceptedRun(runtime, earlier.id, "First turn", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         native.finish()
         assertEquals(RunOutcome.Completed, first.await())
@@ -404,14 +424,12 @@ class StudioEngineIntegrationTest {
         val source = services.engineFacade.bindings.state.first { it.isNotEmpty() }.single().authSource
         services.engineAuthSources.replaceManagedKey(source, Secret("rotated-key".toCharArray()))
         val later = repository.createSession(null, "After key rotation")
-        val other = async { runtime.run(later.id, "Start with the new key", runtime.defaults()) }
-        repository.observeMessages(later.id).first { it.isNotEmpty() }
+        val other = startAcceptedRun(runtime, later.id, "Start with the new key", runtime.defaults())
         native.state.first { it == ActiveSessionState.Closed }
         TestAdapter.runtimes.last().natives.single().finish()
         assertEquals(RunOutcome.Completed, other.await())
 
-        val resumed = async { runtime.run(earlier.id, "Continue after the rotation", runtime.defaults()) }
-        repository.observeMessages(earlier.id).first { it.size == 3 }
+        val resumed = startAcceptedRun(runtime, earlier.id, "Continue after the rotation", runtime.defaults())
         native.finish()
         assertEquals(RunOutcome.Completed, resumed.await())
         assertEquals(2, TestAdapter.runtimes.size)
@@ -420,13 +438,12 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun archivingARunningChatReleasesItsBindingAfterNativeCompletion() = runTest {
+    fun archivingARunningChatReleasesItsBindingAfterNativeCompletion() = runStudioTest {
         val services = configured()
         val runtime = services.studioRuntime
         val repository = services.studioRepository
         val chat = repository.createSession(null, "Archived during execution")
-        val run = async { runtime.run(chat.id, "Continue in background", runtime.defaults()) }
-        repository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val run = startAcceptedRun(runtime, chat.id, "Continue in background", runtime.defaults())
         repository.edit(chat.id, SessionEdit.SetArchived(true))
         assertTrue(chat.id in runtime.state.value.running)
         TestAdapter.runtimes.single().natives.single().finish()
@@ -437,13 +454,12 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun profileShutdownCancelsAnArchivedSessionReleaseWithoutHangingTheRun() = runTest {
+    fun profileShutdownCancelsAnArchivedSessionReleaseWithoutHangingTheRun() = runStudioTest {
         val services = configured()
         val runtime = services.studioRuntime
         val repository = services.studioRepository
         val chat = repository.createSession(null, "Close race")
-        val run = async { runtime.run(chat.id, "Archive then close profile", runtime.defaults()) }
-        repository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val run = startAcceptedRun(runtime, chat.id, "Archive then close profile", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         native.closeGate = kotlinx.coroutines.CompletableDeferred()
         repository.edit(chat.id, SessionEdit.SetArchived(true))
@@ -456,16 +472,11 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun asynchronousNativeStopFailureRemainsVisibleWithoutClaimingCompletion() = runTest {
+    fun asynchronousNativeStopFailureRemainsVisibleWithoutClaimingCompletion() = runStudioTest {
         val services = configured()
         val runtime = services.studioRuntime
         val chat = services.studioRepository.createSession(null, "Failed stop")
-        val accepted = CompletableDeferred<Unit>()
-        val run = async {
-            runtime.run(chat.id, "Keep observing", runtime.defaults(), emptyList()) { accepted.complete(Unit) }
-        }
-        // History is visible before the facade acknowledges submission; this case stops an accepted turn.
-        accepted.await()
+        val run = startAcceptedRun(runtime, chat.id, "Keep observing", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         native.cancelGate = gate
@@ -481,12 +492,11 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun exactPermissionDecisionAndExplicitStopReachNativeSession() = runTest {
+    fun exactPermissionDecisionAndExplicitStopReachNativeSession() = runStudioTest {
         val services = configured()
         val runtime = services.studioRuntime
         val chat = services.studioRepository.createSession(null, "Permission conversation")
-        val run = async { runtime.run(chat.id, "Change file", runtime.defaults()) }
-        services.studioRepository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val run = startAcceptedRun(runtime, chat.id, "Change file", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         native.requestPermission()
         val pending = runtime.state.first { it.permissions.isNotEmpty() }.permissions.single()
@@ -494,6 +504,8 @@ class StudioEngineIntegrationTest {
         assertFailsWith<IllegalStateException> { runtime.respond(chat.id, pending.requestId, "invented-choice") }
         assertEquals(null, native.decision)
         runtime.respond(chat.id, pending.requestId, pending.options.single().id)
+        // Respond acknowledges the facade command; the native effect completes asynchronously.
+        native.state.first { it is ActiveSessionState.Running }
         assertEquals("allow-once", native.decision?.option?.value)
         runtime.cancel(chat.id)
         assertEquals(RunOutcome.Stopped, run.await())
@@ -503,16 +515,42 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
-    fun stopRequestedWhileIdleDoesNotCancelTheNextRun() = runTest {
+    fun stopRequestedWhileIdleDoesNotCancelTheNextRun() = runStudioTest {
         val services = configured()
         val runtime = services.studioRuntime
         val chat = services.studioRepository.createSession(null, "Idle stop")
         runtime.cancel(chat.id)
-        val run = async { runtime.run(chat.id, "Run after an idle stop", runtime.defaults()) }
-        services.studioRepository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val run = startAcceptedRun(runtime, chat.id, "Run after an idle stop", runtime.defaults())
         val native = TestAdapter.runtimes.single().natives.single()
         native.finish()
         assertEquals(RunOutcome.Completed, run.await())
         assertEquals(0, native.cancellations)
+    }
+
+    /** Stops profile jobs before runTest drains its scheduler; @AfterTest would run too late for polling jobs. */
+    private fun runStudioTest(block: suspend TestScope.() -> Unit) = runTest {
+        try {
+            block()
+        } finally {
+            withContext(NonCancellable) {
+                (app.appScope as OwnedScope).close()
+                app.appScope.coroutineScope.coroutineContext[Job]?.join()
+            }
+        }
+    }
+
+    /** Native history can publish inside send before the facade acknowledges ownership of its turn. */
+    private suspend fun CoroutineScope.startAcceptedRun(
+        runtime: StudioRuntime,
+        sessionId: String,
+        prompt: String,
+        settings: RunSettings,
+    ): Deferred<RunOutcome> {
+        val accepted = CompletableDeferred<Unit>()
+        val result = async {
+            runtime.run(sessionId, prompt, settings, emptyList()) { accepted.complete(Unit) }
+        }
+        accepted.await()
+        return result
     }
 }

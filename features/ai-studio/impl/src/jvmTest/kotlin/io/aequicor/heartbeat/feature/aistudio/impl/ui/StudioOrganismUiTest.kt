@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismSt
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi
@@ -43,6 +44,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activity
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
@@ -230,6 +232,29 @@ class StudioOrganismUiTest {
             }
             onNodeWithTag("attachment-add-0").assertIsEnabled()
             onNodeWithContentDescription(send).assertIsEnabled()
+        }
+
+    @Test
+    fun `activity badge explains the count and uncertainty without hover`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            var label = ""
+            setContent {
+                label = stringResource(Res.string.session_tree_activity)
+                HbTheme(darkTheme = false) {
+                    OrganismSwitcher(
+                        AiStudioScreenState(
+                            sessions = persistentListOf(
+                                SessionUi("chat", "Chat", projectId = null, updatedAt = Instant.DISTANT_PAST),
+                            ),
+                            nativeTrees = persistentMapOf(
+                                "chat" to SessionTreeUi(persistentListOf(), activeCount = 2, isActivityKnown = false),
+                            ),
+                        ).paneContent(organismPane),
+                        {},
+                    )
+                }
+            }
+            onNodeWithContentDescription("$label: 2+").assertExists()
         }
 
     private val organismPane = PaneUi(0, sessionId = "chat")

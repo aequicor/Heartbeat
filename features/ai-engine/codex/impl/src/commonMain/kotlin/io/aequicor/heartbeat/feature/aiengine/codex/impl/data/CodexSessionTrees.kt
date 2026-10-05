@@ -88,9 +88,9 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
         while (pending.isNotEmpty()) {
             val (ref, thread) = pending.removeFirst()
             if (ref in nodes) continue
-            val turns = readTurns(rpc, ref, thread)
-            isComplete = isComplete && thread.text("historyMode") == "paginated" &&
-                turns.all { it.text("itemsView") == "full" }
+            val replay = readTurns(rpc, ref, thread)
+            val turns = replay.turns
+            isComplete = isComplete && replay.isCanonical
             val observed = activity(thread, turns.lastOrNull())
             val activity = if (observed == SessionActivity.Unknown &&
                 ref.nativeId in queued
@@ -101,7 +101,8 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
             }
             val node = thread.treeNode(root).copy(activity = activity)
             if (node.activity.isActive) {
-                queued += turns.lastOrNull()?.array("items").orEmpty().asSequence().filterIsInstance<JsonObject>()
+                queued += (turns.lastOrNull()?.get("items") as? JsonArray).orEmpty()
+                    .asSequence().filterIsInstance<JsonObject>()
                     .flatMap { it.queuedAgents() }
             }
             nodes[ref] = node
@@ -120,7 +121,7 @@ internal class CodexSessionTrees(private val runtime: CodexRuntime, private val 
         turns: List<JsonObject>,
         known: Set<SessionRef>,
     ): List<Pair<SessionRef, JsonObject>> {
-        val ids = turns.asSequence().flatMap { it.array("items") }.filterIsInstance<JsonObject>()
+        val ids = turns.asSequence().flatMap { (it["items"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>()
             .flatMap { it.agentIds() }.distinct().toList()
         return ids.mapNotNull { id ->
             val ref = root.copy(nativeId = id)
@@ -225,8 +226,12 @@ private class CodexTreeHistory(
             json("threadId" to ref.nativeId.json()),
         ).obj("thread")
         if (thread.text("id") != ref.nativeId) protocolFailure()
-        val turns = readTurns(rpc, ref, thread)
-        for (turn in turns) {
+        val replay = readTurns(rpc, ref, thread)
+        history.seeded(isComplete = replay.isCanonical)
+        // Legacy replay synthesizes item IDs and omits tools. Even Partial replay could replace a richer
+        // stored suffix, so only a canonical full snapshot may add items to this private journal.
+        if (!replay.isCanonical) return
+        for (turn in replay.turns) {
             val id = TurnId(turn.text("id") ?: protocolFailure())
             (runtime.host.resourceHistory.parts(ref, id.value) ?: runtime.host.resourceHistory.parts(root, id.value))
                 ?.let { history.rememberOriginals(id, it) }
@@ -235,7 +240,6 @@ private class CodexTreeHistory(
                 if (!history.matches(native)) history.nativeItem(native, id)
             }
         }
-        history.seeded(isComplete = turns.all { it.text("itemsView") in setOf(null, "full") })
     }
 }
 
@@ -247,15 +251,17 @@ internal fun JsonObject.isTreeChange(): Boolean {
 }
 
 /** Canonical native replay discovers children even when thread/list intentionally omits subagents. */
-private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject): List<JsonObject> {
+private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject): TreeReplay {
     if (thread.text("historyMode") != "paginated") {
-        return rpc.request(
+        val turns = rpc.request(
             "thread/read",
             json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
         )
             .obj("thread").array("turns").map { it as? JsonObject ?: protocolFailure() }
+        return TreeReplay(turns, isCanonical = false)
     }
     val turns = mutableListOf<JsonObject>()
+    var hasPendingItems = false
     var cursor: String? = null
     val seen = mutableSetOf<String>()
     do {
@@ -270,11 +276,17 @@ private suspend fun readTurns(rpc: CodexRpc, ref: SessionRef, thread: JsonObject
             },
         )
         turns += response.array("data").map { it as? JsonObject ?: protocolFailure() }
+        hasPendingItems = hasPendingItems || response.text("itemsBackwardsCursor") != null
         cursor = response.text("nextCursor")
         if (cursor != null && !seen.add(cursor)) protocolFailure()
     } while (cursor != null)
-    return turns
+    val isCanonical = !hasPendingItems && turns.isNotEmpty() && turns.all {
+        it.text("itemsView") == "full" && it["items"] is JsonArray && it.text("itemsBackwardsCursor") == null
+    }
+    return TreeReplay(turns, isCanonical)
 }
+
+private data class TreeReplay(val turns: List<JsonObject>, val isCanonical: Boolean)
 
 internal fun JsonObject.agentIds(): List<String> = when (text("type")) {
     "subAgentActivity" -> listOfNotNull(text("agentThreadId"))

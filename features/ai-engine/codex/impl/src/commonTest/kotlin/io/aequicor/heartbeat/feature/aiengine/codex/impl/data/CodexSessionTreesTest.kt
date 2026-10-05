@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
@@ -9,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -78,6 +80,94 @@ class CodexSessionTreesTest {
         assertTrue(methods.none { it in setOf("thread/start", "thread/resume", "turn/start", "turn/interrupt") })
         assertTrue(methods.none { it == "thread/list" })
     }
+
+    @Test
+    fun `noncanonical child replay stays empty and partial so saved transcripts survive`() = runTest {
+        val full = """{"id":"turn","itemsView":"full","items":[
+            {"id":"synthetic","type":"agentMessage","text":"lossy replay"}]}"""
+        val cases = listOf(
+            Triple("legacy", "[$full]", false),
+            Triple("legacy", "[]", false),
+            Triple("paginated", "[]", false),
+            Triple("paginated", """[{"id":"turn","itemsView":"full"}]""", false),
+            Triple("paginated", """[{"id":"turn","items":[]}]""", false),
+            Triple("paginated", "[${full.replace("full", "summary")}]", false),
+            Triple("paginated", "[$full]", true),
+        )
+        for ((mode, turns, pendingItems) in cases) {
+            val fixture = Fixture(this)
+            val delegate = fixture.wire.handler
+            fixture.wire.handler = { message ->
+                when (message.text("method")) {
+                    "thread/read" -> fixture.wire.reply(
+                        message,
+                        Json.parseToJsonElement(
+                            """{"thread":{"id":"root","historyMode":"$mode","turns":$turns}}""",
+                        ).jsonObject,
+                    )
+
+                    "thread/turns/list" -> fixture.wire.reply(
+                        message,
+                        Json.parseToJsonElement(
+                            """{"data":$turns,"itemsBackwardsCursor":${if (pendingItems) "\"older\"" else "null"}}""",
+                        ).jsonObject,
+                    )
+
+                    else -> delegate(message)
+                }
+            }
+            val trees = CodexSessionTrees(fixture.runtime, fixture.rpc)
+            val page = trees.history(root, root, SessionTreeAccess(fixture.target)).page()
+            assertEquals(HistoryCoverage.Partial, page.coverage, "$mode: $turns")
+            assertTrue(page.items.isEmpty(), "$mode: $turns must not replace durable native items")
+            fixture.runtime.close()
+        }
+    }
+
+    @Test
+    fun `canonical history follows all turn pages and retains its journal after lossy refresh`() = runTest {
+        val fixture = Fixture(this)
+        val delegate = fixture.wire.handler
+        var isCanonical = true
+        fixture.wire.handler = { message ->
+            when (message.text("method")) {
+                "thread/read" -> fixture.wire.reply(
+                    message,
+                    json("thread" to observedThread(isCanonical)),
+                )
+
+                "thread/turns/list" -> {
+                    val isLast = message.obj("params").text("cursor") != null
+                    val id = if (isLast) "last" else "first"
+                    fixture.wire.reply(message, replayPage(id, if (isLast) null else "next"))
+                }
+
+                else -> delegate(message)
+            }
+        }
+        val trees = CodexSessionTrees(fixture.runtime, fixture.rpc)
+        val history = trees.history(root, root, SessionTreeAccess(fixture.target))
+        val page = history.page()
+        assertEquals(HistoryCoverage.Complete, page.coverage)
+        assertEquals(listOf("first", "last"), page.items.map { it.info.id.value })
+        isCanonical = false
+        val lossy = history.page()
+        assertEquals(HistoryCoverage.Partial, lossy.coverage)
+        assertEquals(page.items, lossy.items)
+        fixture.runtime.close()
+    }
+
+    private fun observedThread(isCanonical: Boolean): JsonObject = if (isCanonical) {
+        thread("root", null)
+    } else {
+        json("id" to "root".json(), "turns" to JsonArray(emptyList()))
+    }
+
+    private fun replayPage(id: String, cursor: String?): JsonObject = Json.parseToJsonElement(
+        """{"data":[{"id":"turn-$id","itemsView":"full","items":[
+            {"id":"$id","type":"agentMessage","text":"$id"}]}],
+            "nextCursor":${cursor?.let { "\"$it\"" } ?: "null"}}""",
+    ).jsonObject
 
     @Test
     fun `structured parent fallback and awaiting status are parsed without preview heuristics`() {

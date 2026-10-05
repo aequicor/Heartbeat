@@ -21,6 +21,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -69,6 +70,40 @@ class StudioOrganismHistoryTest {
         assertEquals(listOf("start:zygote:true", "flush:zygote", "start:zygote:false"), actions)
         states.value = null
         runCurrent()
+    }
+
+    @Test
+    fun `a stopped live reader retries without a state change and removal cancels recovery`() = runTest {
+        val states = MutableStateFlow<OrganicAiState.Living?>(state(organism))
+        var attempts = 0
+        var cancellations = 0
+        backgroundScope.launch {
+            recordOrganismHistory(states) { _, isLive ->
+                assertEquals(true, isLive)
+                attempts++
+                // The viewer handles and logs transient engine failures, then returns to its caller.
+                if (attempts > 1) {
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        cancellations++
+                    }
+                }
+            }
+        }
+        runCurrent()
+        assertEquals(1, attempts)
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(2, attempts)
+        assertEquals(0, cancellations)
+
+        states.value = null
+        runCurrent()
+        assertEquals(1, cancellations)
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(2, attempts)
     }
 
     @Test

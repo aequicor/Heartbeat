@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -178,15 +179,6 @@ private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: Sessio
 
         else -> transcripts[sessionId]
     }
-
-private fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
-    nativeTrees[sessionId]?.sessions?.any {
-        it.key == key &&
-            it.kind == io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi.Agent
-    } ==
-        true
-}
-    ?: PrimarySubSession
 
 private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =
     if (configuration != null) {

@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.mergeSessionTrees
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.nativeKey
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.selectedNative
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -66,6 +67,25 @@ class StudioNativeSelectionTest {
         assertEquals(rootMessages, returned.transcript)
         assertTrue(returned.session!!.isContinuable)
         assertEquals(state.sessions, state.copy(subSessions = persistentMapOf()).sessions)
+    }
+
+    @Test
+    fun `missing child falls back to the root for both rendering and submission`() {
+        val pane = PaneUi(0, sessionId = "chat")
+        val messages = persistentListOf<MessageUi>(MessageUi.Prompt("root", Instant.DISTANT_PAST, "root prompt"))
+        val selected = AiStudioScreenState(
+            sessions = persistentListOf(SessionUi("chat", "Root", projectId = null, updatedAt = Instant.DISTANT_PAST)),
+            transcripts = persistentMapOf("chat" to messages),
+            nativeTrees = persistentMapOf("chat" to tree.toUi()),
+            subSessions = persistentMapOf("chat" to nativeKey(child)),
+        )
+        assertEquals(nativeKey(child), selected.selectedNative("chat"))
+        val refreshed = selected.copy(nativeTrees = persistentMapOf("chat" to SessionTreeSnapshot(root).toUi()))
+        val content = refreshed.paneContent(pane)
+        assertEquals(PrimarySubSession, refreshed.selectedNative("chat"))
+        assertEquals(PrimarySubSession, content.subSession)
+        assertEquals(messages, content.transcript)
+        assertTrue(content.session!!.isContinuable)
     }
 
     @Test
