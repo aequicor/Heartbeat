@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.followUpText
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.questionnaireId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.toQuestionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.Answer
+import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
@@ -51,10 +52,11 @@ import kotlinx.coroutines.withContext
  * Pending permissions are asked as questions of their session. Answers go to the studio machine
  * (`AiStudioMachineKey`): a live request is answered with `RespondPermission`, a question restored after a restart
  * whose native request is gone is answered with a `FollowUp` message (a skipped one is just withdrawn).
- * An accepted answer withdraws its question; an undeliverable one reopens it, and so does an accepted one whose
- * delivery fails later (`PermissionAnswerFailed`, a follow-up run ending `Failed`). Answers reach the studio machine
- * only while the studio screen runs it; otherwise their questions reopen. Failures are logged and never stop
- * the bridge. Started with the profile ([StudioQuestionStartup]).
+ * Answers of live questions (`LIVE_QUESTION_ID_PREFIX`) belong to their owner, e.g. the ask-user tool, and are left
+ * to it. An accepted answer withdraws its question; an undeliverable one reopens it, and so does an accepted one
+ * whose delivery fails later (`PermissionAnswerFailed`, a follow-up run ending `Failed`). Answers reach the studio
+ * machine only while the studio screen runs it; otherwise their questions reopen. Failures are logged and never
+ * stop the bridge. Started with the profile ([StudioQuestionStartup]).
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -134,7 +136,13 @@ internal class StudioQuestionBridge(
         machines.observe(QuestionnaireMachineKey)
             .flatMapLatest { it?.outputs ?: emptyFlow() }
             .filterIsInstance<QuestionnaireOutput.Answered>()
-            .collect { answered -> deliver(answered.questionnaire, answered.answer) }
+            .collect { answered ->
+                if (answered.questionnaire.id.value.startsWith(LIVE_QUESTION_ID_PREFIX)) {
+                    log.d { "Live question is answered to its owner" }
+                } else {
+                    deliver(answered.questionnaire, answered.answer)
+                }
+            }
     }
 
     private suspend fun deliver(questionnaire: Questionnaire, answer: Answer) {
