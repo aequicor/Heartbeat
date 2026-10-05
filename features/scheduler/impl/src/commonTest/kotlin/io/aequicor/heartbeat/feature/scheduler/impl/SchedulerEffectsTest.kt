@@ -14,9 +14,11 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.wakePrompt
 import kotlinx.coroutines.test.runTest
@@ -26,18 +28,19 @@ import kotlin.test.assertTrue
 
 class SchedulerEffectsTest {
     private val storage = MemoryWakes()
+    private val persistence = SchedulerPersistence(storage)
     private val scope = RecordingScope()
 
     @Test
     fun `load reports stored wakes`() = runTest {
         storage.wakes = listOf(scheduled("w1", deadline = START))
-        SchedulerEffects(storage, lazyOf(emptySet())).handle(SchedulerEffect.Load, scope)
+        SchedulerEffects(persistence, lazyOf(emptySet())).handle(SchedulerEffect.Load, scope)
         assertEquals(listOf<SchedulerIntent>(SchedulerIntent.Internal.Loaded(storage.wakes)), scope.sent)
     }
 
     @Test
     fun `a stale revision never overwrites a newer one`() = runTest {
-        val effects = SchedulerEffects(storage, lazyOf(emptySet()))
+        val effects = SchedulerEffects(persistence, lazyOf(emptySet()))
         effects.handle(SchedulerEffect.Persist(listOf(scheduled("new", deadline = START)), 2), scope)
         effects.handle(SchedulerEffect.Persist(emptyList(), 1), scope)
         assertEquals(listOf(WakeId("new")), storage.wakes.map { it.id })
@@ -50,7 +53,7 @@ class SchedulerEffectsTest {
         val studio = FakeHost(priority = 100, owned = setOf(SESSION))
         val delivery = WakeDelivery(scheduled("w1", deadline = START), WakeReason.Deadline(START))
         SchedulerEffects(
-            storage,
+            persistence,
             lazyOf(setOf(fallback, studio)),
         ).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
         assertEquals(listOf(delivery.wake.request), studio.woken.map { it.first })
@@ -80,7 +83,7 @@ class SchedulerEffectsTest {
             WakeReason.Deadline(START),
         )
         SchedulerEffects(
-            storage,
+            persistence,
             lazyOf(setOf(host, failing)),
         ).handle(SchedulerEffect.Deliver(listOf(ok, refused, orphan)), scope)
         assertEquals(
@@ -98,7 +101,7 @@ class SchedulerEffectsTest {
         val host = FakeHost(priority = 1, failure = ScheduledWakeDeferredException())
         val wake = scheduled("deferred", events = setOf(EventKeys.custom("completed")))
         val delivery = WakeDelivery(wake, WakeReason.Deadline(START))
-        SchedulerEffects(storage, lazyOf(setOf(host))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        SchedulerEffects(persistence, lazyOf(setOf(host))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
         assertEquals(listOf<SchedulerIntent>(SchedulerIntent.Internal.Deferred(wake.id)), scope.sent)
         val machine = SpecMachine(SchedulerState.Ready(listOf(wake), delivering = setOf(wake.id)))
         machine.send(scope.sent.single())
@@ -123,7 +126,7 @@ class SchedulerEffectsTest {
             ) = kotlinx.coroutines.awaitCancellation()
         }
         val delivery = WakeDelivery(scheduled("w1", deadline = START), WakeReason.Deadline(START))
-        SchedulerEffects(storage, lazyOf(setOf(busy))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        SchedulerEffects(persistence, lazyOf(setOf(busy))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
         assertEquals(
             listOf<SchedulerIntent>(SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.Busy)),
             scope.sent,
@@ -133,8 +136,23 @@ class SchedulerEffectsTest {
     @Test
     fun `an agent wake without a chat host is not resumed unattended`() = runTest {
         val delivery = WakeDelivery(scheduled("w1", deadline = START), WakeReason.Deadline(START))
-        val fallback = io.aequicor.heartbeat.feature.scheduler.impl.data.FacadeSessionHost()
-        SchedulerEffects(storage, lazyOf(setOf(fallback))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        SchedulerEffects(persistence, lazyOf(emptySet())).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        assertEquals(
+            listOf<SchedulerIntent>(
+                SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.SessionUnavailable),
+            ),
+            scope.sent,
+        )
+    }
+
+    @Test
+    fun `a feature wake also needs a host that services tools and permissions`() = runTest {
+        val wake = scheduled("w1", deadline = START)
+        val delivery = WakeDelivery(
+            wake.copy(request = wake.request.copy(origin = WakeOrigin.Feature("test"))),
+            WakeReason.Deadline(START),
+        )
+        SchedulerEffects(persistence, lazyOf(emptySet())).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
         assertEquals(
             listOf<SchedulerIntent>(
                 SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.SessionUnavailable),

@@ -16,10 +16,12 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** The repository supplies persistence and native features; this executor owns a single accepted turn. */
@@ -48,6 +50,8 @@ internal data class StudioTurnRequest(
     val onAccepted: suspend () -> Unit = {},
     /** Host directives for the engine only (a scheduler wake); never shown in the transcript. */
     val directives: List<String> = emptyList(),
+    /** Optional cancellation of scheduled preparation; the native sender calls [StudioRunSubmission.begin]. */
+    val submission: StudioRunSubmission? = null,
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -70,6 +74,12 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             log.e(error) { "Studio execution failed" }
             if (progress.isPrepared || progress.active != null) recover(host, request, progress)
             return host.failedTurn(request.id, error)
+        } finally {
+            if (request.submission?.isCancelled == true && progress.isPrepared) {
+                withContext(NonCancellable) {
+                    worktrees.failed(request.id, request.request, session = null, turn = null)
+                }
+            }
         }
     }
 

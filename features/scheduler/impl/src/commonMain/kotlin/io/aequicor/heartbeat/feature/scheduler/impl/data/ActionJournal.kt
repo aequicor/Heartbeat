@@ -13,25 +13,31 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
 
-/** A background action that has started and not reported its result yet. Holds no command or prompt text. */
+/** A started action; [payload] keeps its completed result until the matching wakes settle. Never logged. */
 @Serializable
-internal data class ActionRecord(val id: ActionId, val kind: String, val startedAt: Instant)
+internal data class ActionRecord(
+    val id: ActionId,
+    val kind: String,
+    val startedAt: Instant,
+    val payload: String? = null,
+) {
+    override fun toString(): String = "ActionRecord(id=$id, kind=$kind, completed=${payload != null})"
+}
 
 /** Running actions of the profile, so a restart can report the ones it interrupted. */
 internal interface ActionJournal {
-    /** Records a started action. */
+    /** Records a started action or replaces it with its completed result. */
     suspend fun add(record: ActionRecord)
 
     /** Forgets a finished action. */
     suspend fun remove(id: ActionId)
 
-    /** Returns and forgets every recorded action. */
-    suspend fun takeAll(): List<ActionRecord>
+    /** Reads running actions and completed results without acknowledging their delivery. */
+    suspend fun readAll(): List<ActionRecord>
 }
 
 @SingleIn(ProfileScope::class)
@@ -44,20 +50,21 @@ internal class KeyValueActionJournal(
     private val store by lazy { stores.keyValue(SPEC) }
     private val lock = Mutex()
 
-    override suspend fun add(record: ActionRecord) = lock.withLock { write(read() + record) }
+    override suspend fun add(record: ActionRecord) = lock.withLock {
+        write(read().filterNot { it.id == record.id } + record)
+    }
 
     override suspend fun remove(id: ActionId) = lock.withLock { write(read().filterNot { it.id == id }) }
 
-    override suspend fun takeAll(): List<ActionRecord> = lock.withLock { read().also { write(emptyList()) } }
+    override suspend fun readAll(): List<ActionRecord> = lock.withLock { read() }
 
     private suspend fun read(): List<ActionRecord> {
         val raw = store.get(ACTIONS) ?: return emptyList()
         return try {
             json.decodeFromString(RECORDS, raw)
-        } catch (e: SerializationException) {
-            // Records hold only ids, kinds and times; an unreadable journal only loses interruption reports.
-            log.w(e) { "unreadable action journal, dropped" }
-            emptyList()
+        } catch (e: IllegalArgumentException) {
+            // Decoder messages can contain the stored result; preserve only the failure kind.
+            throw e.withoutActionText()
         }
     }
 
@@ -73,3 +80,7 @@ internal class KeyValueActionJournal(
         val json = Json { ignoreUnknownKeys = true }
     }
 }
+
+/** Decoder messages and causes may quote stored action results; only the failure kind may leave this layer. */
+private fun IllegalArgumentException.withoutActionText(): IllegalStateException =
+    IllegalStateException("Unreadable scheduler actions (${this::class.simpleName.orEmpty()})")

@@ -6,7 +6,9 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
@@ -20,7 +22,8 @@ import kotlin.time.TimeSource
 /**
  * Background shell commands: PowerShell on Windows, `/bin/sh` elsewhere, in the project directory. Secrets-looking
  * environment variables are not inherited, stdin is closed, and the process tree is killed on timeout or when the
- * profile closes. Output is polled (a detached child may hold the pipe) and kept as head and tail. Commands are never
+ * profile closes, including observed children still alive after their shell exits. Output is polled (a detached
+ * child may hold the pipe) and kept as head and tail. Commands are never
  * logged.
  */
 @ContributesBinding(ProfileScope::class)
@@ -55,7 +58,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
                 }
             } finally {
                 // A cancelled drain never reports an exit, so cancellation also kills the tree.
-                val isKillRequired = !hasExited || process.isAlive
+                val isKillRequired = !hasExited || process.isAlive || children.values.any { it.isAlive }
                 withContext(NonCancellable) {
                     if (isKillRequired) kill(process, children.values.toList())
                     close(process)
@@ -74,6 +77,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         var exitedAt: TimeSource.Monotonic.ValueTimeMark? = null
         var isFinished: Boolean? = null
         while (isFinished == null) {
+            currentCoroutineContext().ensureActive()
             observe()
             val read = readAvailable(input, buffer, output)
             if (!process.isAlive && exitedAt == null) exitedAt = TimeSource.Monotonic.markNow()

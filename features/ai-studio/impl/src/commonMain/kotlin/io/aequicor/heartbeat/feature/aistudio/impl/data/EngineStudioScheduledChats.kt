@@ -100,6 +100,7 @@ internal class EngineStudioScheduledChats(
                 directives = listOf(prompt.directive),
             ),
             waitForIdle = true,
+            cancelBeforeSubmission = true,
             beforeExecute = { if (prompt.isDeduplicationRequired) inbox.submitting(prompt.request) },
             isExecutionEnabled = if (prompt.ownerFeature == ChecklistEvents.OWNER) {
                 toggles.observe(

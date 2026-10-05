@@ -40,8 +40,9 @@ public data class SpawnRequest(
 
 /**
  * Delivers scheduler prompts into sessions. Contributed into a profile set: the host with the highest [priority] that
- * [owns] a session wakes it (ai-studio for its chats); the scheduler's own engine-facade host is the fallback. Used
- * only by `scheduler:impl`, hosts that own sessions and `platform-main:di-bundle`.
+ * [owns] a session wakes it (ai-studio for its chats). The host must show tool calls and handle permissions for the
+ * resumed turn. Without an owning host the wake fails as unavailable; there is no unattended engine fallback.
+ * Used only by `scheduler:impl`, hosts that own sessions and `platform-main:di-bundle`.
  */
 public interface ScheduledSessionHost {
     /** Higher wins among hosts that own a session. */

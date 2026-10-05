@@ -19,7 +19,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.selects.select
 
-/** Wins over the scheduler's engine-facade fallback for every session that has a studio chat. */
+/** Priority of the host that owns studio chats. */
 internal const val STUDIO_HOST_PRIORITY: Int = 100
 
 /** A studio chat that owns a native session. */
@@ -79,19 +79,20 @@ internal class StudioScheduledSessionHost(
         submit(chat.id, prompt, target = null, approvalFrom = null)
     }
 
-    override suspend fun spawn(request: SpawnRequest): SessionRef {
-        val parent = chats.chatOf(request.parent)
-        val projectId = parent?.projectId ?: request.workspace?.value
+    override suspend fun spawn(request: SpawnRequest): SessionRef? {
+        val parent = chats.chatOf(request.parent) ?: return null
+        val projectId = parent.projectId
         val chat = chats.createHelperChat(projectId, request.title)
         log.i { "start a helper conversation hasProject=${projectId != null}" }
         // The helper never gets more trust than the chat that started it.
-        submit(chat, request.prompt, request.target, approvalFrom = parent?.id)
+        submit(chat, request.prompt, request.target, approvalFrom = parent.id)
         return checkNotNull(chats.sessionOf(chat)) { "The helper conversation has no session" }
     }
 
     /**
      * Starts the run in the profile and waits only for acceptance; a run that ends without it is a failure. A caller
-     * that gives up before acceptance (a delivery timeout) cancels the run, so the prompt is not delivered later.
+     * that gives up cancels preparation before native submission. Once a send begins, the profile retains the run
+     * even if acceptance is still pending: cancelling that observation could abandon an accepted native turn.
      */
     private suspend fun submit(chat: String, prompt: WakePrompt, target: EngineTarget?, approvalFrom: String?) {
         val accepted = CompletableDeferred<Unit>()

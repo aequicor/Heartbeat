@@ -227,6 +227,7 @@ internal class FakeConnection : PiConnection {
     var contextWindow = 1000L
     var isStreaming = false
     var stateFailure: EngineException? = null
+    var onSetModel: suspend () -> Unit = {}
     var thinkingLevel = "medium"
     var thinkingClamp: String? = null
     var thinkingFailure: EngineException? = null
@@ -298,6 +299,7 @@ internal class FakeConnection : PiConnection {
             else -> JsonObject(emptyMap())
         }
         model = requireNotNull(selected)
+        onSetModel()
         return result
     }
 

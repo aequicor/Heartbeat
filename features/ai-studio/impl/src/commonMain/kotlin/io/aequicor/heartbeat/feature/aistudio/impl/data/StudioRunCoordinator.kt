@@ -8,13 +8,17 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -46,18 +50,15 @@ internal class StudioRunCoordinator(
         host: StudioRunHost,
         request: StudioTurnRequest,
         waitForIdle: Boolean = false,
+        cancelBeforeSubmission: Boolean = false,
         beforeExecute: suspend () -> Unit = {},
         isExecutionEnabled: Flow<Boolean>? = null,
     ): RunOutcome {
         log.i { "Reserve profile-owned execution" }
+        val submission = if (cancelBeforeSubmission) StudioRunSubmission() else null
+        val reserved = submission?.let { request.copy(submission = it) } ?: request
         while (true) {
-            if (isExecutionEnabled != null) {
-                combine(busy, isExecutionEnabled) { occupied, enabled ->
-                    !enabled || !waitForIdle || request.id !in occupied
-                }.first { it }
-            } else if (waitForIdle) {
-                busy.first { request.id !in it }
-            }
+            awaitAdmission(request.id, waitForIdle, isExecutionEnabled)
             val job = lock.withLock {
                 // A disabled background request waits without reserving the chat or changing its visible state.
                 if (isExecutionEnabled?.first() == false) throw ScheduledWakeDeferredException()
@@ -69,7 +70,7 @@ internal class StudioRunCoordinator(
                 profile.coroutineScope.async(start = CoroutineStart.LAZY) {
                     try {
                         beforeExecute()
-                        host.executeRun(request)
+                        host.executeRun(reserved)
                     } finally {
                         withContext(NonCancellable) {
                             try {
@@ -83,8 +84,56 @@ internal class StudioRunCoordinator(
             }
             if (job != null) {
                 job.start()
-                return job.await()
+                return awaitRun(job, submission)
             }
         }
     }
+
+    private suspend fun awaitAdmission(id: String, waitForIdle: Boolean, isExecutionEnabled: Flow<Boolean>?) {
+        if (isExecutionEnabled != null) {
+            combine(busy, isExecutionEnabled) { occupied, enabled ->
+                !enabled || !waitForIdle || id !in occupied
+            }.first { it }
+        } else if (waitForIdle) {
+            busy.first { id !in it }
+        }
+    }
+
+    private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioRunSubmission?): RunOutcome {
+        val caller = currentCoroutineContext()
+        return try {
+            job.await()
+        } finally {
+            if (!caller.isActive && submission?.cancel() == true) {
+                log.i { "Cancel scheduled preparation before native submission" }
+                job.cancel()
+            }
+        }
+    }
+}
+
+/**
+ * A scheduled caller may revoke preparation until native submission begins. The atomic handoff preserves profile
+ * ownership when cancellation races a send: once submitted, even an unknown native outcome must be reconciled.
+ */
+internal class StudioRunSubmission {
+    private val log = Log.tag("StudioRunSubmission")
+    private val phase = MutableStateFlow(Phase.Preparing)
+
+    val isCancelled: Boolean get() = phase.value == Phase.Cancelled
+
+    fun begin() {
+        if (!phase.compareAndSet(Phase.Preparing, Phase.Submitted)) {
+            throw CancellationException("Scheduled preparation was cancelled before native submission")
+        }
+        log.v { "Native submission took ownership of the scheduled run" }
+    }
+
+    fun cancel(): Boolean {
+        val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
+        log.v { "Scheduled preparation cancellation accepted=$isCancelled" }
+        return isCancelled
+    }
+
+    private enum class Phase { Preparing, Submitted, Cancelled }
 }

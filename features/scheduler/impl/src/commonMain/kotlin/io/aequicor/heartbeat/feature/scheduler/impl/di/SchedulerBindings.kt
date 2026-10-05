@@ -26,8 +26,10 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -37,12 +39,16 @@ import kotlin.time.Clock
 public object SchedulerBindings {
     @Provides
     @SingleIn(ProfileScope::class)
+    internal fun persistence(storage: WakeStorage): SchedulerPersistence = SchedulerPersistence(storage)
+
+    @Provides
+    @SingleIn(ProfileScope::class)
     internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
-        storage: WakeStorage,
+        persistence: SchedulerPersistence,
         hosts: Lazy<Set<ScheduledSessionHost>>,
-    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(storage, hosts))
+    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(persistence, hosts))
 
     @Provides
     internal fun driver(
@@ -57,7 +63,7 @@ public object SchedulerBindings {
 /** Session hosts and platform sources may be absent (mobile, bundles without a chat host). */
 @ContributesTo(ProfileScope::class)
 public interface SchedulerMultibindings {
-    /** Hosts that deliver wake prompts; the scheduler contributes the engine-facade fallback. */
+    /** Hosts that own sessions and deliver wake prompts through their normal turn lifecycle. */
     @Multibinds(allowEmpty = true)
     public fun scheduledSessionHosts(): Set<ScheduledSessionHost>
 
@@ -84,7 +90,10 @@ internal class SchedulerStartup(
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
         // Background actions (and the engine runtime behind them) are built only when the scheduler is on.
-        scope.coroutineScope.launch { if (toggles.get(SchedulerEnabled)) actions.value.recover() }
+        scope.coroutineScope.launch {
+            toggles.observe(SchedulerEnabled).first { it }
+            actions.value.start()
+        }
     }
 }
 

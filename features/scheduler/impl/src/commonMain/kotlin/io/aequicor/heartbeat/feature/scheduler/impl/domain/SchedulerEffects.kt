@@ -15,8 +15,6 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredExce
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -25,33 +23,22 @@ import kotlinx.coroutines.withTimeoutOrNull
  * does not hold back the others.
  */
 internal class SchedulerEffects(
-    private val storage: WakeStorage,
+    private val persistence: SchedulerPersistence,
     // Lazy: hosts reach the engine runtime, which must not start with the profile while nothing is due.
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
 ) : EffectHandler<SchedulerEffect, SchedulerIntent> {
     private val log = Log.tag("SchedulerEffects")
-    private val writes = Mutex()
-    private var stored = -1L
 
     override suspend fun handle(effect: SchedulerEffect, machine: EffectScope<SchedulerIntent>) {
         when (effect) {
-            SchedulerEffect.Load -> machine.send(SchedulerIntent.Internal.Loaded(storage.load()))
+            SchedulerEffect.Load -> machine.send(SchedulerIntent.Internal.Loaded(persistence.load()))
 
-            is SchedulerEffect.Persist -> persist(effect)
+            is SchedulerEffect.Persist -> persistence.persist(effect)
 
             is SchedulerEffect.Deliver -> coroutineScope {
                 effect.deliveries.forEach { delivery -> launch { deliver(delivery, machine) } }
             }
         }
-    }
-
-    private suspend fun persist(effect: SchedulerEffect.Persist) = writes.withLock {
-        if (effect.revision <= stored) {
-            log.v { "skip stale write revision=${effect.revision}" }
-            return@withLock
-        }
-        storage.save(effect.wakes)
-        stored = effect.revision
     }
 
     private suspend fun deliver(delivery: WakeDelivery, machine: EffectScope<SchedulerIntent>) {
