@@ -30,9 +30,9 @@ interface StudioRepository {
 
     /**
      * An isolated execution request or an organic AI organism ([organism]); demo backends support neither and never
-     * silently fall back to an ordinary conversation. An organism chat is created only once its organism could be
-     * conceived, so a refusal leaves no chat without its organism. The default delegates to the short form, so a
-     * backend must override one of the two.
+     * silently fall back to an ordinary conversation. An organism chat is created only when its organism could be
+     * conceived now, and its first prompt conceives it. The default delegates to the short form, so a backend must
+     * override one of the two.
      */
     suspend fun createSession(
         projectId: String?,

@@ -50,7 +50,7 @@ class EngineStudioCreationTest {
     }
 
     @Test
-    fun `an organism chat is created only once its organism could be conceived`() = runTest {
+    fun `a backend without organisms refuses an organism chat before it exists`() = runTest {
         val repository = InMemoryStudioRepository(TestClock(this))
         val effects = EngineStudioEffects(
             repository,
@@ -69,7 +69,7 @@ class EngineStudioCreationTest {
         }
         val before = repository.observeWorkspace().first().sessions
         val request = AiStudioEffect.CreateSession(1, null, "Goal", DefaultRunSettings, 42, isOrganism = true)
-        // The demo backend has no organisms: the refusal fails the creation before any chat exists.
+        // The refusal fails the creation before any chat exists.
         assertFailsWith<IllegalStateException> { effects.handle(request, machine) }
         assertEquals(emptyList(), sent)
         assertEquals(before, repository.observeWorkspace().first().sessions)

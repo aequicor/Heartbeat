@@ -11,6 +11,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -21,6 +23,9 @@ import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.InputSupportUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismActionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismPermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
@@ -34,6 +39,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
@@ -170,6 +176,53 @@ class StudioOrganismUiTest {
         }
         onNodeWithTag("organism-unavailable-0").assertExists()
     }
+
+    @Test
+    fun `an organism chat takes its goal again only while its organism is out of view`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            var send = ""
+            var isInView by mutableStateOf(true)
+            val drafted = organismState().copy(drafts = persistentMapOf("chat" to "Build"))
+            setContent {
+                send = stringResource(Res.string.composer_send)
+                val state = if (isInView) drafted else drafted.copy(organisms = persistentMapOf())
+                HbTheme(darkTheme = false) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        StudioComposer(state.paneContent(organismPane), {}, isCompact = false)
+                    }
+                }
+            }
+            onNodeWithContentDescription(send).assertIsNotEnabled()
+            isInView = false
+            waitForIdle()
+            onNodeWithContentDescription(send).assertIsEnabled()
+        }
+
+    @Test
+    fun `files added before choosing organism mode keep it from sending`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            var send = ""
+            val file = AttachmentUi("doc", "notes.md", "text/markdown", 10)
+            val pane = PaneUi(0, isOrganism = true)
+            val initial = AiStudioScreenState(panes = persistentListOf(pane), isOrganismEnabled = true)
+            val support = InputSupportUi(mediaTypes = persistentListOf(file.mediaType))
+            val state = initial.copy(
+                models = persistentListOf(ModelUi("model", "Model", inputSupport = support)),
+                settings = initial.settings.copy(modelId = "model"),
+                drafts = persistentMapOf("pane:0" to "Build"),
+                draftAttachments = persistentMapOf("pane:0" to persistentListOf(file)),
+                isAttachmentsEnabled = true,
+            )
+            setContent {
+                send = stringResource(Res.string.composer_send)
+                HbTheme(darkTheme = false) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+                        StudioComposer(state.paneContent(pane), {}, isCompact = false)
+                    }
+                }
+            }
+            onNodeWithContentDescription(send).assertIsNotEnabled()
+        }
 
     private val organismPane = PaneUi(0, sessionId = "chat")
 

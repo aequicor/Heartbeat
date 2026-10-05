@@ -301,13 +301,20 @@ private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model -
 /** Engines that apply trust levels take the composer's approval mode with every prompt. */
 private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
+/**
+ * Whether the session takes prompts at all. An organism chat takes its goal again only while its organism is out of
+ * view (never conceived, or no longer kept).
+ */
+private fun PaneContent.takesPrompts(): Boolean =
+    session?.isContinuable != false || (session.isOrganism && organism == null)
+
 /** Running requests retain cancellation; pending permissions block another prompt. */
-private fun PaneContent.isComposerEnabled(): Boolean =
-    !pane.isCreating && !isPickingProject && !isStopping && session?.isContinuable != false &&
-        (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
-        (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
-        (session?.isRunning != true || isStoppable) &&
-        (session?.isRunning == true || (permissions.isEmpty() && models.any { it.id == settings.modelId }))
+private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&
+    takesPrompts() &&
+    (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
+    (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
+    (session?.isRunning != true || isStoppable) &&
+    (session?.isRunning == true || (permissions.isEmpty() && models.any { it.id == settings.modelId }))
 
 /** Project, environment and branch a new session starts in; the project can be changed. */
 @Composable
