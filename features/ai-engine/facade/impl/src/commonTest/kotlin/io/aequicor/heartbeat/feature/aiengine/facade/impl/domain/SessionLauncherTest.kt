@@ -100,7 +100,7 @@ class SessionLauncherTest {
             host,
             fixture.context,
         )
-        capabilities = FacadeCapabilities(sessions, lazyOf(launcher))
+        capabilities = FacadeCapabilities(sessions, lazyOf(launcher), registry)
         runCurrent()
         return Triple(fixture, launcher, capabilities)
     }

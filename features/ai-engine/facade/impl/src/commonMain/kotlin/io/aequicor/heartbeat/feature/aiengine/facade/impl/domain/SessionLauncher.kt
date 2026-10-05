@@ -135,7 +135,11 @@ class SessionLauncher(
 }
 
 /** Engine-wide and stored-session capabilities implemented by the facade. */
-class FacadeCapabilities(private val sessions: SessionCatalog, private val launcher: Lazy<SessionLauncher>) {
+class FacadeCapabilities(
+    private val sessions: SessionCatalog,
+    private val launcher: Lazy<SessionLauncher>,
+    private val handles: ActiveSessionRegistry,
+) {
     /** Native discovery and, when declared, session creation for [registration]. */
     fun engine(registration: EngineRegistration): EngineFeatures {
         val engine = registration.descriptor.id
@@ -174,7 +178,7 @@ class FacadeCapabilities(private val sessions: SessionCatalog, private val launc
     fun stored(registration: EngineRegistration, stored: EngineSession): EngineSession {
         // The facade resumes only through runtime attachment; a declared native ResumesSessions alone is not enough.
         val isResumable = AttachesSessions.id in registration.descriptor.declaredFeatures
-        return StoredSession(stored) {
+        return StoredSession(stored, { handles.history(stored.summary.value.ref) }) {
             if (isResumable) {
                 FeatureAccess.Available(
                     object : ResumesSessions {

@@ -8,11 +8,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -72,6 +74,15 @@ class ActiveSessionRegistry : BindingUsage {
 
     override fun isInUse(binding: EngineBindingId): Boolean =
         handles.value.any { it.route.binding == binding && it.state.value != ActiveSessionState.Closed }
+
+    /** Borrows only history from an open handle of the exact session, without acquiring its lifecycle. */
+    fun history(ref: SessionRef): FeatureAccess<SessionHistory>? = handles.value.asSequence()
+        .filter {
+            it.ref == ref && it.state.value != ActiveSessionState.Closed &&
+                it.state.value !is ActiveSessionState.Closing
+        }
+        .map { it.features.resolve(SessionHistory) }
+        .firstOrNull { it != FeatureAccess.Unsupported }
 
     /** Whether another handle of [ref] is executing a turn. */
     fun isBusy(ref: SessionRef, except: ActiveSession): Boolean =

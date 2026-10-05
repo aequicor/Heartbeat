@@ -515,7 +515,8 @@ internal class PiSession(
 
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
         usage.event(record)
-        promptResources.event(ref, record)
+        // Configuration events can arrive before get_state establishes the native identity.
+        nativeRef?.let { promptResources.event(it, record) }
         journal.record(record, turn?.id)
         when (record.string("type")) {
             "agent_start" -> turn?.let {

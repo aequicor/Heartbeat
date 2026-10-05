@@ -85,8 +85,11 @@ object AiEngineSessionBindings {
 
     /** Facade-implemented capabilities. */
     @Provides
-    fun capabilities(sessions: SessionCatalog, launcher: Lazy<SessionLauncher>): FacadeCapabilities =
-        FacadeCapabilities(sessions, launcher)
+    fun capabilities(
+        sessions: SessionCatalog,
+        launcher: Lazy<SessionLauncher>,
+        handles: ActiveSessionRegistry,
+    ): FacadeCapabilities = FacadeCapabilities(sessions, launcher, handles)
 
     /** Profile-owned entry point. */
     @Provides
