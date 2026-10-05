@@ -60,6 +60,10 @@ internal fun cut(text: String, max: Int): String =
  * spells or disguises a marker.
  */
 internal class Fence(private val nonce: String) {
+    init {
+        require(nonce.isNotEmpty() && nonce.all(Char::isLetterOrDigit)) { "A fence nonce is letters and digits" }
+    }
+
     /** The line that opens fenced text. */
     val open: String = "<<<$nonce"
 
@@ -84,19 +88,48 @@ private tailrec fun String.without(nonce: String): String =
 
 /**
  * [text] of another session as one short line, for one-line descriptions: line breaks, control and invisible
- * format characters become spaces, so it cannot break the line it is shown in.
+ * format characters (also those outside the basic plane, such as tag characters) become spaces, so it cannot break
+ * the line it is shown in.
  */
 internal fun brief(text: String): String {
-    val line = text.map { if (it.isBreaking()) ' ' else it }
-        .joinToString("")
-        .split(' ')
-        .filter(String::isNotEmpty)
-        .joinToString(" ")
-    return if (line.length <= BRIEF_CHARS) line else line.take(BRIEF_CHARS - 1) + "…"
+    val line = spacedOut(text).split(' ').filter(String::isNotEmpty).joinToString(" ")
+    return if (line.length <= BRIEF_CHARS) line else line.cutBefore(BRIEF_CHARS - 1) + "…"
 }
 
-private fun Char.isBreaking(): Boolean = isWhitespace() || isISOControl() || category == CharCategory.FORMAT
+private fun spacedOut(text: String): String = buildString {
+    var index = 0
+    while (index < text.length) {
+        val width = if (isPairAt(text, index)) 2 else 1
+        append(if (isBreakingAt(text, index, width)) " " else text.substring(index, index + width))
+        index += width
+    }
+}
+
+private fun isPairAt(text: String, index: Int): Boolean =
+    text[index].isHighSurrogate() && text.getOrNull(index + 1)?.isLowSurrogate() == true
+
+private fun isBreakingAt(text: String, index: Int, width: Int): Boolean {
+    if (width == 1) return text[index].isBreaking()
+    val code = (text[index].code - HIGH_SURROGATES shl SURROGATE_BITS) + (text[index + 1].code - LOW_SURROGATES)
+    return ASTRAL_FORMATS.any { code + ASTRAL_START in it }
+}
+
+private fun Char.isBreaking(): Boolean =
+    isWhitespace() || isISOControl() || isSurrogate() || category == CharCategory.FORMAT
+
+/** The first [length] characters, one fewer when the cut would leave half a surrogate pair. */
+private fun String.cutBefore(length: Int): String {
+    val kept = take(length)
+    return if (kept.last().isHighSurrogate()) kept.dropLast(1) else kept
+}
 
 private const val CUT_MARK = "\n…[cut]"
 private const val BRIEF_CHARS = 200
 private const val NONCE_CHARS = 12
+private const val HIGH_SURROGATES = 0xD800
+private const val LOW_SURROGATES = 0xDC00
+private const val SURROGATE_BITS = 10
+private const val ASTRAL_START = 0x10000
+
+/** Invisible format characters outside the basic plane: shorthand format controls, musical format and tags. */
+private val ASTRAL_FORMATS = listOf(0x1BCA0..0x1BCA3, 0x1D173..0x1D17A, 0xE0000..0xE007F)

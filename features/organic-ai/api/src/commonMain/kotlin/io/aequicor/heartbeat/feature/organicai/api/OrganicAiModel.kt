@@ -102,14 +102,15 @@ public data class GrowthLimits(
         require(maxOpenCasesPerCell == null || maxOpenCasesPerCell >= 0) { "maxOpenCasesPerCell must not be negative" }
     }
 
-    internal companion object {
-        const val DEFAULT_MAX_CELLS: Int = 16
-        const val DEFAULT_MAX_DEPTH: Int = 4
-        const val DEFAULT_MAX_CASES: Int = 24
-        const val DEFAULT_MAX_OPEN_CASES_PER_CELL: Int = 2
+    /** Default ceilings; the serializer lives here too, so the companion stays public. */
+    public companion object {
+        internal const val DEFAULT_MAX_CELLS: Int = 16
+        internal const val DEFAULT_MAX_DEPTH: Int = 4
+        internal const val DEFAULT_MAX_CASES: Int = 24
+        internal const val DEFAULT_MAX_OPEN_CASES_PER_CELL: Int = 2
 
         /** No ceiling at all. */
-        val Unbounded: GrowthLimits = GrowthLimits(null, null, null, null)
+        internal val Unbounded: GrowthLimits = GrowthLimits(null, null, null, null)
     }
 }
 

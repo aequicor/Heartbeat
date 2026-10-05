@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
+import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
@@ -98,7 +99,16 @@ private fun Letter.render(organism: Organism, budget: Int, fence: Fence): String
     is Letter.ChildFinished ->
         "your child ${child.value} \"$name\" finished. Its result:\n${fence.quoted(result, budget)}"
 
-    is Letter.ChildDied -> "your child ${child.value} \"$name\" ended without a result: ${cause.describe()}."
+    is Letter.ChildDied -> when (val death = cause) {
+        // A judge wrote the reason of a lysis, so it is fenced like any other text of another session.
+        is DeathCause.Lysed -> {
+            val reason = fence.quoted(death.reason, budget)
+            val case = death.case.value
+            "your child ${child.value} \"$name\" was killed by the immune system (case $case). Reason:\n$reason"
+        }
+
+        else -> "your child ${child.value} \"$name\" ended without a result: ${death.describe()}."
+    }
 
     // The binding answer takes half of the letter's budget, the question and the reason a quarter each.
     is Letter.DisputeResolved -> buildString {
