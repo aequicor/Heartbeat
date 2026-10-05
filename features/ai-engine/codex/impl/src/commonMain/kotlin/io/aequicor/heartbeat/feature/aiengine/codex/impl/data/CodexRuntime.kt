@@ -33,6 +33,8 @@ import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -60,6 +62,7 @@ internal class CodexRuntime(
     CreatesSessions,
     AttachesSessions {
     private val config get() = host.config
+    internal val historySource get() = config.historySource
     private val toggles get() = host.toggles
     val dispatchers get() = host.dispatchers
     val profile get() = host.profile
@@ -83,9 +86,15 @@ internal class CodexRuntime(
             null
         }
     }
-    override val features: EngineFeatures = CodexFeatures(this, providerUsage, blocked = {
+    override val features: EngineFeatures = CodexFeatures(this, providerUsage, CodexSessionTrees(this, rpc), blocked = {
         if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
     })
+
+    /** Broadcast invalidations, never a second consumer of the RPC request/event channel. */
+    internal val treeChanges = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     private val sessions = mutableMapOf<String, CodexSession>()
     private val early = mutableListOf<JsonObject>()
     private var isOpening = false
@@ -275,7 +284,13 @@ internal class CodexRuntime(
         } else {
             hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
         }
-        val params = threadParams(nativeId, target, route.workspace, areToolsEnabled, hosted.parameters)
+        val params = threadParams(
+            nativeId,
+            target,
+            route.workspace,
+            NativeTools(areToolsEnabled, route.workspace != null || areDetachedToolsEnabled),
+            hosted.parameters,
+        )
         val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = validateNativeThread(nativeId, response)
         val id = checkNotNull(thread.text("id"))
@@ -413,16 +428,23 @@ internal class CodexRuntime(
         nativeId: String?,
         target: EngineTarget,
         workspace: WorkspaceRef?,
-        tools: Boolean,
+        tools: NativeTools,
         hosted: Pair<List<JsonObject>, String>?,
     ): JsonObject {
         val path = workspace?.let {
             host.workspaces.resolve(it) ?: config.workspaces[it]
                 ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        val declarations = hosted?.first.orEmpty() + if (tools) searchToolSpecs() else emptyList()
+        val declarations = hosted?.first.orEmpty() + if (tools.isSearchEnabled) searchToolSpecs() else emptyList()
         val instructions = hosted?.second.orEmpty()
-        val isolation = codexIsolationConfig(rpc, path, tools)
+        val isolation = codexIsolationConfig(
+            rpc,
+            path,
+            tools.isSearchEnabled,
+            tools.areSubagentsAllowed && toggles.get(
+                io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
+            ),
+        )
         return buildJsonObject {
             put("model", target.model.value)
             put("modelProvider", "openai")
@@ -461,6 +483,7 @@ internal class CodexRuntime(
     }
 
     private suspend fun event(message: JsonObject) {
+        if (message.isTreeChange()) treeChanges.tryEmit(Unit)
         val params = message["params"] as? JsonObject
         if (params == null) {
             message["id"]?.let { rpc.reject(it) }
@@ -545,3 +568,5 @@ internal fun codexInputSupport(model: JsonObject): PromptInputSupport = PromptIn
         emptySet()
     },
 )
+
+private data class NativeTools(val isSearchEnabled: Boolean, val areSubagentsAllowed: Boolean)

@@ -10,7 +10,7 @@ import kotlinx.serialization.json.put
 
 /** Native integrations can act outside the command sandbox, so hosted sessions disable them. */
 internal val CodexDisabledCapabilities: List<String> = listOf(
-    "apps", "plugins", "remote_plugin", "hooks", "multi_agent", "browser_use", "browser_use_external",
+    "apps", "plugins", "remote_plugin", "hooks", "browser_use", "browser_use_external",
     "browser_use_full_cdp_access", "computer_use", "image_generation", "worktrees", "skill_mcp_dependency_install",
 )
 
@@ -40,7 +40,12 @@ internal fun codexHostedInstructions(workflow: String): String = """
  * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
  * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
  */
-internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, search: Boolean): JsonObject {
+internal suspend fun codexIsolationConfig(
+    rpc: CodexRpc,
+    cwd: String?,
+    search: Boolean,
+    subagents: Boolean = false,
+): JsonObject {
     val effective = rpc.request(
         "config/read",
         buildJsonObject {
@@ -61,7 +66,13 @@ internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, search: B
                 servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
             },
         )
-        put("features", buildJsonObject { CodexDisabledCapabilities.forEach { put(it, false) } })
+        put(
+            "features",
+            buildJsonObject {
+                CodexDisabledCapabilities.forEach { put(it, false) }
+                put("multi_agent", subagents)
+            },
+        )
         if (search) put("web_search", "live")
     }
 }

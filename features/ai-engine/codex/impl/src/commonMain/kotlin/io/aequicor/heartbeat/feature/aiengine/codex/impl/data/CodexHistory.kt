@@ -181,7 +181,7 @@ internal class CodexHistory : SessionHistory {
         nativeSnapshots[id] = native
         items[id] = item
         publish { SessionEvent.ItemUpserted(it, item) }
-        if (kind == "dynamicToolCall" && native.text("status") in setOf("completed", "failed")) {
+        if (kind in RESULT_KINDS && native.text("status") in setOf("completed", "failed")) {
             recordDynamicResult(native, info)
         }
     }
@@ -197,13 +197,12 @@ internal class CodexHistory : SessionHistory {
             "userMessage" -> SessionItem.Message(
                 info,
                 MessageRole.User,
-                originalInputs[info.turn] ?: native.array("content").map { part ->
-                    val value = part as? JsonObject ?: protocolFailure()
-                    ContentPart.Text(value.text("text") ?: "[Unsupported input]")
-                },
+                userParts(native, info),
             )
 
             "reasoning" -> reasoningMessage(info, reasoning.snapshot(info.id, native))
+
+            "collabAgentToolCall", "subAgentActivity" -> agentTool(native, info)
 
             "commandExecution", "dynamicToolCall" -> SessionItem.ToolCall(
                 info,
@@ -229,10 +228,31 @@ internal class CodexHistory : SessionHistory {
             else -> SessionItem.UnsupportedItem(info, kind?.take(MAX_KIND_LENGTH) ?: "unknown")
         }
 
+    private fun userParts(native: JsonObject, info: ItemInfo): List<ContentPart> =
+        originalInputs[info.turn] ?: native.array("content").mapNotNull { part ->
+            val value = part as? JsonObject ?: protocolFailure()
+            value.text("text")?.let { ContentPart.Text(it) }
+        }
+
+    private fun agentTool(native: JsonObject, info: ItemInfo): SessionItem.ToolCall {
+        val isActivity = native.text("type") == "subAgentActivity"
+        return SessionItem.ToolCall(
+            info,
+            ToolCallId(info.id.value),
+            if (isActivity) "subagent" else native.text("tool").orEmpty(),
+            if (isActivity) native.text("agentPath").orEmpty() else native.text("prompt").orEmpty(),
+            if (isActivity) {
+                if (native.text("kind") == "interrupted") ToolCallStatus.Cancelled else ToolCallStatus.Succeeded
+            } else {
+                toolStatus(native.text("status"))
+            },
+        )
+    }
+
     private fun recordDynamicResult(native: JsonObject, info: ItemInfo) {
         val resultId = ItemId("${info.id.value}:result")
         val prior = items[resultId]
-        val content = (native["contentItems"] as? JsonArray).orEmpty()
+        val content = native.text("aggregatedOutput") ?: (native["contentItems"] as? JsonArray).orEmpty()
             .mapNotNull { (it as? JsonObject)?.text("text") }
             .joinToString("\n")
         val result = SessionItem.ToolResult(
@@ -297,6 +317,7 @@ internal class CodexHistory : SessionHistory {
     private companion object {
         /** Distinct from the dynamic `web_search`, whose structured results the research chat imports. */
         const val NATIVE_WEB_SEARCH = "codex_web_search"
+        val RESULT_KINDS = setOf("dynamicToolCall", "commandExecution")
         const val JOURNAL_LIMIT = 512
         const val MAX_KIND_LENGTH = 80
     }

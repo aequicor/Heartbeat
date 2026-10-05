@@ -38,6 +38,17 @@ class CodexIsolationTest {
     }
 
     @Test
+    fun `delegation only toggles the agent feature and retains isolation`() = runTest {
+        val fixture = Fixture(this)
+        val off = codexIsolationConfig(fixture.rpc, null, search = false)
+        val on = codexIsolationConfig(fixture.rpc, null, search = false, subagents = true)
+        assertEquals(JsonPrimitive(false), off.obj("features")["multi_agent"])
+        assertEquals(JsonPrimitive(true), on.obj("features")["multi_agent"])
+        CodexDisabledCapabilities.forEach { assertEquals(JsonPrimitive(false), on.obj("features")[it]) }
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `managed native integrations cannot silently bypass the hosted trust gate`() = runTest {
         val fixture = Fixture(this)
         fixture.nativeConfig = json(

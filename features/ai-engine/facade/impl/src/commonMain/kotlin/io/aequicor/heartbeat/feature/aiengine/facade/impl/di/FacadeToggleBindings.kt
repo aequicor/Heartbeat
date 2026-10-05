@@ -14,6 +14,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object FacadeToggleBindings {
+    /** Native delegation is an explicit opt-in; native coding tools remain isolated. */
+    @Provides
+    @IntoSet
+    public fun subagentsToggle(): FeatureToggle<*> =
+        io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled
+
     /** Catalog gate shared by all engines. */
     @Provides
     @IntoSet
