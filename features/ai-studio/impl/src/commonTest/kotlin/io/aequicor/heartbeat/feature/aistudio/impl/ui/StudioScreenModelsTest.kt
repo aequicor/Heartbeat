@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
@@ -13,6 +14,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionObservationUi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -40,6 +42,28 @@ class StudioScreenModelsTest {
         ),
         now = Instant.fromEpochSeconds(130),
     )
+
+    @Test
+    fun `organism pane uses only its selected cell telemetry and clears it on selection change`() {
+        val usage = ContextUsageUi(40, 100, 40)
+        val organism = state.copy(
+            sessions = persistentListOf(session.copy(isOrganism = true)),
+            contexts = persistentMapOf("s" to ContextUsageUi(90, 100, 90)),
+            subObservations = persistentMapOf("s" to SubSessionObservationUi("zygote", true, usage)),
+        )
+        val pane = organism.panes.first()
+        assertEquals(usage, organism.paneContent(pane).contextUsage)
+        assertEquals(true, organism.paneContent(pane).session?.isRunning)
+        val switched = organism.copy(subSessions = persistentMapOf("s" to "child"))
+        assertNull(switched.paneContent(pane).contextUsage)
+        assertEquals(false, switched.paneContent(pane).session?.isRunning)
+        val resting = switched.copy(
+            running = persistentSetOf("s"),
+            subObservations = persistentMapOf("s" to SubSessionObservationUi("child", false, null)),
+        )
+        assertNull(resting.paneContent(pane).contextUsage)
+        assertEquals(false, resting.paneContent(pane).session?.isRunning)
+    }
 
     @Test
     fun `research entry requires flag Koog and a new projectless pane`() {

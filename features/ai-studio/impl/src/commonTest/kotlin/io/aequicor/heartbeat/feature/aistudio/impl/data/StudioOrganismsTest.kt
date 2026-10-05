@@ -8,11 +8,14 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSourceId
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
@@ -44,11 +47,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
@@ -56,6 +66,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
@@ -166,6 +177,46 @@ class StudioOrganismsTest {
         }
         val refusing = OrganicMachine(OrganicAiState.Living()).apply { result = SendResult.Ignored }
         assertFailsWith<IllegalStateException> { organisms(refusing).conceive(chat, "Build", settings, emptyList()) {} }
+    }
+
+    @Test
+    fun `viewed reasoning streams until the turn ends and context respects the telemetry gate`() = runTest {
+        val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "cell")
+        val items = listOf(
+            SessionItem.Message(
+                ItemInfo(ItemId("r"), 0, 0),
+                MessageRole.Assistant,
+                listOf(ContentPart.Reasoning("Checking the goal")),
+            ),
+        )
+        val facade = ViewedFacade(ref, items, hasTreeHistory = true)
+        val allowed = MutableStateFlow(true)
+        val viewer = StudioSessionViewer(facade, MemoryTranscriptDao().transcripts()) { allowed }
+        val route = ExecutionRoute(ref.engine, reopening.target.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
+        facade.observations.value = SessionObservationSnapshot(
+            ActiveSessionState.Running(Turn(TurnId("turn"), null, reopening.target)),
+            route,
+            ContextUsage(40, 100),
+        )
+        var messages = emptyList<StudioMessage>()
+        var snapshot: SessionObservationSnapshot? = null
+        val reader = backgroundScope.launch { viewer.observe(ref, reopening).collect { messages = it } }
+        backgroundScope.launch { viewer.observation(ref).collect { snapshot = it } }
+        runCurrent()
+        val reasoning = messages.single() as StudioMessage.Reply
+        assertTrue(reasoning.isStreaming)
+        assertEquals("Checking the goal", (reasoning.parts.single() as StudioReplyPart.Reasoning).text)
+        assertEquals(ContextUsage(40, 100), snapshot?.context)
+
+        allowed.value = false
+        runCurrent()
+        assertNull(snapshot?.context)
+        facade.observations.value = facade.observations.value?.copy(state = ActiveSessionState.Ready())
+        runCurrent()
+        assertEquals(false, (messages.single() as StudioMessage.Reply).isStreaming)
+        reader.cancelAndJoin()
+        assertEquals(emptyList(), facade.resumptions)
+        assertEquals(0, facade.closes)
     }
 
     @Test
@@ -310,9 +361,14 @@ private class ViewedFacade(
     var items: List<SessionItem>,
     private val hasStoredHistory: Boolean = true,
     private val coverage: HistoryCoverage = HistoryCoverage.Complete,
+    private val hasTreeHistory: Boolean = false,
 ) : EngineFacade {
     val resumptions = mutableListOf<ResumeSessionRequest>()
     var closes = 0
+    val observations = MutableStateFlow<SessionObservationSnapshot?>(null)
+    private val observation = object : SessionObservation {
+        override val snapshots = observations
+    }
 
     override val engines: EngineCatalog = object : EngineCatalog {
         override val state = MutableStateFlow<List<EngineInfo>>(
@@ -320,8 +376,13 @@ private class ViewedFacade(
         )
         override suspend fun refresh(engine: EngineId) = error("unused")
         override fun features(engine: EngineId): EngineFeatures = object : EngineFeatures {
+            @Suppress("UNCHECKED_CAST") // The fake offers only the typed tree capability.
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-                FeatureAccess.Unsupported
+                if (key == SessionTrees && hasTreeHistory) {
+                    FeatureAccess.Available(trees as F)
+                } else {
+                    FeatureAccess.Unsupported
+                }
         }
     }
     override val bindings: EngineBindings get() = error("unused")
@@ -339,6 +400,7 @@ private class ViewedFacade(
                 override val features: EngineFeatures = object : EngineFeatures {
                     @Suppress("UNCHECKED_CAST") // The fake offers only its history or its resumption.
                     override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = when {
+                        key == SessionObservation -> FeatureAccess.Available(observation as F)
                         key == SessionHistory && hasStoredHistory -> FeatureAccess.Available(history as F)
                         key == ResumesSessions && !hasStoredHistory -> FeatureAccess.Available(resumes as F)
                         else -> FeatureAccess.Unsupported
@@ -346,6 +408,13 @@ private class ViewedFacade(
                 }
             }
         }
+    }
+
+    private val trees = object : SessionTrees {
+        override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = emptyFlow()
+
+        override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory =
+            error("Live stored history must take precedence over tree replay")
     }
 
     private val resumes = object : ResumesSessions {

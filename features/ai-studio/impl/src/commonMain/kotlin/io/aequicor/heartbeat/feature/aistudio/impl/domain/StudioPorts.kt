@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
@@ -113,6 +114,9 @@ fun interface StudioSessionViews {
      * gets [ref] reopened with [reopening], the request its owner opened it with, so viewing never changes it.
      */
     fun observe(ref: SessionRef, reopening: ResumeSessionRequest): Flow<List<StudioMessage>>
+
+    /** Read-only live state of the exact viewed session; null when no profile handle is open. */
+    fun observation(ref: SessionRef): Flow<SessionObservationSnapshot?> = flowOf(null)
 
     /** Native family observation; unsupported backends must never report a confirmed empty family. */
     fun tree(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> =

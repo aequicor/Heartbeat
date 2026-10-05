@@ -6,10 +6,13 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
@@ -18,12 +21,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -38,11 +46,15 @@ import kotlin.time.Instant
  * Partial native replay retains the saved prefix, including when a resumed engine returns no canonical items.
  * No prompt is sent and closing a reader never cancels a native turn.
  */
-internal class StudioSessionViewer(private val facade: EngineFacade, private val saved: Lazy<StudioTranscripts>) :
-    StudioSessionViews {
+internal class StudioSessionViewer(
+    private val facade: EngineFacade,
+    private val saved: Lazy<StudioTranscripts>,
+    private val contextAllowed: (ExecutionRoute) -> Flow<Boolean> = { flowOf(false) },
+) : StudioSessionViews {
     constructor(
         facade: EngineFacade,
         @ForScope(ProfileScope::class) stores: DataStores,
+        usage: EngineStudioUsage,
     ) : this(
         facade,
         lazy {
@@ -52,6 +64,7 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
                 contracted = {},
             )
         },
+        usage::allowed,
     )
 
     private val log = Log.tag("StudioSessionViewer")
@@ -75,8 +88,32 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
                 delay(NATIVE_HISTORY_RETRY_MILLIS)
             }
         }
-        saved.value.observe(ref.transcriptKey()).collect {
-            send(it.toStudioMessages(Instant.DISTANT_PAST, isRunning = false))
+        combine(saved.value.observe(ref.transcriptKey()), observation(ref)) { items, snapshot ->
+            items.toStudioMessages(Instant.DISTANT_PAST, isRunning = snapshot?.state?.activeTurn() != null)
+        }.collect { send(it) }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    override fun observation(ref: SessionRef): Flow<SessionObservationSnapshot?> = flow {
+        try {
+            val access = facade.sessions.get(ref).features.resolve(SessionObservation)
+            val snapshots = (access as? FeatureAccess.Available)?.feature?.snapshots ?: flowOf(null)
+            emitAll(
+                snapshots.flatMapLatest { snapshot ->
+                    if (snapshot == null) {
+                        flowOf(null)
+                    } else {
+                        contextAllowed(snapshot.route).map { allowed ->
+                            snapshot.copy(context = snapshot.context.takeIf { allowed })
+                        }
+                    }
+                },
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "Viewed session observation failed" }
+            emit(null)
         }
     }
 
@@ -154,15 +191,15 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
         reopening: ResumeSessionRequest,
         block: suspend (SessionHistory) -> Unit,
     ) {
-        val trees = facade.engines.features(ref.engine).resolve(SessionTrees)
-        if (trees is FeatureAccess.Available) {
-            return block(trees.feature.history(ref, ref, SessionTreeAccess(reopening.target, reopening.workspace)))
-        }
         val stored = facade.sessions.get(ref).features
         val history = stored.resolve(SessionHistory)
         if (history is FeatureAccess.Available) {
             log.d { "follow a stored ${ref.engine.value} session for viewing" }
             return block(history.feature)
+        }
+        val trees = facade.engines.features(ref.engine).resolve(SessionTrees)
+        if (trees is FeatureAccess.Available) {
+            return block(trees.feature.history(ref, ref, SessionTreeAccess(reopening.target, reopening.workspace)))
         }
         val opened = stored.requireFeature(ResumesSessions).resume(reopening)
         log.d { "follow a reopened ${ref.engine.value} session for viewing" }

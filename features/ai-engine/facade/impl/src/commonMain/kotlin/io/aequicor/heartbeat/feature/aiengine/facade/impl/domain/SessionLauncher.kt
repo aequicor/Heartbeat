@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
@@ -178,7 +179,15 @@ class FacadeCapabilities(
     fun stored(registration: EngineRegistration, stored: EngineSession): EngineSession {
         // The facade resumes only through runtime attachment; a declared native ResumesSessions alone is not enough.
         val isResumable = AttachesSessions.id in registration.descriptor.declaredFeatures
-        return StoredSession(stored, { handles.history(stored.summary.value.ref) }) {
+        return StoredSession(
+            stored,
+            history = { handles.history(stored.summary.value.ref) },
+            observation = {
+                FeatureAccess.Available(object : SessionObservation {
+                    override val snapshots = handles.observe(stored.summary.value.ref)
+                })
+            },
+        ) {
             if (isResumable) {
                 FeatureAccess.Available(
                     object : ResumesSessions {

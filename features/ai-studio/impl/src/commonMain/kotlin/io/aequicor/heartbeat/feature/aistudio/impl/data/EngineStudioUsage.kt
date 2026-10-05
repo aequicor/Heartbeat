@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
@@ -168,13 +169,15 @@ internal class EngineStudioUsage(
         }
     }
 
-    private fun allowed(active: ActiveSession) = combine(
+    private fun allowed(active: ActiveSession) = allowed(active.route)
+
+    /** Applies the same telemetry gates to read-only session viewers and studio-owned handles. */
+    internal fun allowed(route: ExecutionRoute) = combine(
         enabled,
         facade.bindings.state,
         sources.state,
         facade.engines.state,
     ) { isEnabled, bindings, auth, engines ->
-        val route = active.route
         isEnabled && engines.any { it.descriptor.id == route.engine } &&
             bindings.any {
                 it.id == route.binding && it.engine == route.engine && it.isEnabled &&

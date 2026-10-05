@@ -14,7 +14,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -89,6 +91,36 @@ class ActiveSessionRegistry : BindingUsage {
             }
         }
         .firstOrNull { it != FeatureAccess.Unsupported }
+
+    /** Observes execution without giving a reader ownership of a handle or permission to drive it. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observe(ref: SessionRef): Flow<SessionObservationSnapshot?> = handles
+        .map { open -> open.filter { it.ref == ref } }
+        .distinctUntilChanged()
+        .flatMapLatest { matching ->
+            if (matching.isEmpty()) {
+                flowOf(null)
+            } else {
+                combine(matching.map { handle -> handle.state.map { handle to it } }) { it.toList() }
+                    .map { states ->
+                        states.firstOrNull { it.second.activeTurn() != null }
+                            ?: states.firstOrNull {
+                                it.second != ActiveSessionState.Closed && it.second !is ActiveSessionState.Closing
+                            }
+                    }
+                    .distinctUntilChanged()
+                    .flatMapLatest { selected ->
+                        if (selected == null) {
+                            flowOf(null)
+                        } else {
+                            val (handle, state) = selected
+                            val usage = handle.features.resolve(SessionContextUsage)
+                            val contexts = (usage as? FeatureAccess.Available)?.feature?.state ?: flowOf(null)
+                            contexts.map { SessionObservationSnapshot(state, handle.route, it) }
+                        }
+                    }
+            }
+        }.distinctUntilChanged()
 
     /** Whether another handle of [ref] is executing a turn. */
     fun isBusy(ref: SessionRef, except: ActiveSession): Boolean =
