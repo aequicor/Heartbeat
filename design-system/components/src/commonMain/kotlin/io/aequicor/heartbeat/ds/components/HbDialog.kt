@@ -38,17 +38,27 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
 
 private val log = Log.tag("DS/Dialog")
 
+/** Upper width bound of [HbDialog]: [Regular] for forms and confirmations, [Wide] for content that needs room. */
+public enum class HbDialogWidth {
+    Regular,
+    Wide,
+}
+
 /**
  * The one modal surface of the design system: a dialog on wide windows and a full-width sheet on compact ones.
  * A [title], scrollable [content] and [actions] aligned to the trailing edge (primary action last). Esc, the
  * system back action and a click outside call [onDismissRequest]; the caller decides whether to close.
  * The surface is flat with the popup shadow — the only elevated surface of the style — and no blur.
+ * With [isContentScrollable] false the content area is still bounded by the window but does not scroll itself,
+ * so content with its own scrolling (for example on both axes) is not nested inside a vertical scroll.
  */
 @Composable
 public fun HbDialog(
     title: String,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
+    width: HbDialogWidth = HbDialogWidth.Regular,
+    isContentScrollable: Boolean = true,
     actions: @Composable RowScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -56,6 +66,11 @@ public fun HbDialog(
     val dimensions = HbTheme.dimensions
     val windowWidth = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
     val isSheet = windowWidth < dimensions.compactBreakpoint
+    val maxWidth = when {
+        isSheet -> windowWidth
+        width == HbDialogWidth.Wide -> dimensions.dialogWideMaxWidth
+        else -> dimensions.dialogMaxWidth
+    }
     val focus = remember { FocusRequester() }
     LaunchedEffect(focus) {
         // Wait until the focus target is attached and laid out.
@@ -72,7 +87,7 @@ public fun HbDialog(
         HbColumn(
             modifier
                 .then(if (isSheet) Modifier.fillMaxWidth() else Modifier)
-                .widthIn(min = dimensions.dialogMinWidth, max = if (isSheet) windowWidth else dimensions.dialogMaxWidth)
+                .widthIn(min = dimensions.dialogMinWidth, max = maxWidth)
                 .padding(HbTheme.spacing.l)
                 .hbPopupSurface(HbTheme.colors.surface, HbTheme.shapes.large)
                 .semantics { paneTitle = title }
@@ -96,8 +111,9 @@ public fun HbDialog(
                 Modifier.semantics { heading() },
                 style = HbTheme.typography.title.copy(fontWeight = FontWeight.SemiBold),
             )
+            val body = Modifier.weight(1f, fill = false)
             HbColumn(
-                Modifier.weight(1f, fill = false).hbVerticalScroll(rememberScrollState()),
+                if (isContentScrollable) body.hbVerticalScroll(rememberScrollState()) else body,
                 gap = HbTheme.spacing.m,
                 content = content,
             )
