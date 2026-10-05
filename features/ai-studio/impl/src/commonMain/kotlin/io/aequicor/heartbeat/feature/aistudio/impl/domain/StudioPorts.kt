@@ -29,18 +29,19 @@ interface StudioRepository {
         createSession(projectId, title, isWorktree = false)
 
     /**
-     * An isolated execution request or an organic AI organism ([isOrganism]); demo backends support neither and never
-     * silently fall back to an ordinary conversation. The default delegates to the short form, so a backend must
-     * override one of the two.
+     * An isolated execution request or an organic AI organism ([organism]); demo backends support neither and never
+     * silently fall back to an ordinary conversation. An organism chat is created only once its organism could be
+     * conceived, so a refusal leaves no chat without its organism. The default delegates to the short form, so a
+     * backend must override one of the two.
      */
     suspend fun createSession(
         projectId: String?,
         title: String,
         isWorktree: Boolean,
-        isOrganism: Boolean = false,
+        organism: OrganismRequest? = null,
     ): StudioSession {
         check(!isWorktree) { "Worktree execution is unavailable in this backend" }
-        check(!isOrganism) { "Organic AI is unavailable in this backend" }
+        check(organism == null) { "Organic AI is unavailable in this backend" }
         return createSession(projectId, title)
     }
 
@@ -122,3 +123,10 @@ interface StudioBackend {
     /** Handler of the studio machine effects. */
     suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>
 }
+
+/** The organism a new chat is created for: it grows from [goal] on [settings]. */
+data class OrganismRequest(val goal: String, val settings: RunSettings)
+
+/** The organism [this] creation asks for, if it is one. */
+internal fun AiStudioEffect.CreateSession.organism(): OrganismRequest? =
+    OrganismRequest(prompt, settings).takeIf { isOrganism }

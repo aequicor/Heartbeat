@@ -64,7 +64,7 @@ class EngineStudioEffects(
                     effect.projectId,
                     titleOf(effect.prompt),
                     effect.isWorktree,
-                    effect.isOrganism,
+                    effect.organism(),
                 )
                 machine.send(
                     AiStudioIntent.Internal.SessionCreated(

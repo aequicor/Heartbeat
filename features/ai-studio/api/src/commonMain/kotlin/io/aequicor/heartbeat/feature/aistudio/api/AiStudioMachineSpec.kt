@@ -21,8 +21,8 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Disabled | AvailabilityChanged | enabled | Loading | Load |
  * | Ready | NewSession | pane open | Ready (pane → new-session page, focused) | |
  * | Ready | SelectProject | new-session page, not creating | Ready (target project) | |
- * | Ready | SelectWorktree | new local-project pane, available | Ready (execution mode) | |
- * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode) | |
+ * | Ready | SelectWorktree | new local-project pane, available | Ready (execution mode; leaves organism mode) | |
+ * | Ready | SelectOrganism | new-session page, not creating | Ready (organism mode; leaves the worktree) | |
  * | Ready | AddProject | supported, new-session pane, picker idle | Ready (picker active) | ChooseProject |
  * | Ready | ProjectChosen | matching picker | Ready (selected project, or unchanged on cancel) | |
  * | Ready | ProjectChoiceFailed | matching picker | Ready (retryable project error) | |
@@ -34,7 +34,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | UpdateSettings | | Ready (new-conversation preferences, revision + 1) | SaveSettings |
  * | Ready | SettingsSaveFailed | | Ready (in-memory preferences retained) | |
  * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
- * | Ready | Submit | prompt (organism: text), new-session page, idle | Ready (pane creating) | CreateSession |
+ * | Ready | Submit | prompt (organism: text only), new-session page, idle | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
  * | Ready | SessionCreated | matching pending request | Ready (pane shows session, running) | Run |
@@ -210,10 +210,19 @@ private fun ReadyTransitions.navigation() {
             it.isNewSessionPage() && it.projectId != null
         } == true
     }) {
-        stay { state.replacePane(intent.paneId) { it.copy(isWorktree = intent.isEnabled) } }
+        // An organism's turns do not run through the checkout task, so the two modes exclude each other.
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(isWorktree = intent.isEnabled, isOrganism = it.isOrganism && !intent.isEnabled)
+            }
+        }
     }
     on<AiStudioIntent.Public.SelectOrganism>(guard = { state.pane(intent.paneId)?.isNewSessionPage() == true }) {
-        stay { state.replacePane(intent.paneId) { it.copy(isOrganism = intent.isEnabled) } }
+        stay {
+            state.replacePane(intent.paneId) {
+                it.copy(isOrganism = intent.isEnabled, isWorktree = it.isWorktree && !intent.isEnabled)
+            }
+        }
     }
     on<AiStudioIntent.Public.OpenSession>(guard = { state.hasPane(intent.paneId) }) {
         stay { state.open(intent.sessionId, intent.paneId ?: state.focusedPaneId) }
@@ -240,9 +249,13 @@ private fun ReadyTransitions.navigation() {
 private fun ReadyTransitions.conversations() {
     on<AiStudioIntent.Public.Submit>(
         guard = {
-            // An organism grows from a written goal; attachments alone cannot conceive it.
+            // An organism grows from a written goal alone: it takes no attachments, which would be lost.
             val pane = state.pane(intent.paneId)
-            val hasPrompt = intent.prompt.isNotBlank() || (intent.attachments.isNotEmpty() && pane?.isOrganism != true)
+            val hasPrompt = if (pane?.isOrganism == true) {
+                intent.prompt.isNotBlank() && intent.attachments.isEmpty()
+            } else {
+                intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()
+            }
             hasPrompt && pane?.isNewSessionPage() == true
         },
     ) {

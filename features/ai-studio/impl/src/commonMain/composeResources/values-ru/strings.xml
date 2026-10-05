@@ -244,4 +244,5 @@
     <string name="organism_status_stalled">Зигота остановилась — возобновите её или остановите организм.</string>
     <string name="organism_status_completed">Организм завершил работу.</string>
     <string name="organism_status_aborted">Организм остановлен.</string>
+    <string name="organism_unavailable">Организм не виден: органический ИИ выключен или спит, либо организм больше не хранится.</string>
 </resources>

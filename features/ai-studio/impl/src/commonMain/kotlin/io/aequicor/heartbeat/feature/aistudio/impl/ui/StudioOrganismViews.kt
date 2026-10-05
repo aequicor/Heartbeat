@@ -11,6 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -53,6 +57,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_com
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_developing
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_stalled
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_sub_sessions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
@@ -145,24 +150,45 @@ private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotN
     ).takeIf { organism.status == OrganismStatusUi.Developing || organism.status == OrganismStatusUi.Stalled },
 )
 
-/** The organism's state and the permission requests of its cells, answered by the user. */
+/**
+ * The organism's state and the permission requests of its cells, answered by the user. What a request approves is
+ * shown whole within [descriptionMaxHeight], as the pane's own requests are. A chat whose organism is out of view
+ * (organic AI is off or asleep, or the organism is no longer kept) says so instead of showing nothing.
+ */
 @Composable
-internal fun OrganismNotices(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
-    val organism = content.organism ?: return
+internal fun OrganismNotices(
+    content: PaneContent,
+    descriptionMaxHeight: Dp,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+) {
     val sessionId = content.session?.id ?: return
+    val organism = content.organism
+    if (organism == null) {
+        HbText(
+            stringResource(Res.string.organism_unavailable),
+            Modifier.padding(HbTheme.spacing.m).testTag("organism-unavailable-${content.pane.id}"),
+        )
+        return
+    }
     HbText(
         stringResource(organism.status.label()),
-        Modifier.padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}"),
+        Modifier.padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
+            .semantics { liveRegion = LiveRegionMode.Polite },
     )
     organism.permissions.forEach { request ->
-        key(request.requestId) {
+        // Request ids come from each cell's engine, so only the cell makes them unique.
+        val id = "${request.cell}-${request.requestId}"
+        key(id) {
             HbColumn(
-                Modifier.padding(HbTheme.spacing.m).testTag("organism-permission-${request.requestId}"),
+                Modifier.padding(HbTheme.spacing.m).testTag("organism-permission-$id"),
                 gap = HbTheme.spacing.s,
             ) {
-                HbText(stringResource(Res.string.organism_permission, request.cellName, request.title))
+                HbText(
+                    stringResource(Res.string.organism_permission, request.cellName, request.title),
+                    Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
                 request.description?.takeIf { it.isNotBlank() }?.let {
-                    HbText(it, maxLines = DESCRIPTION_LINES, style = HbTheme.typography.caption)
+                    PermissionDescription(it, "organism-$id", descriptionMaxHeight)
                 }
                 request.options.forEach { option ->
                     HbButton(
@@ -178,7 +204,7 @@ internal fun OrganismNotices(content: PaneContent, onIntent: (AiStudioScreenInte
                                 ),
                             )
                         },
-                        modifier = Modifier.testTag("organism-permission-${request.requestId}-${option.id}"),
+                        modifier = Modifier.testTag("organism-permission-$id-${option.id}"),
                     )
                 }
             }
@@ -220,4 +246,3 @@ private fun OrganismStatusUi.label(): StringResource = when (this) {
 private const val SUB_SESSION_PREFIX = "sub:"
 private const val ABORT_ACTION = "organism:abort"
 private const val RESUME_ACTION = "organism:resume"
-private const val DESCRIPTION_LINES = 6

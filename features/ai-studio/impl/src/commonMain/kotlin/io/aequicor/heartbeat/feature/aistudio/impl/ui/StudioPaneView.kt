@@ -257,7 +257,9 @@ private fun PaneNotices(
     questions: ImmutableMap<String, ComposableComponent>,
 ) = HbBoxWithConstraints(Modifier.fillMaxWidth()) {
     // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
-    val described = content.permissions.count { !it.description.isNullOrBlank() }.coerceAtLeast(1)
+    val requests = content.permissions.map { it.description } +
+        content.organism?.permissions.orEmpty().map { it.description }
+    val described = requests.count { !it.isNullOrBlank() }.coerceAtLeast(1)
     val descriptionMaxHeight = if (constraints.hasBoundedHeight) {
         minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / (PANE_SHARE_OF_DESCRIPTIONS * described))
     } else {
@@ -269,7 +271,7 @@ private fun PaneNotices(
         gap = HbTheme.spacing.none,
     ) {
         if (content.session?.isOrganism == true) {
-            OrganismNotices(content, onIntent)
+            OrganismNotices(content, descriptionMaxHeight, onIntent)
         } else if (content.session?.isContinuable == false) {
             HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
         } else if (content.session?.isRunning == true && !content.isStoppable) {
@@ -321,7 +323,7 @@ private const val PANE_SHARE_OF_DESCRIPTIONS = 3
  * so a keyboard scrolls it with the arrow and page keys.
  */
 @Composable
-private fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
+internal fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
     val scroll = rememberScrollState()
     // Kept while the text is scrollable at all, so the decisions do not move once the end is reached.
     val isLong by remember(scroll) { derivedStateOf { scroll.maxValue in 1 until Int.MAX_VALUE } }

@@ -36,6 +36,7 @@ class AiStudioOrganismTest {
         val selected = ready.copy(panes = listOf(ready.panes[0].copy(isOrganism = true), ready.panes[1]))
         val files = listOf(ResourceRef("attachment:image", "image/png"))
         AiStudioMachineSpec.assertIgnored(selected, AiStudioIntent.Public.Submit(0, " ", files))
+        AiStudioMachineSpec.assertIgnored(selected, AiStudioIntent.Public.Submit(0, "Fix what the image shows", files))
         AiStudioMachineSpec.assertIgnored(
             ready.copy(panes = listOf(StudioPane(0, sessionId = "chat"))),
             AiStudioIntent.Public.SelectOrganism(0, true),
@@ -44,6 +45,15 @@ class AiStudioOrganismTest {
             ready.copy(panes = listOf(StudioPane(0, isCreating = true))),
             AiStudioIntent.Public.SelectOrganism(0, true),
         )
+    }
+
+    @Test
+    fun `organism mode and an isolated checkout exclude each other`() {
+        val available = ready.copy(isWorktreeAvailable = true, focusedPaneId = 1)
+        val worktree = available.copy(panes = listOf(ready.panes[0], ready.panes[1].copy(isWorktree = true)))
+        val organism = available.copy(panes = listOf(ready.panes[0], ready.panes[1].copy(isOrganism = true)))
+        AiStudioMachineSpec.assertTransition(worktree, AiStudioIntent.Public.SelectOrganism(1, true), organism)
+        AiStudioMachineSpec.assertTransition(organism, AiStudioIntent.Public.SelectWorktree(1, true), worktree)
     }
 
     @Test

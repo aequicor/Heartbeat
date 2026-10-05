@@ -57,6 +57,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingChange
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.RunFailureKind
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
@@ -314,9 +315,9 @@ internal class EngineStudioRepository(
         projectId: String?,
         title: String,
         isWorktree: Boolean,
-        isOrganism: Boolean,
+        organism: OrganismRequest?,
     ): StudioSession {
-        log.i { "Create studio conversation worktree=$isWorktree organism=$isOrganism" }
+        log.i { "Create studio conversation worktree=$isWorktree organism=${organism != null}" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
         }
@@ -328,11 +329,11 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
-            organismId = id.takeIf { isOrganism },
+            organismId = organism?.let { organisms.admit(id, it, isWorktree) },
         )
         val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }
-        return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = isOrganism)
+        return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
@@ -386,7 +387,7 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
-        return organisms.conceive(record(sessionId), prompt, settings, onAccepted) ?: launchRun(
+        return organisms.conceive(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
             sessionId,
             prompt,
             settings,

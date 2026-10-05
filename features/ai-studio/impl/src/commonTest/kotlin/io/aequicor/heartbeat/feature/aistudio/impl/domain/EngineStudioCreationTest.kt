@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
 class EngineStudioCreationTest {
@@ -46,6 +47,32 @@ class EngineStudioCreationTest {
         assertEquals("First prompt", session?.title)
         assertEquals(false, session?.isArchived)
         assertEquals(emptyList(), repository.observeMessages(created.sessionId).first())
+    }
+
+    @Test
+    fun `an organism chat is created only once its organism could be conceived`() = runTest {
+        val repository = InMemoryStudioRepository(TestClock(this))
+        val effects = EngineStudioEffects(
+            repository,
+            CreationRuntime(),
+            object : StudioAvailability {
+                override suspend fun isEnabled() = true
+                override fun observe() = flowOf(true)
+            },
+        )
+        val sent = mutableListOf<AiStudioIntent>()
+        val machine = object : EffectScope<AiStudioIntent> {
+            override suspend fun send(intent: AiStudioIntent): SendResult {
+                sent += intent
+                return SendResult.Ignored
+            }
+        }
+        val before = repository.observeWorkspace().first().sessions
+        val request = AiStudioEffect.CreateSession(1, null, "Goal", DefaultRunSettings, 42, isOrganism = true)
+        // The demo backend has no organisms: the refusal fails the creation before any chat exists.
+        assertFailsWith<IllegalStateException> { effects.handle(request, machine) }
+        assertEquals(emptyList(), sent)
+        assertEquals(before, repository.observeWorkspace().first().sessions)
     }
 }
 

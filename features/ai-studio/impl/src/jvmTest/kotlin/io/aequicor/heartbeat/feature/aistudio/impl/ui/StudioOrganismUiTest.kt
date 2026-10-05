@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -135,17 +136,39 @@ class StudioOrganismUiTest {
         val events = mutableListOf<AiStudioScreenIntent>()
         setContent {
             HbTheme(darkTheme = false) {
-                Column { OrganismNotices(organismState().paneContent(organismPane), { events += it }) }
+                Column {
+                    OrganismNotices(
+                        organismState().paneContent(organismPane),
+                        HbTheme.dimensions.toolPayloadMaxHeight,
+                    ) {
+                        events += it
+                    }
+                }
             }
         }
         onNodeWithTag("organism-status-0").assertExists()
-        onNodeWithTag("organism-permission-p1-allow").performClick()
+        // What the cell asks to run is shown whole, never cut to a few lines.
+        onNodeWithTag("permission-organism-c1-p1-description").assertTextEquals(COMMAND)
+        onNodeWithTag("organism-permission-c1-p1-allow").performClick()
         runOnIdle {
             assertEquals(
                 listOf<AiStudioScreenIntent>(AiStudioScreenIntent.DecideOrganism("chat", "c1", "t1", "p1", "allow")),
                 events,
             )
         }
+    }
+
+    @Test
+    fun `a chat whose organism is out of view says so`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
+        setContent {
+            HbTheme(darkTheme = false) {
+                Column {
+                    val hidden = organismState().copy(organisms = persistentMapOf()).paneContent(organismPane)
+                    OrganismNotices(hidden, HbTheme.dimensions.toolPayloadMaxHeight) {}
+                }
+            }
+        }
+        onNodeWithTag("organism-unavailable-0").assertExists()
     }
 
     private val organismPane = PaneUi(0, sessionId = "chat")
@@ -191,9 +214,14 @@ class StudioOrganismUiTest {
                         "p1",
                         "Run gradle",
                         persistentListOf(PermissionOptionUi("allow", "Allow")),
+                        description = COMMAND,
                     ),
                 ),
             ),
         ),
     )
+
+    private companion object {
+        val COMMAND = (1..12).joinToString("\n") { "./gradlew :module$it:check" }
+    }
 }

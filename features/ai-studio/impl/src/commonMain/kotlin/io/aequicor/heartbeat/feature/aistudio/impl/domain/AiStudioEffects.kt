@@ -80,7 +80,7 @@ class AiStudioEffects(
                     effect.projectId,
                     titleOf(effect.prompt),
                     isWorktree = false,
-                    isOrganism = effect.isOrganism,
+                    organism = effect.organism(),
                 )
                 machine.send(
                     AiStudioIntent.Internal.SessionCreated(

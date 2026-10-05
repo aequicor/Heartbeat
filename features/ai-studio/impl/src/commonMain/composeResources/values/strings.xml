@@ -244,4 +244,5 @@
     <string name="organism_status_stalled">The zygote stalled; resume it or stop the organism.</string>
     <string name="organism_status_completed">The organism completed its work.</string>
     <string name="organism_status_aborted">The organism was stopped.</string>
+    <string name="organism_unavailable">The organism is out of view: organic AI is off or asleep, or the organism is no longer kept.</string>
 </resources>

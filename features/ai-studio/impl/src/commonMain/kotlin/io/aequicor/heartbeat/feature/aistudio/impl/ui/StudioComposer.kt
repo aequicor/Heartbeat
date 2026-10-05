@@ -514,6 +514,7 @@ private const val APPROVAL_PREFIX = "approval:"
 
 private fun PaneContent.canAddAttachments(): Boolean {
     val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
-    return isAttachmentsEnabled && !pane.isCreating && session?.isRunning != true &&
+    // An organism grows from a written goal alone.
+    return isAttachmentsEnabled && !pane.isCreating && !pane.isOrganism && session?.isRunning != true &&
         !support?.mediaTypes.isNullOrEmpty()
 }
