@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.serialization.Serializable
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Instant
 
 /** Identity of a scheduled wake, chosen by the caller; `[a-z0-9_-]`, at most 64 characters. */
@@ -136,6 +137,9 @@ public enum class WakeFailure {
     /** The engine refused or lost the wake prompt. */
     Engine,
 
+    /** The session stayed busy longer than [SchedulerLimits.DELIVERY_TIMEOUT]. */
+    Busy,
+
     /** An unexpected error; details are in the log. */
     Unknown,
 }
@@ -159,6 +163,12 @@ public object SchedulerLimits {
 
     /** How far ahead a deadline may be. */
     public val HORIZON: Duration = 30.days
+
+    /** Deadline hosted tools give a wait for events only, so a signal that never comes cannot hold a slot forever. */
+    public val EVENT_WAIT: Duration = 7.days
+
+    /** How long a delivery waits for a busy session before the wake is dropped as [WakeFailure.Busy]. */
+    public val DELIVERY_TIMEOUT: Duration = 1.hours
 }
 
 private const val MAX_ID = 64

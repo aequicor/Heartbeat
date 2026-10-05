@@ -7,13 +7,12 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
-import kotlin.coroutines.coroutineContext
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -55,7 +54,8 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
                     process.descendants().use { descendants -> descendants.forEach { children[it.pid()] = it } }
                 }
             } finally {
-                val isKillRequired = !hasExited || process.isAlive || !coroutineContext.isActive
+                // A cancelled drain never reports an exit, so cancellation also kills the tree.
+                val isKillRequired = !hasExited || process.isAlive
                 withContext(NonCancellable) {
                     if (isKillRequired) kill(process, children.values.toList())
                     close(process)
@@ -84,11 +84,10 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
     }
 
     /**
-     * Whether draining is over: true at end of output or once the exited process's pipe stayed quiet for a moment
+     * Whether draining is over: true once the exited process's pipe stayed quiet for a moment
      * (a detached child may keep it open), false on timeout, null to keep reading.
      */
     private fun drainOutcome(read: Int, isPastDeadline: Boolean, sinceExit: Duration?): Boolean? = when {
-        read < 0 -> true
         sinceExit == null -> if (isPastDeadline) false else null
         sinceExit > AFTER_EXIT_LIMIT -> true
         read == 0 && sinceExit > EXIT_GRACE -> true
@@ -107,10 +106,14 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         log.i { "killing background command process tree" }
         children.filter { it.isAlive }.forEach { it.destroyForcibly() }
         process.destroyForcibly()
-        while (process.isAlive || children.any { it.isAlive }) {
-            children.filter { it.isAlive }.forEach { it.destroyForcibly() }
-            delay(POLL)
-        }
+        // A process the OS refuses to kill must not keep this coroutine spinning forever.
+        val isDead = withTimeoutOrNull(KILL_TIMEOUT) {
+            while (process.isAlive || children.any { it.isAlive }) {
+                children.filter { it.isAlive }.forEach { it.destroyForcibly() }
+                delay(POLL)
+            }
+        } != null
+        if (!isDead) log.w { "background command processes survived the kill" }
     }
 
     private fun close(process: Process) {
@@ -126,9 +129,15 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         val POLL = 100.milliseconds
         val EXIT_GRACE = 200.milliseconds
         val AFTER_EXIT_LIMIT = 2_000.milliseconds
+        val KILL_TIMEOUT = 10_000.milliseconds
         val SECRET_PARTS = listOf("KEY", "TOKEN", "SECRET", "PASSWORD", "PASSWD", "CREDENTIAL", "AUTH")
 
-        fun isSecretName(name: String): Boolean = name.uppercase().let { upper -> SECRET_PARTS.any { it in upper } }
+        /** Sockets and display cookies, not credentials: git over ssh and GUI tools need them. */
+        val KEPT_NAMES = setOf("SSH_AUTH_SOCK", "XAUTHORITY")
+
+        fun isSecretName(name: String): Boolean = name.uppercase().let { upper ->
+            upper !in KEPT_NAMES && SECRET_PARTS.any { it in upper }
+        }
     }
 }
 

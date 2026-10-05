@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.scheduler.impl.data
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
@@ -46,8 +47,7 @@ internal class WakeScheduler(private val machine: SchedulerMachine) {
 internal fun newWakeId(): WakeId = WakeId("w" + Uuid.random().toHexString().take(ID_LENGTH))
 
 /** A fresh id of a background action. */
-internal fun newActionId(): io.aequicor.heartbeat.feature.scheduler.api.ActionId =
-    io.aequicor.heartbeat.feature.scheduler.api.ActionId("a" + Uuid.random().toHexString().take(ID_LENGTH))
+internal fun newActionId(): ActionId = ActionId("a" + Uuid.random().toHexString().take(ID_LENGTH))
 
 /** What became of a wake request. */
 internal sealed interface ScheduleOutcome {

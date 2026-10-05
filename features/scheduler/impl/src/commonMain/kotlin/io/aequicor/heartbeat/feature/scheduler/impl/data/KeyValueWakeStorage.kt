@@ -24,12 +24,12 @@ internal class KeyValueWakeStorage(
 
     override suspend fun load(): List<ScheduledWake> {
         val wakes = store.get(WAKES)?.let(::decode).orEmpty()
-        log.d { "read pending wakes: ${wakes.size}" }
+        log.v { "read pending wakes: ${wakes.size}" }
         return wakes
     }
 
     override suspend fun save(wakes: List<ScheduledWake>) {
-        log.d { "write pending wakes: ${wakes.size}" }
+        log.v { "write pending wakes: ${wakes.size}" }
         if (wakes.isEmpty()) store.remove(WAKES) else store.set(WAKES, json.encodeToString(WAKE_LIST, wakes))
     }
 

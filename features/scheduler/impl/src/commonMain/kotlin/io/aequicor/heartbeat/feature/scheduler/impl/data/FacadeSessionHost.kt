@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
@@ -24,10 +25,12 @@ import kotlinx.coroutines.withContext
 internal const val FACADE_HOST_PRIORITY: Int = 0
 
 /**
- * Fallback host for sessions no chat host owns: resumes the native session through the engine facade on the route
- * recorded with the wake and submits the prompt. The handle is released after acceptance; the accepted turn belongs
- * to the profile runtime and is not cancelled by that. It creates no helper sessions: nothing would report the end of
- * their turns, so their result could never be published.
+ * Fallback host for sessions no chat host owns. Only a wake requested by a feature, which owns the session's
+ * lifecycle, is delivered: the native session is resumed through the engine facade on the recorded route without
+ * hosted tools (nothing here shows their calls or answers permissions) and the prompt is submitted. A wake of an
+ * agent whose chat is gone is dropped as unavailable instead of running an unattended turn. The handle is released
+ * after acceptance; the accepted turn belongs to the profile runtime. It creates no helper sessions: nothing would
+ * report the end of their turns, so their result could never be published.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -42,10 +45,13 @@ internal class FacadeSessionHost(
     override suspend fun owns(session: SessionRef): Boolean = true
 
     override suspend fun wake(request: WakeRequest, prompt: WakePrompt) {
+        if (request.origin is WakeOrigin.Agent) {
+            throw SessionUnavailableException("No chat shows this session; an agent wake is not resumed unattended")
+        }
         val target = request.target ?: throw SessionUnavailableException("The wake has no recorded engine route")
         val resumes = facade.sessions.get(request.session).features.resolve(ResumesSessions).orThrow()
         log.i { "resuming session on ${target.engine.value} for a wake" }
-        submit(resumes.resume(ResumeSessionRequest(target, request.workspace, areDetachedToolsEnabled = true)), prompt)
+        submit(resumes.resume(ResumeSessionRequest(target, request.workspace, areDetachedToolsEnabled = false)), prompt)
     }
 
     private suspend fun submit(session: ActiveSession, prompt: WakePrompt) {

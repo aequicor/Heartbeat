@@ -100,8 +100,9 @@ lint/            detekt-rules — собственный набор правил
 > просыпается новым ходом со своей заметкой. Единая профильная шина `SchedulerBus` и ключи `EventKey`
 > (`system.network.*`, `session.<id>.turn_finished`, `action.<id>.finished`, `custom.*`); машина `SchedulerMachineKey`
 > в ProfileScope хранит пробуждения в профиле (переживают рестарт, доставка at-least-once). Доставка — SPI
-> `ScheduledSessionHost`: ai-studio — ходом в чате, иначе фолбэк через фасад. Фоновые действия (тогл `scheduler.actions`):
-> `scheduler_start_action` — команда в проекте (Desktop) или агент-помощник в новом чате с пробуждением по результату.
+> `ScheduledSessionHost`: ai-studio — ходом в чате; фолбэк через фасад — только пробуждения фич, агент без чата не будится.
+> Фоновые действия (тогл `scheduler.actions`): `scheduler_start_action` — команда в проекте (Desktop) или агент-помощник
+> в новом чате с пробуждением по результату; каждый запуск подтверждает пользователь.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

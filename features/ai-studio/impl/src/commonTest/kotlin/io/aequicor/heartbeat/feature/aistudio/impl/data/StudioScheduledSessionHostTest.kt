@@ -62,10 +62,10 @@ class StudioScheduledSessionHostTest {
         override suspend fun runScheduled(
             chatId: String,
             prompt: WakePrompt,
-            target: EngineTarget?,
+            route: ScheduledRunRoute,
             onAccepted: suspend () -> Unit,
         ): RunOutcome {
-            runs += listOf(chatId, prompt, target)
+            runs += listOf(chatId, prompt, route)
             if (isAccepted) onAccepted()
             finish.await()
             return outcome
@@ -86,7 +86,7 @@ class StudioScheduledSessionHostTest {
         assertTrue(host.owns(session))
         assertFalse(host.owns(helper))
         host.wake(request, prompt)
-        assertEquals(listOf<Any?>("chat", prompt, null), chats.runs.single())
+        assertEquals(listOf<Any?>("chat", prompt, ScheduledRunRoute()), chats.runs.single())
     }
 
     @Test
@@ -109,6 +109,6 @@ class StudioScheduledSessionHostTest {
         val spawned = host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt))
         assertEquals(helper, spawned)
         assertEquals(listOf<Pair<String?, String>>("project" to "Helper"), chats.created)
-        assertEquals(target, chats.runs.single()[2])
+        assertEquals(ScheduledRunRoute(target, approvalFrom = "chat"), chats.runs.single()[2])
     }
 }

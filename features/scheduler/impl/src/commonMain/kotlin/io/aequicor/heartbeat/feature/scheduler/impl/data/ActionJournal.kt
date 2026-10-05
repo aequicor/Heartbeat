@@ -62,7 +62,7 @@ internal class KeyValueActionJournal(
     }
 
     private suspend fun write(records: List<ActionRecord>) {
-        log.d { "write running actions: ${records.size}" }
+        log.v { "write running actions: ${records.size}" }
         if (records.isEmpty()) store.remove(ACTIONS) else store.set(ACTIONS, json.encodeToString(RECORDS, records))
     }
 

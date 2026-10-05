@@ -15,7 +15,7 @@ import kotlin.time.Instant
  * | Loading | Start | — | stay | Load |
  * | Loading | Loaded | — | Ready(wakes) | — |
  * | Loading | LoadFailed | — | Ready() | — |
- * | Loading | any Public | — | ignored | — |
+ * | Loading | any Public, Observed, Tick, Delivered, DeliveryFailed | — | ignored | — |
  * | Ready | Schedule | id new, limits hold, deadline within the horizon | Ready(+wake) | Persist; Scheduled |
  * | Ready | Schedule | otherwise | stay | Rejected |
  * | Ready | Cancel | pending, not delivering, same session if given | Ready(−wake) | Persist; Cancelled |

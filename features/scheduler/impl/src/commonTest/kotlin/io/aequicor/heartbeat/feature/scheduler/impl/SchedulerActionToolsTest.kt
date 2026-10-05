@@ -57,6 +57,24 @@ class SchedulerActionToolsTest {
     }
 
     @Test
+    fun `every start asks the user, and helpers start no helpers`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val tools = tools(fixture)
+        val spec = tools.specifications(PROJECT).single()
+        val full = inProject.copy(trust = io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel.Full)
+        assertTrue(tools.requiresDecision(full, spec, args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "ls")))
+        val agent = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "x")
+        val started = tools.execute(inProject, SchedulerTools.START_ACTION, agent)
+        assertFalse(started.isError, started.text)
+        val nested = tools.execute(
+            inProject.copy(session = OTHER),
+            SchedulerTools.START_ACTION,
+            args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "y"),
+        )
+        assertTrue(nested.isError && "helper" in nested.text, nested.text)
+    }
+
+    @Test
     fun `a refused action cancels its wake`() = runTest {
         val fixture = ActionsFixture(this, SpecMachine())
         val helper = tools(fixture).execute(

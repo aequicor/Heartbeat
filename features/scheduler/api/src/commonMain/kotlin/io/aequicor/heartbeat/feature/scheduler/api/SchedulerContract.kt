@@ -24,6 +24,13 @@ public sealed interface SchedulerState : MachineState {
     ) : SchedulerState
 }
 
+/**
+ * Whether [event] wakes a pending wake that is not being delivered. Drivers use it to feed only awaited events to the
+ * machine (an ignored intent is logged at WARN); the spec matches with the same rule.
+ */
+public fun SchedulerState.Ready.isAwaited(event: BusEvent): Boolean =
+    wakes.any { it.id !in delivering && it.matches(event) }
+
 /** Commands from other features and agents, results of effects and inputs of the bus and the timer. */
 public sealed interface SchedulerIntent : MachineIntent {
     /** Commands sent through [SchedulerMachineKey]. */

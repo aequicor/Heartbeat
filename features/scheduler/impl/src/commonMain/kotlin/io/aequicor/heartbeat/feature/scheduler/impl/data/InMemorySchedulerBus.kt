@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
+import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import kotlinx.coroutines.flow.Flow
@@ -16,7 +17,7 @@ import kotlin.time.Clock
 
 private const val BUFFER = 64
 
-/** The profile bus: a hot stream without replay. Logs key and origin kind of each event, never its payload. */
+/** The profile bus: a hot stream without replay. Logs key and origin kind of an event, never its payload. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -28,7 +29,12 @@ internal class InMemorySchedulerBus(private val clock: Clock) : SchedulerBus {
 
     override suspend fun publish(key: EventKey, origin: EventOrigin, payload: String?): BusEvent {
         val event = BusEvent(key, origin, clock.now(), payload)
-        log.i { "publish $key from ${origin::class.simpleName.orEmpty()}" }
+        // Session lifecycle fires on every turn and the host already logs turns: only a trace.
+        if (key.namespace == EventNamespace.Session) {
+            log.v { "publish $key" }
+        } else {
+            log.d { "publish $key from ${origin::class.simpleName.orEmpty()}" }
+        }
         stream.emit(event)
         return event
     }

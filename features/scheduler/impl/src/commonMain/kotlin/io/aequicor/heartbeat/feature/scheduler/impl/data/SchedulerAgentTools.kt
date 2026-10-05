@@ -183,7 +183,8 @@ internal class SchedulerAgentTools(
         val SLEEP_SPEC = AgentToolSpec(
             SchedulerTools.SLEEP,
             "Put this session to sleep until an event or a deadline, then end the turn. Give at least one of " +
-                "${Arguments.EVENTS}, ${Arguments.AT}, ${Arguments.AFTER_SECONDS}.",
+                "${Arguments.EVENTS}, ${Arguments.AT}, ${Arguments.AFTER_SECONDS}; a wait for events only ends " +
+                "after ${SchedulerLimits.EVENT_WAIT} at the latest.",
             buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
@@ -237,7 +238,10 @@ private sealed interface Parsed {
     data class Invalid(val message: String) : Parsed
 }
 
-/** Events and a deadline from the arguments; `at` and `after_seconds` are exclusive. */
+/**
+ * Events and a deadline from the arguments; `at` and `after_seconds` are exclusive. A wait for events only gets the
+ * deadline [SchedulerLimits.EVENT_WAIT], so an event that never comes cannot hold a wake slot forever.
+ */
 private fun parseCondition(arguments: JsonObject, now: Instant): Parsed {
     val rawEvents = arguments.texts(Arguments.EVENTS).orEmpty()
     val events = rawEvents.map { EventKey.parse(it) ?: return Parsed.Invalid("invalid event key \"$it\"") }.toSet()
@@ -252,5 +256,5 @@ private fun parseCondition(arguments: JsonObject, now: Instant): Parsed {
         else -> null
     }
     if (events.isEmpty() && deadline == null) return Parsed.Invalid("give events or a deadline")
-    return Parsed.Valid(WakeCondition(events, deadline))
+    return Parsed.Valid(WakeCondition(events, deadline ?: now + SchedulerLimits.EVENT_WAIT))
 }

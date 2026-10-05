@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEffect
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
@@ -15,6 +16,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Loads and stores wakes and delivers due ones through the session host that owns the session. Writes are serialised
@@ -53,8 +55,12 @@ internal class SchedulerEffects(private val storage: WakeStorage, private val ho
         val failure = try {
             val host = hostFor(delivery.wake.request)
             log.i { "deliver wake $id via ${host::class.simpleName.orEmpty()}" }
-            host.wake(delivery.wake.request, wakePrompt(delivery))
-            null
+            // A session busy for too long drops the wake rather than holding it undeliverable and uncancellable.
+            val isDelivered = withTimeoutOrNull(SchedulerLimits.DELIVERY_TIMEOUT) {
+                host.wake(delivery.wake.request, wakePrompt(delivery))
+                true
+            } == true
+            if (isDelivered) null else WakeFailure.Busy.also { log.w { "wake $id: the session stayed busy" } }
         } catch (e: CancellationException) {
             throw e
         } catch (e: SessionUnavailableException) {

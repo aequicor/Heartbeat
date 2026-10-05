@@ -35,14 +35,14 @@ internal class EngineStudioScheduledChats(
     private val store by lazy { stores.keyValue(ChatSpec) }
 
     override suspend fun chatOf(session: SessionRef): StudioScheduledChat? {
-        log.d { "find the chat of a session" }
+        log.v { "find the chat of a session" }
         return store.get(
             ChatsKey,
         ).orEmpty().firstOrNull { it.ref == session }?.let { StudioScheduledChat(it.id, it.projectId) }
     }
 
     override suspend fun sessionOf(chatId: String): SessionRef? {
-        log.d { "read the session of a chat" }
+        log.v { "read the session of a chat" }
         return store.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
     }
 
@@ -54,18 +54,21 @@ internal class EngineStudioScheduledChats(
     override suspend fun runScheduled(
         chatId: String,
         prompt: WakePrompt,
-        target: EngineTarget?,
+        route: ScheduledRunRoute,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
-        val record = checkNotNull(store.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }) {
-            "Unknown studio conversation"
+        val records = store.get(ChatsKey).orEmpty()
+        val record = checkNotNull(records.firstOrNull { it.id == chatId }) { "Unknown studio conversation" }
+        val configurations = runtime.state.value.configurations
+        // A helper inherits its parent's approval instead of the profile default.
+        val parent = route.approvalFrom
+        val parentSettings = parent?.let {
+            configurations[it]?.applied
+                ?: records.firstOrNull { r -> r.id == it }?.configuration
         }
-        val settings = hostRunSettings(
-            record,
-            runtime.state.value.configurations[chatId]?.applied,
-            runtime.defaults(),
-            target,
-        )
+        val base = runtime.defaults()
+        val defaults = if (parentSettings == null) base else base.copy(approval = parentSettings.approval)
+        val settings = hostRunSettings(record, configurations[chatId]?.applied, defaults, route.target)
         log.i { "run a scheduled prompt in a studio conversation" }
         return runs.run(
             host,

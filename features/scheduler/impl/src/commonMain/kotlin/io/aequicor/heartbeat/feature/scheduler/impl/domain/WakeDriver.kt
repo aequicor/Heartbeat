@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.isAwaited
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -64,10 +65,8 @@ internal class WakeDriver(
     }
 
     @HighFrequency
-    private fun isAwaited(event: BusEvent): Boolean {
-        val ready = machine.state.value as? SchedulerState.Ready ?: return false
-        return ready.wakes.any { it.id !in ready.delivering && it.matches(event) }
-    }
+    private fun isAwaited(event: BusEvent): Boolean =
+        (machine.state.value as? SchedulerState.Ready)?.isAwaited(event) == true
 
     @OptIn(ExperimentalCoroutinesApi::class) // transformLatest: stable in behaviour, experimental only by annotation
     private suspend fun runTimer() {

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
@@ -93,6 +94,41 @@ class SchedulerMachineTest {
             ready,
             outputs = listOf(SchedulerOutput.Rejected(WakeId("far"), WakeRejection.TooFar)),
         )
+    }
+
+    @Test
+    fun `loading ignores bus events, ticks and delivery results`() {
+        val loading = SchedulerState.Loading
+        spec.assertIgnored(loading, SchedulerIntent.Internal.Observed(event(done)))
+        spec.assertIgnored(loading, SchedulerIntent.Internal.Tick(now))
+        spec.assertIgnored(loading, SchedulerIntent.Internal.Delivered(WakeId("w1"), WakeReason.Deadline(now)))
+        spec.assertIgnored(loading, SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.Busy))
+        spec.assertIgnored(loading, SchedulerIntent.Public.CancelSession(session))
+    }
+
+    @Test
+    fun `the profile limit spans sessions`() {
+        val full = SchedulerState.Ready(
+            (1..SchedulerLimits.MAX_PER_PROFILE).map { index ->
+                val target = SessionRef(EngineId("pi"), SessionSourceId("local"), "native-$index")
+                ScheduledWake(request("w$index", target = target), now)
+            },
+        )
+        spec.assertTransition(
+            full,
+            SchedulerIntent.Public.Schedule(request("next"), now),
+            full,
+            outputs = listOf(SchedulerOutput.Rejected(WakeId("next"), WakeRejection.ProfileLimit)),
+        )
+    }
+
+    @Test
+    fun `nothing to cancel or settle is ignored`() {
+        val ready = SchedulerState.Ready(listOf(wake("w1", target = other)))
+        spec.assertIgnored(ready, SchedulerIntent.Public.CancelSession(session))
+        spec.assertIgnored(ready, SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.Engine))
+        assertTrue(ready.copy(delivering = emptySet()).isAwaited(event(done)))
+        assertFalse(ready.copy(delivering = setOf(WakeId("w1"))).isAwaited(event(done)))
     }
 
     @Test

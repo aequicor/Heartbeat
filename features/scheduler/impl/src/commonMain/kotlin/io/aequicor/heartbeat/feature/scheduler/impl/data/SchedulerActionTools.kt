@@ -37,6 +37,12 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
+/** Approval title of a command action; the command follows in full. */
+private const val COMMAND_APPROVAL = "Фоновая команда в проекте"
+
+/** Approval title of a helper agent; its task follows in full. */
+private const val AGENT_APPROVAL = "Агент-помощник в новом чате"
+
 private const val MAX_COMMAND = 4_000
 private const val MAX_PROMPT = 8_000
 private const val MAX_TITLE = 60
@@ -46,8 +52,8 @@ private const val MAX_TIMEOUT_SECONDS = 21_600L
 /**
  * `scheduler_start_action`: a background command in the project (Desktop) or a helper agent in a new chat, whose
  * result is published as `action.<id>.finished`. With a wake note the caller sleeps until then; the wake is scheduled
- * before the action starts, so a quick action cannot finish unobserved. Always a [AgentToolAction.Command] for the
- * trust gate. Commands and prompts are shown in the approval, never logged.
+ * before the action starts, so a quick action cannot finish unobserved. Every start needs the user's decision; a
+ * helper agent cannot start helpers. Commands and prompts are shown in the approval, never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -65,19 +71,32 @@ internal class SchedulerActionTools(
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (isEnabled()) listOf(START_ACTION_SPEC) else emptyList()
 
+    /**
+     * Every start is put to the user, whatever the trust level: the work outlives the turn and the user's attention,
+     * and a command could stop the host itself.
+     */
+    override suspend fun requiresDecision(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): Boolean = spec.name == SchedulerTools.START_ACTION
+
     override suspend fun approval(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): AgentToolApproval = when (arguments.text(Arguments.KIND)) {
-        Kinds.COMMAND -> AgentToolApproval(spec.name, "Фоновая команда в проекте", arguments.text(Arguments.COMMAND))
-        Kinds.AGENT -> AgentToolApproval(spec.name, "Агент-помощник в новом чате", arguments.text(Arguments.PROMPT))
+        Kinds.COMMAND -> AgentToolApproval(spec.name, COMMAND_APPROVAL, arguments.text(Arguments.COMMAND))
+        Kinds.AGENT -> AgentToolApproval(spec.name, AGENT_APPROVAL, arguments.text(Arguments.PROMPT))
         else -> AgentToolApproval(spec.name, spec.description)
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (name != SchedulerTools.START_ACTION) return failure("unknown tool")
         if (!isEnabled()) return failure("background actions are turned off")
+        if (arguments.text(Arguments.KIND) == Kinds.AGENT && actions.isHelper(context.session)) {
+            return failure("a helper agent cannot start helpers of its own")
+        }
         val start = when (val parsed = parse(context, arguments)) {
             is ParsedAction.Invalid -> return failure(parsed.message)
             is ParsedAction.Valid -> parsed.start
@@ -89,7 +108,7 @@ internal class SchedulerActionTools(
                 newWakeId(),
                 context.session,
                 context.workspace,
-                WakeCondition(setOf(EventKeys.actionFinished(id))),
+                WakeCondition(setOf(EventKeys.actionFinished(id)), clock.now() + SchedulerLimits.EVENT_WAIT),
                 note,
                 WakeOrigin.Agent(context.turn),
                 context.target,
@@ -99,7 +118,9 @@ internal class SchedulerActionTools(
             request.id
         }
         val refusal = when (start) {
-            is ActionStart.Command -> actions.startCommand(id, start.workspace, start.command, start.timeout)
+            is ActionStart.Command ->
+                actions.startCommand(id, context.session, start.workspace, start.command, start.timeout)
+
             is ActionStart.Agent -> actions.startAgent(id, start.request)
         }
         log.i {

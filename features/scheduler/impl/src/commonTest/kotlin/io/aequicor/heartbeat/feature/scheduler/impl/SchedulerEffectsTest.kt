@@ -89,11 +89,43 @@ class SchedulerEffectsTest {
     }
 
     @Test
+    fun `a session busy beyond the delivery timeout drops the wake`() = runTest {
+        val busy = object : io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost {
+            override val priority: Int = 1
+            override suspend fun owns(session: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef) = true
+            override suspend fun wake(
+                request: io.aequicor.heartbeat.feature.scheduler.api.WakeRequest,
+                prompt: io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt,
+            ) = kotlinx.coroutines.awaitCancellation()
+        }
+        val delivery = WakeDelivery(scheduled("w1", deadline = START), WakeReason.Deadline(START))
+        SchedulerEffects(storage, setOf(busy)).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        assertEquals(
+            listOf<SchedulerIntent>(SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.Busy)),
+            scope.sent,
+        )
+    }
+
+    @Test
+    fun `an agent wake without a chat host is not resumed unattended`() = runTest {
+        val delivery = WakeDelivery(scheduled("w1", deadline = START), WakeReason.Deadline(START))
+        val fallback = io.aequicor.heartbeat.feature.scheduler.impl.data.FacadeSessionHost()
+        SchedulerEffects(storage, setOf(fallback)).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        assertEquals(
+            listOf<SchedulerIntent>(
+                SchedulerIntent.Internal.DeliveryFailed(listOf(WakeId("w1")), WakeFailure.SessionUnavailable),
+            ),
+            scope.sent,
+        )
+    }
+
+    @Test
     fun `the wake prompt carries the reason, payload and note`() {
         val event = BusEvent(EventKeys.custom("build.done"), EventOrigin.Host, START, "exit 0")
         val prompt = wakePrompt(WakeDelivery(scheduled("w1", events = setOf(event.key)), WakeReason.Event(event)))
         assertTrue("custom.build.done" in prompt.visible)
         assertTrue("exit 0" in prompt.directive && "check the build" in prompt.directive)
+        assertTrue("untrusted data" in prompt.directive)
         assertTrue("check the build" !in prompt.visible)
     }
 

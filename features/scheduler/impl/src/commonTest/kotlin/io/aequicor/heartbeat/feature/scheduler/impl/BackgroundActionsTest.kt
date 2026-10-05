@@ -19,6 +19,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.minutes
@@ -38,7 +39,7 @@ class BackgroundActionsTest {
         val fixture = ActionsFixture(this, SpecMachine())
         val events = mutableListOf<BusEvent>()
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
-        assertNull(fixture.actions.startCommand(action, PROJECT, "make test", 5.minutes))
+        assertNull(fixture.actions.startCommand(action, SESSION, PROJECT, "make test", 5.minutes))
         runCurrent()
         assertEquals(listOf("/work/project" to "make test"), fixture.commands.runs)
         assertEquals(listOf(action), fixture.journal.records.map { it.id })
@@ -56,7 +57,7 @@ class BackgroundActionsTest {
         val fixture = ActionsFixture(this, SpecMachine())
         assertEquals(
             "the project is not available",
-            fixture.actions.startCommand(action, WorkspaceRef("gone"), "ls", 1.minutes),
+            fixture.actions.startCommand(action, SESSION, WorkspaceRef("gone"), "ls", 1.minutes),
         )
         assertTrue(fixture.journal.records.isEmpty())
     }
@@ -75,6 +76,17 @@ class BackgroundActionsTest {
         val result = events.single { it.key == EventKeys.actionFinished(action) }
         assertTrue(result.payload.orEmpty().startsWith("status: finished"), result.payload)
         assertTrue(fixture.journal.records.isEmpty())
+    }
+
+    @Test
+    fun `running actions are limited per session and the helper is marked`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        repeat(3) { assertNull(fixture.actions.startCommand(ActionId("c$it"), SESSION, PROJECT, "sleep 1", 1.minutes)) }
+        val refused = fixture.actions.startCommand(ActionId("c4"), SESSION, PROJECT, "sleep 1", 1.minutes)
+        assertTrue(refused.orEmpty().contains("this session"), refused)
+        assertNull(fixture.actions.startAgent(ActionId("h1"), spawn.copy(parent = OTHER)))
+        assertTrue(fixture.actions.isHelper(OTHER))
+        assertFalse(fixture.actions.isHelper(SESSION))
     }
 
     @Test
