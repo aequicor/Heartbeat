@@ -12,6 +12,7 @@ import kotlin.time.Instant
  *
  * | From | Intent | Guard | To | Effect / output |
  * |---|---|---|---|---|
+ * | Loading | Start | — | stay | Load |
  * | Loading | Loaded | — | Ready(wakes) | — |
  * | Loading | LoadFailed | — | Ready() | — |
  * | Loading | any Public | — | ignored | — |
@@ -30,6 +31,7 @@ import kotlin.time.Instant
 public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, SchedulerEffect, SchedulerOutput> =
     machineSpec(SchedulerMachineKey, SchedulerState.Loading) {
         state<SchedulerState.Loading> {
+            on<SchedulerIntent.Internal.Start> { effect { SchedulerEffect.Load } }
             on<SchedulerIntent.Internal.Loaded> {
                 goto<SchedulerState.Ready> { SchedulerState.Ready(intent.wakes) }
             }

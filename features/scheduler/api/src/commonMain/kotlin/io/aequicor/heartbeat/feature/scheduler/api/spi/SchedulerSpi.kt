@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -42,10 +43,10 @@ public interface ScheduledSessionHost {
     public suspend fun owns(session: SessionRef): Boolean
 
     /**
-     * Submits [prompt] as the next turn of [session], waiting while the session is busy. Returns once the engine
-     * accepted the turn; the turn itself belongs to the profile. Throws when the prompt was not accepted.
+     * Submits [prompt] as the next turn of the session of [request], waiting while the session is busy. Returns once
+     * the engine accepted the turn; the turn itself belongs to the profile. Throws when the prompt was not accepted.
      */
-    public suspend fun wake(session: SessionRef, prompt: WakePrompt)
+    public suspend fun wake(request: WakeRequest, prompt: WakePrompt)
 
     /**
      * Creates a helper session and submits its first prompt; returns the new session once the turn is accepted, or

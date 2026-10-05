@@ -45,6 +45,13 @@ class SchedulerMachineTest {
         assertEquals(SchedulerState.Loading, spec.initial)
         spec.assertTransition(
             SchedulerState.Loading,
+            SchedulerIntent.Internal.Start,
+            SchedulerState.Loading,
+            effects = listOf(SchedulerEffect.Load),
+        )
+        spec.assertIgnored(SchedulerState.Ready(), SchedulerIntent.Internal.Start)
+        spec.assertTransition(
+            SchedulerState.Loading,
             SchedulerIntent.Internal.Loaded(listOf(wake("w1"))),
             SchedulerState.Ready(listOf(wake("w1"))),
         )

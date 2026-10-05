@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.scheduler.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -55,6 +56,7 @@ public sealed interface WakeOrigin {
 /**
  * A request to wake [session] when [condition] holds. [note] is the sleeper's reminder of what to do next; it is
  * delivered back verbatim and never logged. [workspace] is the session's project, null for a chat without one.
+ * [target] is the engine and model the session ran on; a host that resumes sessions itself needs it.
  */
 @Serializable
 public data class WakeRequest(
@@ -64,6 +66,7 @@ public data class WakeRequest(
     val condition: WakeCondition,
     val note: String,
     val origin: WakeOrigin,
+    val target: EngineTarget? = null,
 ) {
     init {
         require(note.length <= SchedulerLimits.MAX_NOTE) { "Wake note is too long" }

@@ -43,6 +43,9 @@ public sealed interface SchedulerIntent : MachineIntent {
 
     /** Effect results, bus events and timer ticks. */
     public sealed interface Internal : SchedulerIntent {
+        /** The profile started the scheduler; stored wakes are read. */
+        public data object Start : Internal
+
         /** Stored wakes were read. */
         public data class Loaded(val wakes: List<ScheduledWake>) : Internal
 
