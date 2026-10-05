@@ -157,7 +157,7 @@ class CodexUserInputTest {
     }
 
     @Test
-    fun `interrupt cancels questions and rejects late requests for that turn`() = runTest {
+    fun `interrupt answers pending questions empty and rejects late requests for that turn`() = runTest {
         val fixture = Fixture(this)
         val session = fixture.open()
         val turn = session.feature(SendsPrompts).send(Prompt)
@@ -167,11 +167,32 @@ class CodexUserInputTest {
         session.feature(CancelsTurns).cancel(turn)
         runCurrent()
         assertIs<ActiveSessionState.Interrupting>(session.state.value)
-        assertNull(fixture.response())
+        // A rejected interrupt must not leave Codex waiting on a form that no longer exists.
+        assertEquals(JsonObject(emptyMap()), checkNotNull(fixture.response())["answers"])
+        assertEquals(1, fixture.responses())
         assertFailsWith<EngineException> { session.answer(pending, PermissionAnswer.Selected(listOf("0"))) }
         fixture.ask(question("late"))
         runCurrent()
         assertEquals(JsonObject(emptyMap()), checkNotNull(fixture.response())["answers"])
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `releasing the last lease mid batch returns the answers collected so far`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.ask(question("links"), question("details", options = null))
+        runCurrent()
+        session.answer(session.question(), PermissionAnswer.Selected(listOf("0")))
+        runCurrent()
+        session.question()
+        session.close()
+        runCurrent()
+        val answers = checkNotNull(fixture.response()).obj("answers")
+        assertEquals(JsonArray(listOf("Websites".json())), answers.obj("links")["answers"])
+        assertNull(answers["details"])
+        assertEquals(1, fixture.responses())
         fixture.runtime.close()
     }
 
@@ -189,7 +210,8 @@ class CodexUserInputTest {
         )
         runCurrent()
         assertIs<ActiveSessionState.Ready>(session.state.value)
-        assertNull(fixture.response())
+        assertEquals(JsonObject(emptyMap()), checkNotNull(fixture.response())["answers"])
+        assertEquals(1, fixture.responses())
         fixture.runtime.close()
     }
 
@@ -255,6 +277,8 @@ private suspend fun Fixture.ask(vararg questions: JsonObject) = event(
 
 private fun Fixture.response(): JsonObject? =
     wire.written.lastOrNull { it["id"] == JsonPrimitive(QUESTION_RPC_ID) }?.obj("result")
+
+private fun Fixture.responses(): Int = wire.written.count { it["id"] == JsonPrimitive(QUESTION_RPC_ID) }
 
 private fun ActiveSession.question(): PermissionRequest =
     assertIs<ActiveSessionState.AwaitingUserAction>(state.value).requests.single()

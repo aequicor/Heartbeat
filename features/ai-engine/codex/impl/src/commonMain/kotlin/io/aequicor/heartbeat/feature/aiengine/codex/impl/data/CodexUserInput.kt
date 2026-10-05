@@ -10,9 +10,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -22,7 +24,8 @@ import kotlin.uuid.Uuid
 
 /**
  * Serves native user-input batches without blocking the event loop. Pending forms share the session's decision
- * bridge; native resolution cancels the batch, and its turn-owned parent revokes it on interruption or completion.
+ * bridge; native resolution withdraws the batch silently, while revocation by its turn-owned parent (interruption or
+ * completion) answers it empty so Codex never waits on a form that no longer exists.
  */
 internal class CodexUserInput(
     private val scope: CoroutineScope,
@@ -36,22 +39,48 @@ internal class CodexUserInput(
         val id = message["id"] ?: protocolFailure()
         val questions = codexQuestions(message.obj("params"))
         if (turn == null || parent == null || questions == null) {
-            log.w { "Codex user input refused: unavailable turn or unsupported questions" }
-            respond(id, json("answers" to JsonObject(emptyMap())))
+            // A closed turn, a disabled questionnaire or no live viewer make the form unanswerable.
+            val reason = if (turn == null || parent == null) "unavailable" else "unsupported"
+            log.i { "Codex user input refused reason=$reason" }
+            respond(id, EmptyAnswers)
             return
         }
-        if (id in jobs) return
+        if (id in jobs) {
+            log.d { "Codex user input duplicate request ignored" }
+            return
+        }
         log.i { "Codex questionnaire requested count=${questions.size}" }
+        var isResponseStarted = false
         val job = scope.launch(parent, start = CoroutineStart.LAZY) {
-            respond(id, answerCodexQuestions(questions, turn, ask))
+            val answers = answerCodexQuestions(questions, turn, ask)
+            log.i { "Codex questionnaire answered count=${answers.size}" }
+            // Once delivery starts, revocation must not send another response for the same request.
+            isResponseStarted = true
+            respond(id, json("answers" to answers))
         }
         jobs[id] = job
-        job.invokeOnCompletion { jobs.remove(id, job) }
+        job.invokeOnCompletion { cause ->
+            // A batch still registered was not withdrawn natively: its revoked form must not leave Codex waiting.
+            val isOwned = jobs[id] === job
+            if (isOwned) jobs.remove(id)
+            if (isOwned && cause is CancellationException && !isResponseStarted) answerRevoked(id)
+        }
         job.start()
     }
 
     fun resolved(id: JsonElement) {
-        jobs.remove(id)?.cancel()
+        val job = jobs.remove(id) ?: return
+        log.i { "Codex questionnaire withdrawn by native resolution" }
+        job.cancel()
+    }
+
+    private fun answerRevoked(id: JsonElement) {
+        if (!scope.isActive) {
+            log.i { "Codex questionnaire dropped unanswered: session closed" }
+            return
+        }
+        log.i { "Codex questionnaire revoked, answering empty" }
+        scope.launch { respond(id, EmptyAnswers) }
     }
 }
 
@@ -94,8 +123,10 @@ internal fun codexQuestions(params: JsonObject): List<CodexQuestion>? {
 }
 
 /**
- * Converts the native batch into the existing structured permission inputs. The Other choice opens a free-text
- * follow-up; no selected option or empty form is submitted without an explicit user decision.
+ * Converts the native batch into the existing structured permission inputs and returns the per-question answers.
+ * Questions always wait for an explicit user decision, independently of the turn trust level; the Other choice opens
+ * a free-text follow-up and a skip yields an empty list. When the form becomes unavailable mid-batch (lease released,
+ * turn changed, request not accepted), the answers collected so far are returned and the rest stay unanswered.
  */
 internal suspend fun answerCodexQuestions(
     questions: List<CodexQuestion>,
@@ -107,12 +138,12 @@ internal suspend fun answerCodexQuestions(
         val decision = question.answer(turn, ask) ?: break
         val values = when (val answer = decision.answer) {
             is PermissionAnswer.Text -> listOf(answer.value)
-            is PermissionAnswer.Selected -> answer.ids.map { question.labels[it.toInt()] }
+            is PermissionAnswer.Selected -> answer.ids.mapNotNull { it.toIntOrNull()?.let(question.labels::getOrNull) }
             null -> emptyList()
         }
         answers[question.id] = json("answers" to JsonArray(values.map(::JsonPrimitive)))
     }
-    return json("answers" to JsonObject(answers))
+    return JsonObject(answers)
 }
 
 private suspend fun CodexQuestion.answer(
@@ -150,3 +181,5 @@ private fun CodexQuestion.request(turn: TurnId, input: PermissionInput) = Permis
 )
 
 private const val OTHER = "other"
+
+private val EmptyAnswers = json("answers" to JsonObject(emptyMap()))

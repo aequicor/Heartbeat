@@ -576,7 +576,10 @@ internal class CodexSession(
         return awaitDecision(request)?.option == HOSTED_ALLOW
     }
 
-    /** A question always needs an explicit answer, independently of the turn trust level. */
+    /**
+     * Shows a hosted request and waits for the user's decision. Null means the request could not be shown or was
+     * withdrawn: the turn changed or closed, the machine refused it, or the last lease was released.
+     */
     private suspend fun awaitDecision(request: PermissionRequest): PermissionDecision? {
         if (currentTurn()?.id != request.turn || request.turn in toolsClosed || leases.isEmpty()) return null
         val answer = CompletableDeferred<PermissionDecision?>()
