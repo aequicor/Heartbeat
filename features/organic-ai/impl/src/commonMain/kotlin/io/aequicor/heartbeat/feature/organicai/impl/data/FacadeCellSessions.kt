@@ -67,9 +67,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
             handles[key]?.takeIf { it.isOpen() }?.let { return FacadeCellHandle(it) }
             sleeps
         }
-        val opened = if (existing == null) create(route) else resume(existing, route)
-        // Until the handle is cached nobody owns it, so neither caching nor letting it go may be cancelled.
+        // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
+        // neither step may be cancelled.
         return withContext(NonCancellable) {
+            val opened = if (existing == null) create(route) else resume(existing, route)
             var isLysed = false
             val kept = mutex.withLock {
                 isLysed = key in lysed
@@ -86,10 +87,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
                     discard(opened, isStopped = false, isArchived = existing == null)
                 }
 
-                // The cell was lysed or the cells slept meanwhile: a turn the session runs must stop, and a lysed
-                // cell's session must not stay listed.
+                // The cell was lysed or the cells slept meanwhile: a turn the session runs must stop, and neither a
+                // lysed cell's session nor a new one the organism never learnt of may stay listed.
                 else -> {
-                    discard(opened, isStopped = true, isArchived = isLysed)
+                    discard(opened, isStopped = true, isArchived = isLysed || existing == null)
                     throw closed()
                 }
             }

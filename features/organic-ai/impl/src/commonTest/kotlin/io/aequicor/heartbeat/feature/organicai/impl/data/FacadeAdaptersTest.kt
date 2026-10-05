@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -29,6 +30,8 @@ import io.aequicor.heartbeat.feature.organicai.impl.message
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -38,6 +41,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class FacadeAdaptersTest {
@@ -117,6 +121,23 @@ class FacadeAdaptersTest {
     }
 
     @Test
+    fun `a refusal the synchronized session runs anyway is followed`() = runTest {
+        val native = FakeSession(session("n")).apply {
+            sendFailure = EngineFailure.Transport(TransportFailureReason.Timeout)
+            synchronized = ActiveSessionState.Running(Turn(TurnId("turn-1"), RequestId("r1"), TARGET))
+        }
+        assertEquals(TurnId("turn-1"), native.submit(RequestId("r1"), "work", null))
+    }
+
+    @Test
+    fun `an unknown outcome of another request is not followed`() = runTest {
+        val native = FakeSession(session("n")).apply {
+            sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r0"))
+        }
+        assertFailsWith<EngineException> { native.submit(RequestId("r1"), "work", null) }
+    }
+
+    @Test
     fun `an ambiguous submission follows the turn the engine may have started`() = runTest {
         val native = FakeSession(session("n")).apply {
             sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r1"))
@@ -148,7 +169,35 @@ class FacadeAdaptersTest {
         val failure = EngineFailure.Unknown()
         native.state.value = ActiveSessionState.Unavailable(failure, Turn(turn, RequestId("r1"), TARGET))
         assertEquals(TurnOutcome.Failed(failure), native.awaitTurn(turn) {})
-        assertEquals(6, native.synchronizations)
+        assertEquals(8, native.synchronizations)
+        assertEquals(listOf(turn), native.cancelled)
+    }
+
+    @Test
+    fun `stopping closes the handle even when cancelling fails`() = runTest {
+        val native = FakeSession(session("n")).apply {
+            finish = null
+            cancelFailure = IllegalStateException("cancel failed")
+        }
+        native.submit(RequestId("r1"), "work", null)
+        assertFailsWith<IllegalStateException> { native.stop(1.seconds) }
+        assertEquals(1, native.closes)
+    }
+
+    @Test
+    fun `a cancelled sleep still stops and closes every handle`() = runTest {
+        val native = FakeSession(session("new")).apply {
+            finish = null
+            ignoresCancel = true
+        }
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        cells.open(key, route, null).submit(RequestId("r1"), "work", null)
+        val sleeping = launch { cells.releaseAll() }
+        runCurrent()
+        sleeping.cancel()
+        advanceUntilIdle()
+        assertEquals(1, native.cancelled.size)
+        assertEquals(1, native.closes)
     }
 
     @Test
@@ -213,7 +262,7 @@ class FacadeAdaptersTest {
         facade.onCreate = { cells.releaseAll() }
         assertFailsWith<EngineException> { cells.open(key, route, null) }
         assertEquals(1, first.closes)
-        assertFalse(first.isArchived)
+        assertTrue(first.isArchived)
         facade.onCreate = {}
         assertSame(second.ref, cells.open(key, route, null).session)
     }
@@ -256,7 +305,11 @@ class FacadeAdaptersTest {
         val second = FakeSession(session("judge-2"))
         val facade = FakeFacade(ArrayDeque(listOf(first, second)))
         val judges = FacadeJudgeSessions(facade)
-        first.items = listOf(message(MessageRole.Assistant, "VERDICT spare", turn = "turn-1"))
+        // History carries the engine's own turn ids.
+        first.items = listOf(
+            message(MessageRole.User, "dossier", turn = "native-1", position = 0),
+            message(MessageRole.Assistant, "VERDICT spare", turn = "native-1", position = 1),
+        )
         val sessions = mutableListOf<io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef>()
         assertEquals("VERDICT spare", judges.deliberate(TARGET, "dossier") { sessions += it })
         judges.deliberate(TARGET, "dossier") { sessions += it }

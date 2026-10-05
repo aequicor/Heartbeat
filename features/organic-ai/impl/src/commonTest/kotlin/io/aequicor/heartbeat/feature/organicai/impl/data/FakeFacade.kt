@@ -73,6 +73,10 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
 
     /** The state a resumption finds the session in. */
     var resumedAs: ActiveSessionState = ActiveSessionState.Ready()
+
+    /** Thrown by cancellation; with [ignoresCancel] a cancelled turn runs on. */
+    var cancelFailure: Throwable? = null
+    var ignoresCancel = false
     val prompts = mutableListOf<PromptRequest>()
     val cancelled = mutableListOf<TurnId>()
     val decisions = mutableListOf<PermissionDecision>()
@@ -111,7 +115,8 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
     private val cancels = object : CancelsTurns {
         override suspend fun cancel(turn: TurnId) {
             cancelled += turn
-            end(turn, TurnOutcome.Cancelled)
+            cancelFailure?.let { throw it }
+            if (!ignoresCancel) end(turn, TurnOutcome.Cancelled)
         }
     }
 

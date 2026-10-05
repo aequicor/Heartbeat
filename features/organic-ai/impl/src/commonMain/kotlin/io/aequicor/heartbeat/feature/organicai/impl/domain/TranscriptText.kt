@@ -9,21 +9,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 
 /**
- * The final answer of [turn]: its last assistant message with text, or, for an engine that does not mark turns in
- * history, the last such message after the last user message. A history that marks turns never lends [turn] the
- * answer of another turn. Null when there is none. Cut to the result bound.
+ * The final answer of [turn]: the last assistant message with text among the messages of that turn. History marks
+ * items with the engine's own turn ids, which differ from the ids a handle gives its submissions, so a turn found
+ * nowhere by id takes the messages after the last user message (its prompt) instead. Null when there is none. Cut to
+ * the result bound.
  */
 internal fun answerOf(items: List<SessionItem>, turn: TurnId): String? {
     val messages = items.filterIsInstance<SessionItem.Message>()
-    val isMarked = messages.any { it.info.turn != null }
-    val candidates = if (isMarked) {
-        messages.filter { it.info.turn == turn }
-    } else {
-        messages.takeLastWhile {
-            it.role != MessageRole.User
-        }
-    }
-    val answer = candidates.lastOrNull { it.role == MessageRole.Assistant && it.text().isNotBlank() }
+    val marked = messages.filter { it.info.turn == turn }
+    val own = marked.ifEmpty { messages.takeLastWhile { it.role != MessageRole.User } }
+    val answer = own.lastOrNull { it.role == MessageRole.Assistant && it.text().isNotBlank() }
     return answer?.text()?.let { cut(it.trim(), OrganismBounds.MAX_RESULT) }
 }
 
