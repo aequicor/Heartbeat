@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -53,6 +54,10 @@ internal class SchedulerEffects(
             if (isDelivered) null else WakeFailure.Busy.also { log.w { "wake $id: the session stayed busy" } }
         } catch (e: CancellationException) {
             throw e
+        } catch (e: ScheduledWakeDeferredException) {
+            log.w(e) { "wake $id: admission paused; keep pending until event replay" }
+            machine.send(SchedulerIntent.Internal.Deferred(id))
+            return
         } catch (e: SessionUnavailableException) {
             log.w(e) { "wake $id: session unavailable" }
             WakeFailure.SessionUnavailable

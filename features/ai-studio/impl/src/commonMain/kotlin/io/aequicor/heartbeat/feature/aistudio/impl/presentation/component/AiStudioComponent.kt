@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPickRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPicked
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
 import io.aequicor.heartbeat.feature.searchengine.api.ProfileSettingsRoute
@@ -89,6 +90,27 @@ class AiStudioComponent(
         global = GlobalRoutes.Only(setOf(AttachmentsPickRoute::class, AttachmentPreviewRoute::class)),
     )
 
+    private val checklistNavigation = ItemsNavigation<String>()
+    private val checklistItems = childItems(
+        source = checklistNavigation,
+        serializer = null,
+        initialItems = { Items() },
+        key = "checklists",
+    ) { id, context ->
+        hosts.stack(
+            context = context,
+            parent = navigator,
+            name = "checklist-$id",
+            initial = listOf(ChecklistRoute(id)),
+            local = emptyList(),
+            global = GlobalRoutes.Only(setOf(ChecklistRoute::class)),
+        )
+    }
+    private val checklistHosts = MutableStateFlow<Map<String, StackHost>>(emptyMap())
+
+    /** Inline card hosts, resolved without depending on the checklist implementation. */
+    val checklists: StateFlow<Map<String, StackHost>> = checklistHosts.asStateFlow()
+
     private val questionNavigation = ItemsNavigation<String>()
 
     // One child per session with open questions; a session without questions destroys its child and host.
@@ -108,6 +130,21 @@ class AiStudioComponent(
     val questions: StateFlow<Map<String, StackHost>> = questionHosts.asStateFlow()
 
     init {
+        val checklistWatch = checklistItems.subscribe { children ->
+            log.v { "Update inline checklist hosts: ${children.activeItems.size}" }
+            checklistHosts.value = children.activeItems.mapValues { (_, child) -> child.first }
+        }
+        val checklistJob = scope.coroutineScope.launch {
+            entries.checklistIds.collect { ids ->
+                val shown = ids.toList()
+                checklistNavigation.navigate { Items(shown, shown.associateWith { ActiveLifecycleState.RESUMED }) }
+            }
+        }
+        lifecycle.doOnDestroy {
+            checklistWatch.cancel()
+            checklistJob.cancel()
+        }
+
         val attachments = scope.coroutineScope.launch {
             model.attachmentNavigation.collect { event ->
                 when (event) {

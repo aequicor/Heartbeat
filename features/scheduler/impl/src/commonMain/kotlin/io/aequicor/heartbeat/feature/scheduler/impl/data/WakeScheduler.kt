@@ -88,6 +88,12 @@ internal fun WakeCondition.describe(): String = listOfNotNull(
 
 private fun SchedulerOutput.outcomeOf(id: WakeId): ScheduleOutcome? = when (this) {
     is SchedulerOutput.Scheduled -> ScheduleOutcome.Scheduled.takeIf { wake.id == id }
+
     is SchedulerOutput.Rejected -> ScheduleOutcome.Rejected(rejection).takeIf { this.id == id }
-    is SchedulerOutput.Cancelled, is SchedulerOutput.Woke, is SchedulerOutput.DeliveryFailed -> null
+
+    is SchedulerOutput.Cancelled,
+    is SchedulerOutput.Woke,
+    is SchedulerOutput.Deferred,
+    is SchedulerOutput.DeliveryFailed,
+    -> null
 }

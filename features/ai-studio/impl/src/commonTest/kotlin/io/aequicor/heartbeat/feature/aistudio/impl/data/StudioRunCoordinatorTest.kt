@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -15,12 +16,14 @@ import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Instant
@@ -28,7 +31,7 @@ import kotlin.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioRunCoordinatorTest {
     @Test
-    fun `cancelling scheduled preparation releases the reservation without later submission`() = runTest {
+    fun `cancelling gated scheduled preparation releases the reservation without later submission`() = runTest {
         val events = mutableListOf<String>()
         val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
         val host = RunHost(events)
@@ -39,7 +42,14 @@ class StudioRunCoordinatorTest {
             events += "submitted"
             RunOutcome.Completed
         }
-        val caller = async { coordinator.run(host, runRequest("wake"), cancelBeforeSubmission = true) }
+        val caller = async {
+            coordinator.run(
+                host,
+                runRequest("wake"),
+                cancelBeforeSubmission = true,
+                isExecutionEnabled = MutableStateFlow(true),
+            )
+        }
         runCurrent()
         assertEquals(listOf("started", "execute"), events)
         caller.cancelAndJoin()
@@ -49,6 +59,141 @@ class StudioRunCoordinatorTest {
         runCurrent()
         assertFalse("submitted" in events)
         assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("next")))
+    }
+
+    @Test
+    fun `disabling during preparation clears its receipt and retries the same wake after enabling`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val stores = ChecklistTestStores()
+        val inbox = StudioWakeInbox(stores)
+        val enabled = MutableStateFlow(true)
+        val prepared = CompletableDeferred<Unit>()
+        val request = runRequest("wake").copy(onAccepted = { inbox.accepted(RequestId("wake")) })
+        host.execute = { actual ->
+            prepared.await()
+            actual.submission?.begin()
+            events += "submitted"
+            actual.onAccepted()
+            RunOutcome.Completed
+        }
+        suspend fun runWake() = coordinator.run(
+            host,
+            request,
+            cancelBeforeSubmission = true,
+            beforeExecute = { inbox.submitting(request.request) },
+            onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
+            isExecutionEnabled = enabled,
+        )
+        val first = async { assertFailsWith<ScheduledWakeDeferredException> { runWake() } }
+        runCurrent()
+        assertEquals(WakeReceipt.Submitting, inbox.receipt(request.request))
+        enabled.value = false
+        runCurrent()
+        first.await()
+        assertNull(StudioWakeInbox(stores).receipt(request.request))
+        assertEquals(listOf("started", "execute", "finished"), events)
+        prepared.complete(Unit)
+        runCurrent()
+        assertFalse("submitted" in events)
+        enabled.value = true
+        assertEquals(RunOutcome.Completed, runWake())
+        assertEquals(1, events.count { it == "submitted" })
+        assertEquals(WakeReceipt.Accepted, StudioWakeInbox(stores).receipt(request.request))
+    }
+
+    @Test
+    fun `disabling while reserving still releases the reservation before another run`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val enabled = MutableStateFlow(true)
+        host.start = { enabled.value = false }
+        host.execute = { request ->
+            request.submission?.begin()
+            events += "submitted"
+            RunOutcome.Completed
+        }
+        assertFailsWith<ScheduledWakeDeferredException> {
+            coordinator.run(host, runRequest("wake"), cancelBeforeSubmission = true, isExecutionEnabled = enabled)
+        }
+        assertEquals(listOf("started", "execute", "finished"), events)
+        host.start = {}
+        enabled.value = true
+        assertEquals(
+            RunOutcome.Completed,
+            coordinator.run(host, runRequest("next"), cancelBeforeSubmission = true, isExecutionEnabled = enabled),
+        )
+        assertEquals(1, events.count { it == "submitted" })
+    }
+
+    @Test
+    fun `submission rechecks the flag before the toggle collector gets a dispatcher turn`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val enabled = MutableStateFlow(true)
+        var cleanupCount = 0
+        host.execute = { request ->
+            enabled.value = false
+            request.submission?.begin()
+            events += "submitted"
+            RunOutcome.Completed
+        }
+        assertFailsWith<ScheduledWakeDeferredException> {
+            coordinator.run(
+                host,
+                runRequest("wake"),
+                cancelBeforeSubmission = true,
+                onCancelledBeforeSubmission = { cleanupCount++ },
+                isExecutionEnabled = enabled,
+            )
+        }
+        assertEquals(listOf("started", "execute", "finished"), events)
+        assertEquals(1, cleanupCount)
+    }
+
+    @Test
+    fun `disabling after native submission preserves unknown acceptance and the profile owned run`() = runTest {
+        val events = mutableListOf<String>()
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(events)
+        val inbox = StudioWakeInbox(ChecklistTestStores())
+        val enabled = MutableStateFlow(true)
+        val nativeResponse = CompletableDeferred<Unit>()
+        val terminal = CompletableDeferred<RunOutcome>()
+        val request = runRequest("wake").copy(onAccepted = { inbox.accepted(RequestId("wake")) })
+        host.execute = { actual ->
+            actual.submission?.begin()
+            events += "submitted"
+            nativeResponse.await()
+            actual.onAccepted()
+            terminal.await()
+        }
+        val caller = async {
+            coordinator.run(
+                host,
+                request,
+                cancelBeforeSubmission = true,
+                beforeExecute = { inbox.submitting(request.request) },
+                onCancelledBeforeSubmission = { inbox.cancelledBeforeSubmission(request.request) },
+                isExecutionEnabled = enabled,
+            )
+        }
+        runCurrent()
+        enabled.value = false
+        runCurrent()
+        assertFalse(caller.isCompleted)
+        assertEquals(WakeReceipt.Submitting, inbox.receipt(request.request))
+        assertEquals(listOf("started", "execute", "submitted"), events)
+        nativeResponse.complete(Unit)
+        runCurrent()
+        assertEquals(WakeReceipt.Accepted, inbox.receipt(request.request))
+        assertFalse("finished" in events)
+        terminal.complete(RunOutcome.Completed)
+        assertEquals(RunOutcome.Completed, caller.await())
+        assertEquals(WakeReceipt.Accepted, inbox.receipt(request.request))
     }
 
     @Test
@@ -232,13 +377,49 @@ class StudioRunCoordinatorTest {
         assertEquals(RunOutcome.Completed, second.await())
         assertEquals(listOf("started", "execute", "finished", "started", "handoff", "execute", "finished"), events)
     }
+
+    @Test
+    fun `disabled continuation waits without reserving chat and resumes when enabled`() = runTest {
+        val coordinator = StudioRunCoordinator(RunProfile(this), RunClock)
+        val host = RunHost(mutableListOf())
+        val terminal = CompletableDeferred<RunOutcome>()
+        val executed = mutableListOf<String>()
+        host.execute = {
+            executed += it.request.value
+            if (it.request.value == "first") terminal.await() else RunOutcome.Completed
+        }
+        val first = async { coordinator.run(host, runRequest("first")) }
+        runCurrent()
+        val enabled = MutableStateFlow(true)
+        val wake = async {
+            assertFailsWith<ScheduledWakeDeferredException> {
+                coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled)
+            }
+        }
+        runCurrent()
+        enabled.value = false
+        terminal.complete(RunOutcome.Completed)
+        first.await()
+        runCurrent()
+        wake.await()
+        assertEquals(RunOutcome.Completed, coordinator.run(host, runRequest("manual")))
+        assertEquals(listOf("first", "manual"), executed)
+        enabled.value = true
+        assertEquals(
+            RunOutcome.Completed,
+            coordinator.run(host, runRequest("wake"), waitForIdle = true, isExecutionEnabled = enabled),
+        )
+        assertEquals(listOf("first", "manual", "wake"), executed)
+    }
 }
 
 private class RunHost(private val events: MutableList<String>) : StudioRunHost {
     var execute: suspend (StudioTurnRequest) -> RunOutcome = { RunOutcome.Completed }
     var cleanup: suspend () -> Unit = {}
+    var start: suspend () -> Unit = {}
     override suspend fun startedRun(id: String, at: Instant) {
         events += "started"
+        start()
     }
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         events += "execute"

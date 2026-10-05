@@ -98,6 +98,7 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
                     val bound = context.request?.let { boundTurns[context.session to it] }
                     trusted = context.copy(
                         turn = bound?.turn ?: context.turn,
+                        historyTurn = context.turn,
                         target = bound?.target ?: context.target,
                         authorization = null,
                     )

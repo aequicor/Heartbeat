@@ -20,6 +20,7 @@ kotlin {
             implementation(projects.features.feedback.api)
             implementation(projects.features.researchChat.api)
             implementation(projects.features.questionnaire.api)
+            implementation(projects.features.checklist.api)
             implementation(projects.features.aiEngine.koog.api)
             implementation(projects.features.togglesPanel.api)
             implementation(projects.features.settings.api)

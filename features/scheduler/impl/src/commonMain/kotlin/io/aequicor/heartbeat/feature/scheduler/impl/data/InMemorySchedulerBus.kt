@@ -33,7 +33,7 @@ internal class InMemorySchedulerBus(private val clock: Clock) : SchedulerBus {
         if (key.namespace == EventNamespace.Session) {
             log.v { "publish $key" }
         } else {
-            log.d { "publish $key from ${origin::class.simpleName.orEmpty()}" }
+            log.v { "publish $key from ${origin::class.simpleName.orEmpty()}" }
         }
         stream.emit(event)
         return event

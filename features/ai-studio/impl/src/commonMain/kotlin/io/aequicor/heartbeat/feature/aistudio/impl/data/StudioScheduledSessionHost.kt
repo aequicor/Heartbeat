@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import kotlinx.coroutines.CancellationException
@@ -124,6 +125,8 @@ internal class StudioScheduledSessionHost(
     private suspend fun <T> logged(block: suspend () -> T): T = try {
         block()
     } catch (e: CancellationException) {
+        throw e
+    } catch (e: ScheduledWakeDeferredException) {
         throw e
     } catch (e: Exception) {
         log.e(e) { "scheduled run failed" }

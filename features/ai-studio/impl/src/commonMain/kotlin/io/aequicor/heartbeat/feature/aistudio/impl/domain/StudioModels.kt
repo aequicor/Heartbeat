@@ -41,6 +41,8 @@ data class StudioSession(
     val isOrganism: Boolean = false,
     /** Native identity used to locate the existing conversation of a computer-use capture owner. */
     val nativeSession: SessionRef? = null,
+    val isAwaitingChecklist: Boolean = false,
+    val isReady: Boolean = false,
     /** Route for observing native descendants without attaching an execution handle. */
     val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
 )
@@ -66,6 +68,8 @@ data class StudioToolRun(
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
     val learning: StudioLearningCall? = null,
+    /** Stable attachment identity decoded only from a successful hosted checklist creation result. */
+    val createdChecklistId: String? = null,
 )
 
 /** What a self-learning tool call does: saving an instruction or loading a learned skill. */
@@ -124,6 +128,8 @@ sealed interface StudioMessage {
         val tools: List<StudioToolRun> = emptyList(),
         val isStreaming: Boolean = false,
         val parts: List<StudioReplyPart> = emptyList(),
+        val checklistIds: List<String> = emptyList(),
+        val historyTurn: String? = null,
         override val isTimestampKnown: Boolean = true,
     ) : StudioMessage
 

@@ -10,11 +10,13 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEffect
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
@@ -92,6 +94,25 @@ class SchedulerEffectsTest {
             ),
             scope.sent.toSet(),
         )
+    }
+
+    @Test
+    fun `disabled feature defers without dropping wake or reporting failure`() = runTest {
+        val host = FakeHost(priority = 1, failure = ScheduledWakeDeferredException())
+        val wake = scheduled("deferred", events = setOf(EventKeys.custom("completed")))
+        val delivery = WakeDelivery(wake, WakeReason.Deadline(START))
+        SchedulerEffects(persistence, lazyOf(setOf(host))).handle(SchedulerEffect.Deliver(listOf(delivery)), scope)
+        assertEquals(listOf<SchedulerIntent>(SchedulerIntent.Internal.Deferred(wake.id)), scope.sent)
+        val machine = SpecMachine(SchedulerState.Ready(listOf(wake), delivering = setOf(wake.id)))
+        machine.send(scope.sent.single())
+        val ready = machine.state.value as SchedulerState.Ready
+        assertEquals(listOf(wake), ready.wakes)
+        assertTrue(ready.delivering.isEmpty())
+        // A paused feature has no timer: its producer may replay the same event even after a long pause.
+        machine.send(
+            SchedulerIntent.Internal.Observed(BusEvent(EventKeys.custom("completed"), EventOrigin.Host, START)),
+        )
+        assertEquals(setOf(wake.id), (machine.state.value as SchedulerState.Ready).delivering)
     }
 
     @Test

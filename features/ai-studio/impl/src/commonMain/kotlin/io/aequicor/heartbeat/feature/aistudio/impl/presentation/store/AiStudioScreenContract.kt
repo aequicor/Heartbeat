@@ -39,6 +39,8 @@ data class SessionUi(
     val isWorktree: Boolean = false,
     /** An organic AI organism of the same id drives this chat; the chat only shows its sessions. */
     val isOrganism: Boolean = false,
+    val isAwaitingChecklist: Boolean = false,
+    val isReady: Boolean = false,
 )
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */

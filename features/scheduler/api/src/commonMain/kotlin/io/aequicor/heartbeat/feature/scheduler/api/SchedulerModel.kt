@@ -80,6 +80,10 @@ public data class WakeRequest(
     val note: String,
     val origin: WakeOrigin,
     val target: EngineTarget? = null,
+    /** Host requires durable acceptance tracking; this id must identify one immutable delivery attempt. */
+    val isDeduplicationRequired: Boolean = false,
+    /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
+    val ownerFeature: String? = null,
 ) {
     init {
         require(note.length <= SchedulerLimits.MAX_NOTE) { "Wake note is too long" }

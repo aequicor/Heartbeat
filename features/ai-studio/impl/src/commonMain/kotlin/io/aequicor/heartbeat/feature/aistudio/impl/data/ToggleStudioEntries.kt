@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 /**
  * Entry points gated by feature toggles. Connection settings are profile routes, so they are offered only while
@@ -32,6 +33,7 @@ internal class ToggleStudioEntries(
     toggles: FeatureToggles,
     sessions: ProfileSessions,
     questions: Lazy<StudioQuestionBridge>,
+    checklists: Lazy<StudioChecklists>,
 ) : StudioEntries {
     override val showsAttachments: Flow<Boolean> = toggles.observe(AttachmentsEnabled)
 
@@ -45,6 +47,16 @@ internal class ToggleStudioEntries(
     // The profile bridge runs from the profile start; a guest studio has no profile questions.
     override val questionSources: Flow<Set<String>> = sessions.active.flatMapLatest { session ->
         if (session == null) flowOf(emptySet()) else questions.value.sources
+    }
+
+    override val checklistIds: Flow<Set<String>> = sessions.active.flatMapLatest { session ->
+        if (session == null) {
+            flowOf(
+                emptySet(),
+            )
+        } else {
+            checklists.value.events.map { cards -> cards.map { it.id }.toSet() }
+        }
     }
 
     override val showsConnections: Flow<Boolean> =

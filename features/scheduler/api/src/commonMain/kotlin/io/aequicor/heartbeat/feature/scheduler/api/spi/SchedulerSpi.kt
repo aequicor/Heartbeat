@@ -15,7 +15,15 @@ import kotlinx.coroutines.flow.Flow
  * only (sent as a host directive, never shown). [request] is stable per wake, so a host can recognise a repeated
  * delivery.
  */
-public data class WakePrompt(val request: RequestId, val visible: String, val directive: String) {
+public data class WakePrompt(
+    val request: RequestId,
+    val visible: String,
+    val directive: String,
+    /** Track native acceptance durably for an immutable delivery attempt. */
+    val isDeduplicationRequired: Boolean = false,
+    /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
+    val ownerFeature: String? = null,
+) {
     override fun toString(): String = "WakePrompt(request=$request)"
 }
 
@@ -73,3 +81,6 @@ public fun interface SchedulerEventSource {
     /** Signals from now on; a failing flow is logged and restarted. */
     public fun events(): Flow<SourceEvent>
 }
+
+/** A host declined admission before any native submission; keep the wake until its event is replayed. */
+public class ScheduledWakeDeferredException : Exception("The owning feature paused wake admission")

@@ -68,6 +68,9 @@ public sealed interface SchedulerIntent : MachineIntent {
         /** The session accepted the wake prompt of [id]. */
         public data class Delivered(val id: WakeId, val reason: WakeReason) : Internal
 
+        /** Host paused admission without submitting; retain the wait for event replay. */
+        public data class Deferred(val id: WakeId) : Internal
+
         /** The wake prompts of [ids] could not be delivered. */
         public data class DeliveryFailed(val ids: List<WakeId>, val failure: WakeFailure) : Internal
     }
@@ -90,6 +93,9 @@ public data class WakeDelivery(val wake: ScheduledWake, val reason: WakeReason)
 
 /** Transient notifications; [SchedulerState.Ready.wakes] stays authoritative. */
 public sealed interface SchedulerOutput : MachineOutput {
+    /** Host paused admission without submitting; wake remains scheduled. */
+    public data class Deferred(val id: WakeId) : SchedulerOutput
+
     /** [wake] is pending. */
     public data class Scheduled(val wake: ScheduledWake) : SchedulerOutput
 

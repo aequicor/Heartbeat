@@ -40,7 +40,13 @@ internal fun wakePrompt(delivery: WakeDelivery): WakePrompt {
         if (wake.request.note.isNotBlank()) appendLine("Your note for this moment:").appendLine(wake.request.note)
         append("Continue the task from here; sleep again with ${SchedulerTools.SLEEP} if you still need to wait.")
     }
-    return WakePrompt(RequestId("wake_${wake.id.value}"), visible, directive)
+    return WakePrompt(
+        RequestId("wake_${wake.id.value}"),
+        visible,
+        directive,
+        wake.request.isDeduplicationRequired,
+        wake.request.ownerFeature,
+    )
 }
 
 /** Transcript line of a wake by event; the event key follows. Shown to the user, who reads the studio in Russian. */

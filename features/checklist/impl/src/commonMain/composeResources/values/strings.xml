@@ -1,0 +1,12 @@
+<resources>
+    <string name="checklist_complete">Complete</string>
+    <string name="checklist_completed">Completed</string>
+    <string name="checklist_failed">Changes could not be saved</string>
+    <string name="checklist_pending">Waiting for the session to continue</string>
+    <string name="checklist_range">Select %1$d–%2$d</string>
+    <string name="checklist_required">Required</string>
+    <string name="checklist_retry">Retry saving</string>
+    <string name="checklist_retry_delivery">Retry continuation (the previous result may be unknown)</string>
+    <string name="checklist_saving">Saving…</string>
+    <string name="checklist_superseded">Outdated — a new verification is required</string>
+</resources>

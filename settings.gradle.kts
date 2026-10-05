@@ -107,3 +107,5 @@ include(":features:agent-learning:api", ":features:agent-learning:impl")
 include(":features:organic-ai:api", ":features:organic-ai:impl")
 include(":features:plant-uml-support:api", ":features:plant-uml-support:impl")
 include(":features:scheduler:api", ":features:scheduler:impl")
+
+include(":features:checklist:api", ":features:checklist:impl")

@@ -58,6 +58,8 @@ public data class AgentToolContext(
      * target recorded by [ProfileAgentTools.bindTurn] for a bound request. Never decoded from model arguments.
      */
     val target: EngineTarget? = null,
+    /** Adapter turn identity used by SessionHistory, retained when the dispatcher correlates the facade turn. */
+    val historyTurn: TurnId? = null,
 ) {
     override fun toString(): String = "AgentToolContext"
 }

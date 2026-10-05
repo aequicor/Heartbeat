@@ -209,4 +209,6 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     isContinuable = isContinuable,
     isWorktree = isWorktree,
     isOrganism = isOrganism,
+    isAwaitingChecklist = isAwaitingChecklist,
+    isReady = isReady,
 )

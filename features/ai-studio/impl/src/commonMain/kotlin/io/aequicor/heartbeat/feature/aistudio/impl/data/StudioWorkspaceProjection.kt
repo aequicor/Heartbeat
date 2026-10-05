@@ -26,6 +26,7 @@ internal class StudioWorkspaceProjection(
     private val facade: EngineFacade,
     private val workspaces: LocalWorkspaces,
     private val worktrees: StudioWorktrees,
+    private val checklists: StudioChecklists,
 ) {
     private val log = Log.tag("StudioWorkspaceProjection")
 
@@ -49,7 +50,8 @@ internal class StudioWorkspaceProjection(
             continuability,
             workspaces.observe(),
             worktrees.tasks(),
-        ) { rows, available, projects, tasks ->
+            checklists.events,
+        ) { rows, available, projects, tasks, checklistEvents ->
             StudioWorkspace(
                 projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
                 rows.orEmpty().map { record ->
@@ -64,6 +66,8 @@ internal class StudioWorkspaceProjection(
                         isWorktree = record.worktreeTaskId != null,
                         isOrganism = record.organismId != null,
                         nativeSession = record.ref,
+                        isAwaitingChecklist = record.checklistReadiness(checklistEvents).first,
+                        isReady = record.checklistReadiness(checklistEvents).second,
                         treeAccess = record.target?.let {
                             io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess(
                                 it,

@@ -117,6 +117,7 @@ internal fun StudioPaneView(
     onOpenResearch: ((String) -> Unit)? = null,
     isAtWindowLeadingEdge: Boolean = false,
     questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
 ) {
     val pane = content.pane
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -156,6 +157,7 @@ internal fun StudioPaneView(
                 SessionTranscript(
                     feedId = feedId,
                     messages = transcript,
+                    checklists = checklists,
                     worktree = worktree,
                     section = sectionTitle(content.project, content.session),
                     calendar = content.calendar,
@@ -440,7 +442,10 @@ private fun PaneTitle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> 
     if (renaming != null) {
         RenameField(renaming.title, onIntent, modifier)
     } else {
-        val title = content.session?.title ?: stringResource(Res.string.sidebar_new_session)
+        val title = listOfNotNull(
+            content.session?.title ?: stringResource(Res.string.sidebar_new_session),
+            content.session?.checklistStatusLabel(),
+        ).joinToString(" · ")
         HbTooltip(title, modifier) {
             HbText(
                 text = title,
@@ -547,6 +552,7 @@ private fun SessionTranscript(
     feedId: String,
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
+    checklists: ImmutableMap<String, ComposableComponent>,
     section: String,
     contentPadding: PaddingValues,
     overlapInsets: PaddingValues,
@@ -574,6 +580,12 @@ private fun SessionTranscript(
         showSectionHeaders = true,
         onToolAction = { call, action ->
             worktree.dispatch(call.id, action.id, onIntent) { openPullRequest(links, it) }
+        },
+        messageEmbeddedContent = { rendered ->
+            val reply = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Reply
+            HbColumn(gap = HbTheme.spacing.m) {
+                reply?.checklistIds?.forEach { id -> key(id) { checklists[id]?.Content(Modifier) } }
+            }
         },
         messageFooterContent = { rendered ->
             val prompt = messages.firstOrNull { it.id == rendered.id } as? MessageUi.Prompt
