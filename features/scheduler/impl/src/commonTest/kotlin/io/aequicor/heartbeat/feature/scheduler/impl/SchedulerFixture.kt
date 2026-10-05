@@ -34,11 +34,13 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
+import io.aequicor.heartbeat.feature.scheduler.impl.data.NetworkStatus
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.milliseconds
@@ -128,6 +130,15 @@ internal class Toggles(enabled: Boolean = true) : FeatureToggles {
 
     @Suppress("UNCHECKED_CAST") // The fake answers every flag with one value.
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = isEnabled.value as T
+}
+
+/** A network whose state the test sets; [observe] follows [state]. */
+internal class FakeNetwork(isConnected: Boolean? = null) : NetworkStatus {
+    val state = MutableStateFlow(isConnected)
+
+    override fun observe(): Flow<Boolean> = state.filterNotNull()
+
+    override suspend fun current(): Boolean? = state.value
 }
 
 /** Wall clock following the virtual time of [scheduler]. */

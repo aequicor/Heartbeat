@@ -40,11 +40,12 @@ class SchedulerAgentToolsTest {
     private fun TestScope.fixture(
         state: SchedulerState = SchedulerState.Ready(),
         toggles: Toggles = Toggles(),
+        network: FakeNetwork = FakeNetwork(),
     ): Fixture {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
         val bus = InMemorySchedulerBus(clock)
-        return Fixture(machine, bus, SchedulerAgentTools(machine, bus, toggles, clock))
+        return Fixture(machine, bus, SchedulerAgentTools(machine, bus, toggles, clock, network))
     }
 
     private suspend fun Fixture.call(name: String, vararg arguments: Pair<String, Any>): AgentToolResult =
@@ -110,6 +111,14 @@ class SchedulerAgentToolsTest {
         assertTrue(rejected.isError && "pending wakes" in rejected.text, rejected.text)
         val loading = fixture(SchedulerState.Loading).call(SchedulerTools.SLEEP, Arguments.AFTER_SECONDS to 5)
         assertTrue(loading.isError && "starting" in loading.text, loading.text)
+    }
+
+    @Test
+    fun `sleep refuses a network state that already holds`() = runTest {
+        val online = fixture(network = FakeNetwork(isConnected = true))
+        val refused = online.call(SchedulerTools.SLEEP, Arguments.EVENTS to listOf(EventKeys.NetworkAvailable.value))
+        assertTrue(refused.isError && "already available" in refused.text, refused.text)
+        assertFalse(online.call(SchedulerTools.SLEEP, Arguments.EVENTS to listOf(EventKeys.NetworkLost.value)).isError)
     }
 
     @Test

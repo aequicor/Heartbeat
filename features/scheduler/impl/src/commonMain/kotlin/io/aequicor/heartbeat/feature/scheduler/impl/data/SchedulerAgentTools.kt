@@ -59,6 +59,7 @@ internal class SchedulerAgentTools(
     private val bus: SchedulerBus,
     private val toggles: FeatureToggles,
     private val clock: Clock,
+    private val network: NetworkStatus,
 ) : AgentToolContribution {
     private val log = Log.tag("SchedulerAgentTools")
 
@@ -96,6 +97,7 @@ internal class SchedulerAgentTools(
             is Parsed.Invalid -> return failure(parsed.message)
             is Parsed.Valid -> parsed.condition
         }
+        alreadyHappened(condition)?.let { return failure(it) }
         val request = WakeRequest(
             WakeId("w" + Uuid.random().toHexString().take(WAKE_ID_LENGTH)),
             context.session,
@@ -161,6 +163,20 @@ internal class SchedulerAgentTools(
             }
         }
         return AgentToolResult(text)
+    }
+
+    /**
+     * Why waiting for a network key would never wake the session: the network is already in that state. Keys are
+     * edge-triggered, so the agent must act now instead.
+     */
+    private suspend fun alreadyHappened(condition: WakeCondition): String? {
+        val awaited = condition.events
+        if (EventKeys.NetworkAvailable !in awaited && EventKeys.NetworkLost !in awaited) return null
+        return when (network.current()) {
+            true -> "the network is already available".takeIf { EventKeys.NetworkAvailable in awaited }
+            false -> "the network is already lost".takeIf { EventKeys.NetworkLost in awaited }
+            null -> null
+        }
     }
 
     /** Schedules [request] and waits for the machine's answer to this exact id. */
