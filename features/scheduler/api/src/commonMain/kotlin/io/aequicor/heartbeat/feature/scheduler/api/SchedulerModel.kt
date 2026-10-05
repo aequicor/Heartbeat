@@ -13,20 +13,32 @@ import kotlin.time.Instant
 @Serializable
 public data class WakeId(val value: String) {
     init {
-        require(value.length <= MAX_ID && ID_PATTERN.matches(value)) { "Invalid WakeId" }
+        require(isValidId(value)) { "Invalid WakeId" }
     }
 
     override fun toString(): String = value
+
+    /** Parsing of ids given by agents. */
+    public companion object {
+        /** A valid id, or null. */
+        public fun parse(value: String): WakeId? = value.trim().takeIf(::isValidId)?.let(::WakeId)
+    }
 }
 
 /** Identity of a background action; also a segment of [EventKeys.actionFinished]. */
 @Serializable
 public data class ActionId(val value: String) {
     init {
-        require(value.length <= MAX_ID && ID_PATTERN.matches(value)) { "Invalid ActionId" }
+        require(isValidId(value)) { "Invalid ActionId" }
     }
 
     override fun toString(): String = value
+
+    /** Parsing of ids given by agents. */
+    public companion object {
+        /** A valid id, or null. */
+        public fun parse(value: String): ActionId? = value.trim().takeIf(::isValidId)?.let(::ActionId)
+    }
 }
 
 /**
@@ -151,3 +163,5 @@ public object SchedulerLimits {
 
 private const val MAX_ID = 64
 private val ID_PATTERN = Regex("[a-z0-9_-]+")
+
+private fun isValidId(value: String): Boolean = value.length <= MAX_ID && ID_PATTERN.matches(value)
