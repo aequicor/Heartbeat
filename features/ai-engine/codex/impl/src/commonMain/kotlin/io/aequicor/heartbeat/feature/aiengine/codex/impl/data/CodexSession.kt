@@ -68,7 +68,8 @@ internal class CodexSession(
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
     private val hostedRequests = mutableMapOf<PermissionRequestId, PermissionRequest>()
-    private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<Boolean>>()
+    private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<PermissionDecision?>>()
+    private val questions = CodexUserInput(scope.coroutineScope, ::respondQuietly, ::awaitDecision)
     private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
@@ -90,7 +91,7 @@ internal class CodexSession(
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {
         leases -= lease
-        if (leases.isEmpty()) hostedPermissions.values.forEach { it.complete(false) }
+        if (leases.isEmpty()) hostedPermissions.values.forEach { it.complete(null) }
     }
 
     suspend fun send(request: PromptRequest): TurnId {
@@ -233,7 +234,7 @@ internal class CodexSession(
 
             is ActiveSessionEffect.Decide -> {
                 val pending = hostedPermissions.remove(effect.decision.request) ?: protocolFailure()
-                pending.complete(effect.decision.option == HOSTED_ALLOW)
+                pending.complete(effect.decision)
             }
 
             is ActiveSessionEffect.Recheck -> reconcile()
@@ -433,6 +434,8 @@ internal class CodexSession(
 
             "item/tool/call" -> dynamicTool(message, turn)
 
+            "item/tool/requestUserInput" -> userInput(message, turn)
+
             "serverRequest/resolved" -> resolved(params, turn)
 
             else -> if (message["id"] != null) rpc.reject(checkNotNull(message["id"]))
@@ -550,6 +553,17 @@ internal class CodexSession(
         }
     }
 
+    private suspend fun userInput(message: JsonObject, turn: Turn?) {
+        val active = turn?.takeIf { runtime.questionsEnabled() }?.takeIf {
+            it.id !in toolsClosed && message.obj("params").text("turnId") == nativeTurn && leases.isNotEmpty()
+        }
+        val parent = active?.let {
+            accept(it)
+            toolJobs.getOrPut(it.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
+        }
+        questions.request(message, active?.id, parent)
+    }
+
     private suspend fun hostedApproval(turn: Turn, approval: AgentToolApproval): Boolean {
         if (currentTurn()?.id != turn.id || turn.id in toolsClosed || leases.isEmpty()) return false
         val request = PermissionRequest(
@@ -559,13 +573,22 @@ internal class CodexSession(
             listOf(PermissionOption(HOSTED_ALLOW, "Разрешить"), PermissionOption(HOSTED_DENY, "Запретить")),
             description = approval.description,
         )
-        val answer = CompletableDeferred<Boolean>()
+        return awaitDecision(request)?.option == HOSTED_ALLOW
+    }
+
+    /**
+     * Shows a hosted request and waits for the user's decision. Null means the request could not be shown or was
+     * withdrawn: the turn changed or closed, the machine refused it, or the last lease was released.
+     */
+    private suspend fun awaitDecision(request: PermissionRequest): PermissionDecision? {
+        if (currentTurn()?.id != request.turn || request.turn in toolsClosed || leases.isEmpty()) return null
+        val answer = CompletableDeferred<PermissionDecision?>()
         hostedPermissions[request.id] = answer
         hostedRequests[request.id] = request
         if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
             hostedPermissions.remove(request.id)
             hostedRequests.remove(request.id)
-            return false
+            return null
         }
         history.publish { SessionEvent.PermissionRequested(it, request) }
         return try {
@@ -574,7 +597,7 @@ internal class CodexSession(
             hostedPermissions.remove(request.id)
             hostedRequests.remove(request.id)
             withContext(NonCancellable) {
-                machine.send(ActiveSessionIntent.Internal.PermissionResolved(turn.id, request.id))
+                machine.send(ActiveSessionIntent.Internal.PermissionResolved(request.turn, request.id))
             }
         }
     }
@@ -648,7 +671,9 @@ internal class CodexSession(
 
     private suspend fun resolved(params: JsonObject, turn: Turn?) {
         if (turn == null) return
-        val id = PermissionRequestId((params["requestId"] ?: protocolFailure()).toString())
+        val nativeId = params["requestId"] ?: protocolFailure()
+        questions.resolved(nativeId)
+        val id = PermissionRequestId(nativeId.toString())
         machine.send(ActiveSessionIntent.Internal.PermissionResolved(turn.id, id))
     }
 
