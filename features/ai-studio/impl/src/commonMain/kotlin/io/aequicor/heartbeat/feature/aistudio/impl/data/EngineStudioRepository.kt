@@ -83,8 +83,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -122,6 +120,9 @@ internal data class StudioChatRecord(
     val isPinned: Boolean = false,
     val isUnread: Boolean = false,
     val isArchived: Boolean = false,
+    val lastRunRequest: RequestId? = null,
+    val hasLastRunSucceeded: Boolean = false,
+    val runRevision: Long = 0,
     val hasFailed: Boolean = false,
     val failureKind: RunFailureKind = RunFailureKind.Unknown,
     val projectId: String? = null,
@@ -158,6 +159,7 @@ internal class EngineStudioRepository(
     private val preferences: StudioPreferences,
     private val conversations: StudioConversationCreation,
     learning: StudioLearningPrompts,
+    private val checklists: StudioChecklists,
     private val organisms: StudioOrganisms,
 ) : StudioRepository,
     StudioRuntime,
@@ -260,32 +262,10 @@ internal class EngineStudioRepository(
             // A conversation stored by an earlier version becomes readable from the database before observation.
             items(sessionId)
             emitAll(
-                combine(
-                    transcripts.observe(sessionId),
-                    state,
-                    projection(sessionId),
-                    configurations.feedback(sessionId),
-                ) { stored, runtime, record, feedback ->
-                    stored.toStudioMessages(record.updatedAt, sessionId in runtime.running, feedback) +
-                        if (record.hasFailed) {
-                            listOf(StudioMessage.Failed("failure", record.updatedAt, record.failureKind))
-                        } else {
-                            emptyList()
-                        }
-                },
+                StudioTranscriptProjection(store, transcripts, configurations, checklists).observe(sessionId, state),
             )
         }
     }
-
-    /**
-     * What the transcript of [id] is projected with: the items live in the database, while the time and the failure
-     * of the conversation stay in its record. Only their change re-projects, never a stored item.
-     */
-    private fun projection(id: String): Flow<StudioChatRecord> = store.observe(ChatsKey)
-        .map { records ->
-            records.orEmpty().firstOrNull { it.id == id } ?: StudioChatRecord(id, "", Instant.DISTANT_PAST)
-        }
-        .distinctUntilChanged()
 
     override fun observeModels(): Flow<List<StudioModel>> {
         log.d { "Observe enabled models and their cached capabilities" }
@@ -417,7 +397,11 @@ internal class EngineStudioRepository(
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         log.i { "Execute the reserved native request" }
+        update(
+            request.id,
+        ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
         val result = turns.execute(this, request)
+        update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
         releaseArchived(request.id)
         return result
     }
@@ -459,6 +443,7 @@ internal class EngineStudioRepository(
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
         log.i { "Submit the reserved native request" }
         val target = checkNotNull(record(request.id).target)
+        checklists.publishGeneration(record(request.id).copy(ref = active.ref))
         return submitConfigured(request.id, active, target, request)
     }
 

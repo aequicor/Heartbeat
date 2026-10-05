@@ -252,4 +252,6 @@
     <string name="session_tree_queued">в очереди</string>
     <string name="session_tree_cancelled">отменено</string>
     <string name="session_tree_failed">ошибка</string>
+    <string name="session_checklist_waiting">Ожидает проверки</string>
+    <string name="session_checklist_ready">Готово</string>
 </resources>

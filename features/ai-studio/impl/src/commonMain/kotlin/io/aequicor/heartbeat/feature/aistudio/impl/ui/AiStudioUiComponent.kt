@@ -18,6 +18,12 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
     override fun Content(modifier: Modifier) {
         val isConnectionsShown by component.showsConnections.collectAsState(false)
         val isProfileSettingsShown by component.showsProfileSettings.collectAsState(false)
+        val checklistHosts by component.checklists.collectAsState()
+        val checklists = remember(checklistHosts) {
+            checklistHosts.mapNotNull { (id, host) ->
+                (host.stack.value.active.instance as? ComposableComponent)?.let { id to it }
+            }.toMap().toImmutableMap()
+        }
         val hosts by component.questions.collectAsState()
         // Each host has one fixed entry, so its component never changes.
         val questions = remember(hosts) {
@@ -26,7 +32,14 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
             }.toMap().toImmutableMap()
         }
         val isUnifiedSettingsShown by component.showsUnifiedSettings.collectAsState(false)
-        val exits = remember(component, isConnectionsShown, isProfileSettingsShown, isUnifiedSettingsShown, questions) {
+        val exits = remember(
+            component,
+            isConnectionsShown,
+            isProfileSettingsShown,
+            isUnifiedSettingsShown,
+            questions,
+            checklists,
+        ) {
             StudioExits(
                 onBack = component::close,
                 onOpenToggles = component::openToggles,
@@ -34,6 +47,7 @@ internal class AiStudioUiComponent(private val component: AiStudioComponent) : C
                 onOpenConnections = if (isConnectionsShown) component::openConnections else null,
                 onOpenResearch = component::openResearch,
                 questions = questions,
+                checklists = checklists,
                 onOpenSettings = if (isUnifiedSettingsShown) component::openSettings else null,
             )
         }

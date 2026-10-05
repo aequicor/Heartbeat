@@ -14,6 +14,9 @@ interface StudioEntries {
     /** Sessions with open questionnaire questions (inside a profile, while the questionnaire is enabled). */
     val questionSources: Flow<Set<String>> get() = flowOf(emptySet())
 
+    /** Persisted checklist identities whose inline components can be hosted in messages. */
+    val checklistIds: Flow<Set<String>> get() = flowOf(emptySet())
+
     /** Whether the engine connection settings can be opened. */
     val showsConnections: Flow<Boolean>
 

@@ -24,7 +24,7 @@ class ToggleStudioEntriesTest {
     private val enabled = MutableStateFlow(true)
     private val sessions = FakeSessions()
     private val searchEnabled = MutableStateFlow(false)
-    private val entries = ToggleStudioEntries(FakeToggles(enabled, searchEnabled), sessions, Unused)
+    private val entries = ToggleStudioEntries(FakeToggles(enabled, searchEnabled), sessions, Unused, UnusedChecklists)
 
     @Test
     fun `research entry observes all prerequisites and disappears on disable`() = runTest {
@@ -35,6 +35,7 @@ class ToggleStudioEntriesTest {
             FakeToggles(enabled, searchEnabled, research, runtime, koog),
             sessions,
             Unused,
+            UnusedChecklists,
         )
         assertEquals(false, gated.showsResearch.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
@@ -57,6 +58,7 @@ class ToggleStudioEntriesTest {
             FakeToggles(enabled, searchEnabled, runtime = runtime, organic = organic),
             sessions,
             Unused,
+            UnusedChecklists,
         )
         assertEquals(false, gated.showsOrganism.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
@@ -132,3 +134,5 @@ private object UnusedGraph : ProfileGraph {
 }
 
 private val Unused = lazy<StudioQuestionBridge> { error("unused") }
+
+private val UnusedChecklists = lazy<StudioChecklists> { error("unused") }

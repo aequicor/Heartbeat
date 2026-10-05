@@ -41,6 +41,8 @@ data class StudioSession(
     val isOrganism: Boolean = false,
     /** Native identity used to locate the existing conversation of a computer-use capture owner. */
     val nativeSession: SessionRef? = null,
+    val isAwaitingChecklist: Boolean = false,
+    val isReady: Boolean = false,
     /** Route for observing native descendants without attaching an execution handle. */
     val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
 )
@@ -124,6 +126,8 @@ sealed interface StudioMessage {
         val tools: List<StudioToolRun> = emptyList(),
         val isStreaming: Boolean = false,
         val parts: List<StudioReplyPart> = emptyList(),
+        val checklistIds: List<String> = emptyList(),
+        val historyTurn: String? = null,
         override val isTimestampKnown: Boolean = true,
     ) : StudioMessage
 

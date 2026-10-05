@@ -140,6 +140,10 @@ private fun SessionIndicator(session: SessionUi) {
         when {
             session.isRunning -> HbActivityIndicator(Modifier.testTag("session-running-${session.id}"))
 
+            session.isReady -> HbIcon(HbIcons.Check, session.checklistStatusLabel(), tint = foreground)
+
+            session.isAwaitingChecklist -> HbIcon(HbIcons.Chat, session.checklistStatusLabel(), tint = foreground)
+
             session.isUnread -> Box(
                 Modifier.size(dimensions.statusDotSize).background(foreground, CircleShape),
             )
@@ -152,6 +156,7 @@ private fun SessionIndicator(session: SessionUi) {
 @Composable
 private fun sessionStatus(session: SessionUi): String = listOfNotNull(
     stringResource(Res.string.session_running).takeIf { session.isRunning },
+    session.checklistStatusLabel(),
     stringResource(Res.string.session_unread).takeIf { session.isUnread },
     session.branch?.let { stringResource(Res.string.session_branch, it) },
 ).joinToString(", ")

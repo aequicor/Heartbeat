@@ -231,6 +231,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
         tools = parts.filterIsInstance<StudioReplyPart.Tool>().map { it.tool },
         parts = parts.toList(),
         isTimestampKnown = false,
+        historyTurn = turn,
     )
 }
 

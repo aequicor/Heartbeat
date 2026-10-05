@@ -211,6 +211,7 @@ private fun WideWorkspace(
                             content = state.paneContent(pane),
                             onOpenResearch = exits.onOpenResearch,
                             questions = exits.questions,
+                            checklists = exits.checklists,
                             onIntent = onIntent,
                             layout = PaneLayout(
                                 isSplitAllowed = isSplitAllowed && state.panes.size == 1,
@@ -259,6 +260,7 @@ private fun CompactWorkspace(
                 content = state.paneContent(pane),
                 onOpenResearch = exits.onOpenResearch,
                 questions = exits.questions,
+                checklists = exits.checklists,
                 onIntent = onIntent,
                 layout = PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = true),
                 isAtWindowLeadingEdge = true,

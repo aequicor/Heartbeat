@@ -285,6 +285,7 @@ internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this)
 
     is MessageUi.Reply -> HbChatMessage(
         id = id,
+        hasEmbeddedContent = checklistIds.isNotEmpty(),
         author = labels.agent,
         text = text,
         role = HbChatRole.Assistant,

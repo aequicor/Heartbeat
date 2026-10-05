@@ -44,6 +44,7 @@ internal data class StudioExits(
     val onOpenConnections: (() -> Unit)? = null,
     val onOpenResearch: ((String) -> Unit)? = null,
     val questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    val checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     val onOpenSettings: (() -> Unit)? = null,
 )
 

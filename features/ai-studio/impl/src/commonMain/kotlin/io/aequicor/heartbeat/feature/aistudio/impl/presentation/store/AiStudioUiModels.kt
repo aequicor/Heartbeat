@@ -183,6 +183,7 @@ sealed interface MessageUi {
         val isStreaming: Boolean,
         val parts: ImmutableList<ReplyPartUi> = persistentListOf(),
         override val isTimestampKnown: Boolean = true,
+        val checklistIds: ImmutableList<String> = persistentListOf(),
     ) : MessageUi
 
     /** The user stopped the run after [elapsed]. */
@@ -262,6 +263,7 @@ internal fun StudioMessage.toUi(): MessageUi = when (this) {
             }
         }.toImmutableList(),
         isTimestampKnown,
+        checklistIds.toImmutableList(),
     )
 
     is StudioMessage.Stopped -> MessageUi.Stopped(id, createdAt, elapsed)
