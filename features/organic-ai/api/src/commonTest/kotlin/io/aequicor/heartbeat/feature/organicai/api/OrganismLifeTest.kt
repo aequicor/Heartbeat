@@ -101,9 +101,12 @@ class OrganismLifeTest {
 
     @Test
     fun `ceilings are finite by default and bound the cases of a cell and of the organism`() {
-        with(GrowthLimits()) {
-            assertEquals(GrowthLimits.DEFAULT_MAX_CELLS, maxCells)
-            assertEquals(GrowthLimits.DEFAULT_MAX_DEPTH, maxDepth)
+        assertEquals(GrowthLimits(16, 4, 24, 2), GrowthLimits())
+        // A saved organism keeps its own ceilings, also unbounded ones, when the defaults change.
+        listOf(GrowthLimits(), GrowthLimits(maxCells = 5), GrowthLimits.Unbounded).forEach { limits ->
+            val json = Json.encodeToString(GrowthLimits.serializer(), limits)
+            assertTrue("maxOpenCasesPerCell" in json, json)
+            assertEquals(limits, Json.decodeFromString(GrowthLimits.serializer(), json))
         }
         val open = grown.copy(cases = listOf(ImmuneCase.Complaint(CaseId("k1"), C1, C2, "loops")), casesFiled = 1)
         val oneEach = open.copy(limits = GrowthLimits(maxOpenCasesPerCell = 1))

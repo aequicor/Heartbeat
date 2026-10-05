@@ -264,6 +264,11 @@ class OrganicAiMachineTest {
             living(asked),
             effects = listOf(OrganicAiEffect.Persist(asked), OrganicAiEffect.Judge(asked, dispute.id)),
         )
+        // The organism's ceilings bound the cases too.
+        val noCases = organism(cell(C1), limits = GrowthLimits(maxCases = 0))
+        spec.assertIgnored(living(noCases), OrganicAiIntent.Internal.Complain(ORGANISM, complaint))
+        val oneOpen = asked.copy(limits = GrowthLimits(maxOpenCasesPerCell = 1))
+        spec.assertIgnored(living(oneOpen), OrganicAiIntent.Internal.Dispute(ORGANISM, dispute.copy(id = CaseId("k3"))))
     }
 
     @Test

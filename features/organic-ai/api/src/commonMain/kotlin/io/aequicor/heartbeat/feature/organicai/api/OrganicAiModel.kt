@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 
@@ -82,14 +84,16 @@ public object OrganismBounds {
  * asking the user, so the defaults are finite and a looping cell cannot grow the organism without end. Ceilings only
  * refuse a request, they never kill a cell: [maxCells] counts every cell the organism ever had, including the zygote
  * and ended cells, [maxDepth] the generations below the zygote, [maxCases] every case ever filed and
- * [maxOpenCasesPerCell] the cases one cell has open at a time.
+ * [maxOpenCasesPerCell] the cases one cell has open at a time. Every ceiling is stored, so a saved organism keeps
+ * its own when the defaults change.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 public data class GrowthLimits(
-    val maxCells: Int? = DEFAULT_MAX_CELLS,
-    val maxDepth: Int? = DEFAULT_MAX_DEPTH,
-    val maxCases: Int? = DEFAULT_MAX_CASES,
-    val maxOpenCasesPerCell: Int? = DEFAULT_MAX_OPEN_CASES_PER_CELL,
+    @EncodeDefault val maxCells: Int? = DEFAULT_MAX_CELLS,
+    @EncodeDefault val maxDepth: Int? = DEFAULT_MAX_DEPTH,
+    @EncodeDefault val maxCases: Int? = DEFAULT_MAX_CASES,
+    @EncodeDefault val maxOpenCasesPerCell: Int? = DEFAULT_MAX_OPEN_CASES_PER_CELL,
 ) {
     init {
         require(maxCells == null || maxCells > 0) { "maxCells must be positive" }
@@ -98,15 +102,14 @@ public data class GrowthLimits(
         require(maxOpenCasesPerCell == null || maxOpenCasesPerCell >= 0) { "maxOpenCasesPerCell must not be negative" }
     }
 
-    /** Default ceilings. */
-    public companion object {
-        public const val DEFAULT_MAX_CELLS: Int = 16
-        public const val DEFAULT_MAX_DEPTH: Int = 4
-        public const val DEFAULT_MAX_CASES: Int = 24
-        public const val DEFAULT_MAX_OPEN_CASES_PER_CELL: Int = 2
+    internal companion object {
+        const val DEFAULT_MAX_CELLS: Int = 16
+        const val DEFAULT_MAX_DEPTH: Int = 4
+        const val DEFAULT_MAX_CASES: Int = 24
+        const val DEFAULT_MAX_OPEN_CASES_PER_CELL: Int = 2
 
         /** No ceiling at all. */
-        public val Unbounded: GrowthLimits = GrowthLimits(null, null, null, null)
+        val Unbounded: GrowthLimits = GrowthLimits(null, null, null, null)
     }
 }
 
