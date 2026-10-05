@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -57,9 +58,17 @@ internal fun ActiveSessionState.activeTurn(): Turn? = when (this) {
  * finished; a session still unavailable only remembers a turn, which is followed only when the delivery of
  * [request] was ambiguous. Anything else fails the submission.
  */
-internal suspend fun ActiveSession.submit(request: RequestId, text: String, trust: TrustLevel?): TurnId {
+internal suspend fun ActiveSession.submit(
+    request: RequestId,
+    text: String,
+    trust: TrustLevel?,
+    attachments: List<ResourceRef> = emptyList(),
+): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
-    val prompt = PromptRequest(request, listOf(ContentPart.Text(text)), trust = trusted)
+    val parts = listOf(ContentPart.Text(text)) + attachments.map {
+        if (it.mediaType.startsWith("image/")) ContentPart.Image(it) else ContentPart.Resource(it)
+    }
+    val prompt = PromptRequest(request, parts, trust = trusted)
     return try {
         features.resolve(SendsPrompts).orThrow().send(prompt)
     } catch (e: EngineException) {

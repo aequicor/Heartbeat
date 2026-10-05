@@ -100,7 +100,7 @@ class AiStudioModel(
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
-    private val organisms = StudioOrganismView(machine, machines, backend)
+    private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
 
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",

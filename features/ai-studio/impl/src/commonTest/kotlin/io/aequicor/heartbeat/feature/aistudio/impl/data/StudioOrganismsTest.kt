@@ -118,13 +118,15 @@ class StudioOrganismsTest {
     }
 
     @Test
-    fun `an ordinary chat is not an organism and an organism takes no attachments`() = runTest {
+    fun `an ordinary chat is not an organism and an organism retains its goal inputs`() = runTest {
         val machine = OrganicMachine(OrganicAiState.Living())
         val organisms = StudioOrganisms(Registry(machine), selections)
         assertNull(organisms.conceive(chat.copy(organismId = null), "Hi", settings, emptyList()) {})
         val files = listOf(ResourceRef("attachment:image", "image/png"))
-        assertFailsWith<IllegalArgumentException> { organisms.conceive(chat, "Fix the image", settings, files) {} }
-        assertEquals(emptyList(), machine.sent)
+        assertEquals(RunOutcome.Completed, organisms.conceive(chat, "", settings, files) {})
+        val conception = (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception
+        assertEquals(files, conception.attachments)
+        assertEquals("", conception.goal)
     }
 
     @Test

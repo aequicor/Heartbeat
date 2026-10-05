@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -128,9 +129,13 @@ public data class Conception(
     val workspace: WorkspaceRef? = null,
     val trust: TrustLevel? = null,
     val limits: GrowthLimits = GrowthLimits(),
+    /** Profile-owned inputs of the goal, supplied with every cell's genesis (including recovery). */
+    val attachments: List<ResourceRef> = emptyList(),
 ) {
     init {
-        require(goal.isNotBlank() && goal.length <= OrganismBounds.MAX_GOAL) { "Invalid organism goal" }
+        require((goal.isNotBlank() || attachments.isNotEmpty()) && goal.length <= OrganismBounds.MAX_GOAL) {
+            "Invalid organism goal"
+        }
     }
 
     override fun toString(): String = "Conception(id=${id.value}, goal=${goal.length} chars)"
@@ -157,6 +162,8 @@ public data class Organism(
     val casesFiled: Int = 0,
     val status: OrganismStatus = OrganismStatus.Developing,
     val version: Long = 0,
+    /** Original goal inputs; only references are journaled, never file bytes or native paths. */
+    val attachments: List<ResourceRef> = emptyList(),
 ) {
     init {
         require(cells.count { it.parent == null } == 1) { "An organism has exactly one zygote" }

@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -22,12 +23,14 @@ import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.DeathCause
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
+import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.ReleaseMode
 import io.aequicor.heartbeat.feature.organicai.api.Ruling
 import io.aequicor.heartbeat.feature.organicai.api.Settlement
+import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.C2
 import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
@@ -77,6 +80,26 @@ class OrganicAiEffectsTest {
         assertEquals(request(C1), submitted.first)
         assertTrue("task of c1" in submitted.second)
         assertEquals(listOf<Pair<CellKey, SessionRef?>>(CellKey(ORGANISM, C1) to null), cells.opened)
+    }
+
+    @Test
+    fun `goal inputs reach cell genesis and recovery but are not repeated with letters`() = runTest {
+        val images = listOf(ResourceRef("attachment:image", "image/png"))
+        for (id in listOf(ZYGOTE, C1)) {
+            for (recovery in listOf(false, true)) {
+                val organism = organism(cell(C1)).copy(attachments = images)
+                val cellsWithPhase = organism.cells.map {
+                    if (it.id == id) it.copy(phase = working(id, isRecovery = recovery)) else it
+                }
+                effects.handle(OrganicAiEffect.Drive(organism.copy(cells = cellsWithPhase), id, request(id)), machine)
+                assertEquals(images, cells.handle.inputs.last())
+            }
+        }
+        val letter = Letter.ChildFinished(C1, "child", "answer")
+        val work = Work.Letters(listOf(letter))
+        val organism = organism(cell(C1, phase = working(C1, work = work))).copy(attachments = images)
+        effects.handle(OrganicAiEffect.Drive(organism, C1, request(C1)), machine)
+        assertEquals(emptyList(), cells.handle.inputs.last())
     }
 
     @Test
@@ -317,12 +340,19 @@ class OrganicAiEffectsTest {
         var onSubmit: () -> Unit = {}
         val submitted = mutableListOf<Pair<RequestId, String>>()
         val cancelled = mutableListOf<TurnId>()
+        val inputs = mutableListOf<List<ResourceRef>>()
 
         override fun activeTurn(): TurnId? = active
 
-        override suspend fun submit(request: RequestId, text: String, trust: TrustLevel?): TurnId {
+        override suspend fun submit(
+            request: RequestId,
+            text: String,
+            trust: TrustLevel?,
+            attachments: List<ResourceRef>,
+        ): TurnId {
             onSubmit()
             submitted += request to text
+            inputs += attachments
             return TurnId("t1")
         }
 

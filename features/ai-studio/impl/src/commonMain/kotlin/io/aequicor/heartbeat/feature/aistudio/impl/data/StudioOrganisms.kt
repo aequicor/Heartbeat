@@ -50,8 +50,8 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
     /**
      * A prompt of an organism chat is its organism's goal: conceives the organism of [chat] on the chat's model,
      * project and trust and reports it accepted; the chat never gets a native session of its own. Null for an
-     * ordinary chat. Fails when organic AI is off or asleep, with [attachments], or when the organism already lives:
-     * it takes no further prompts.
+     * ordinary chat. The goal's [attachments] are retained by the organism for its cells. Fails when organic AI is
+     * off or asleep, or when the organism already lives: it takes no further prompts.
      */
     suspend fun conceive(
         chat: StudioChatRecord,
@@ -61,7 +61,6 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
         onAccepted: suspend () -> Unit,
     ): RunOutcome? {
         if (chat.organismId == null) return null
-        require(attachments.isEmpty()) { "An organism grows from a written goal alone" }
         val machine = living()
         val organisms = (machine.state.value as? OrganicAiState.Living)?.organisms.orEmpty()
         check(OrganismId(chat.id) !in organisms) { "The organism already lives and takes no further prompts" }
@@ -72,6 +71,7 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
             target = target(chosen, chat.target),
             workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef),
             trust = settings.approval.toTrust(),
+            attachments = attachments,
         )
         val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception for a studio chat: $result" }

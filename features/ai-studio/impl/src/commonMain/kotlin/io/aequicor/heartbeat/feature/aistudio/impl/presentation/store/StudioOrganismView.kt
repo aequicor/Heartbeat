@@ -21,7 +21,6 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismSession
 import io.aequicor.heartbeat.feature.organicai.api.sessionOf
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.coroutineScope
@@ -50,6 +49,7 @@ internal class StudioOrganismView(
     private val studio: MachineRef<AiStudioState, AiStudioIntent, AiStudioOutput>,
     private val machines: MachineRegistry,
     private val backend: StudioBackend,
+    private val withAttachments: (List<MessageUi>) -> Flow<ImmutableList<MessageUi>>,
 ) {
     private val log = Log.tag("StudioOrganismView")
     private val selection = MutableStateFlow<Map<String, String>>(emptyMap())
@@ -132,7 +132,8 @@ internal class StudioOrganismView(
                     combine(
                         shown.map { (chat, session) ->
                             (session?.let { views.observe(it.ref, it.reopening) } ?: flowOf(emptyList()))
-                                .map { messages -> chat to messages.map { it.toUi() }.toImmutableList() }
+                                .flatMapLatest { messages -> withAttachments(messages.map { it.toUi() }) }
+                                .map { messages -> chat to messages }
                         },
                     ) { it.toMap() },
                 )

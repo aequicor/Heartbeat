@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -61,9 +62,14 @@ class FacadeAdaptersTest {
             assertEquals(WorkspaceRef("project"), workspace)
             assertEquals(TARGET, target)
         }
-        handle.submit(RequestId("r1"), "work", TrustLevel.AutoEdits)
+        val image = ResourceRef("attachment:image", "image/png")
+        val document = ResourceRef("attachment:document", "text/plain")
+        handle.submit(RequestId("r1"), "work", TrustLevel.AutoEdits, listOf(image, document))
         assertEquals(TrustLevel.AutoEdits, native.prompts.single().trust)
-        assertEquals(listOf(ContentPart.Text("work")), native.prompts.single().parts)
+        assertEquals(
+            listOf(ContentPart.Text("work"), ContentPart.Image(image), ContentPart.Resource(document)),
+            native.prompts.single().parts,
+        )
     }
 
     @Test

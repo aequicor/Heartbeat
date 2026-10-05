@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -134,9 +135,14 @@ class OrganicAiMachineTest {
 
     @Test
     fun `conceiving starts the zygote on the goal or resolves the model first`() {
-        val conception = Conception(ORGANISM, GOAL, target = TARGET)
+        val images = listOf(ResourceRef("attachment:image", "image/png"))
+        val conception = Conception(ORGANISM, GOAL, target = TARGET, attachments = images)
         val zygote = Cell(ZYGOTE, "zygote", null, GOAL, working(ZYGOTE), turns = 1)
-        val conceived = Organism(ORGANISM, GOAL, TARGET, null, null, null, GrowthLimits(), listOf(zygote), version = 1)
+        val conceived = Organism(
+            ORGANISM, GOAL, TARGET, null, null, null, GrowthLimits(), listOf(zygote),
+            version = 1,
+            attachments = images,
+        )
         spec.assertTransition(
             living(),
             OrganicAiIntent.Public.Conceive(conception),

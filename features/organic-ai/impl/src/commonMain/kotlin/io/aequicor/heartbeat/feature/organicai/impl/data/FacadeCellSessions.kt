@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -219,10 +220,14 @@ private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
 
     override fun activeTurn(): TurnId? = active.state.value.activeTurn()?.id
 
-    override suspend fun submit(request: RequestId, text: String, trust: TrustLevel?): TurnId =
-        active.submit(request, text, trust).also {
-            if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
-        }
+    override suspend fun submit(
+        request: RequestId,
+        text: String,
+        trust: TrustLevel?,
+        attachments: List<ResourceRef>,
+    ): TurnId = active.submit(request, text, trust, attachments).also {
+        if (active.state.value is ActiveSessionState.Unavailable) doubtful += it
+    }
 
     override suspend fun cancel(turn: TurnId) = active.cancelQuietly(turn)
 

@@ -56,7 +56,11 @@ internal fun Organism.awakened(): Organism {
 
 internal fun Conception.conceive(): Step {
     val zygote = Cell(CellId.ZYGOTE, "zygote", parent = null, task = goal, phase = CellPhase.Resting)
-    val organism = Organism(id, goal, target, immunityTarget, workspace, trust, limits, listOf(zygote), version = 1)
+    val organism = Organism(
+        id, goal, target, immunityTarget, workspace, trust, limits, listOf(zygote),
+        version = 1,
+        attachments = attachments,
+    )
     val started = organism.updated(CellId.ZYGOTE) { organism.begin(it, Work.Genesis) }
     return if (target == null) {
         Step(started, isResolving = true)

@@ -34,7 +34,7 @@ public const val MAX_STUDIO_PANES: Int = 2
  * | Ready | UpdateSettings | | Ready (new-conversation preferences, revision + 1) | SaveSettings |
  * | Ready | SettingsSaveFailed | | Ready (in-memory preferences retained) | |
  * | Ready | ChangeSessionSetting | session shown, no change pending, not stopping | Ready | ChangeSessionSetting |
- * | Ready | Submit | prompt (organism: text only), new-session page, idle | Ready (pane creating) | CreateSession |
+ * | Ready | Submit | prompt or attachments, new-session page, idle | Ready (pane creating) | CreateSession |
  * | Ready | Submit | prompt, session idle | Ready (session running) | Run |
  * | Ready | FollowUp | prompt, session idle | Ready (session running) | Run |
  * | Ready | SessionCreated | matching pending request | Ready (pane shows session, running) | Run |
@@ -249,13 +249,8 @@ private fun ReadyTransitions.navigation() {
 private fun ReadyTransitions.conversations() {
     on<AiStudioIntent.Public.Submit>(
         guard = {
-            // An organism grows from a written goal alone: it takes no attachments, which would be lost.
             val pane = state.pane(intent.paneId)
-            val hasPrompt = if (pane?.isOrganism == true) {
-                intent.prompt.isNotBlank() && intent.attachments.isEmpty()
-            } else {
-                intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()
-            }
+            val hasPrompt = intent.prompt.isNotBlank() || intent.attachments.isNotEmpty()
             hasPrompt && pane?.isNewSessionPage() == true
         },
     ) {

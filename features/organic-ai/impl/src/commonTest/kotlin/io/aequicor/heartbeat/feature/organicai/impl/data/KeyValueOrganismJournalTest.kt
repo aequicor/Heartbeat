@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
@@ -35,7 +36,7 @@ class KeyValueOrganismJournalTest {
 
     @Test
     fun `organisms survive a round trip through the journal`() = runTest {
-        val organism = organism()
+        val organism = organism().copy(attachments = listOf(ResourceRef("attachment:image", "image/png")))
         journal.save(organism)
         assertEquals(setOf(organism.id.value), stores.store.values["index"])
         assertEquals(listOf(organism), KeyValueOrganismJournal(stores, TestDispatchers).load())

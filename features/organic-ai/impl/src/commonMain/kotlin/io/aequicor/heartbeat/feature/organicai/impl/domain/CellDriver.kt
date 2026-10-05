@@ -42,7 +42,8 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
         }
         val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() } ?: run {
             journal.save(organism)
-            handle.submit(request, turnPrompt(organism, cell), organism.trust)
+            val attachments = organism.attachments.takeIf { phase.work == Work.Genesis }.orEmpty()
+            handle.submit(request, turnPrompt(organism, cell), organism.trust, attachments)
         }
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
         if (machine.send(accepted) != SendResult.Accepted) return abandon(key, handle, turn)

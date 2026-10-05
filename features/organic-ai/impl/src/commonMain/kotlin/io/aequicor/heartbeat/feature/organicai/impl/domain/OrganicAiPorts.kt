@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -76,8 +77,13 @@ internal interface CellHandle {
     /** A turn the engine is still running, such as one accepted before a restart. */
     fun activeTurn(): TurnId?
 
-    /** Submits [text] as [request] with [trust] when the session applies trust levels; returns the accepted turn. */
-    suspend fun submit(request: RequestId, text: String, trust: TrustLevel?): TurnId
+    /** Submits the text and profile-owned inputs with trust when supported; returns the accepted turn. */
+    suspend fun submit(
+        request: RequestId,
+        text: String,
+        trust: TrustLevel?,
+        attachments: List<ResourceRef> = emptyList(),
+    ): TurnId
 
     /** Best-effort cancellation of [turn]. */
     suspend fun cancel(turn: TurnId)
