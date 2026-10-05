@@ -118,6 +118,7 @@ internal fun StudioPaneView(
     isAtWindowLeadingEdge: Boolean = false,
     questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    timelineState: StudioTimelineState = remember { StudioTimelineState() },
 ) {
     val pane = content.pane
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -156,6 +157,7 @@ internal fun StudioPaneView(
             key(feedId) {
                 SessionTranscript(
                     feedId = feedId,
+                    timelineState = timelineState,
                     messages = transcript,
                     checklists = checklists,
                     worktree = worktree,
@@ -550,6 +552,7 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
 @Composable
 private fun SessionTranscript(
     feedId: String,
+    timelineState: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
     checklists: ImmutableMap<String, ComposableComponent>,
@@ -563,6 +566,7 @@ private fun SessionTranscript(
 ) {
     val timeline = rememberStudioTimeline(
         feedId,
+        timelineState,
         messages,
         timelineLabels(section, calendar),
         worktree.messages,

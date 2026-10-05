@@ -102,7 +102,7 @@ internal fun fill(template: String, vararg args: Any): String = args.foldIndexed
  * [update] is idempotent: repeating it with the same input returns the same timeline, so a discarded
  * composition that already advanced the cache cannot desynchronize it from the committed one.
  */
-internal class TimelineCache {
+internal class TimelineCache(private val placement: TimelineWeaves = TimelineWeaves()) {
     private var messages: List<MessageUi> = emptyList()
     private var labels: TimelineLabels? = null
     private var history: HbChatTimeline = HbChatTimeline.Empty
@@ -110,10 +110,16 @@ internal class TimelineCache {
     private var retained: Set<String> = emptySet()
 
     /** Cards already woven, by id; their insertion points replay full rebuilds in weave order. */
-    private var woven: Map<String, HbChatMessage> = emptyMap()
-    private var weaves: List<Weave> = emptyList()
-
-    private data class Weave(val id: String, val afterIndex: Int)
+    private var woven: Map<String, HbChatMessage>
+        get() = placement.cards
+        set(value) {
+            placement.cards = value
+        }
+    private var weaves: List<TimelineWeave>
+        get() = placement.positions
+        set(value) {
+            placement.positions = value
+        }
 
     fun update(
         next: List<MessageUi>,
@@ -173,7 +179,7 @@ internal class TimelineCache {
             when (woven[card.id]) {
                 null -> {
                     woven = woven + (card.id to card)
-                    weaves = weaves + Weave(card.id, next.lastIndex)
+                    weaves = weaves + TimelineWeave(card.id, next.lastIndex)
                     updated = updated.append(cardSection(sections, nextLabels), card)
                 }
 
@@ -264,12 +270,13 @@ internal class TimelineCache {
 @Composable
 internal fun rememberStudioTimeline(
     sessionId: String,
+    state: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     labels: TimelineLabels,
     cards: ImmutableList<HbChatMessage> = persistentListOf(),
     retained: ImmutableSet<String> = persistentSetOf(),
 ): HbChatTimeline {
-    val cache = remember(sessionId) { TimelineCache() }
+    val cache = remember(sessionId, state) { TimelineCache(state.session(sessionId)) }
     return remember(cache, messages, labels, cards, retained) { cache.update(messages, labels, cards, retained) }
 }
 

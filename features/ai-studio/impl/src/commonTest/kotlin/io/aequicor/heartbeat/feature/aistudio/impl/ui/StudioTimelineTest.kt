@@ -143,6 +143,32 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `returning to a session restores card positions and retained builds with a fresh cache`() {
+        val state = StudioTimelineState()
+        val cards = listOf(card("worktree:chat"), card("build:compile"), card("build:test"))
+        val retained = setOf("build:compile", "build:test")
+        TimelineCache(state.session("chat")).update(listOf(prompt), labels, cards, retained)
+
+        // A different feed must not inherit cards or invocation points from the session just left.
+        val other = TimelineCache(state.session("other")).update(listOf(prompt), labels, listOf(card("worktree:other")))
+        assertEquals(listOf("m1", "worktree:other"), other.messages.map { it.id })
+
+        val failed = cards.first().copy(text = "Failed")
+        val restored = TimelineCache(state.session("chat")).update(
+            listOf(prompt, reply("arrived while hidden", isStreaming = false)),
+            labels.copy(you = "Reader"),
+            listOf(failed, cards.last()),
+            retained,
+        )
+        assertEquals(
+            listOf("m1", "worktree:chat", "build:compile", "build:test", "m2"),
+            restored.messages.map { it.id },
+        )
+        assertEquals("Failed", restored.messages[1].text)
+        assertEquals("Reader", restored.messages.first().author)
+    }
+
+    @Test
     fun `woven cards refresh in place and retire once neither offered nor retained`() {
         val cache = TimelineCache()
         val running = card("build:compile")
