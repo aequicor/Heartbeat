@@ -21,6 +21,7 @@ import com.arkivanov.essenty.lifecycle.LifecycleRegistry
 import com.arkivanov.essenty.lifecycle.destroy
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.platform.dibundle.PlantUmlAccessors
 import io.aequicor.heartbeat.platform.dibundle.createHeartbeatGraph
 import io.aequicor.heartbeat.platform.dibundle.root.HeartbeatRoot
 import io.aequicor.heartbeat.platform.shared.App
@@ -71,6 +72,9 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
         val windowState = rememberWindowState(width = dimensions.windowWidth, height = dimensions.windowHeight)
         val computerUse by root.computerUse.collectAsState()
         val permissionGuide by graph.permissionGuide.guide.collectAsState()
+        val plantUml = remember(graph) { (graph as PlantUmlAccessors).plantUml }
+        val diagrams = remember(plantUml) { PlantUmlDiagramRenderer(plantUml, graph.dispatchers.default) }
+        val areDiagramsAvailable by plantUml.availability.collectAsState(false)
         LifecycleController(lifecycle, windowState)
         Window(
             onCloseRequest = {
@@ -88,7 +92,7 @@ private fun launchLoggedHeartbeat(isDevelopment: Boolean, classes: Result<Path?>
                 window.iconImages = applicationIcons
                 onDispose { }
             }
-            DesktopWindowContent(windowState) { App(root) }
+            DesktopWindowContent(windowState) { App(root, diagramRenderer = diagrams.takeIf { areDiagramsAvailable }) }
             DesktopComputerUsePresentation(window, windowState, computerUse, graph.capturePresentation)
         }
         val guidedPermission = permissionGuide
