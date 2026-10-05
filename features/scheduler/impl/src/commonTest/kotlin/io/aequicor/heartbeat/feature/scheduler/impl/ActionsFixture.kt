@@ -7,6 +7,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEffect
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
@@ -14,12 +17,16 @@ import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.scheduler.impl.data.InMemorySchedulerBus
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlin.time.Duration
@@ -49,8 +56,11 @@ internal class Projects(
 
 internal class MemoryJournal(initial: List<ActionRecord> = emptyList()) : ActionJournal {
     val records = initial.toMutableList()
+    var beforeAdd: suspend (ActionRecord) -> Unit = {}
 
     override suspend fun add(record: ActionRecord) {
+        beforeAdd(record)
+        records.removeAll { it.id == record.id }
         records += record
     }
 
@@ -58,13 +68,13 @@ internal class MemoryJournal(initial: List<ActionRecord> = emptyList()) : Action
         records.removeAll { it.id == id }
     }
 
-    override suspend fun takeAll(): List<ActionRecord> = records.toList().also { records.clear() }
+    override suspend fun readAll(): List<ActionRecord> = records.toList()
 }
 
 internal class TestScopeHandle(override val coroutineScope: CoroutineScope) : ScopeHandle {
     override val name: String = "profile"
     override val savedState: ScopeSavedState get() = error("unused")
-    override val isClosed: Boolean = false
+    override var isClosed: Boolean = false
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
 }
 
@@ -81,19 +91,41 @@ internal class ActionsFixture(
     val journal: MemoryJournal = MemoryJournal(),
     hosts: Set<ScheduledSessionHost> = emptySet(),
     toggles: Toggles = Toggles(),
+    workspaces: LocalWorkspaces = Projects(),
+    profile: TestScopeHandle = TestScopeHandle(scope.backgroundScope),
 ) {
     val clock = VirtualClock(scope.testScheduler)
     val bus = InMemorySchedulerBus(clock)
+    val wakeStorage = MemoryWakeStorage((machine.state.value as? SchedulerState.Ready)?.wakes.orEmpty())
+    val persistence = SchedulerPersistence(wakeStorage)
     val actions = BackgroundActions(
-        TestScopeHandle(scope.backgroundScope),
+        profile,
         TestDispatchers(StandardTestDispatcher(scope.testScheduler)),
         bus,
         machine,
+        persistence,
         journal,
         commands,
-        Projects(),
+        workspaces,
         lazyOf(hosts),
         toggles,
         clock,
     )
+
+    init {
+        scope.backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { persistence.load() }
+    }
+
+    suspend fun persistWakes() {
+        val ready = machine.state.value as SchedulerState.Ready
+        persistence.persist(SchedulerEffect.Persist(ready.wakes, ready.revision))
+    }
+}
+
+internal class MemoryWakeStorage(var wakes: List<ScheduledWake>) : WakeStorage {
+    override suspend fun load(): List<ScheduledWake> = wakes
+
+    override suspend fun save(wakes: List<ScheduledWake>) {
+        this.wakes = wakes
+    }
 }

@@ -26,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
@@ -109,6 +110,27 @@ class StudioScheduledSessionHostTest {
         val spawned = host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt))
         assertEquals(helper, spawned)
         assertEquals(listOf<Pair<String?, String>>("project" to "Helper"), chats.created)
+        assertEquals(ScheduledRunRoute(target, approvalFrom = "chat"), chats.runs.single()[2])
+    }
+
+    @Test
+    fun `a helper cannot start without an owning parent chat`() = runTest {
+        val chats = Chats()
+        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        assertNull(host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
+        assertTrue(chats.created.isEmpty())
+        assertTrue(chats.runs.isEmpty())
+    }
+
+    @Test
+    fun `a detached parent keeps its helper detached despite a workspace hint`() = runTest {
+        val chats = Chats().apply {
+            owned[session] = StudioScheduledChat("chat", null)
+            sessions["helper"] = helper
+        }
+        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        assertEquals(helper, host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
+        assertEquals(listOf<Pair<String?, String>>(null to "Helper"), chats.created)
         assertEquals(ScheduledRunRoute(target, approvalFrom = "chat"), chats.runs.single()[2])
     }
 }

@@ -82,6 +82,7 @@ internal class EngineStudioScheduledChats(
                 directives = listOf(prompt.directive),
             ),
             waitForIdle = true,
+            cancelBeforeSubmission = true,
         )
     }
 }

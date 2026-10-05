@@ -407,7 +407,7 @@ internal class EngineStudioRepository(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted),
         waitForIdle,
-        beforeExecute,
+        beforeExecute = beforeExecute,
     )
 
     override suspend fun startedRun(id: String, at: Instant) {
@@ -839,6 +839,7 @@ private class StudioNativeSessionOperations(
     ): TurnId {
         log.i { "Send the reserved native request" }
         val prompt = learning.prompt(request.id, request.prompt, request.directives)
+        request.submission?.begin()
         return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
     }
 

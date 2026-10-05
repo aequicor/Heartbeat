@@ -29,6 +29,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -115,24 +118,54 @@ internal class SchedulerActionTools(
                 WakeOrigin.Agent(context.turn),
                 context.target,
             )
-            val outcome = scheduler.schedule(request, clock.now())
+            val outcome = scheduleWake(request, context)
+            if (outcome == ScheduleOutcome.Unconfirmed) cancelWake(request.id, context)
             if (outcome != ScheduleOutcome.Scheduled) return failure("not started: ${outcome.failureMessage()}")
             request.id
         }
-        val refusal = when (start) {
-            is ActionStart.Command ->
-                actions.startCommand(id, context.session, start.workspace, start.command, start.timeout)
-
-            is ActionStart.Agent -> actions.startAgent(id, start.request)
+        var isStartAnswered = false
+        val refusal = try {
+            startAction(start, context).also { isStartAnswered = true }
+        } finally {
+            if (!isStartAnswered) withContext(NonCancellable) { cancelWake(wake, context) }
         }
         log.i {
             "start action $id kind=${start::class.simpleName.orEmpty()} wake=${wake != null} refused=${refusal != null}"
         }
         if (refusal != null) {
-            wake?.let { machine.send(SchedulerIntent.Public.Cancel(it, context.session)) }
+            cancelWake(wake, context)
             return failure("not started: $refusal")
         }
         return AgentToolResult(started(id, wake))
+    }
+
+    private suspend fun startAction(start: ActionStart, context: AgentToolContext): String? = when (start) {
+        is ActionStart.Command ->
+            actions.startCommand(start.id, context.session, start.workspace, start.command, start.timeout)
+
+        is ActionStart.Agent -> actions.startAgent(start.id, start.request)
+    }
+
+    private suspend fun scheduleWake(request: WakeRequest, context: AgentToolContext): ScheduleOutcome {
+        var isAnswered = false
+        return try {
+            scheduler.schedule(request, clock.now()).also { isAnswered = true }
+        } finally {
+            if (!isAnswered) withContext(NonCancellable) { cancelWake(request.id, context) }
+        }
+    }
+
+    private suspend fun cancelWake(wake: WakeId?, context: AgentToolContext) {
+        if (wake == null) return
+        withContext(NonCancellable) {
+            try {
+                machine.send(SchedulerIntent.Public.Cancel(wake, context.session))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "failed to cancel an unstarted action wake $wake" }
+            }
+        }
     }
 
     private suspend fun isEnabled(): Boolean = toggles.get(SchedulerEnabled) && toggles.get(SchedulerActions)

@@ -32,11 +32,15 @@ import io.aequicor.heartbeat.feature.scheduler.api.isAwaited
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -73,6 +77,7 @@ internal class BackgroundActions(
     private val dispatchers: DispatcherProvider,
     private val bus: SchedulerBus,
     private val machine: SchedulerMachine,
+    private val persistence: SchedulerPersistence,
     private val journal: ActionJournal,
     private val commands: CommandRunner,
     private val workspaces: LocalWorkspaces,
@@ -84,8 +89,32 @@ internal class BackgroundActions(
 ) {
     private val log = Log.tag("BackgroundActions")
     private val lock = Mutex()
+    private val resultsLock = Mutex()
     private val running = mutableMapOf<ActionId, SessionRef>()
     private val helpers = mutableSetOf<SessionRef>()
+    private var recovery: Job? = null
+
+    /** Replays durable results when enabled and retires them only after their waits settle or are cancelled. */
+    suspend fun start() = lock.withLock {
+        if (recovery != null) return@withLock
+        recovery = scope.coroutineScope.launch {
+            combine(toggles.observe(SchedulerEnabled), machine.state, persistence.revision) { enabled, state, _ ->
+                enabled && state is SchedulerState.Ready
+            }.collect { ready ->
+                if (ready) recoverSafely()
+            }
+        }
+    }
+
+    private suspend fun recoverSafely() {
+        try {
+            recover()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "action recovery failed" }
+        }
+    }
 
     /** Whether command actions can run here. */
     val areCommandsAvailable: Boolean get() = commands.isAvailable && workspaces.isAvailable
@@ -101,95 +130,147 @@ internal class BackgroundActions(
         command: String,
         timeout: Duration,
     ): String? = reserve(id, parent) ?: run {
-        val directory = workspaces.resolve(workspace)
-        if (directory == null) {
-            release(id)
-            "the project is not available"
-        } else {
-            journal.add(ActionRecord(id, KIND_COMMAND, clock.now()))
+        var isStarted = false
+        try {
+            val directory = workspaces.resolve(workspace) ?: return@run "the project is not available"
+            val record = ActionRecord(id, KIND_COMMAND, clock.now())
+            journal.add(record)
             log.i { "action $id: command started, timeout=$timeout" }
             scope.coroutineScope.launch(dispatchers.io) {
-                finish(id) { commands.run(directory, command, timeout).payload() }
+                finish(record) { commands.run(directory, command, timeout).payload() }
             }
+            isStarted = true
             null
+        } finally {
+            if (!isStarted) withContext(NonCancellable) { rollback(id) }
         }
     }
 
     /**
      * Starts a helper session through the first host that creates sessions and waits in the background for its
-     * first turn to finish; returns why it was not started, or null.
+     * first turn to finish; returns why it was not started, or null. Once journaled and handed to the profile, startup
+     * belongs to that profile too: cancelling the tool's wait cannot abandon an accepted helper.
      */
-    suspend fun startAgent(id: ActionId, request: SpawnRequest): String? =
-        reserve(id, request.parent) ?: spawnAndWatch(id, request)
+    suspend fun startAgent(id: ActionId, request: SpawnRequest): String? = reserve(id, request.parent) ?: run {
+        var isHandedOff = false
+        try {
+            val record = ActionRecord(id, KIND_AGENT, clock.now())
+            journal.add(record)
+            val startup = scope.coroutineScope.async(start = CoroutineStart.LAZY) { spawnAndWatch(record, request) }
+            startup.start()
+            isHandedOff = true
+            startup.await()
+        } finally {
+            if (!isHandedOff) withContext(NonCancellable) { rollback(id) }
+        }
+    }
 
-    private suspend fun spawnAndWatch(id: ActionId, request: SpawnRequest): String? {
+    private suspend fun spawnAndWatch(record: ActionRecord, request: SpawnRequest): String? {
+        val id = record.id
         // Turn ends are watched from before the spawn: a quick helper may finish before the spawn returns.
         val finished = Channel<EventKey>(Channel.UNLIMITED)
         val watcher = scope.coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
             bus.events.collect { if (it.key.namespace == EventNamespace.Session) finished.trySend(it.key) }
         }
-        var spawned: SessionRef? = null
+        var isStarted = false
         try {
-            spawned = spawnOrNull(id, request)
+            val helper = spawnOrNull(id, request) ?: return "no chat host could start a helper agent".also {
+                log.w { "action $id: no host accepted the helper" }
+            }
+            // Once accepted, ownership must reach the profile even if the calling tool is cancelled now.
+            withContext(NonCancellable) {
+                lock.withLock { helpers += helper }
+                scope.coroutineScope.launch {
+                    try {
+                        finish(record) { helperResult(helper, finished) }
+                    } finally {
+                        watcher.cancel()
+                    }
+                }
+                isStarted = true
+            }
+            log.i { "action $id: helper agent started on ${helper.engine.value}" }
+            return null
         } finally {
-            if (spawned == null) {
+            if (!isStarted) {
                 watcher.cancel()
-                withContext(NonCancellable) { release(id) }
+                withContext(NonCancellable) { rollback(id) }
             }
         }
-        if (spawned == null) return "no chat host could start a helper agent"
-        lock.withLock { helpers += spawned }
-        journal.add(ActionRecord(id, KIND_AGENT, clock.now()))
-        log.i { "action $id: helper agent started on ${spawned.engine.value}" }
-        scope.coroutineScope.launch {
-            try {
-                finish(id) { helperResult(spawned, finished) }
-            } finally {
-                watcher.cancel()
-            }
-        }
-        return null
     }
 
-    /** Reports actions a previous run of the profile started and never finished. */
+    /** Replays completed results and marks only actions no longer owned by this profile run as interrupted. */
     suspend fun recover() {
-        // While the scheduler is off nothing is delivered: the journal waits for a start with the toggle on.
+        // While disabled, keep both interrupted actions and completed results for the next enable.
         if (!toggles.get(SchedulerEnabled)) return
-        val interrupted = journal.takeAll()
-        if (interrupted.isEmpty()) return
-        log.i { "actions interrupted by a restart: ${interrupted.size}" }
-        // The bus has no replay and the wake driver may not listen yet: the machine gets the events directly.
         machine.state.first { it is SchedulerState.Ready }
-        interrupted.forEach { record ->
-            val event = BusEvent(
-                EventKeys.actionFinished(record.id),
-                EventOrigin.Action(record.id),
-                clock.now(),
-                "status: interrupted (the app closed before the ${record.kind} finished)",
-            )
-            if ((machine.state.value as? SchedulerState.Ready)?.isAwaited(event) == true) {
-                machine.send(SchedulerIntent.Internal.Observed(event))
+        resultsLock.withLock {
+            journal.readAll().forEach { stored ->
+                if (stored.payload == null && lock.withLock { stored.id in running }) return@forEach
+                val record = if (stored.payload != null) {
+                    stored
+                } else {
+                    stored.copy(payload = "status: interrupted (the app closed before the ${stored.kind} finished)")
+                        .also { journal.add(it) }
+                }
+                deliverResult(record)
             }
+        }
+    }
+
+    private suspend fun deliverResult(record: ActionRecord) {
+        val event = BusEvent(
+            EventKeys.actionFinished(record.id),
+            EventOrigin.Action(record.id),
+            clock.now(),
+            record.payload,
+        )
+        val ready = machine.state.value as? SchedulerState.Ready ?: return
+        if (ready.wakes.none { it.matches(event) }) {
+            // A memory-only settlement must not erase the result of a wake that can return after a crash.
+            if (persistence.revision.value >= ready.revision) journal.remove(record.id)
+        } else if (ready.isAwaited(event)) {
+            // The bus has no replay: recovery must also work before the driver has subscribed.
+            machine.send(SchedulerIntent.Internal.Observed(event))
         }
     }
 
     /** Takes a running slot for [id] of [parent]; returns why there is none, or null. */
-    private suspend fun reserve(id: ActionId, parent: SessionRef): String? = lock.withLock {
-        when {
-            running.size >= MAX_RUNNING -> "the profile already runs $MAX_RUNNING background actions"
+    private suspend fun reserve(id: ActionId, parent: SessionRef): String? {
+        start()
+        return lock.withLock {
+            when {
+                running.size >= MAX_RUNNING -> "the profile already runs $MAX_RUNNING background actions"
 
-            running.values.count { it == parent } >= MAX_RUNNING_PER_SESSION ->
-                "this session already runs $MAX_RUNNING_PER_SESSION background actions"
+                running.values.count { it == parent } >= MAX_RUNNING_PER_SESSION ->
+                    "this session already runs $MAX_RUNNING_PER_SESSION background actions"
 
-            else -> {
-                running[id] = parent
-                null
+                else -> {
+                    running[id] = parent
+                    null
+                }
             }
         }
     }
 
     private suspend fun release(id: ActionId) {
         lock.withLock { running.remove(id) }
+    }
+
+    /** A failed start must not consume a slot or leave an interruption report for work that never began. */
+    private suspend fun rollback(id: ActionId) = withContext(NonCancellable) {
+        resultsLock.withLock {
+            try {
+                // A profile-owned startup interrupted by closing the profile must be reported on reopening.
+                if (!scope.isClosed) journal.remove(id)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "action $id: failed to remove an unstarted action" }
+            } finally {
+                withContext(NonCancellable) { release(id) }
+            }
+        }
     }
 
     /** The helper created by the first host that creates sessions; null when none did. */
@@ -202,20 +283,30 @@ internal class BackgroundActions(
         null
     }
 
-    private suspend fun finish(id: ActionId, result: suspend () -> String) {
-        val payload = try {
-            result()
+    private suspend fun finish(record: ActionRecord, result: suspend () -> String) {
+        val id = record.id
+        try {
+            val payload = try {
+                result()
+            } catch (e: CancellationException) {
+                // The profile closed: the journal keeps the action, and the next start reports it as interrupted.
+                throw e
+            } catch (e: Exception) {
+                log.w(e) { "action $id failed" }
+                "status: failed (${e::class.simpleName.orEmpty()})"
+            }
+            val completed = record.copy(payload = payload.take(SchedulerLimits.MAX_PAYLOAD))
+            resultsLock.withLock { journal.add(completed) }
+            bus.publish(EventKeys.actionFinished(id), EventOrigin.Action(id), completed.payload)
+            recover()
+            log.i { "action $id finished" }
         } catch (e: CancellationException) {
-            // The profile closed: the journal keeps the action, and the next start reports it as interrupted.
             throw e
         } catch (e: Exception) {
-            log.w(e) { "action $id failed" }
-            "status: failed (${e::class.simpleName.orEmpty()})"
+            log.w(e) { "action $id: result delivery failed, retained for recovery" }
+        } finally {
+            withContext(NonCancellable) { release(id) }
         }
-        bus.publish(EventKeys.actionFinished(id), EventOrigin.Action(id), payload.take(SchedulerLimits.MAX_PAYLOAD))
-        journal.remove(id)
-        release(id)
-        log.i { "action $id finished" }
     }
 
     private suspend fun helperResult(helper: SessionRef, finished: ReceiveChannel<EventKey>): String {
