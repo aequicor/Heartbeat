@@ -98,6 +98,12 @@ class CodexUserInputTest {
         assertFailsWith<EngineException> {
             session.answer(first, PermissionAnswer.Selected(listOf("0")))
         }
+        fixture.event(
+            "turn/completed",
+            "turn" to json("id" to "native-turn".json(), "status" to "completed".json()),
+        )
+        runCurrent()
+        assertEquals(1, fixture.responses())
         fixture.runtime.close()
     }
 
@@ -153,6 +159,13 @@ class CodexUserInputTest {
         assertIs<ActiveSessionState.Running>(session.state.value)
         assertNull(fixture.response())
         assertFailsWith<EngineException> { session.answer(pending, PermissionAnswer.Selected(listOf("0"))) }
+        fixture.event(
+            "turn/completed",
+            "turn" to json("id" to "native-turn".json(), "status" to "completed".json()),
+        )
+        runCurrent()
+        // Revoking the turn afterwards must not answer a request Codex already settled.
+        assertEquals(0, fixture.responses())
         fixture.runtime.close()
     }
 
@@ -167,13 +180,15 @@ class CodexUserInputTest {
         session.feature(CancelsTurns).cancel(turn)
         runCurrent()
         assertIs<ActiveSessionState.Interrupting>(session.state.value)
-        // A rejected interrupt must not leave Codex waiting on a form that no longer exists.
+        // The interrupt may be rejected, so Codex must not keep waiting on a form that no longer exists.
         assertEquals(JsonObject(emptyMap()), checkNotNull(fixture.response())["answers"])
         assertEquals(1, fixture.responses())
         assertFailsWith<EngineException> { session.answer(pending, PermissionAnswer.Selected(listOf("0"))) }
         fixture.ask(question("late"))
         runCurrent()
         assertEquals(JsonObject(emptyMap()), checkNotNull(fixture.response())["answers"])
+        assertEquals(2, fixture.responses())
+        assertIs<ActiveSessionState.Interrupting>(session.state.value)
         fixture.runtime.close()
     }
 
@@ -197,7 +212,7 @@ class CodexUserInputTest {
     }
 
     @Test
-    fun `turn completion withdraws an unanswered asynchronous question`() = runTest {
+    fun `turn completion answers an unanswered asynchronous question empty`() = runTest {
         val fixture = Fixture(this)
         val session = fixture.open()
         session.feature(SendsPrompts).send(Prompt)

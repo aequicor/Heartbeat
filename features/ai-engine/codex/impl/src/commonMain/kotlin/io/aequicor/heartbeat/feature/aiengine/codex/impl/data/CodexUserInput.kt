@@ -53,7 +53,7 @@ internal class CodexUserInput(
         var isResponseStarted = false
         val job = scope.launch(parent, start = CoroutineStart.LAZY) {
             val answers = answerCodexQuestions(questions, turn, ask)
-            log.i { "Codex questionnaire answered count=${answers.size}" }
+            log.i { "Codex questionnaire answered=${answers.size}/${questions.size}" }
             // Once delivery starts, revocation must not send another response for the same request.
             isResponseStarted = true
             respond(id, json("answers" to answers))
