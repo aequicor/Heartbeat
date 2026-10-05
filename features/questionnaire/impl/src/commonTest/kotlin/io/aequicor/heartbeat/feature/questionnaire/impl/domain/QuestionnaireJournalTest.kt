@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.questionnaire.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.Machine
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.questionnaire.api.LIVE_QUESTION_ID_PREFIX
 import io.aequicor.heartbeat.feature.questionnaire.api.Question
 import io.aequicor.heartbeat.feature.questionnaire.api.Questionnaire
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireId
@@ -59,6 +60,19 @@ class QuestionnaireJournalTest {
         machine.state.value = QuestionnaireState.Asking(listOf(saved, other), submitting = setOf(saved.id))
         runCurrent()
         assertEquals(listOf(other), storage.pending)
+    }
+
+    @Test
+    fun `questions of live callers stay out of storage`() = runTest {
+        val storage = MemoryStorage(emptyList())
+        val machine = RecordingMachine()
+        backgroundScope.launch { QuestionnaireJournal(storage).run(machine) }
+        runCurrent()
+        val live = saved.copy(id = QuestionnaireId("${LIVE_QUESTION_ID_PREFIX}s1/plan/q"))
+
+        machine.state.value = QuestionnaireState.Asking(listOf(saved, live))
+        runCurrent()
+        assertEquals(listOf(saved), storage.pending)
     }
 
     @Test
