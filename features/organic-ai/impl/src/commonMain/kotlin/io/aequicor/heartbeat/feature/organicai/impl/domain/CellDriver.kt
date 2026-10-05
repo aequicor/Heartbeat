@@ -57,14 +57,14 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
     }
 
     /**
-     * An unknown outcome is neither success nor failure: only an answer found in history settles it as answered,
-     * otherwise the turn broke (a zygote stalls and can be resumed instead of completing on nothing).
+     * An unknown outcome is neither success nor failure: only an answer history marks as this turn's settles it as
+     * answered, otherwise the turn broke (a zygote stalls and can be resumed instead of completing on nothing).
      */
     private suspend fun settlement(handle: CellHandle, turn: TurnId, outcome: TurnOutcome): Settlement =
         when (outcome) {
             TurnOutcome.Completed -> Settlement.Answered(handle.answer(turn) ?: NO_ANSWER)
 
-            TurnOutcome.Unknown -> handle.answer(turn)?.let(Settlement::Answered)
+            TurnOutcome.Unknown -> handle.answer(turn, isMarkedOnly = true)?.let(Settlement::Answered)
                 ?: Settlement.Broke(Breakdown.Unconfirmed)
 
             TurnOutcome.Cancelled -> Settlement.Broke(Breakdown.Interrupted)

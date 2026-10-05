@@ -130,6 +130,15 @@ class FacadeAdaptersTest {
     }
 
     @Test
+    fun `an ambiguous submission follows the turn under the id the synchronized session shows`() = runTest {
+        val native = FakeSession(session("n")).apply {
+            sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r1"))
+            synchronized = ActiveSessionState.Running(Turn(TurnId("native-1"), RequestId("r1"), TARGET))
+        }
+        assertEquals(TurnId("native-1"), native.submit(RequestId("r1"), "work", null))
+    }
+
+    @Test
     fun `an unknown outcome of another request is not followed`() = runTest {
         val native = FakeSession(session("n")).apply {
             sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r0"))
@@ -143,7 +152,7 @@ class FacadeAdaptersTest {
             sendFailure = EngineFailure.Request(RequestFailureReason.OutcomeUnknown, RequestId("r1"))
         }
         assertEquals(TurnId("turn-1"), native.submit(RequestId("r1"), "work", null))
-        assertEquals(0, native.synchronizations)
+        assertEquals(1, native.synchronizations)
     }
 
     @Test
@@ -170,7 +179,6 @@ class FacadeAdaptersTest {
         native.state.value = ActiveSessionState.Unavailable(failure, Turn(turn, RequestId("r1"), TARGET))
         assertEquals(TurnOutcome.Failed(failure), native.awaitTurn(turn) {})
         assertEquals(8, native.synchronizations)
-        assertEquals(listOf(turn), native.cancelled)
     }
 
     @Test
@@ -212,8 +220,13 @@ class FacadeAdaptersTest {
     fun `the answer of a turn is read from history`() = runTest {
         val native = FakeSession(session("new"))
         val handle = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native)))).open(key, route, null)
-        native.items = listOf(message(MessageRole.Assistant, "done", turn = "turn-1"))
+        // History carries the engine's own turn ids, not the ids the handle gave its submissions.
+        native.items = listOf(
+            message(MessageRole.User, "work", turn = "native-1", position = 0),
+            message(MessageRole.Assistant, "done", turn = "native-1", position = 1),
+        )
         assertEquals("done", handle.answer(TurnId("turn-1")))
+        assertNull(handle.answer(TurnId("turn-1"), isMarkedOnly = true))
     }
 
     @Test

@@ -40,6 +40,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -70,7 +72,8 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         // From its creation until it is cached nobody owns the handle: a cancelled caller would drop it unclosed, so
         // neither step may be cancelled.
         return withContext(NonCancellable) {
-            val opened = if (existing == null) create(route) else resume(existing, route)
+            // Bounded instead: a timeout cancels the facade call itself, which then releases what it opened.
+            val opened = withTimeout(OPEN_WAIT) { if (existing == null) create(route) else resume(existing, route) }
             var isLysed = false
             val kept = mutex.withLock {
                 isLysed = key in lysed
@@ -207,6 +210,7 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     private companion object {
         val LYSIS_WAIT = 30.seconds
+        val OPEN_WAIT = 2.minutes
     }
 }
 
@@ -224,9 +228,9 @@ private class FacadeCellHandle(private val active: ActiveSession) : CellHandle {
     override suspend fun await(turn: TurnId, onPending: suspend (List<PermissionRequest>) -> Unit): TurnOutcome =
         active.awaitTurn(turn, onPending)
 
-    override suspend fun answer(turn: TurnId): String? {
+    override suspend fun answer(turn: TurnId, isMarkedOnly: Boolean): String? {
         val history = active.features.resolve(SessionHistory).orThrow()
-        return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn)
+        return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn, isMarkedOnly)
     }
 
     private companion object {

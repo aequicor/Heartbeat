@@ -52,10 +52,10 @@ internal fun ActiveSessionState.activeTurn(): Turn? = when (this) {
 }
 
 /**
- * Submits [text] as [request]. [trust] goes only to a session that applies trust levels. Only an ambiguous delivery
- * of [request] may have started a turn: then the turn the session remembers for it is followed instead of the
- * failure. Any other failure fails the submission, after an unavailable session is synchronized so it can take the
- * next turn, unless the synchronized session runs [request] after all.
+ * Submits [text] as [request]. [trust] goes only to a session that applies trust levels. A failed submission
+ * synchronizes an unavailable session first, then follows the turn of [request] the session runs or reports as
+ * finished; a session still unavailable only remembers a turn, which is followed only when the delivery of
+ * [request] was ambiguous. Anything else fails the submission.
  */
 internal suspend fun ActiveSession.submit(request: RequestId, text: String, trust: TrustLevel?): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
@@ -66,17 +66,23 @@ internal suspend fun ActiveSession.submit(request: RequestId, text: String, trus
         val failure = e.failure as? EngineFailure.Request
         val isAmbiguous = failure?.reason == RequestFailureReason.OutcomeUnknown &&
             (failure.request == null || failure.request == request)
-        val started = state.value.activeTurn()?.takeIf { isAmbiguous && it.request == request }
-        if (started == null) {
-            if (state.value is ActiveSessionState.Unavailable) synchronize()
-            // An unavailable session still remembers the refused turn; only a synchronized one shows it running.
-            val taken = state.value.takeIf { it !is ActiveSessionState.Unavailable }?.activeTurn()
-            return taken?.takeIf { it.request == request }?.id ?: throw e
-        }
-        log.w(e) { "submission of ${request.value} has an unknown outcome; following its turn" }
+        if (state.value is ActiveSessionState.Unavailable) synchronize()
+        val started = state.value.turnOf(request, isAmbiguous) ?: throw e
+        log.w(e) { "submission of ${request.value} failed, but the engine took it; following its turn" }
         started.id
     }
 }
+
+/** The turn of [request] this state shows the engine took; an unavailable one only remembers what was sent. */
+private fun ActiveSessionState.turnOf(request: RequestId, isAmbiguous: Boolean): Turn? = when (this) {
+    is ActiveSessionState.Unavailable -> activeTurn?.takeIf { isAmbiguous }
+
+    is ActiveSessionState.Ready -> lastTurn?.takeIf { it.outcome != TurnOutcome.Unknown }
+
+    is ActiveSessionState.Submitting, is ActiveSessionState.Running, is ActiveSessionState.AwaitingUserAction,
+    is ActiveSessionState.Interrupting, is ActiveSessionState.Closing, ActiveSessionState.Closed,
+    -> activeTurn()
+}?.takeIf { it.request == request }
 
 /**
  * Waits for [turn] to end, reporting the permission requests of that turn whenever they change. Each time the
@@ -124,11 +130,15 @@ private suspend fun ActiveSession.recover(turn: TurnId): TurnOutcome? {
     return abandon(turn)
 }
 
-/** Fails [turn] of a session that stayed unavailable; the engine may run it on, so its cancellation is still asked. */
-private suspend fun ActiveSession.abandon(turn: TurnId): TurnOutcome? {
+/**
+ * Fails [turn] of a session that stayed unavailable. An unavailable session takes no cancellation, so the engine may
+ * still run the turn; it is only told apart from a finished one once the session is reachable again.
+ */
+private fun ActiveSession.abandon(turn: TurnId): TurnOutcome? {
     val current = state.value as? ActiveSessionState.Unavailable ?: return state.value.endOf(turn)
-    log.w(EngineException(current.failure)) { "session on ${ref.engine.value} stayed unavailable; its turn failed" }
-    current.activeTurn?.let { cancelQuietly(it.id) }
+    log.w(EngineException(current.failure)) {
+        "session on ${ref.engine.value} stayed unavailable; its turn failed and may still run in the engine"
+    }
     return TurnOutcome.Failed(current.failure)
 }
 

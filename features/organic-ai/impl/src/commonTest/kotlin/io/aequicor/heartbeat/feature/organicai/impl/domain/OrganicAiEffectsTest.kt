@@ -147,6 +147,8 @@ class OrganicAiEffectsTest {
             effects.handle(OrganicAiEffect.Drive(organism(cell(C1)), C1, request(C1)), machine)
             assertEquals(settlement, (machine.sent.last() as OrganicAiIntent.Internal.TurnSettled).settlement)
         }
+        // An unconfirmed turn takes only an answer marked as its own; a completed one also the one after its prompt.
+        assertEquals(listOf(true, true, false), cells.handle.markedOnly)
     }
 
     @Test
@@ -333,7 +335,11 @@ class OrganicAiEffectsTest {
             return outcome
         }
 
-        override suspend fun answer(turn: TurnId): String? = answer
+        val markedOnly = mutableListOf<Boolean>()
+
+        override suspend fun answer(turn: TurnId, isMarkedOnly: Boolean): String? = answer.also {
+            markedOnly += isMarkedOnly
+        }
     }
 }
 

@@ -191,6 +191,8 @@ class PromptsTest {
             message(MessageRole.Assistant, "done", turn = "native-1", position = 1),
         )
         assertEquals("done", answerOf(native, TurnId("turn_local")))
+        assertNull(answerOf(native, TurnId("turn_local"), isMarkedOnly = true))
+        assertEquals("done", answerOf(native, TurnId("native-1"), isMarkedOnly = true))
         val unmarked = listOf(
             message(MessageRole.Assistant, "old", position = 0),
             message(MessageRole.User, "go", position = 1),

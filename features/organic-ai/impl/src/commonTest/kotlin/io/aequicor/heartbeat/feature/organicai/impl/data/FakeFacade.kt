@@ -114,6 +114,8 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
 
     private val cancels = object : CancelsTurns {
         override suspend fun cancel(turn: TurnId) {
+            // As the facade, an unavailable session takes no cancellation.
+            if (state.value is ActiveSessionState.Unavailable) throw EngineException(EngineFailure.Unknown())
             cancelled += turn
             cancelFailure?.let { throw it }
             if (!ignoresCancel) end(turn, TurnOutcome.Cancelled)
