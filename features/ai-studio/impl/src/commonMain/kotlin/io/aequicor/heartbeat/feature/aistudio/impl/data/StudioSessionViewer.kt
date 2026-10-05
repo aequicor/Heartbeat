@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -93,28 +94,28 @@ internal class StudioSessionViewer(
         }.collect { send(it) }
     }
 
+    /** A temporarily unavailable engine must recover without reopening the selected session's reader. */
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observation(ref: SessionRef): Flow<SessionObservationSnapshot?> = flow {
-        try {
-            val access = facade.sessions.get(ref).features.resolve(SessionObservation)
-            val snapshots = (access as? FeatureAccess.Available)?.feature?.snapshots ?: flowOf(null)
-            emitAll(
-                snapshots.flatMapLatest { snapshot ->
-                    if (snapshot == null) {
-                        flowOf(null)
-                    } else {
-                        contextAllowed(snapshot.route).map { allowed ->
-                            snapshot.copy(context = snapshot.context.takeIf { allowed })
-                        }
+        val access = facade.sessions.get(ref).features.resolve(SessionObservation)
+        val snapshots = (access as? FeatureAccess.Available)?.feature?.snapshots ?: flowOf(null)
+        emitAll(
+            snapshots.flatMapLatest { snapshot ->
+                if (snapshot == null) {
+                    flowOf(null)
+                } else {
+                    contextAllowed(snapshot.route).map { allowed ->
+                        snapshot.copy(context = snapshot.context.takeIf { allowed })
                     }
-                },
-            )
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "Viewed session observation failed" }
-            emit(null)
-        }
+                }
+            },
+        )
+    }.retryWhen { cause, _ ->
+        if (cause is CancellationException || cause !is Exception) throw cause
+        log.w(cause) { "Viewed session observation failed; retrying" }
+        emit(null)
+        delay(NATIVE_HISTORY_RETRY_MILLIS)
+        true
     }
 
     override fun tree(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {

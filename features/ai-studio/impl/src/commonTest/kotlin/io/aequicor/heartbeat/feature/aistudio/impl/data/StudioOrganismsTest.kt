@@ -91,6 +91,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -215,6 +216,54 @@ class StudioOrganismsTest {
         runCurrent()
         assertEquals(false, (messages.single() as StudioMessage.Reply).isStreaming)
         reader.cancelAndJoin()
+        assertEquals(emptyList(), facade.resumptions)
+        assertEquals(0, facade.closes)
+    }
+
+    @Test
+    fun `viewed observation recovers the same session after an unavailable engine and cancels retries`() = runTest {
+        val ref = SessionRef(EngineId("pi"), SessionSourceId("local"), "cell")
+        val facade = ViewedFacade(ref, emptyList())
+        var isAvailable = false
+        var attempts = 0
+        val recovering = object : EngineFacade by facade {
+            override val sessions = object : SessionCatalog by facade.sessions {
+                override suspend fun get(ref: SessionRef): EngineSession {
+                    attempts++
+                    check(isAvailable) { "Engine unavailable" }
+                    return facade.sessions.get(ref)
+                }
+            }
+        }
+        val viewer = StudioSessionViewer(recovering, MemoryTranscriptDao().transcripts()) { flowOf(true) }
+        val route = ExecutionRoute(ref.engine, reopening.target.binding, AuthSourceId("auth"), AuthRevision.Known("1"))
+        val running = SessionObservationSnapshot(
+            ActiveSessionState.Running(Turn(TurnId("turn"), null, reopening.target)),
+            route,
+            ContextUsage(40, 100),
+        )
+        facade.observations.value = running
+        val observed = mutableListOf<SessionObservationSnapshot?>()
+        val reader = backgroundScope.launch { viewer.observation(ref).collect { observed += it } }
+        runCurrent()
+        assertEquals(listOf<SessionObservationSnapshot?>(null), observed)
+        assertEquals(1, attempts)
+        isAvailable = true
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals(running, observed.last())
+        assertEquals(2, attempts)
+        reader.cancelAndJoin()
+        assertEquals(0, facade.observations.subscriptionCount.value)
+
+        isAvailable = false
+        val waiting = backgroundScope.launch { viewer.observation(ref).collect {} }
+        runCurrent()
+        assertEquals(3, attempts)
+        waiting.cancelAndJoin()
+        advanceTimeBy(4_000)
+        runCurrent()
+        assertEquals(3, attempts)
         assertEquals(emptyList(), facade.resumptions)
         assertEquals(0, facade.closes)
     }
