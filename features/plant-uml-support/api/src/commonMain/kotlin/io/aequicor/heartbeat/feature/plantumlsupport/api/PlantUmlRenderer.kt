@@ -3,10 +3,10 @@ package io.aequicor.heartbeat.feature.plantumlsupport.api
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Draws PlantUML diagrams of Markdown fences in-process, without network access. Only a host that renders
+ * Draws PlantUML diagrams of Markdown fences locally, without network access. Only a host that renders
  * locally binds it (desktop); the feature toggle switches it on. Untrusted sources are expected: the engine reads
- * no files, URLs or environment variables, bounds size and time, and only draws diagram types that need no
- * external tools.
+ * no files, URLs or environment variables, runs apart from the app with bounded memory and time, and only draws
+ * diagram types that need no external tools.
  */
 public interface PlantUmlRenderer {
     /** Emits whether [render] draws diagrams now; follows the feature toggle. */

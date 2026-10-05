@@ -75,7 +75,9 @@ class JvmPlantUmlEngineTest {
         assertEquals(2, file.line)
         assertTrue("localhost" !in file.message)
         assertIs<PlantUmlResult.SyntaxError>(render("@startuml\n!include https://example.com/x.puml\nA -> B\n@enduml"))
-        assertNull(PlantUmlSource.parse("@startuml\n!includeurl https://example.com/x.puml\nA -> B\n@enduml"))
+        assertIs<PlantUmlResult.SyntaxError>(
+            render("@startuml\n!includeurl https://example.com/x.puml\nA -> B\n@enduml"),
+        )
         assertIs<PlantUmlResult.Image>(render("@startuml\nA -> B : %getenv(\"HOME\")\n@enduml"))
         assertEquals(SecurityProfile.SANDBOX, SecurityUtils.getSecurityProfile())
     }

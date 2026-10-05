@@ -41,24 +41,14 @@ class PlantUmlDomainTest {
     }
 
     @Test
-    fun `preprocessor definitions assignments and loops never reach the engine`() {
+    fun `preprocessor sources reach the engine that the worker process bounds`() {
         listOf(
             "!\$a = \"x\"\n!\$a = \$a + \$a\nA -> B : \$a",
-            "  ! \$a = 1\nA -> B",
             "!define TWICE(x) x x\nA -> B",
-            "!while 1 == 1\n!endwhile",
-            "!foreach \$i in [1, 2]\n!endfor",
             "!procedure \$p()\nA -> B\n!endprocedure\n\$p()",
-            "!function \$f()\n!return 1\n!endfunction",
-            "!includeurl https://example.com/x.puml",
-            "@startuml\n!unquoted procedure P(x)\n@enduml",
-        ).forEach { source -> assertNull(PlantUmlSource.parse(source), source) }
-        listOf(
             "!pragma teoz true\nA -> B",
             "!include <C4/C4_Container>\nPerson(u, \"User\")",
-            "!theme plain\nA -> B",
             "!if 1 == 1\nA -> B\n!else\nB -> A\n!endif",
-            "A -> B : not a directive !while",
         ).forEach { source -> assertEquals(PlantUmlDiagramType.Uml, PlantUmlSource.parse(source)?.type, source) }
     }
 

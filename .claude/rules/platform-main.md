@@ -27,5 +27,7 @@ paths:
   `di-bundle`), адаптирует его к SPI ДС (`PlantUmlDiagramRenderer`: стиль строки → запрос, PNG декодируется на
   `dispatchers.default`) и передаёт в `App(root, diagramRenderer = …)`, пока `availability` фичи true; `App` оборачивает
   дерево в `HbDiagramsProvider` с подписями из ресурсов `shared`. Что и как рисовать, решает фича; мобильные хосты
-  рендерера не передают — fence остаётся кодом.
+  рендерера не передают — fence остаётся кодом. Рисует процесс-воркер фичи: в упакованном jlink-рантайме нет `java`,
+  поэтому `Main`/`DevelopmentMain` до любой инициализации передают аргумент `--heartbeat-plantuml-worker` в
+  `runPackagedPlantUmlWorker` (как `runPackagedBuildWorker`), а `compose-desktop.pro` сохраняет его `main`.
 - Модули: `platform-main:shared` (общий вход `createAppRoot` + `App`, статический iOS framework `Shared`), `platform-main:android`, `platform-main:desktop`, Xcode-проект `platform-main/ios` (build phase — `:platform-main:shared:embedAndSignAppleFrameworkForXcode`). Пакеты — `io.aequicor.heartbeat.platform.<модуль>`; applicationId `io.aequicor` не меняй без согласования (id в сторах).

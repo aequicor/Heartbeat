@@ -13,17 +13,17 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlRenderer
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.DefaultPlantUmlRenderer
-import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.JvmPlantUmlEngine
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.ProcessPlantUmlEngine
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlEnabled
 
 /**
  * Desktop-only wiring: PlantUML needs the JVM, so the renderer and its toggle exist only in the desktop graph.
- * Drawings run on one IO worker thread in the application scope.
+ * Drawings are sent from one IO thread in the application scope to a worker process that ends with that scope.
  */
 @BindingContainer
 @ContributesTo(AppScope::class)
 public object PlantUmlBindings {
-    /** The in-process renderer; the engine itself loads lazily on the first drawing. */
+    /** The renderer; its worker process starts on the first drawing. */
     @Provides
     @SingleIn(AppScope::class)
     internal fun renderer(
@@ -31,7 +31,7 @@ public object PlantUmlBindings {
         dispatchers: DispatcherProvider,
         @ForScope(AppScope::class) app: ScopeHandle,
     ): PlantUmlRenderer = DefaultPlantUmlRenderer(
-        engine = JvmPlantUmlEngine(),
+        engine = ProcessPlantUmlEngine(scope = app.coroutineScope, timers = dispatchers.default),
         toggles = toggles,
         scope = app.coroutineScope,
         worker = dispatchers.io.limitedParallelism(1),

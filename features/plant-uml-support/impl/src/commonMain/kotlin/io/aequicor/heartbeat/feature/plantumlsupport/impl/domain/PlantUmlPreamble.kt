@@ -16,7 +16,7 @@ private const val HEX_RADIX = 16
 
 /**
  * Config lines PlantUML inserts after the diagram's start directive (they keep the line numbers of the author's
- * source): the in-process Smetana layout instead of an external Graphviz, the resolution for [scale] and a theme
+ * source): the built-in Smetana layout instead of an external Graphviz, the resolution for [scale] and a theme
  * from [style] on a transparent background. Statements in the diagram itself come later and override the theme.
  * Lines contain only numbers and colors — never text from the source.
  */

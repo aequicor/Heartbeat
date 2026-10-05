@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl.domain
 
 /**
- * Diagram types drawn in-process, by their `@start…` directive. Types that launch external tools (`@startdot`)
+ * Diagram types the bundled engine draws, by their `@start…` directive. Types that launch external tools (`@startdot`)
  * or need libraries outside the MIT build are not listed. Kept in step with the design system's detection of
  * untagged fences.
  */
@@ -43,34 +43,13 @@ internal data class PlantUmlSource(
             setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
         )
 
-        /** A preprocessor directive at the start of a line, by its name (`$` for a variable assignment). */
-        private val Directive = Regex("^\\s*!\\s*(\\$|[A-Za-z_]+)", RegexOption.MULTILINE)
-
         /**
-         * Directives an author may use. Definitions, assignments and loops (`!define`, `!function`, `!procedure`,
-         * `!$var =`, `!while`, `!foreach`…) can grow memory or time exponentially from a few lines, and the engine
-         * shares the application's process; standard library procedures stay callable through `!include <…>`.
-         */
-        private val AllowedDirectives = setOf(
-            "pragma",
-            "include",
-            "theme",
-            "if",
-            "ifdef",
-            "ifndef",
-            "elseif",
-            "else",
-            "endif",
-        )
-
-        /**
-         * Prepares [source], or returns null when it is not drawn here: a start directive of another type, a
-         * layout engine the build does not contain, or a preprocessor directive outside [AllowedDirectives].
+         * Prepares [source], or returns null when it is not drawn here: a start directive of another type or a
+         * layout engine the build does not contain.
          */
         fun parse(source: String): PlantUmlSource? {
             val text = source.replace("\r\n", "\n").replace('\r', '\n')
             if (ElkLayout.containsMatchIn(text)) return null
-            if (Directive.findAll(text).any { it.groupValues[1].lowercase() !in AllowedDirectives }) return null
             val lines = text.lines().map { it.trim() }
             val startLine = lines.indexOfFirst { it.startsWith("@start", ignoreCase = true) }
             if (startLine < 0) {

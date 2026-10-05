@@ -97,7 +97,8 @@ DTO и callbacks без реализации IO. Допускает kotlinx.seri
 запрос/ответ без длительного флоу (типы `PlantUmlRequest`/`PlantUmlStyle`/`PlantUmlResult`, `availability` по тоглу).
 UI у фичи нет: диаграммы рисует ДС (`HbDiagramsProvider` + SPI `HbDiagramRenderer`), а desktop-хост адаптирует к нему
 контракт, поэтому фича не входит в `SERVICE_CONTRACT_FEATURES`. Движок PlantUML и DI — только в `jvmMain` impl
-(локально, в песочнице SANDBOX, без сети); на Android/iOS биндинга нет, и fence остаётся кодом.
+(локально, в отдельном процессе-воркере с малым heap и таймаутом, в песочнице SANDBOX, без сети); на Android/iOS биндинга
+нет, и fence остаётся кодом.
 
 ### Фичи сервисного контракта
 

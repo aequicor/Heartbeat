@@ -93,8 +93,8 @@ lint/            detekt-rules — собственный набор правил
 > дают подсказку агенту в следующем ходе.
 > `features:plant-uml-support:{api,impl}` — диаграммы PlantUML в markdown чатов и кодинг-сессий (тогл `plantuml.enabled`,
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
-> только Desktop — встроенный `plantuml-mit` в процессе (SANDBOX, Smetana, без сети), тема из токенов, ошибка — строка
-> и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
+> только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
+> Smetana, без сети), тема из токенов, ошибка — строка и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

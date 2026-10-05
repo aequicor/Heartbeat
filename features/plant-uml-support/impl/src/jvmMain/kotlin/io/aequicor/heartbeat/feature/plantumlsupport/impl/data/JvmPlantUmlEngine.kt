@@ -21,16 +21,17 @@ import java.awt.AWTError
 import java.io.ByteArrayOutputStream
 
 /**
- * PlantUML (MIT build) drawing in this process. The sources come from language models and are untrusted, so the
- * engine runs only under PlantUML's SANDBOX security profile: no file or URL includes, no environment variables.
+ * PlantUML (MIT build) drawing in the current process — the worker process of [ProcessPlantUmlEngine], which bounds
+ * its memory and time. The sources come from language models and are untrusted, so the engine runs only under
+ * PlantUML's SANDBOX security profile: no file or URL includes, no environment variables.
  * PlantUML reads the profile once per process from a system property; [JvmPlantUmlEngine] sets it before the first
  * drawing and refuses to draw if another profile is already active. The layout is always Smetana (forced process-wide
  * and set by the preamble), and the Graphviz executable is pinned to a path that cannot exist, so a `dot` — installed,
  * named by `GRAPHVIZ_DOT` or bundled for Windows — is never launched, not even by service diagrams (`version`,
  * `testdot`) that query it while being parsed. Only diagram classes of [PlantUmlDiagramType]s are drawn; service and
  * easter-egg diagrams are unsupported. Images larger than [PlantUmlLimits] would be cropped by PlantUML; they are
- * reported as too large instead. Memory and recursion errors during a drawing are caught, but the drawing shares the
- * application's heap: [PlantUmlSource.parse] keeps preprocessor directives that can amplify work away from the engine.
+ * reported as too large instead. Recursion errors and, without `-XX:+ExitOnOutOfMemoryError`, memory errors during a
+ * drawing are caught.
  */
 internal class JvmPlantUmlEngine : PlantUmlEngine {
     private val isSandboxed: Boolean by lazy(::enterSandbox)

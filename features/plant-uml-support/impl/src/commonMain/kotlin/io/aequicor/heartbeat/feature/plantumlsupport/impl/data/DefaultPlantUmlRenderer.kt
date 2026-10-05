@@ -29,8 +29,8 @@ import kotlin.time.TimeSource
  * Rendering policy around the blocking [engine]: the toggle, source and image limits, a result cache, one shared
  * drawing per request, and time limits. Drawings run in the application [scope] on the single-threaded [worker], so a
  * caller that leaves (a row scrolled away) still gets the cached result later. A caller waits at most one time limit
- * for its drawing to start (else busy) and one more for it to finish (else timeout). A started drawing that outlives
- * its limit cannot be interrupted reliably; while it still runs — whether or not anyone still waits for it — new
+ * for its drawing to start (else busy) and one more for it to finish (else timeout). The engine is expected to end a
+ * drawing that outlives its limit; while one still runs past it — whether or not anyone still waits for it — new
  * requests fail fast as busy instead of queueing behind it. [timeSource] measures how long the current drawing runs.
  */
 internal class DefaultPlantUmlRenderer(
@@ -75,13 +75,13 @@ internal class DefaultPlantUmlRenderer(
             return PlantUmlResult.Failed(PlantUmlFailure.Busy)
         }
         return withTimeoutOrNull(limits.timeout) { drawing.result.await() } ?: run {
-            log.w { "PlantUML drawing exceeded ${limits.timeout}; the engine stays busy until it finishes" }
+            log.w { "PlantUML drawing did not finish within ${limits.timeout}" }
             PlantUmlResult.Failed(PlantUmlFailure.Timeout)
         }
     }
 
     private fun unsupportedType(): PlantUmlResult {
-        log.v { "PlantUML diagram type is not drawn in-process" }
+        log.v { "PlantUML diagram type is not drawn here" }
         return PlantUmlResult.Unsupported
     }
 
@@ -140,7 +140,7 @@ internal class DefaultPlantUmlRenderer(
             // Engine failures are logged with their cause where they happen.
             is PlantUmlResult.Failed -> log.d { "PlantUML drawing failed type=${source.type}: ${result.reason}" }
 
-            PlantUmlResult.Unsupported -> log.d { "PlantUML type=${source.type} is not drawn in-process" }
+            PlantUmlResult.Unsupported -> log.d { "PlantUML type=${source.type} is not drawn here" }
         }
     }
 
