@@ -1,4 +1,7 @@
 <resources>
+    <string name="session_tree_root">Корневая сессия</string>
+    <string name="session_tree_unknown">неизвестно</string>
+    <string name="session_tree_activity">Активные потомки; + или ? означает, что часть состояний неизвестна</string>
     <string name="studio_title">AI-студия</string>
     <string name="studio_brand">Heartbeat</string>
     <string name="studio_short_title">Студия</string>
@@ -217,4 +220,36 @@
     <string name="attachments_limit_exceeded">Превышен лимит количества или общего размера файлов. Уберите лишние файлы перед отправкой.</string>
     <string name="attachments_save">Сохранить как</string>
     <string name="attachments_failed">Не удалось прикрепить файлы. Проверьте формат и размер и попробуйте ещё раз.</string>
+    <string name="organism_mode">Органический ИИ</string>
+    <string name="organism_mode_hint">Первое сообщение зачинает организм: клетки делятся сами, иммунитет их судит</string>
+    <string name="organism_menu_section">Режим</string>
+    <string name="organism_sub_sessions">Субсессии</string>
+    <string name="organism_zygote">Зигота</string>
+    <string name="organism_complaint">Иммунитет %1$s · жалоба на %2$s</string>
+    <string name="organism_dispute">Иммунитет %1$s · спор</string>
+    <string name="organism_abort">Остановить организм</string>
+    <string name="organism_resume">Возобновить зиготу</string>
+    <string name="organism_permission">%1$s просит разрешение: %2$s</string>
+    <string name="organism_state_germinating">запуск</string>
+    <string name="organism_state_working">работает</string>
+    <string name="organism_state_awaiting">ждёт вас</string>
+    <string name="organism_state_resting">ожидает</string>
+    <string name="organism_state_stalled">остановлена</string>
+    <string name="organism_state_completed">готово</string>
+    <string name="organism_state_died">завершилась</string>
+    <string name="organism_state_killed">убита</string>
+    <string name="organism_state_judging">суд идёт</string>
+    <string name="organism_state_sentenced">убить</string>
+    <string name="organism_state_spared">пощадить</string>
+    <string name="organism_state_answered">решено</string>
+    <string name="organism_state_undecided">без решения</string>
+    <string name="organism_status_developing">Этим чатом управляет органический ИИ: организм развивается.</string>
+    <string name="organism_status_stalled">Зигота остановилась — возобновите её или остановите организм.</string>
+    <string name="organism_status_completed">Организм завершил работу.</string>
+    <string name="organism_status_aborted">Организм остановлен.</string>
+    <string name="organism_unavailable">Организм не виден: органический ИИ выключен или спит, либо организм не был зачат или больше не хранится. Отправьте цель, чтобы зачать его.</string>
+    <string name="session_child_view">Просмотр субагента. Чтобы продолжить задачу, вернитесь к корневой сессии.</string>
+    <string name="session_tree_queued">в очереди</string>
+    <string name="session_tree_cancelled">отменено</string>
+    <string name="session_tree_failed">ошибка</string>
 </resources>

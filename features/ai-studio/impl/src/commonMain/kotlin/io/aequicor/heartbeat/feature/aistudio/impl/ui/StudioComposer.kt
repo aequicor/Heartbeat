@@ -61,6 +61,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.environment_local
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.model_not_selected
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.no_project
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_menu_section
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
@@ -176,6 +179,8 @@ private fun StudioComposerLeading(
         onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending,
+        organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
+        onOrganism = { onIntent(AiStudioScreenIntent.SelectOrganism(content.pane.id, it)) },
     )
     if (content.isResearchAvailable && onOpenResearch != null) {
         HbComposerToggle(
@@ -206,6 +211,7 @@ private fun StudioComposerContext(content: PaneContent, onIntent: (AiStudioScree
         HbIcon(HbIcons.Laptop, contentDescription = null)
         HbText(stringResource(Res.string.worktree_this_computer), style = HbTheme.typography.caption)
     }
+    OrganismModeToggle(content, onIntent)
     if (content.worktree != null || content.session?.isWorktree == true) {
         HbComposerToggle(
             label = stringResource(Res.string.worktree_mode),
@@ -293,13 +299,20 @@ private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model -
 /** Engines that apply trust levels take the composer's approval mode with every prompt. */
 private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
+/**
+ * Whether the session takes prompts at all. An organism chat takes its goal again only while organic AI is on and
+ * its organism is out of view (never conceived, or no longer kept).
+ */
+private fun PaneContent.takesPrompts(): Boolean =
+    session?.isContinuable != false || (session.isOrganism && organism == null && isOrganismEnabled)
+
 /** Running requests retain cancellation; pending permissions block another prompt. */
-private fun PaneContent.isComposerEnabled(): Boolean =
-    !pane.isCreating && !isPickingProject && !isStopping && session?.isContinuable != false &&
-        (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
-        (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
-        (session?.isRunning != true || isStoppable) &&
-        (session?.isRunning == true || (permissions.isEmpty() && models.any { it.id == settings.modelId }))
+private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&
+    takesPrompts() &&
+    (session?.isWorktree != true || worktreeJournal == WorktreeJournalUi.Ready || session.isRunning) &&
+    (worktree?.phase != WorktreePhaseUi.ActionWorking || session?.isRunning == true) &&
+    (session?.isRunning != true || isStoppable) &&
+    (session?.isRunning == true || (permissions.isEmpty() && models.any { it.id == settings.modelId }))
 
 /** Project, environment and branch a new session starts in; the project can be changed. */
 @Composable
@@ -360,6 +373,8 @@ private fun TemplatesMenu(
     onDraft: (String) -> Unit,
     onApproval: (ApprovalUi) -> Unit,
     approvalEnabled: Boolean,
+    organism: Boolean?,
+    onOrganism: (Boolean) -> Unit,
 ) {
     var isOpen by remember { mutableStateOf(false) }
     val templates = listOf(
@@ -374,8 +389,18 @@ private fun TemplatesMenu(
         stringResource(Res.string.template_remember),
         sectionLabel = stringResource(Res.string.composer_commands),
     )
+    // A mode of the new chat, offered only before its first message.
+    val organismAction = organism?.let {
+        HbComposerAction(
+            ORGANISM_ACTION,
+            stringResource(Res.string.organism_mode),
+            supportingText = stringResource(Res.string.organism_mode_hint),
+            sectionLabel = stringResource(Res.string.organism_menu_section),
+            isSelected = it,
+        )
+    }
     val actions = templates.map { HbComposerAction(it.id, stringResource(it.label)) } +
-        listOfNotNull(rememberAction.takeIf { isRememberEnabled }) +
+        listOfNotNull(rememberAction.takeIf { isRememberEnabled }, organismAction) +
         approvalActions(approval, approvalEnabled)
     HbComposerMenuButton(
         label = stringResource(Res.string.composer_add),
@@ -385,6 +410,8 @@ private fun TemplatesMenu(
         onAction = { id ->
             if (id.startsWith(APPROVAL_PREFIX)) {
                 onApproval(ApprovalUi.valueOf(id.removePrefix(APPROVAL_PREFIX)))
+            } else if (id == ORGANISM_ACTION) {
+                onOrganism(organism != true)
             } else if (id == REMEMBER_ACTION) {
                 // The command must lead the prompt: templates append, /remember prefixes the typed text.
                 onDraft(withRememberCommand(draft))
@@ -486,6 +513,7 @@ private fun effortLabel(effort: EffortUi): String = stringResource(
 private data class Template(val id: String, val label: StringResource, val prompt: StringResource)
 
 private const val REMEMBER_ACTION = "remember"
+private const val ORGANISM_ACTION = "organism"
 
 private const val NO_PROJECT = "no-project"
 private const val ADD_PROJECT = "add-project"
@@ -493,6 +521,6 @@ private const val APPROVAL_PREFIX = "approval:"
 
 private fun PaneContent.canAddAttachments(): Boolean {
     val support = models.firstOrNull { it.id == settings.modelId }?.inputSupport
-    return isAttachmentsEnabled && !pane.isCreating && session?.isRunning != true &&
+    return isAttachmentsEnabled && !pane.isCreating && takesPrompts() && session?.isRunning != true &&
         !support?.mediaTypes.isNullOrEmpty()
 }

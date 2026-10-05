@@ -21,12 +21,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
@@ -44,6 +48,30 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 class CodexRuntimeTest {
+    @Test
+    fun `tree subscribers never steal streaming deltas or engine requests`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val trees = (fixture.runtime.features.resolve(SessionTrees) as FeatureAccess.Available).feature
+        repeat(2) {
+            backgroundScope.launch { trees.observe(session.ref, SessionTreeAccess(fixture.target)).collect() }
+        }
+        runCurrent()
+        session.feature(SendsPrompts).send(Prompt)
+        repeat(20) {
+            fixture.event("item/agentMessage/delta", "itemId" to "reply".json(), "delta" to "x".json())
+            runCurrent()
+        }
+        fixture.event("unsupported/request", id = JsonPrimitive(901))
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        val reply = session.feature(SessionHistory).page().items.filterIsInstance<SessionItem.Message>()
+            .last().parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+        assertEquals("x".repeat(20), reply)
+        assertTrue(fixture.wire.written.any { it["id"] == JsonPrimitive(901) && "error" in it })
+        assertIs<ActiveSessionState.Ready>(session.state.value)
+    }
+
     @Test
     fun `image-only prompt is accepted using a single native localImage part`() = runTest {
         val fixture = Fixture(this)

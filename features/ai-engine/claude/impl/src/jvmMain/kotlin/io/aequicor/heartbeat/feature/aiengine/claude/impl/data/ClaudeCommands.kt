@@ -13,9 +13,11 @@ internal fun claudeArguments(
     resume: Boolean = false,
     search: Boolean = false,
     effort: String? = null,
+    subagents: Boolean = false,
 ): List<String> = buildList {
     addAll(listOf("--print", "--verbose", "--output-format", "stream-json", "--setting-sources="))
-    addAll(listOf("--tools=", "--strict-mcp-config"))
+    addAll(listOf("--tools=" + if (subagents) CLAUDE_AGENT_TOOLS else "", "--strict-mcp-config"))
+    if (subagents) add("--allowedTools=$CLAUDE_AGENT_TOOLS")
     if (search) add(SEARCH_BRIDGE_MARKER)
     model?.let { add("--model=${it.value}") }
     // Passed per process: `--setting-sources=` hides any effort configured in settings files.
@@ -27,3 +29,5 @@ internal fun claudeArguments(
 internal val ClaudeEffortLevels = setOf("low", "medium", "high", "xhigh", "max")
 
 internal const val SEARCH_BRIDGE_MARKER = "--heartbeat-search-bridge"
+
+internal const val CLAUDE_AGENT_TOOLS = "Agent,Task,TaskOutput,TaskStop"

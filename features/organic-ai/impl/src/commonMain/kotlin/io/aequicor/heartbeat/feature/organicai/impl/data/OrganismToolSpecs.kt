@@ -1,0 +1,76 @@
+package io.aequicor.heartbeat.feature.organicai.impl.data
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
+import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
+
+/**
+ * Declarations of the organism tools. They only file requests the organism carries out later, so the trust gate
+ * treats them as reads; the actions of the work itself are gated as usual. Declarations never change, so threads
+ * that froze their tools stay valid.
+ */
+internal val organismToolSpecs: List<AgentToolSpec> = listOf(
+    AgentToolSpec(
+        OrganismTools.DIVIDE,
+        "Organic AI cells only. Split off a child cell that works on a substantial, self-contained subtask in " +
+            "parallel. The child does not see your conversation, so the task must say everything it needs. Its " +
+            "result arrives as a message after you end your turn.",
+        schema(required = listOf(OrganismTools.Arguments.TASK)) {
+            text(OrganismTools.Arguments.TASK, "The complete subtask, up to ${OrganismBounds.MAX_TASK} characters")
+            text(OrganismTools.Arguments.NAME, "A short name for the child, e.g. \"tests\"")
+        },
+        AgentToolAction.Read,
+    ),
+    AgentToolSpec(
+        OrganismTools.COMPLAIN,
+        "Organic AI cells only. Report a cancerous cell: one that loops without progress, sabotages, takes " +
+            "destructive actions, fabricates results or works against the goal. A fresh immune session judges it " +
+            "and may kill the cell with its descendants. The zygote cannot be accused.",
+        schema(required = listOf(OrganismTools.Arguments.CELL, OrganismTools.Arguments.REASON)) {
+            text(OrganismTools.Arguments.CELL, "Id of the accused cell, e.g. c3")
+            text(OrganismTools.Arguments.REASON, "What the cell did, with concrete evidence")
+        },
+        AgentToolAction.Read,
+    ),
+    AgentToolSpec(
+        OrganismTools.DISPUTE,
+        "Organic AI cells only. Ask the immune system for a binding answer when cells disagree or a contested " +
+            "decision blocks you. The answer arrives as a message after you end your turn.",
+        schema(required = listOf(OrganismTools.Arguments.QUESTION)) {
+            text(OrganismTools.Arguments.QUESTION, "The question with the options and arguments")
+            putJsonObject(OrganismTools.Arguments.PARTIES) {
+                put("type", "array")
+                putJsonObject("items") { put("type", "string") }
+                put("description", "Ids of up to ${OrganismBounds.MAX_PARTIES} other cells concerned")
+            }
+        },
+        AgentToolAction.Read,
+    ),
+    AgentToolSpec(
+        OrganismTools.STATUS,
+        "Organic AI cells only. Show the organism: its goal, every cell with its state and the open cases.",
+        schema(required = emptyList()) {},
+        AgentToolAction.Read,
+    ),
+)
+
+private fun schema(required: List<String>, properties: JsonObjectBuilder.() -> Unit): JsonObject = buildJsonObject {
+    put("type", "object")
+    putJsonObject("properties", properties)
+    put("required", buildJsonArray { required.forEach { add(JsonPrimitive(it)) } })
+}
+
+private fun JsonObjectBuilder.text(name: String, description: String) {
+    putJsonObject(name) {
+        put("type", "string")
+        put("description", description)
+    }
+}

@@ -1,6 +1,11 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.domain
 
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -22,12 +27,24 @@ interface StudioRepository {
     /** The project new sessions belong to by default. */
     suspend fun defaultProjectId(): String?
 
-    /** Creates an empty session titled [title]. */
-    suspend fun createSession(projectId: String?, title: String): StudioSession
+    /** Creates an empty session titled [title]. A backend overrides this form or the full one below. */
+    suspend fun createSession(projectId: String?, title: String): StudioSession =
+        createSession(projectId, title, isWorktree = false)
 
-    /** An isolated execution request; demo backends never silently fall back to the source checkout. */
-    suspend fun createSession(projectId: String?, title: String, isWorktree: Boolean): StudioSession {
+    /**
+     * An isolated execution request or an organic AI organism ([organism]); demo backends support neither and never
+     * silently fall back to an ordinary conversation. An organism chat is created only when its organism could be
+     * conceived now, and its first prompt conceives it. The default delegates to the short form, so a backend must
+     * override one of the two.
+     */
+    suspend fun createSession(
+        projectId: String?,
+        title: String,
+        isWorktree: Boolean,
+        organism: OrganismRequest? = null,
+    ): StudioSession {
         check(!isWorktree) { "Worktree execution is unavailable in this backend" }
+        check(organism == null) { "Organic AI is unavailable in this backend" }
         return createSession(projectId, title)
     }
 
@@ -89,11 +106,38 @@ interface StudioAvailability {
     fun observe(): Flow<Boolean>
 }
 
+/** Read-only live transcripts of native sessions the studio does not drive, such as the cells of an organism. */
+fun interface StudioSessionViews {
+    /**
+     * The transcript of [ref], updated while it is collected. An engine that serves history only to open sessions
+     * gets [ref] reopened with [reopening], the request its owner opened it with, so viewing never changes it.
+     */
+    fun observe(ref: SessionRef, reopening: ResumeSessionRequest): Flow<List<StudioMessage>>
+
+    /** Native family observation; unsupported backends must never report a confirmed empty family. */
+    fun tree(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> =
+        flowOf(SessionTreeSnapshot(root, coverage = SessionTreeCoverage.Unsupported))
+
+    /** Native member history. This path must never fall back to resume. */
+    fun observeNative(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): Flow<List<StudioMessage>> =
+        flowOf(emptyList())
+}
+
 /** The workspace backend chosen once for the feature scope: engine-backed profile chats or the demo workspace. */
 interface StudioBackend {
     /** Storage the screen observes. */
     suspend fun repository(): StudioRepository
 
+    /** Views of foreign sessions; the demo workspace has none. */
+    suspend fun sessionViews(): StudioSessionViews = StudioSessionViews { _, _ -> flowOf(emptyList()) }
+
     /** Handler of the studio machine effects. */
     suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent>
 }
+
+/** The organism a new chat is created for: it grows from [goal] on [settings]. */
+data class OrganismRequest(val goal: String, val settings: RunSettings)
+
+/** The organism [this] creation asks for, if it is one. */
+internal fun AiStudioEffect.CreateSession.organism(): OrganismRequest? =
+    OrganismRequest(prompt, settings).takeIf { isOrganism }

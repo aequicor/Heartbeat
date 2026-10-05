@@ -28,6 +28,8 @@ import io.aequicor.heartbeat.ds.theme.HbTheme
  * A supplied [content] slot replaces only the body, preserving its author and status header.
  * [contentPadding] lets adjoining prepared payload segments share a continuous reading surface.
  * [onToolAction] receives the pressed action of a tool call rendered by the bubble itself.
+ * A completed user message with no body or author keeps its outside label without an empty bubble; attachments
+ * supplied by the transcript footer remain visible.
  */
 @Composable
 public fun HbChatMessageBubble(
@@ -49,6 +51,7 @@ public fun HbChatMessageBubble(
     )
     val foreground = message.appearance.foreground.orElse(palette.foreground)
     MessageBubblePlacement(message, showHeader, modifier) {
+        if (content == null && message.isEmptyPrompt()) return@MessageBubblePlacement
         HbColumn(
             modifier = message.bubbleWidth()
                 .messageBubbleDecoration(message, background, showHeader, showStatus, isReadingSurface, contentPadding)
@@ -71,6 +74,10 @@ public fun HbChatMessageBubble(
         }
     }
 }
+
+private fun HbChatMessage.isEmptyPrompt(): Boolean = role == HbChatRole.User &&
+    status == HbMessageStatus.Complete && !appearance.isAuthorVisible &&
+    text.isBlank() && parts.isEmpty() && toolCalls.isEmpty()
 
 @Composable
 private fun MessageBubblePlacement(

@@ -58,8 +58,8 @@ public sealed interface ArchiveKind {
 @Serializable
 public data class GitHubRelease(
     @SerialName("tag_name") val tag: String,
-    val draft: Boolean = false,
-    val prerelease: Boolean = false,
+    @SerialName("draft") val isDraft: Boolean = false,
+    @SerialName("prerelease") val isPrerelease: Boolean = false,
     val assets: List<GitHubAsset> = emptyList(),
 ) {
     /** The asset named [name], or null. */

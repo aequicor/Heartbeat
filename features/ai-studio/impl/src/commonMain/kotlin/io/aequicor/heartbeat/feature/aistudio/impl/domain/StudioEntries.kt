@@ -23,6 +23,9 @@ interface StudioEntries {
     /** Whether the composer offers `/remember` (self-learning is on and a profile is active). */
     val showsRemember: Flow<Boolean> get() = flowOf(false)
 
+    /** Whether a new conversation may be started as an organic AI organism. */
+    val showsOrganism: Flow<Boolean> get() = flowOf(false)
+
     /** Whether one "Settings" entry replaces the separate settings actions. */
     val showsUnifiedSettings: Flow<Boolean> get() = flowOf(false)
 }

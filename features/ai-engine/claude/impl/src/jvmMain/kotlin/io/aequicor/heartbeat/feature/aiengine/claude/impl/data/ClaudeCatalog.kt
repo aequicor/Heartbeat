@@ -32,6 +32,8 @@ internal data class ClaudeRecord(
     val history: ClaudeHistorySnapshot = ClaudeHistorySnapshot(),
     val nativeStore: String = "default",
     val undelivered: TurnId? = null,
+    val children: List<ClaudeChild> = emptyList(),
+    val nativeInputs: Map<String, List<io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart>> = emptyMap(),
 )
 
 /** An attempted process may have saved a transcript even when no output frame reached the host. */

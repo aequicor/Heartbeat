@@ -54,6 +54,22 @@ internal class ClaudeHistory(snapshot: ClaudeHistorySnapshot = ClaudeHistorySnap
         publish { SessionEvent.ItemUpserted(it, item) }
     }
 
+    /** A confirmed native task alias contributes its observed items to the canonical child journal. */
+    fun absorb(snapshot: ClaudeHistorySnapshot) {
+        snapshot.items.forEach { value ->
+            item(value.info.turn ?: TurnId("observed")) { info ->
+                when (value) {
+                    is SessionItem.Message -> value.copy(info = info)
+                    is SessionItem.ToolCall -> value.copy(info = info)
+                    is SessionItem.ToolResult -> value.copy(info = info)
+                    is SessionItem.Plan -> value.copy(info = info)
+                    is SessionItem.Notice -> value.copy(info = info)
+                    is SessionItem.UnsupportedItem -> value.copy(info = info)
+                }
+            }
+        }
+    }
+
     fun publish(create: (HistoryCheckpoint) -> SessionEvent) = synchronized(lock) {
         log.d { "Recording Claude session event" }
         sequence++

@@ -34,7 +34,7 @@ class HttpReleaseFeeds(private val client: HttpClient, private val maxBytes: Int
         log.i { "latest GitHub release repository=$owner/$repository" }
         val body = fetch("https://$GITHUB_API_HOST/repos/$owner/$repository/releases/latest", setOf(GITHUB_API_HOST))
         val release = decodeRelease(body)
-        if (release == null || release.draft || release.prerelease) {
+        if (release == null || release.isDraft || release.isPrerelease) {
             log.w { "no published GitHub release repository=$owner/$repository" }
             throw installFailure(InstallFailureReason.NoRelease)
         }
