@@ -74,7 +74,26 @@ internal class ClaudeSession(
     private val log = Log.tag("ClaudeSession")
     private val commands = Mutex()
     private val lock = Any()
-    private val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
+    internal val history = ClaudeHistory(restored?.history ?: ClaudeHistorySnapshot())
+    internal val tree = ClaudeSessionTree(ref, restored?.children.orEmpty(), restored?.nativeInputs.orEmpty())
+
+    internal fun treeSnapshot() = synchronized(lock) {
+        val activity = when (current) {
+            is ActiveSessionState.Submitting -> io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity.Queued
+
+            is ActiveSessionState.Running, is ActiveSessionState.Interrupting ->
+                io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity.Running
+
+            is ActiveSessionState.AwaitingUserAction ->
+                io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity.AwaitingUser
+
+            is ActiveSessionState.Ready -> io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity.Idle
+
+            is ActiveSessionState.Unavailable, is ActiveSessionState.Closing, ActiveSessionState.Closed ->
+                io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity.Unknown
+        }
+        tree.snapshot(activity)
+    }
 
     /**
      * Hosted tools for a session without a project. Chosen by the lease that opens the session without other holders;
@@ -141,6 +160,7 @@ internal class ClaudeSession(
             log.d { "Evicting released Claude session" }
             isEvicted = true
             history.close()
+            tree.close()
         }
         isEvicted
     }
@@ -190,6 +210,7 @@ internal class ClaudeSession(
             ),
         )
         history.close()
+        tree.close()
     }
 
     private suspend fun send(request: PromptRequest, lease: Lease): TurnId {
@@ -203,6 +224,7 @@ internal class ClaudeSession(
             val isEffortKnown = request.reasoningEffort?.let { it in ClaudeEffortLevels } ?: true
             if (!isEffortKnown) throw EngineException(EngineFailure.Request(RequestFailureReason.Invalid, request.id))
             val prepared = claudePromptInputs(request, environment.inputSupport(target.model), environment.resources)
+            tree.rememberInputs(prepared.references)
             val text = if (request.parts.all { it is ContentPart.Text }) {
                 promptText(request)
             } else {
@@ -264,7 +286,7 @@ internal class ClaudeSession(
             persist()
             isTransportInvoked = true
             val exit = transport.run(
-                promptArguments(submission.request, isResume),
+                promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled),
                 submission.text,
                 route.workspace,
                 hosted = tools,
@@ -292,6 +314,7 @@ internal class ClaudeSession(
             hosted.close()
             permissions = null
             executionEnded(submission, observer, accepted)
+            tree.observationEnded()
             if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
             hasNativeSession = hasNativeSession || observer.hasMatchingSession
             withContext(NonCancellable) { persist() }
@@ -337,13 +360,19 @@ internal class ClaudeSession(
         }
     }
 
-    private suspend fun promptArguments(request: PromptRequest, isResume: Boolean): List<String> {
+    private suspend fun promptArguments(
+        request: PromptRequest,
+        isResume: Boolean,
+        detachedTools: Boolean,
+    ): List<String> {
         val arguments = claudeArguments(
             target.model,
             ref.nativeId,
             isResume,
             search = toggles.get(SearchEngineTools),
             effort = request.reasoningEffort,
+            subagents = (route.workspace != null || detachedTools) &&
+                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
         )
         return if (request.parts.any { it !is ContentPart.Text }) {
             arguments + listOf("--input-format", "stream-json")
@@ -354,6 +383,7 @@ internal class ClaudeSession(
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
         val message = parseClaudeObject(line)
+        tree.receive(message, observer.turn.id)
         observer.receive(message)
         if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
         if (toggles.get(EngineUsageEnabled)) {
@@ -385,6 +415,7 @@ internal class ClaudeSession(
         accepted: CompletableDeferred<TurnId>,
     ) {
         if (cancelledTurn == submission.turn.id && scope.isActive) {
+            tree.cancelled()
             val turn = observer.turn.copy(outcome = TurnOutcome.Cancelled)
             history.publish { SessionEvent.TurnFinished(it, turn.id, TurnOutcome.Cancelled) }
             update(ActiveSessionState.Ready(turn))
@@ -486,6 +517,8 @@ internal class ClaudeSession(
                 history.snapshot(),
                 transport.nativeStore,
                 undelivered,
+                tree.saved(),
+                nativeInputs = tree.inputReferences(),
             )
         }
         environment.catalog.save(record)

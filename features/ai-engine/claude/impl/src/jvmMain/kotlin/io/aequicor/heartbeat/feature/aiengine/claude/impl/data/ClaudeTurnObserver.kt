@@ -131,6 +131,7 @@ internal class ClaudeTurnObserver(
     }
 
     private fun toolResults(message: JsonObject) {
+        if (message.text("parent_tool_use_id") != null) return
         val body = message["message"] as? JsonObject ?: return
         val content = body["content"] as? JsonArray ?: return
         for (entry in content) {

@@ -94,6 +94,27 @@ class ClaudeHostedTest {
             .filterIsInstance<SessionItem.Message>().single { it.role == MessageRole.User }
         assertEquals(parts, user.parts)
         assertEquals(session.ref, restored.ref)
+        fixture.transport.generation = { args, line ->
+            val id = args.first { it.startsWith("--resume=") }.substringAfter('=')
+            line(initFrame(id))
+            line(
+                """{"type":"assistant","session_id":"$id","message":{"content":[
+                {"type":"tool_use","id":"child","name":"Agent","input":{"prompt":"describe"}}]}}""",
+            )
+            line(
+                """{"type":"user","session_id":"$id","parent_tool_use_id":"child","message":{"content":[
+                {"type":"image","source":{"data":"AQ==","media_type":"image/png","type":"base64"}}]}}""",
+            )
+            line(resultFrame(id))
+            0
+        }
+        val resumed = async { restored.features.available(SendsPrompts).send(prompt("after-restart")) }
+        runCurrent()
+        resumed.await()
+        runCurrent()
+        val child = assertNotNull(fixture.catalog.find(session.ref)).children.single()
+        val childImage = child.history.items.filterIsInstance<SessionItem.Message>().last()
+        assertEquals(parts, childImage.parts)
         second.close()
     }
 
@@ -399,6 +420,11 @@ class ClaudeHostedTest {
             val id = args.last().substringAfter('=')
             line(initFrame(id))
             line(assistantFrame(id))
+            line(
+                """{"type":"assistant","session_id":"$id","message":{"content":[
+                {"type":"tool_use","id":"child","name":"Agent",
+                "input":{"prompt":"work","run_in_background":true}}]}}""",
+            )
             try {
                 awaitCancellation()
             } finally {
@@ -415,6 +441,7 @@ class ClaudeHostedTest {
         runCurrent()
         session.features.available(CancelsTurns).cancel(turn)
         assertTrue(isCleaned)
+        assertEquals("Cancelled", fixture.catalog.find(session.ref)?.children?.single()?.activity)
         assertFalse(approval.await())
         assertNull(bridge.context())
         assertEquals(TurnOutcome.Cancelled, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)

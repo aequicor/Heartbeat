@@ -15,7 +15,11 @@ import kotlinx.serialization.json.put
 import kotlin.io.encoding.Base64
 
 /** Transient native serialization; original opaque parts are persisted separately. */
-internal data class ClaudePromptInputs(val text: String, val blocks: List<JsonObject>) {
+internal data class ClaudePromptInputs(
+    val text: String,
+    val blocks: List<JsonObject>,
+    val references: Map<String, List<ContentPart>> = emptyMap(),
+) {
     override fun toString(): String = "ClaudePromptInputs(redacted)"
 }
 
@@ -53,7 +57,21 @@ internal suspend fun claudePromptInputs(
     } else {
         emptyList()
     }
-    return ClaudePromptInputs(content, message + images)
+    return ClaudePromptInputs(content, message + images, inputReferences(request.parts, message, images))
+}
+
+private fun inputReferences(
+    parts: List<ContentPart>,
+    message: List<JsonObject>,
+    images: List<JsonObject>,
+): Map<String, List<ContentPart>> {
+    if (parts.none { it is ContentPart.Image || it is ContentPart.Resource }) return emptyMap()
+    return buildMap {
+        message.singleOrNull()?.let { block -> put(claudeInputKey(block), parts.filter { it !is ContentPart.Image }) }
+        images.zip(parts.filterIsInstance<ContentPart.Image>()).forEach { (block, part) ->
+            put(claudeInputKey(block), listOf(part))
+        }
+    }
 }
 
 private suspend fun readClaudeResource(
@@ -134,3 +152,17 @@ private val VendorVisionModels = setOf(
     "claude-opus-4-5-20251101",
     "claude-sonnet-4-5-20250929",
 )
+
+/** Only a digest and app-owned references persist; native bytes never enter the catalog. */
+internal fun claudeInputKey(block: JsonObject): String {
+    val source = block["source"] as? JsonObject
+    val content = if (block.text("type") == "image") {
+        listOf(block.text("type"), source?.text("type"), source?.text("media_type"), source?.text("data"))
+    } else {
+        listOf(block.text("type"), block.text("text"))
+    }
+    return java.security.MessageDigest.getInstance("SHA-256")
+        .digest(
+            content.joinToString("\u0000").toByteArray(Charsets.UTF_8),
+        ).joinToString("") { "%02x".format(java.util.Locale.ROOT, it) }
+}
