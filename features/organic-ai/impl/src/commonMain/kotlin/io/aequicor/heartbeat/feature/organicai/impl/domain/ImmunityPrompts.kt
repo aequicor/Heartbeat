@@ -76,8 +76,6 @@ private fun StringBuilder.dispute(organism: Organism, case: ImmuneCase.Dispute) 
 
 private fun Cell.describeWithTask(): String = "${label()}, task:\n${fenced(cut(task, TASK_CHARS))}\n"
 
-private fun fenced(text: String): String = "$FENCE\n${text.replace(FENCE, "< < <")}\n$FENCE"
-
 /**
  * The ruling in the last non-blank line of a judge's [answer]: `VERDICT {…}` for a complaint, `RULING {…}` for a
  * dispute. Anything else, including a verdict of the wrong kind, is [Ruling.None], so nobody is killed by an
@@ -122,7 +120,6 @@ private val log = Log.tag("ImmunityPrompts")
 private const val MAX_SUBJECTS = 4
 private const val GOAL_CHARS = 4_000
 private const val TASK_CHARS = 1_500
-private const val FENCE = "<<<"
 private const val VERDICT = "VERDICT"
 private const val RULING = "RULING"
 private const val UNREADABLE = "The immune system gave no readable decision."

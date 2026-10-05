@@ -100,6 +100,20 @@ class OrganismLifeTest {
     }
 
     @Test
+    fun `ceilings are finite by default and bound the cases of a cell and of the organism`() {
+        with(GrowthLimits()) {
+            assertEquals(GrowthLimits.DEFAULT_MAX_CELLS, maxCells)
+            assertEquals(GrowthLimits.DEFAULT_MAX_DEPTH, maxDepth)
+        }
+        val open = grown.copy(cases = listOf(ImmuneCase.Complaint(CaseId("k1"), C1, C2, "loops")), casesFiled = 1)
+        val oneEach = open.copy(limits = GrowthLimits(maxOpenCasesPerCell = 1))
+        assertEquals(Refusal.TooManyOpenCases, oneEach.disputeRefusal(C1, emptyList()))
+        assertNull(oneEach.complaintRefusal(ZYGOTE, C2))
+        assertEquals(Refusal.TooManyCases, open.copy(limits = GrowthLimits(maxCases = 1)).complaintRefusal(ZYGOTE, C2))
+        assertNull(open.copy(limits = GrowthLimits.Unbounded).disputeRefusal(C1, emptyList()))
+    }
+
+    @Test
     fun `dispute parties are distinct known cells other than the asker`() {
         assertNull(grown.disputeRefusal(C1, listOf(C2, C3)))
         assertEquals(Refusal.InvalidParties, grown.disputeRefusal(C1, listOf(C1)))

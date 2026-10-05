@@ -35,7 +35,7 @@ internal fun CellPhase.describe(): String = when (this) {
 }
 
 internal fun DeathCause.describe(): String = when (this) {
-    is DeathCause.Lysed -> "killed by the immune system (case ${case.value}): $reason"
+    is DeathCause.Lysed -> "killed by the immune system (case ${case.value}): ${brief(reason)}"
     is DeathCause.Failed -> "its turn failed: ${breakdown.describe()}"
     is DeathCause.Orphaned -> "ended together with its ancestor ${ancestor.value}"
     DeathCause.Aborted -> "the organism was aborted"
@@ -52,4 +52,30 @@ internal fun Breakdown.describe(): String = when (this) {
 internal fun cut(text: String, max: Int): String =
     if (text.length <= max) text else text.take((max - CUT_MARK.length).coerceAtLeast(0)) + CUT_MARK
 
+/**
+ * [text] written by cells, users or judges between [FENCE] lines, as data. Every run that could read as a fence,
+ * also one spelled with lookalikes or broken up by invisible characters, is spaced out, so the text cannot close
+ * its fence and continue as the host.
+ */
+internal fun fenced(text: String): String = "$FENCE\n${defused(text)}\n$FENCE"
+
+/** The first line of [text] of another session, short and unable to close a fence, for one-line descriptions. */
+internal fun brief(text: String): String {
+    val line = text.lineSequence().map(String::trim).firstOrNull(String::isNotEmpty).orEmpty()
+    return defused(if (line.length <= BRIEF_CHARS) line else line.take(BRIEF_CHARS - 1) + "…")
+}
+
+private fun defused(text: String): String =
+    text.replace(FENCE_LIKE) { run -> run.value.filter { it in FENCE_CHARS }.toList().joinToString(" ") }
+
+/** Marks a fence: a line of its own around text of other sessions. */
+internal const val FENCE = "<<<"
+
 private const val CUT_MARK = "\n…[cut]"
+private const val BRIEF_CHARS = 200
+private const val FENCE_CHARS = "<\uFF1C\uFE64"
+
+/** Three or more fence characters, possibly separated by invisible format characters. */
+private val FENCE_LIKE = Regex(
+    "[$FENCE_CHARS](?:[\u00AD\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]*[$FENCE_CHARS]){2,}",
+)

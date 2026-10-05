@@ -47,7 +47,7 @@ public fun Organism.complaintRefusal(plaintiff: CellId, accused: CellId): Refusa
         cases.any { it is ImmuneCase.Complaint && it.plaintiff == plaintiff && it.accused == accused } ->
             Refusal.DuplicateComplaint
 
-        else -> null
+        else -> caseRefusal(plaintiff)
     }
 }
 
@@ -64,6 +64,17 @@ public fun Organism.disputeRefusal(asker: CellId, parties: List<CellId>): Refusa
         parties.size > OrganismBounds.MAX_PARTIES || parties.distinct().size != parties.size || asker in parties ->
             Refusal.InvalidParties
 
+        else -> caseRefusal(asker)
+    }
+}
+
+/** Whether [filer] may file one more case under the organism's ceilings. */
+private fun Organism.caseRefusal(filer: CellId): Refusal? {
+    val maxCases = limits.maxCases
+    val maxOpen = limits.maxOpenCasesPerCell
+    return when {
+        maxCases != null && casesFiled >= maxCases -> Refusal.TooManyCases
+        maxOpen != null && cases.count { it.filedBy == filer } >= maxOpen -> Refusal.TooManyOpenCases
         else -> null
     }
 }

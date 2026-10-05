@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.Refusal
 import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.isAlive
@@ -35,7 +36,9 @@ internal fun Refusal.explain(): String = when (this) {
     Refusal.DuplicateComplaint -> "you already have an open complaint against that cell"
     Refusal.TooManyCells -> "the organism has reached its limit of cells; finish the work with the cells you have"
     Refusal.TooDeep -> "the organism has reached its limit of generations; do this subtask yourself"
-    Refusal.InvalidParties -> "parties must be up to 4 distinct other cells"
+    Refusal.TooManyCases -> "the organism has reached its limit of immune cases; settle this yourself"
+    Refusal.TooManyOpenCases -> "you have as many open cases as a cell may have; wait for their decisions first"
+    Refusal.InvalidParties -> "parties must be up to ${OrganismBounds.MAX_PARTIES} distinct other cells"
 }
 
 private const val GOAL_CHARS = 1_000

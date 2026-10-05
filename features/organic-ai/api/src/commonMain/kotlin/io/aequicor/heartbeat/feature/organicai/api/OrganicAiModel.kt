@@ -78,15 +78,35 @@ public object OrganismBounds {
 }
 
 /**
- * Explicit growth ceilings of one organism; null is unbounded. They only refuse a division, they never kill a cell:
- * [maxCells] counts every cell the organism ever had, including the zygote and ended cells, [maxDepth] the
- * generations below the zygote.
+ * Growth ceilings of one organism; null is unbounded. Every new cell and case is an engine session started without
+ * asking the user, so the defaults are finite and a looping cell cannot grow the organism without end. Ceilings only
+ * refuse a request, they never kill a cell: [maxCells] counts every cell the organism ever had, including the zygote
+ * and ended cells, [maxDepth] the generations below the zygote, [maxCases] every case ever filed and
+ * [maxOpenCasesPerCell] the cases one cell has open at a time.
  */
 @Serializable
-public data class GrowthLimits(val maxCells: Int? = null, val maxDepth: Int? = null) {
+public data class GrowthLimits(
+    val maxCells: Int? = DEFAULT_MAX_CELLS,
+    val maxDepth: Int? = DEFAULT_MAX_DEPTH,
+    val maxCases: Int? = DEFAULT_MAX_CASES,
+    val maxOpenCasesPerCell: Int? = DEFAULT_MAX_OPEN_CASES_PER_CELL,
+) {
     init {
         require(maxCells == null || maxCells > 0) { "maxCells must be positive" }
         require(maxDepth == null || maxDepth > 0) { "maxDepth must be positive" }
+        require(maxCases == null || maxCases >= 0) { "maxCases must not be negative" }
+        require(maxOpenCasesPerCell == null || maxOpenCasesPerCell >= 0) { "maxOpenCasesPerCell must not be negative" }
+    }
+
+    /** Default ceilings. */
+    public companion object {
+        public const val DEFAULT_MAX_CELLS: Int = 16
+        public const val DEFAULT_MAX_DEPTH: Int = 4
+        public const val DEFAULT_MAX_CASES: Int = 24
+        public const val DEFAULT_MAX_OPEN_CASES_PER_CELL: Int = 2
+
+        /** No ceiling at all. */
+        public val Unbounded: GrowthLimits = GrowthLimits(null, null, null, null)
     }
 }
 
@@ -448,6 +468,12 @@ public enum class Refusal {
 
     /** [GrowthLimits.maxDepth] is reached. */
     TooDeep,
+
+    /** [GrowthLimits.maxCases] is reached. */
+    TooManyCases,
+
+    /** The filing cell already has [GrowthLimits.maxOpenCasesPerCell] open cases. */
+    TooManyOpenCases,
 
     /** Parties repeat, include the asker or exceed [OrganismBounds.MAX_PARTIES]. */
     InvalidParties,
