@@ -20,6 +20,9 @@ internal suspend fun submitStudioDraft(
     paneId: Int,
 ) = with(pipeline) {
     withState {
+        val chat = panes.firstOrNull { it.id == paneId }?.sessionId
+        val selected = subSessions[chat]
+        if (selected != null && selected != PrimarySubSession && nativeTrees[chat] != null) return@withState
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }

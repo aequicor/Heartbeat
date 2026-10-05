@@ -3,6 +3,9 @@ package io.aequicor.heartbeat.feature.aistudio.impl.domain
 import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -110,6 +113,14 @@ fun interface StudioSessionViews {
      * gets [ref] reopened with [reopening], the request its owner opened it with, so viewing never changes it.
      */
     fun observe(ref: SessionRef, reopening: ResumeSessionRequest): Flow<List<StudioMessage>>
+
+    /** Native family observation; unsupported backends must never report a confirmed empty family. */
+    fun tree(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> =
+        flowOf(SessionTreeSnapshot(root, coverage = SessionTreeCoverage.Unsupported))
+
+    /** Native member history. This path must never fall back to resume. */
+    fun observeNative(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): Flow<List<StudioMessage>> =
+        flowOf(emptyList())
 }
 
 /** The workspace backend chosen once for the feature scope: engine-backed profile chats or the demo workspace. */

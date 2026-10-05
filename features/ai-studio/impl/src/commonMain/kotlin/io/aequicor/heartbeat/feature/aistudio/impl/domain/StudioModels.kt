@@ -41,6 +41,8 @@ data class StudioSession(
     val isOrganism: Boolean = false,
     /** Native identity used to locate the existing conversation of a computer-use capture owner. */
     val nativeSession: SessionRef? = null,
+    /** Route for observing native descendants without attaching an execution handle. */
+    val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
 )
 
 /** Projects and sessions shown in the sidebar. */

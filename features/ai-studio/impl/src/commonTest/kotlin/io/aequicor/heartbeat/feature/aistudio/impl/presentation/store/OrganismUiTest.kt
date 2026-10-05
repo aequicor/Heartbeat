@@ -72,10 +72,25 @@ class OrganismUiTest {
         assertEquals(
             listOf(
                 SubSessionUi("zygote", SubSessionKindUi.Zygote, "zygote", SubSessionStateUi.Resting, isViewable = true),
-                SubSessionUi("c1", SubSessionKindUi.Cell, "tests", SubSessionStateUi.AwaitingUser, isViewable = true),
-                SubSessionUi("c2", SubSessionKindUi.Cell, "loop", SubSessionStateUi.Killed),
-                SubSessionUi("c3", SubSessionKindUi.Cell, "new", SubSessionStateUi.Germinating),
-                SubSessionUi("k1", SubSessionKindUi.Complaint, "k1", SubSessionStateUi.Sentenced, "c2", true),
+                SubSessionUi(
+                    "c1",
+                    SubSessionKindUi.Cell,
+                    "tests",
+                    SubSessionStateUi.AwaitingUser,
+                    isViewable = true,
+                    depth = 1,
+                ),
+                SubSessionUi("c2", SubSessionKindUi.Cell, "loop", SubSessionStateUi.Killed, depth = 1),
+                SubSessionUi("c3", SubSessionKindUi.Cell, "new", SubSessionStateUi.Germinating, depth = 1),
+                SubSessionUi(
+                    "k1",
+                    SubSessionKindUi.Complaint,
+                    "k1",
+                    SubSessionStateUi.Sentenced,
+                    "c2",
+                    true,
+                    depth = 1,
+                ),
             ),
             ui.subSessions,
         )

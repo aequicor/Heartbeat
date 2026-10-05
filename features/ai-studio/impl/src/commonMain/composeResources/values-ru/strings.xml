@@ -1,4 +1,7 @@
 <resources>
+    <string name="session_tree_root">Корневая сессия</string>
+    <string name="session_tree_unknown">неизвестно</string>
+    <string name="session_tree_activity">Активные потомки; + или ? означает, что часть состояний неизвестна</string>
     <string name="studio_title">AI-студия</string>
     <string name="studio_brand">Heartbeat</string>
     <string name="studio_short_title">Студия</string>
@@ -245,4 +248,8 @@
     <string name="organism_status_completed">Организм завершил работу.</string>
     <string name="organism_status_aborted">Организм остановлен.</string>
     <string name="organism_unavailable">Организм не виден: органический ИИ выключен или спит, либо организм не был зачат или больше не хранится. Отправьте цель, чтобы зачать его.</string>
+    <string name="session_child_view">Просмотр субагента. Чтобы продолжить задачу, вернитесь к корневой сессии.</string>
+    <string name="session_tree_queued">в очереди</string>
+    <string name="session_tree_cancelled">отменено</string>
+    <string name="session_tree_failed">ошибка</string>
 </resources>

@@ -11,12 +11,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -62,7 +69,45 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
     )
 
     override fun observe(ref: SessionRef, reopening: ResumeSessionRequest): Flow<List<StudioMessage>> = channelFlow {
-        launch { record(ref, reopening, isLive = true) }
+        launch {
+            while (true) {
+                record(ref, reopening, isLive = true)
+                delay(NATIVE_HISTORY_RETRY_MILLIS)
+            }
+        }
+        saved.value.observe(ref.transcriptKey()).collect {
+            send(it.toStudioMessages(Instant.DISTANT_PAST, isRunning = false))
+        }
+    }
+
+    override fun tree(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
+        when (val feature = facade.engines.features(root.engine).resolve(SessionTrees)) {
+            is FeatureAccess.Available -> emitAll(feature.feature.observe(root, access))
+            is FeatureAccess.Unavailable -> emit(SessionTreeSnapshot(root, coverage = SessionTreeCoverage.Unavailable))
+            FeatureAccess.Unsupported -> emit(SessionTreeSnapshot(root, coverage = SessionTreeCoverage.Unsupported))
+        }
+    }
+
+    override fun observeNative(
+        root: SessionRef,
+        ref: SessionRef,
+        access: SessionTreeAccess,
+    ): Flow<List<StudioMessage>> = channelFlow {
+        launch {
+            while (true) {
+                try {
+                    val feature = facade.engines.features(root.engine).requireFeature(SessionTrees)
+                    val history = feature.history(root, ref, access)
+                    val reader = readersLock.withLock { readers.getOrPut(ref) { Mutex() } }
+                    reader.withLock { mirror.follow(ref.transcriptKey(), history) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    log.w(e) { "Native child history stopped updating; retrying" }
+                }
+                delay(NATIVE_HISTORY_RETRY_MILLIS)
+            }
+        }
         saved.value.observe(ref.transcriptKey()).collect {
             send(it.toStudioMessages(Instant.DISTANT_PAST, isRunning = false))
         }
@@ -109,6 +154,10 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
         reopening: ResumeSessionRequest,
         block: suspend (SessionHistory) -> Unit,
     ) {
+        val trees = facade.engines.features(ref.engine).resolve(SessionTrees)
+        if (trees is FeatureAccess.Available) {
+            return block(trees.feature.history(ref, ref, SessionTreeAccess(reopening.target, reopening.workspace)))
+        }
         val stored = facade.sessions.get(ref).features
         val history = stored.resolve(SessionHistory)
         if (history is FeatureAccess.Available) {
@@ -137,3 +186,5 @@ internal class StudioSessionViewer(private val facade: EngineFacade, private val
 
 /** Namespace separates native views from ordinary studio chat ids and includes engine and source identity. */
 private fun SessionRef.transcriptKey(): String = "native:" + Json.encodeToString(SessionRef.serializer(), this)
+
+private const val NATIVE_HISTORY_RETRY_MILLIS = 2_000L

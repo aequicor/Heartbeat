@@ -44,6 +44,7 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -459,8 +460,12 @@ class StudioEngineIntegrationTest {
         val services = configured()
         val runtime = services.studioRuntime
         val chat = services.studioRepository.createSession(null, "Failed stop")
-        val run = async { runtime.run(chat.id, "Keep observing", runtime.defaults()) }
-        services.studioRepository.observeMessages(chat.id).first { it.isNotEmpty() }
+        val accepted = CompletableDeferred<Unit>()
+        val run = async {
+            runtime.run(chat.id, "Keep observing", runtime.defaults(), emptyList()) { accepted.complete(Unit) }
+        }
+        // History is visible before the facade acknowledges submission; this case stops an accepted turn.
+        accepted.await()
         val native = TestAdapter.runtimes.single().natives.single()
         val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
         native.cancelGate = gate

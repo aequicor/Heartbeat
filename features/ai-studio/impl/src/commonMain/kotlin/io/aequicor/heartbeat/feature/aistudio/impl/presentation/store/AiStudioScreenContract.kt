@@ -107,6 +107,8 @@ data class AiStudioScreenState(
     val subSessions: ImmutableMap<String, String> = persistentMapOf(),
     /** Live transcripts of the shown sub-sessions of open organism chats, by chat id. */
     val subTranscripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
+    val nativeTrees: ImmutableMap<String, SessionTreeUi> = persistentMapOf(),
+    val nativeTranscripts: ImmutableMap<String, NativeTranscriptUi> = persistentMapOf(),
     val attachmentErrorPanes: ImmutableSet<Int> = persistentSetOf(),
     val failedPanes: ImmutableSet<Int> = persistentSetOf(),
     val sidebar: SidebarUi = SidebarUi(),

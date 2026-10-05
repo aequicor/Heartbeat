@@ -31,10 +31,14 @@ data class OrganismUi(
 enum class OrganismStatusUi { Developing, Stalled, Completed, Aborted }
 
 /** What a sub-session is: the zygote, a divided cell or a judge of a complaint or a dispute. */
-enum class SubSessionKindUi { Zygote, Cell, Complaint, Dispute }
+enum class SubSessionKindUi { Zygote, Cell, Complaint, Dispute, Root, Agent }
 
 /** State of a sub-session; judges end with their ruling. */
 enum class SubSessionStateUi {
+    Unknown,
+    Queued,
+    Cancelled,
+    Failed,
     Germinating,
     Working,
     AwaitingUser,
@@ -62,6 +66,7 @@ data class SubSessionUi(
     val state: SubSessionStateUi,
     val subject: String? = null,
     val isViewable: Boolean = false,
+    val depth: Int = 0,
 )
 
 /** A permission request of a cell's turn, answered by the user through the organism. */
@@ -86,11 +91,40 @@ internal fun Organism.toUi(): OrganismUi = OrganismUi(
         zygote.phase is CellPhase.Stalled -> OrganismStatusUi.Stalled
         else -> OrganismStatusUi.Developing
     },
-    subSessions = (cells.map { it.toSubSession() } + trials.map { it.toSubSession() }).toImmutableList(),
+    subSessions = (
+        cells.map { cell -> cell.toSubSession().copy(depth = depthOf(cell)) } +
+            trials.map { it.toSubSession().copy(depth = 1) }
+    ).toImmutableList(),
     permissions = cells.flatMap { cell ->
         (cell.phase as? CellPhase.Working)?.awaiting.orEmpty().map { it.toUi(cell) }
     }.toImmutableList(),
 )
+
+private fun Organism.depthOf(cell: Cell): Int {
+    var parent = cell.parent
+    var depth = 0
+    val visited = mutableSetOf(cell.id)
+    while (parent != null && visited.add(parent)) {
+        depth++
+        parent = cells.firstOrNull { it.id == parent }?.parent
+    }
+    return depth
+}
+
+internal fun OrganismUi.activeDescendants(): Int = if (
+    status == OrganismStatusUi.Aborted || status == OrganismStatusUi.Completed
+) {
+    0
+} else {
+    subSessions.distinctBy { it.key }.count {
+        it.kind != SubSessionKindUi.Zygote && it.state in setOf(
+            SubSessionStateUi.Germinating,
+            SubSessionStateUi.Working,
+            SubSessionStateUi.AwaitingUser,
+            SubSessionStateUi.Judging,
+        )
+    }
+}
 
 private fun Cell.toSubSession() = SubSessionUi(
     key = id.value,

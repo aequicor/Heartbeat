@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.RenameUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionTreeUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SettingsUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
@@ -88,9 +89,16 @@ internal data class PaneContent(
     val isOrganismEnabled: Boolean = false,
     val organism: OrganismUi? = null,
     val subSession: String = PrimarySubSession,
+    val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
 ) {
+    /** A descendant view has no execution controls; root ownership remains unchanged. */
+    val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
+        it.key == subSession &&
+            it.kind == io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi.Agent
+    } == true
+
     /** Only the settings of this pane wait while its session configuration is being confirmed. */
     val isSettingPending: Boolean get() = configuration?.pendingOperation != null
 }
@@ -110,7 +118,7 @@ internal data class SidebarInput(
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
 internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
-    val session = session(pane.sessionId)
+    val session = displayedSession(pane.sessionId)
     val startedAt = runStartedAt[pane.sessionId]
     val configuration = configurations[pane.sessionId]
     val effectiveSettings = paneSettings(session, configuration)
@@ -129,7 +137,8 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isRememberEnabled = isRememberEnabled,
         isOrganismEnabled = isOrganismEnabled,
         organism = organisms[pane.sessionId],
-        subSession = subSessions[pane.sessionId] ?: PrimarySubSession,
+        subSession = selectedSubSession(pane.sessionId, session),
+        nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
         isSubmitFailed = pane.id in failedPanes,
@@ -161,9 +170,23 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
 private fun AiStudioScreenState.transcriptOf(sessionId: String?, session: SessionUi?): ImmutableList<MessageUi>? =
     when {
         sessionId == null -> null
+
+        selectedNative(sessionId) != PrimarySubSession -> nativeTranscripts[sessionId]
+            ?.takeIf { it.key == selectedNative(sessionId) }?.messages ?: persistentListOf()
+
         session?.isOrganism == true -> subTranscripts[sessionId] ?: persistentListOf()
+
         else -> transcripts[sessionId]
     }
+
+private fun AiStudioScreenState.selectedNative(sessionId: String?): String = subSessions[sessionId]?.takeIf { key ->
+    nativeTrees[sessionId]?.sessions?.any {
+        it.key == key &&
+            it.kind == io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi.Agent
+    } ==
+        true
+}
+    ?: PrimarySubSession
 
 private fun AiStudioScreenState.paneSettings(session: SessionUi?, configuration: SessionConfigurationUi?): SettingsUi =
     if (configuration != null) {
@@ -212,3 +235,11 @@ internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
             ?: projects.firstOrNull()?.id,
     )
 }
+
+private fun AiStudioScreenState.displayedSession(id: String?): SessionUi? {
+    val session = session(id)
+    return if (selectedNative(id) == PrimarySubSession) session else session?.copy(isContinuable = false)
+}
+
+private fun AiStudioScreenState.selectedSubSession(id: String?, session: SessionUi?): String =
+    if (session?.isOrganism == true) subSessions[id] ?: PrimarySubSession else selectedNative(id)

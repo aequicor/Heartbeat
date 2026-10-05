@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -52,6 +53,7 @@ internal class StudioWorkspaceProjection(
             StudioWorkspace(
                 projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
                 rows.orEmpty().map { record ->
+                    val workspace = record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)
                     StudioSession(
                         record.id, record.projectId, record.title, record.updatedAt,
                         record.isPinned, record.isUnread, record.isArchived,
@@ -62,6 +64,12 @@ internal class StudioWorkspaceProjection(
                         isWorktree = record.worktreeTaskId != null,
                         isOrganism = record.organismId != null,
                         nativeSession = record.ref,
+                        treeAccess = record.target?.let {
+                            io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess(
+                                it,
+                                workspace,
+                            )
+                        },
                     )
                 },
             )

@@ -78,6 +78,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_child_view
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
@@ -270,7 +271,9 @@ private fun PaneNotices(
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
     ) {
-        if (content.session?.isOrganism == true) {
+        if (content.isNativeChild) {
+            HbText(stringResource(Res.string.session_child_view), Modifier.padding(HbTheme.spacing.m))
+        } else if (content.session?.isOrganism == true) {
             OrganismNotices(content, descriptionMaxHeight, onIntent)
         } else if (content.session?.isContinuable == false) {
             HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))

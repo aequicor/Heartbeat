@@ -61,6 +61,15 @@ internal class StudioOrganismView(
             }
         }
         launch { observeTranscripts(pipeline) }
+        launch {
+            StudioNativeSessions(
+                studio,
+                backend,
+                selection,
+                organisms(),
+                withAttachments,
+            ).observe(pipeline)
+        }
     }
 
     suspend fun handle(pipeline: OrganismPipeline, intent: AiStudioScreenIntent.Organism): Unit = with(pipeline) {

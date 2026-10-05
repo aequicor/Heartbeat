@@ -1,4 +1,7 @@
 <resources>
+    <string name="session_tree_root">Root session</string>
+    <string name="session_tree_unknown">unknown</string>
+    <string name="session_tree_activity">Active descendants; + or ? means some activity is unknown</string>
     <string name="studio_title">AI studio</string>
     <string name="studio_brand">Heartbeat</string>
     <string name="studio_short_title">Studio</string>
@@ -245,4 +248,8 @@
     <string name="organism_status_completed">The organism completed its work.</string>
     <string name="organism_status_aborted">The organism was stopped.</string>
     <string name="organism_unavailable">The organism is out of view: organic AI is off or asleep, or the organism was never conceived or is no longer kept. Send its goal to conceive it.</string>
+    <string name="session_child_view">Viewing a subagent. Return to the root session to continue the task.</string>
+    <string name="session_tree_queued">queued</string>
+    <string name="session_tree_cancelled">cancelled</string>
+    <string name="session_tree_failed">failed</string>
 </resources>

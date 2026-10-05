@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import io.aequicor.heartbeat.ds.components.HbBadge
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
@@ -23,7 +24,9 @@ import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenu
 import io.aequicor.heartbeat.ds.components.HbMenuItem
 import io.aequicor.heartbeat.ds.components.HbText
+import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismActionUi
@@ -32,6 +35,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionStateUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.activeDescendants
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_complaint
@@ -59,12 +63,20 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_status_sta
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_sub_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_unavailable
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activity
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_cancelled
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_failed
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_queued
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_root
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_unknown
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
 /** An organism chat's feed follows the shown sub-session, so switching resets its timeline. */
-internal fun PaneContent.feedId(): String? = pane.sessionId?.let { if (organism != null) "$it/$subSession" else it }
+internal fun PaneContent.feedId(): String? = pane.sessionId?.let {
+    if (organism != null || nativeTree != null) "$it/$subSession" else it
+}
 
 /** The organism mode is offered in the "+" menu of a new chat only, before its first message. */
 internal fun PaneContent.isOrganismOffered(): Boolean = isOrganismEnabled && pane.sessionId == null && !pane.isCreating
@@ -90,42 +102,70 @@ internal fun OrganismModeToggle(content: PaneContent, onIntent: (AiStudioScreenI
  */
 @Composable
 internal fun OrganismSwitcher(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
-    val organism = content.organism ?: return
+    val organism = content.organism
+    val tree = content.nativeTree
+    val sessions = tree?.sessions ?: organism?.subSessions ?: return
     val sessionId = content.session?.id ?: return
     var isExpanded by remember { mutableStateOf(false) }
-    val current = organism.subSessions.firstOrNull { it.key == content.subSession }
-    val items = organism.subSessions.map { sub ->
+    val current = sessions.firstOrNull { it.key == content.subSession }
+    val items = sessions.map { sub ->
         HbMenuItem(
             id = SUB_SESSION_PREFIX + sub.key,
-            label = subSessionLabel(sub),
+            label = sub.indentation() + subSessionLabel(sub) + sub.rootName(),
             shortcut = stringResource(sub.state.label()),
             isEnabled = sub.isViewable,
             isChecked = sub.key == content.subSession,
         )
-    } + organismActions(organism)
-    Box {
-        HbButton(
-            current?.let { subSessionLabel(it) } ?: stringResource(Res.string.organism_sub_sessions),
-            { isExpanded = true },
-            Modifier.widthIn(max = HbTheme.dimensions.composerMenuMaxWidth)
-                .testTag("organism-switcher-${content.pane.id}"),
-            style = HbButtonStyle.Secondary,
-            size = HbButtonSize.Small,
+    } + organism?.let { organismActions(it) }.orEmpty()
+    HbRow(gap = HbTheme.spacing.xs) {
+        Box {
+            HbButton(
+                current?.let { subSessionLabel(it) } ?: stringResource(Res.string.organism_sub_sessions),
+                { isExpanded = true },
+                Modifier.widthIn(max = HbTheme.dimensions.composerMenuMaxWidth)
+                    .testTag("organism-switcher-${content.pane.id}"),
+                style = HbButtonStyle.Secondary,
+                size = HbButtonSize.Small,
+            )
+            HbMenu(
+                items.toImmutableList(),
+                isExpanded,
+                { isExpanded = false },
+                { id ->
+                    isExpanded = false
+                    val intent = when (id) {
+                        ABORT_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Abort)
+                        RESUME_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)
+                        else -> AiStudioScreenIntent.SelectSubSession(sessionId, id.removePrefix(SUB_SESSION_PREFIX))
+                    }
+                    onIntent(intent)
+                },
+                stringResource(Res.string.organism_sub_sessions),
+            )
+        }
+        SessionActivityBadge(
+            tree?.activeCount ?: organism?.activeDescendants() ?: 0,
+            tree?.isActivityKnown ?: (organism != null),
         )
-        HbMenu(
-            items.toImmutableList(),
-            isExpanded,
-            { isExpanded = false },
-            { id ->
-                isExpanded = false
-                val intent = when (id) {
-                    ABORT_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Abort)
-                    RESUME_ACTION -> AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)
-                    else -> AiStudioScreenIntent.SelectSubSession(sessionId, id.removePrefix(SUB_SESSION_PREFIX))
-                }
-                onIntent(intent)
+    }
+}
+
+@Composable
+private fun SessionActivityBadge(count: Int, known: Boolean) {
+    if (count == 0 && known) return
+    val badge = if (known) {
+        count.toString()
+    } else if (count > 0) {
+        "$count+"
+    } else {
+        "?"
+    }
+    HbTooltip(stringResource(Res.string.session_tree_activity)) {
+        HbBadge(
+            badge,
+            Modifier.testTag("subsession-active-count").semantics {
+                liveRegion = LiveRegionMode.Polite
             },
-            stringResource(Res.string.organism_sub_sessions),
         )
     }
 }
@@ -209,27 +249,35 @@ internal fun OrganismNotices(
 
 @Composable
 private fun subSessionLabel(sub: SubSessionUi): String = when (sub.kind) {
+    SubSessionKindUi.Root -> stringResource(Res.string.session_tree_root)
+    SubSessionKindUi.Agent -> sub.name
     SubSessionKindUi.Zygote -> stringResource(Res.string.organism_zygote)
     SubSessionKindUi.Cell -> "${sub.key} · ${sub.name}"
     SubSessionKindUi.Complaint -> stringResource(Res.string.organism_complaint, sub.key, sub.subject.orEmpty())
     SubSessionKindUi.Dispute -> stringResource(Res.string.organism_dispute, sub.key)
 }
 
-private fun SubSessionStateUi.label(): StringResource = when (this) {
-    SubSessionStateUi.Germinating -> Res.string.organism_state_germinating
-    SubSessionStateUi.Working -> Res.string.organism_state_working
-    SubSessionStateUi.AwaitingUser -> Res.string.organism_state_awaiting
-    SubSessionStateUi.Resting -> Res.string.organism_state_resting
-    SubSessionStateUi.Stalled -> Res.string.organism_state_stalled
-    SubSessionStateUi.Completed -> Res.string.organism_state_completed
-    SubSessionStateUi.Died -> Res.string.organism_state_died
-    SubSessionStateUi.Killed -> Res.string.organism_state_killed
-    SubSessionStateUi.Judging -> Res.string.organism_state_judging
-    SubSessionStateUi.Sentenced -> Res.string.organism_state_sentenced
-    SubSessionStateUi.Spared -> Res.string.organism_state_spared
-    SubSessionStateUi.Answered -> Res.string.organism_state_answered
-    SubSessionStateUi.Undecided -> Res.string.organism_state_undecided
-}
+private fun SubSessionStateUi.label(): StringResource = stateLabels.getValue(this)
+
+private val stateLabels = mapOf(
+    SubSessionStateUi.Queued to Res.string.session_tree_queued,
+    SubSessionStateUi.Cancelled to Res.string.session_tree_cancelled,
+    SubSessionStateUi.Failed to Res.string.session_tree_failed,
+    SubSessionStateUi.Unknown to Res.string.session_tree_unknown,
+    SubSessionStateUi.Germinating to Res.string.organism_state_germinating,
+    SubSessionStateUi.Working to Res.string.organism_state_working,
+    SubSessionStateUi.AwaitingUser to Res.string.organism_state_awaiting,
+    SubSessionStateUi.Resting to Res.string.organism_state_resting,
+    SubSessionStateUi.Stalled to Res.string.organism_state_stalled,
+    SubSessionStateUi.Completed to Res.string.organism_state_completed,
+    SubSessionStateUi.Died to Res.string.organism_state_died,
+    SubSessionStateUi.Killed to Res.string.organism_state_killed,
+    SubSessionStateUi.Judging to Res.string.organism_state_judging,
+    SubSessionStateUi.Sentenced to Res.string.organism_state_sentenced,
+    SubSessionStateUi.Spared to Res.string.organism_state_spared,
+    SubSessionStateUi.Answered to Res.string.organism_state_answered,
+    SubSessionStateUi.Undecided to Res.string.organism_state_undecided,
+)
 
 private fun OrganismStatusUi.label(): StringResource = when (this) {
     OrganismStatusUi.Developing -> Res.string.organism_status_developing
@@ -241,3 +289,7 @@ private fun OrganismStatusUi.label(): StringResource = when (this) {
 private const val SUB_SESSION_PREFIX = "sub:"
 private const val ABORT_ACTION = "organism:abort"
 private const val RESUME_ACTION = "organism:resume"
+
+private fun SubSessionUi.rootName(): String = if (kind == SubSessionKindUi.Root && name.isNotBlank()) " · $name" else ""
+
+private fun SubSessionUi.indentation(): String = "  ".repeat(depth) + if (depth > 0) "↳ " else ""

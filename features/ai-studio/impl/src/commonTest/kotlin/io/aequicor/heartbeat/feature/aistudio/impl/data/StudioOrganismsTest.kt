@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
@@ -313,7 +314,16 @@ private class ViewedFacade(
     val resumptions = mutableListOf<ResumeSessionRequest>()
     var closes = 0
 
-    override val engines: EngineCatalog get() = error("unused")
+    override val engines: EngineCatalog = object : EngineCatalog {
+        override val state = MutableStateFlow<List<EngineInfo>>(
+            emptyList(),
+        )
+        override suspend fun refresh(engine: EngineId) = error("unused")
+        override fun features(engine: EngineId): EngineFeatures = object : EngineFeatures {
+            override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
+                FeatureAccess.Unsupported
+        }
+    }
     override val bindings: EngineBindings get() = error("unused")
     override val models: ModelCatalog get() = error("unused")
     override val providerUsage: ProviderUsageCatalog get() = error("unused")
