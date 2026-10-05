@@ -154,33 +154,39 @@ internal fun HbTranscriptChunkContent(
         } else {
             toolPanelChunkPadding(chunk)
         },
-    ) {
-        when (val body = chunk.body) {
-            is HbTranscriptBody.Markdown -> HbMarkdownBlockContent(
-                body.block,
-                foreground = foreground,
-                onLinkClick = onLinkClick,
-            )
+        content = chunk.takeUnless {
+            it.isFirst && it.isLast && message.role == HbChatRole.User &&
+                (it.body as? HbTranscriptBody.Text)?.text?.isBlank() == true
+        }?.let {
+            {
+                when (val body = chunk.body) {
+                    is HbTranscriptBody.Markdown -> HbMarkdownBlockContent(
+                        body.block,
+                        foreground = foreground,
+                        onLinkClick = onLinkClick,
+                    )
 
-            is HbTranscriptBody.Tool -> HbToolCallHeader(
-                toolCall = body.call,
-                isExpanded = isToolExpanded,
-                onExpandedChange = onToolExpandedChange,
-                labels = toolLabels,
-                isUnified = message.appearance.isUnified,
-                onAction = { onToolAction(body.call, it) },
-            )
+                    is HbTranscriptBody.Tool -> HbToolCallHeader(
+                        toolCall = body.call,
+                        isExpanded = isToolExpanded,
+                        onExpandedChange = onToolExpandedChange,
+                        labels = toolLabels,
+                        isUnified = message.appearance.isUnified,
+                        onAction = { onToolAction(body.call, it) },
+                    )
 
-            is HbTranscriptBody.ToolPayload -> UnifiedToolPayload(
-                body = body,
-                isUnified = message.appearance.isUnified,
-                labels = toolLabels,
-                onLinkClick = onLinkClick,
-            )
+                    is HbTranscriptBody.ToolPayload -> UnifiedToolPayload(
+                        body = body,
+                        isUnified = message.appearance.isUnified,
+                        labels = toolLabels,
+                        onLinkClick = onLinkClick,
+                    )
 
-            is HbTranscriptBody.Text -> TranscriptText(body, foreground, isLastSegment = chunk.isLast)
-        }
-    }
+                    is HbTranscriptBody.Text -> TranscriptText(body, foreground, isLastSegment = chunk.isLast)
+                }
+            }
+        },
+    )
 }
 
 @Composable

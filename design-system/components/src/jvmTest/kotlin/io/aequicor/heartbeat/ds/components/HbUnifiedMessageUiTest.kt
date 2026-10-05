@@ -147,6 +147,37 @@ class HbUnifiedMessageUiTest {
             }
         }
 
+    @Test
+    fun `attachment-only prompt keeps its label and footer without an empty text bubble`() =
+        runSkikoComposeUiTest(size = Size(640f, 440f)) {
+            val prompt = HbChatMessage(
+                id = "image",
+                author = "You",
+                text = "",
+                role = HbChatRole.User,
+                label = "12:30",
+                appearance = HbMessageAppearance(isAuthorVisible = false, isContentWidth = true),
+            )
+            var timeline by mutableStateOf(
+                HbChatTimeline.from(HbChatSection("session", ""), persistentListOf(prompt)),
+            )
+            setContent {
+                HbTheme(darkTheme = false) {
+                    HbChatTranscript(
+                        timeline,
+                        Modifier.fillMaxSize(),
+                        messageFooterContent = { HbText("image.png") },
+                    )
+                }
+            }
+            onAllNodesWithText("", useUnmergedTree = true).assertCountEquals(0)
+            onNodeWithText("12:30").assertIsDisplayed()
+            onNodeWithText("image.png").assertIsDisplayed()
+            runOnIdle { timeline = timeline.replaceLatest(prompt.copy(text = "Describe the image")) }
+            onNodeWithText("Describe the image").assertIsDisplayed()
+            onNodeWithText("image.png").assertIsDisplayed()
+        }
+
     private fun message(call: HbToolCall) = HbChatMessage(
         id = "reply",
         author = "Heartbeat",
