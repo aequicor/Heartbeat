@@ -10,7 +10,7 @@ import kotlinx.serialization.json.put
 
 /** Native integrations can act outside the command sandbox, so hosted sessions disable them. */
 internal val CodexDisabledCapabilities: List<String> = listOf(
-    "apps", "plugins", "remote_plugin", "hooks", "multi_agent", "browser_use", "browser_use_external",
+    "apps", "plugins", "remote_plugin", "hooks", "browser_use", "browser_use_external",
     "browser_use_full_cdp_access", "computer_use", "image_generation", "worktrees", "skill_mcp_dependency_install",
 )
 
@@ -45,6 +45,7 @@ internal suspend fun codexIsolationConfig(
     cwd: String?,
     search: Boolean,
     questions: Boolean,
+    subagents: Boolean = false,
 ): JsonObject {
     val effective = rpc.request(
         "config/read",
@@ -70,6 +71,7 @@ internal suspend fun codexIsolationConfig(
             "features",
             buildJsonObject {
                 CodexDisabledCapabilities.forEach { put(it, false) }
+                put("multi_agent", subagents)
                 // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
                 put("default_mode_request_user_input", questions)
             },

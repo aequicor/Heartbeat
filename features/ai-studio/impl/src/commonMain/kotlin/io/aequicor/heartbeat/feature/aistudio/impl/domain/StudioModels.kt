@@ -37,8 +37,12 @@ data class StudioSession(
     val modelId: String? = null,
     val isContinuable: Boolean = true,
     val isWorktree: Boolean = false,
+    /** The conversation is an organic AI organism of the same id; the organism drives its sessions. */
+    val isOrganism: Boolean = false,
     /** Native identity used to locate the existing conversation of a computer-use capture owner. */
     val nativeSession: SessionRef? = null,
+    /** Route for observing native descendants without attaching an execution handle. */
+    val treeAccess: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess? = null,
 )
 
 /** Projects and sessions shown in the sidebar. */

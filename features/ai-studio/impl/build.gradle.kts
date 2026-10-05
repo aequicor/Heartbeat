@@ -15,6 +15,7 @@ kotlin {
             implementation(projects.features.computerUse.api)
             implementation(projects.features.attachments.api)
             implementation(projects.features.worktreeMode.api)
+            implementation(projects.features.organicAi.api)
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.researchChat.api)

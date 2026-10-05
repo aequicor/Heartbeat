@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProjects
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlin.time.Clock
@@ -35,6 +36,7 @@ internal class ToggleStudioBackend(
     private val demoRepository: Lazy<InMemoryStudioRepository>,
     private val availability: StudioAvailability,
     private val clock: Clock,
+    private val views: Lazy<StudioSessionViews>,
     private val projects: Lazy<StudioProjects>? = null,
 ) : StudioBackend {
     private val log = Log.tag("StudioBackend")
@@ -44,6 +46,9 @@ internal class ToggleStudioBackend(
     override suspend fun repository(): StudioRepository = select().repository
 
     override suspend fun effects(): EffectHandler<AiStudioEffect, AiStudioIntent> = select().effects
+
+    override suspend fun sessionViews(): StudioSessionViews =
+        if (select().repository !is InMemoryStudioRepository) views.value else super.sessionViews()
 
     private suspend fun select(): Selected = lock.withLock {
         selected ?: create().also { selected = it }

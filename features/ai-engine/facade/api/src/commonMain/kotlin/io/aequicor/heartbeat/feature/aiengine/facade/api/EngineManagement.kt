@@ -165,7 +165,8 @@ public data class Installation(
     /** False when the found executable cannot be started safely (e.g. a Windows `.cmd` shim). */
     val isRunnable: Boolean = true,
 ) {
-    override fun toString(): String = "Installation(source=$source, version=$version, isRunnable=$isRunnable)"
+    override fun toString(): String =
+        "Installation(source=$source, version=${version ?: "null"}, isRunnable=$isRunnable)"
 }
 
 /** A copy Heartbeat installed; [executable] is absolute and never logged. */
@@ -235,7 +236,7 @@ public data class RuntimeSummary(
     val startedAt: Instant? = null,
 ) {
     /** Restarting stops idle runtimes; a turn in flight is never interrupted. */
-    val canRestart: Boolean get() = runtimes > 0 && activeTurns == 0
+    val isRestartable: Boolean get() = runtimes > 0 && activeTurns == 0
 }
 
 /** A management request for one engine. */
@@ -296,7 +297,7 @@ public enum class LoginMethod {
 }
 
 /** A one-time code from a sign-in page; never logged. */
-public class LoginCode(public val value: String) {
+public data class LoginCode(public val value: String) {
     override fun equals(other: Any?): Boolean = other is LoginCode && other.value == value
 
     override fun hashCode(): Int = value.hashCode()
@@ -473,8 +474,8 @@ private fun ManagedEngine.installActions(): Set<EngineActionKind> = buildSet {
     add(EngineActionKind.CheckForUpdates)
     val managed = installation.managed
     if (spec.install == InstallSupport.Managed && managed == null) add(EngineActionKind.Install)
-    val canReplace = spec.install == InstallSupport.Bundled || managed != null
-    if (canReplace && installation.isUpdateAvailable) add(EngineActionKind.Update)
+    val isReplaceable = spec.install == InstallSupport.Bundled || managed != null
+    if (isReplaceable && installation.isUpdateAvailable) add(EngineActionKind.Update)
     if (managed != null) add(EngineActionKind.Uninstall)
 }
 
@@ -487,7 +488,7 @@ private fun ManagedEngine.loginActions(): Set<EngineActionKind> {
 }
 
 private fun ManagedEngine.runtimeActions(): Set<EngineActionKind> =
-    if (runtime.canRestart) setOf(EngineActionKind.Restart) else emptySet()
+    if (runtime.isRestartable) setOf(EngineActionKind.Restart) else emptySet()
 
 /**
  * Whether [candidate] is a newer version than [installed]: dot-separated numeric segments compare numerically, and a
@@ -505,7 +506,7 @@ public fun isNewerVersion(candidate: String, installed: String): Boolean {
     return !next.isPreRelease && current.isPreRelease
 }
 
-private class ParsedVersion(val numbers: List<Long>, val isPreRelease: Boolean)
+private data class ParsedVersion(val numbers: List<Long>, val isPreRelease: Boolean)
 
 private val VersionPattern = Regex("""v?(\d+(?:\.\d+)*)(-[^+]+)?(\+.+)?""")
 

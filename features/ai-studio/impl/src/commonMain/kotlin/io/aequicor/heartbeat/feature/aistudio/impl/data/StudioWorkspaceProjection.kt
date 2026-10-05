@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
@@ -52,14 +53,23 @@ internal class StudioWorkspaceProjection(
             StudioWorkspace(
                 projects.map { StudioProject(it.ref.value, it.name, StudioEnvironment.Local, "") },
                 rows.orEmpty().map { record ->
+                    val workspace = record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)
                     StudioSession(
                         record.id, record.projectId, record.title, record.updatedAt,
                         record.isPinned, record.isUnread, record.isArchived,
                         branch = tasks[record.id]?.branch,
                         modelId = record.target?.let { Json.encodeToString(EngineTarget.serializer(), it) },
-                        isContinuable = available[record.id] ?: true,
+                        // The organism drives the sessions of its chat; the studio only shows them.
+                        isContinuable = record.organismId == null && (available[record.id] ?: true),
                         isWorktree = record.worktreeTaskId != null,
+                        isOrganism = record.organismId != null,
                         nativeSession = record.ref,
+                        treeAccess = record.target?.let {
+                            io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess(
+                                it,
+                                workspace,
+                            )
+                        },
                     )
                 },
             )

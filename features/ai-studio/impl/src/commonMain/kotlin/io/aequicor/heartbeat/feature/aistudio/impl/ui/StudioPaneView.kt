@@ -78,6 +78,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_child_view
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.sidebar_new_session
@@ -136,7 +137,7 @@ internal fun StudioPaneView(
             val labels = worktreeLabels()
             remember(worktreeFeed, labels) { worktreeTimeline(worktreeFeed, labels) }
         }
-        val feedId = pane.sessionId ?: worktreeFeed?.key
+        val feedId = content.feedId() ?: worktreeFeed?.key
         val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
         val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
         if (feedId == null && !isCenteredComposer) {
@@ -257,7 +258,9 @@ private fun PaneNotices(
     questions: ImmutableMap<String, ComposableComponent>,
 ) = HbBoxWithConstraints(Modifier.fillMaxWidth()) {
     // Descriptions share a part of the pane, so long ones never push the decisions or the composer off a low pane.
-    val described = content.permissions.count { !it.description.isNullOrBlank() }.coerceAtLeast(1)
+    val requests = content.permissions.map { it.description } +
+        content.organism?.permissions.orEmpty().map { it.description }
+    val described = requests.count { !it.isNullOrBlank() }.coerceAtLeast(1)
     val descriptionMaxHeight = if (constraints.hasBoundedHeight) {
         minOf(HbTheme.dimensions.toolPayloadMaxHeight, maxHeight / (PANE_SHARE_OF_DESCRIPTIONS * described))
     } else {
@@ -268,7 +271,11 @@ private fun PaneNotices(
             .pointerInput(Unit) { detectTapGestures { } },
         gap = HbTheme.spacing.none,
     ) {
-        if (content.session?.isContinuable == false) {
+        if (content.isNativeChild) {
+            HbText(stringResource(Res.string.session_child_view), Modifier.padding(HbTheme.spacing.m))
+        } else if (content.session?.isOrganism == true) {
+            OrganismNotices(content, descriptionMaxHeight, onIntent)
+        } else if (content.session?.isContinuable == false) {
             HbText(stringResource(Res.string.session_read_only), Modifier.padding(HbTheme.spacing.m))
         } else if (content.session?.isRunning == true && !content.isStoppable) {
             HbText(stringResource(Res.string.stop_unsupported), Modifier.padding(HbTheme.spacing.m))
@@ -319,7 +326,7 @@ private const val PANE_SHARE_OF_DESCRIPTIONS = 3
  * so a keyboard scrolls it with the arrow and page keys.
  */
 @Composable
-private fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
+internal fun PermissionDescription(description: String, requestId: String, maxHeight: Dp) {
     val scroll = rememberScrollState()
     // Kept while the text is scrollable at all, so the decisions do not move once the end is reached.
     val isLong by remember(scroll) { derivedStateOf { scroll.maxValue in 1 until Int.MAX_VALUE } }
@@ -384,6 +391,7 @@ private fun PaneHeader(
                 )
             }
             PaneTitle(content, onIntent, Modifier.weight(1f))
+            OrganismSwitcher(content, onIntent)
             PaneSessionMenu(content, onIntent)
             PaneLayoutActions(pane.id, layout, onIntent)
         }

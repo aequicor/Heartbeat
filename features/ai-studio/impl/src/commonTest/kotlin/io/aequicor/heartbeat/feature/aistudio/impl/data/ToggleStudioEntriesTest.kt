@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.profilefacade.ProfileSessions
 import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsEnabled
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.flow.Flow
@@ -49,6 +50,25 @@ class ToggleStudioEntriesTest {
     }
 
     @Test
+    fun `organism mode needs organic AI, the engine runtime and a profile`() = runTest {
+        val organic = MutableStateFlow(true)
+        val runtime = MutableStateFlow(true)
+        val gated = ToggleStudioEntries(
+            FakeToggles(enabled, searchEnabled, runtime = runtime, organic = organic),
+            sessions,
+            Unused,
+        )
+        assertEquals(false, gated.showsOrganism.first())
+        sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
+        assertEquals(true, gated.showsOrganism.first())
+        runtime.value = false
+        assertEquals(false, gated.showsOrganism.first())
+        runtime.value = true
+        organic.value = false
+        assertEquals(false, gated.showsOrganism.first())
+    }
+
+    @Test
     fun `connections are offered only with the toggle on and a profile active`() = runTest {
         assertEquals(false, entries.showsConnections.first())
         sessions.active.value = ProfileSession(ProfileId("p1"), UnusedGraph)
@@ -74,6 +94,7 @@ private class FakeToggles(
     private val research: Flow<Boolean> = flowOf(false),
     private val runtime: Flow<Boolean> = flowOf(false),
     private val koog: Flow<Boolean> = flowOf(false),
+    private val organic: Flow<Boolean> = flowOf(false),
 ) : FeatureToggles {
     override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> {
         val flow = when (toggle) {
@@ -82,6 +103,7 @@ private class FakeToggles(
             ResearchChatEnabled -> research
             StudioEngineRuntime -> runtime
             KoogEngineEnabled -> koog
+            OrganicAiEnabled -> organic
             is FeatureToggle.Flag, is FeatureToggle.Choice -> flowOf(toggle.default)
         }
         // All toggles read here are Boolean flags checked above.

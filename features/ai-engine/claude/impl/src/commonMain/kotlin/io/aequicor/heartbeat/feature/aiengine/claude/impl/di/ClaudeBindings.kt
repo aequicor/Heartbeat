@@ -32,6 +32,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSource
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineSessionSource
@@ -74,6 +75,7 @@ public object ClaudeBindings {
                     AttachesSessions.id,
                     SendsPrompts.id,
                     SessionHistory.id,
+                    SessionTrees.id,
                     ReconcilesSession.id,
                     CancelsTurns.id,
                     RequestsPermissions.id,

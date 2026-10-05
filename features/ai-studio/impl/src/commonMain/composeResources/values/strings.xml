@@ -1,4 +1,7 @@
 <resources>
+    <string name="session_tree_root">Root session</string>
+    <string name="session_tree_unknown">unknown</string>
+    <string name="session_tree_activity">Active descendants; + or ? means some activity is unknown</string>
     <string name="studio_title">AI studio</string>
     <string name="studio_brand">Heartbeat</string>
     <string name="studio_short_title">Studio</string>
@@ -217,4 +220,36 @@
     <string name="attachments_limit_exceeded">The message exceeds its file count or total size limit. Remove some files before sending.</string>
     <string name="attachments_save">Save as</string>
     <string name="attachments_failed">Could not attach these files. Check their formats and size, then try again.</string>
+    <string name="organism_mode">Organic AI</string>
+    <string name="organism_mode_hint">The first message conceives an organism: cells divide on their own and the immune system judges them</string>
+    <string name="organism_menu_section">Mode</string>
+    <string name="organism_sub_sessions">Sub-sessions</string>
+    <string name="organism_zygote">Zygote</string>
+    <string name="organism_complaint">Immunity %1$s · complaint about %2$s</string>
+    <string name="organism_dispute">Immunity %1$s · dispute</string>
+    <string name="organism_abort">Stop the organism</string>
+    <string name="organism_resume">Resume the zygote</string>
+    <string name="organism_permission">%1$s asks for permission: %2$s</string>
+    <string name="organism_state_germinating">starting</string>
+    <string name="organism_state_working">working</string>
+    <string name="organism_state_awaiting">awaiting you</string>
+    <string name="organism_state_resting">waiting</string>
+    <string name="organism_state_stalled">stalled</string>
+    <string name="organism_state_completed">done</string>
+    <string name="organism_state_died">ended</string>
+    <string name="organism_state_killed">killed</string>
+    <string name="organism_state_judging">judging</string>
+    <string name="organism_state_sentenced">kill</string>
+    <string name="organism_state_spared">spared</string>
+    <string name="organism_state_answered">answered</string>
+    <string name="organism_state_undecided">no decision</string>
+    <string name="organism_status_developing">Organic AI drives this chat: the organism is developing.</string>
+    <string name="organism_status_stalled">The zygote stalled; resume it or stop the organism.</string>
+    <string name="organism_status_completed">The organism completed its work.</string>
+    <string name="organism_status_aborted">The organism was stopped.</string>
+    <string name="organism_unavailable">The organism is out of view: organic AI is off or asleep, or the organism was never conceived or is no longer kept. Send its goal to conceive it.</string>
+    <string name="session_child_view">Viewing a subagent. Return to the root session to continue the task.</string>
+    <string name="session_tree_queued">queued</string>
+    <string name="session_tree_cancelled">cancelled</string>
+    <string name="session_tree_failed">failed</string>
 </resources>

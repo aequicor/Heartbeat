@@ -60,7 +60,12 @@ class EngineStudioEffects(
             )
 
             is AiStudioEffect.CreateSession -> {
-                val session = repository.createSession(effect.projectId, titleOf(effect.prompt), effect.isWorktree)
+                val session = repository.createSession(
+                    effect.projectId,
+                    titleOf(effect.prompt),
+                    effect.isWorktree,
+                    effect.organism(),
+                )
                 machine.send(
                     AiStudioIntent.Internal.SessionCreated(
                         effect.paneId,

@@ -19,13 +19,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTimes
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -77,6 +84,14 @@ class SessionLauncher(
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))
         }
+    }
+
+    /** Resolves a read route without creating or attaching a native session. */
+    suspend fun trees(root: SessionRef, access: SessionTreeAccess): SessionTrees {
+        val target = access.target
+        if (root.engine != target.engine) fail(InvalidRequest)
+        val resolved = routes.resolve(target.engine, target.binding, access.workspace, target.model)
+        return pool.runtime(resolved).features.resolve(SessionTrees).orFail()
     }
 
     private suspend fun open(
@@ -134,6 +149,23 @@ class FacadeCapabilities(private val sessions: SessionCatalog, private val launc
                     }
                 },
             )
+        }
+        if (SessionTrees.id in registration.descriptor.declaredFeatures) {
+            entries[SessionTrees.id] = available(object : SessionTrees {
+                override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
+                    if (root.engine != engine) fail(InvalidRequest)
+                    emitAll(launcher.value.trees(root, access).observe(root, access))
+                }
+
+                override suspend fun history(
+                    root: SessionRef,
+                    ref: SessionRef,
+                    access: SessionTreeAccess,
+                ): SessionHistory {
+                    if (root.engine != engine || ref.engine != engine || ref.source != root.source) fail(InvalidRequest)
+                    return launcher.value.trees(root, access).history(root, ref, access)
+                }
+            })
         }
         return FeatureTable(entries)
     }

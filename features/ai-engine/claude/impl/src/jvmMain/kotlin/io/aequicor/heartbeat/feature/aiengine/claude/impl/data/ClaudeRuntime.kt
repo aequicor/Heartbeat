@@ -26,7 +26,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
 import io.aequicor.heartbeat.feature.aiengine.facade.api.UnavailableAgentToolBridge
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -35,6 +39,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -62,7 +70,8 @@ internal class ClaudeRuntime(
     },
 ) : EngineRuntime,
     CreatesSessions,
-    AttachesSessions {
+    AttachesSessions,
+    SessionTrees {
     private val log = Log.tag("ClaudeRuntime")
     private val nativeStore = transport.nativeStore
     private val owner = SupervisorJob(parent.coroutineContext[Job])
@@ -108,6 +117,7 @@ internal class ClaudeRuntime(
         CreatesSessions to this,
         AttachesSessions to this,
         ReportsProviderUsage to providerUsage,
+        SessionTrees to this,
     )
 
     init {
@@ -169,6 +179,35 @@ internal class ClaudeRuntime(
             throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
         }
         session.stored { request -> attach(ref, request) }
+    }
+
+    override fun observe(root: SessionRef, access: SessionTreeAccess): Flow<SessionTreeSnapshot> = flow {
+        while (true) {
+            emit(treeSession(root, access).treeSnapshot())
+            delay(TREE_REFRESH_MILLIS)
+        }
+    }.distinctUntilChanged()
+
+    override suspend fun history(root: SessionRef, ref: SessionRef, access: SessionTreeAccess): SessionHistory {
+        val session = treeSession(root, access)
+        return if (ref == root) {
+            session.history
+        } else {
+            session.tree.history(ref)
+                ?: throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
+    }
+
+    private suspend fun treeSession(root: SessionRef, access: SessionTreeAccess): ClaudeSession = mutex.withLock {
+        validate(access.target)
+        if (root.engine != identity.engine || root.source != ClaudeEngine.SessionSource) {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
+        val session = find(root) ?: throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        if (session.route.binding != access.target.binding || session.route.workspace != access.workspace) {
+            authFailure(AuthFailureReason.AuthMismatch)
+        }
+        session
     }
 
     private suspend fun find(ref: SessionRef): ClaudeSession? = sessions[ref] ?: restore(ref)
@@ -254,3 +293,5 @@ internal suspend fun requireClaudeEnabled(toggles: FeatureToggles) {
         throw EngineException(EngineFailure.Access(AccessFailureReason.OperationNotAllowed))
     }
 }
+
+private const val TREE_REFRESH_MILLIS = 500L

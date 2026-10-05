@@ -391,12 +391,13 @@ internal fun claudeHostedArguments(
 ): List<String> {
     val isProviderSearch = search && isProviderSearchKept
     val allowed = buildList {
+        addAll(nativeAgentTools(arguments))
         add("mcp__${HOSTED_TOOLS_SERVER}__*")
         if (search) add("mcp__heartbeat_search__*")
         if (isProviderSearch) add(CLAUDE_PROVIDER_SEARCH)
     }
-    return arguments.filterNot { it == SEARCH_BRIDGE_MARKER || (isProviderSearch && it == "--tools=") } +
-        listOfNotNull("--tools=$CLAUDE_PROVIDER_SEARCH".takeIf { isProviderSearch }) +
+    val native = nativeAgentTools(arguments) + listOfNotNull(CLAUDE_PROVIDER_SEARCH.takeIf { isProviderSearch })
+    return withoutToolOptions(arguments) + listOf("--tools=" + native.joinToString(",")) +
         listOf(
             "--permission-mode=dontAsk",
             "--allowedTools=${allowed.joinToString(",")}",
@@ -439,9 +440,9 @@ private fun mcpServer(origin: String, token: String) = buildJsonObject {
  * would fetch from this device without the bridge's public-host check, so pages are read only through the bridge.
  */
 internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
-    arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it == "--tools=" } + listOf(
-        "--tools=$CLAUDE_SEARCH_TOOLS",
-        "--allowedTools=$CLAUDE_SEARCH_TOOLS",
+    withoutToolOptions(arguments) + listOf(
+        "--tools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
+        "--allowedTools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
         "--mcp-config",
         config.toString(),
     )
@@ -513,3 +514,10 @@ private const val CLAUDE_PROVIDER_SEARCH = "WebSearch"
 
 private const val CLAUDE_SEARCH_TOOLS =
     "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"
+
+/** Rebuild one exact allowlist; neither inherited native tools nor duplicate CLI options are admitted. */
+private fun nativeAgentTools(arguments: List<String>): List<String> =
+    if ("--tools=$CLAUDE_AGENT_TOOLS" in arguments) CLAUDE_AGENT_TOOLS.split(',') else emptyList()
+
+private fun withoutToolOptions(arguments: List<String>): List<String> =
+    arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") }
