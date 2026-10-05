@@ -1,9 +1,13 @@
 package io.aequicor.heartbeat.ds.adaptive
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.LocalTextContextMenu
+import androidx.compose.foundation.text.TextContextMenu
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -26,6 +30,13 @@ import io.github.composefluent.darkColors
 import io.github.composefluent.lightColors
 
 internal object FluentKit : PlatformKit {
+    /**
+     * compose-fluent 0.1.0 provides a text context menu compiled against Compose 1.8, where text actions were
+     * lambdas; with Compose 1.12 actions it fails with NoSuchMethodError on opening. Compose's own text menu still
+     * renders through the Fluent context menu representation, which ignores `ContextMenuItem.enabled`, so
+     * disabled actions are hidden as in the Fluent menu.
+     */
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     override fun Theme(colors: HbColors, typography: HbTypography, content: @Composable () -> Unit) {
         val fluentColors = remember(colors) {
@@ -43,8 +54,12 @@ internal object FluentKit : PlatformKit {
                 titleLarge = typography.display,
                 display = typography.display,
             ),
-            content = content,
-        )
+        ) {
+            CompositionLocalProvider(
+                LocalTextContextMenu provides TextContextMenu.HideDisabledMenuItems,
+                content = content,
+            )
+        }
     }
 
     @Composable
