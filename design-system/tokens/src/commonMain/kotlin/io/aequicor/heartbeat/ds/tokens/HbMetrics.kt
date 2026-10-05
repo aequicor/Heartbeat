@@ -124,6 +124,8 @@ data class HbDimensions(
     val markdownTableCellWidth: Dp = 200.dp,
     /** Inline diagram preview in a conversation; the full-size viewer shows the rest. */
     val diagramPreviewMaxHeight: Dp = 480.dp,
+    /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
+    val keyboardScrollStep: Dp = 40.dp,
     val swatchSize: Dp = 64.dp,
     val scrollbarThickness: Dp = 4.dp,
     val scrollbarHoverThickness: Dp = 6.dp,
