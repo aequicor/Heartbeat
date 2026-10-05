@@ -69,20 +69,11 @@ internal fun PaneContent.feedId(): String? = pane.sessionId?.let { if (organism 
 /** The organism mode is offered in the "+" menu of a new chat only, before its first message. */
 internal fun PaneContent.isOrganismOffered(): Boolean = isOrganismEnabled && pane.sessionId == null && !pane.isCreating
 
-/** The chosen mode of a new chat, which can be switched off here; an organism chat shows it pinned. */
+/** The chosen mode is shown only before the first message; existing chats use their header switcher. */
 @Composable
 internal fun OrganismModeToggle(content: PaneContent, onIntent: (AiStudioScreenIntent) -> Unit) {
     val pane = content.pane
-    if (content.session?.isOrganism == true) {
-        HbComposerToggle(
-            label = stringResource(Res.string.organism_mode),
-            isChecked = true,
-            onCheckedChange = {},
-            enabled = false,
-            icon = HbIcons.Users,
-            modifier = Modifier.testTag("organism-pinned-${pane.id}"),
-        )
-    } else if (pane.sessionId == null && pane.isOrganism) {
+    if (pane.sessionId == null && pane.isOrganism) {
         HbComposerToggle(
             label = stringResource(Res.string.organism_mode),
             isChecked = true,
@@ -172,11 +163,13 @@ internal fun OrganismNotices(
         )
         return
     }
-    HbText(
-        stringResource(organism.status.label()),
-        Modifier.padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
-            .semantics { liveRegion = LiveRegionMode.Polite },
-    )
+    if (organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Aborted) {
+        HbText(
+            stringResource(organism.status.label()),
+            Modifier.padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
     organism.permissions.forEach { request ->
         // Request ids come from each cell's engine, so only the cell makes them unique.
         val id = "${request.cell}-${request.requestId}"

@@ -152,7 +152,7 @@ class StudioOrganismUiTest {
                 }
             }
         }
-        onNodeWithTag("organism-status-0").assertExists()
+        onNodeWithTag("organism-status-0").assertDoesNotExist()
         // What the cell asks to run is shown whole, never cut to a few lines.
         onNodeWithTag("permission-organism-c1-p1-description").assertTextEquals(COMMAND)
         onNodeWithTag("organism-permission-c1-p1-allow").performClick()
@@ -195,6 +195,7 @@ class StudioOrganismUiTest {
                 }
             }
             onNodeWithContentDescription(send).assertIsNotEnabled()
+            onNodeWithTag("organism-pinned-0").assertDoesNotExist()
             isInView = false
             waitForIdle()
             onNodeWithContentDescription(send).assertIsEnabled()
@@ -205,10 +206,10 @@ class StudioOrganismUiTest {
         }
 
     @Test
-    fun `files added before choosing organism mode keep it from sending`() =
+    fun `images can be attached and sent after choosing organism mode`() =
         runSkikoComposeUiTest(size = Size(900f, 700f)) {
             var send = ""
-            val file = AttachmentUi("doc", "notes.md", "text/markdown", 10)
+            val file = AttachmentUi("image", "shape.png", "image/png", 10)
             val pane = PaneUi(0, isOrganism = true)
             val initial = AiStudioScreenState(panes = persistentListOf(pane), isOrganismEnabled = true)
             val support = InputSupportUi(mediaTypes = persistentListOf(file.mediaType))
@@ -227,7 +228,8 @@ class StudioOrganismUiTest {
                     }
                 }
             }
-            onNodeWithContentDescription(send).assertIsNotEnabled()
+            onNodeWithTag("attachment-add-0").assertIsEnabled()
+            onNodeWithContentDescription(send).assertIsEnabled()
         }
 
     private val organismPane = PaneUi(0, sessionId = "chat")
