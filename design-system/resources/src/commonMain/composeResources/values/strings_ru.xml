@@ -210,8 +210,8 @@
     <string name="ru_diagram_timeout">Диаграмма рисовалась слишком долго.</string>
     <string name="ru_diagram_busy">Ещё рисуется другая диаграмма.</string>
     <string name="ru_diagram_failed">Не удалось нарисовать диаграмму.</string>
-    <string name="ru_diagram_show_source">Исходник</string>
-    <string name="ru_diagram_show_diagram">Диаграмма</string>
+    <string name="ru_diagram_show_source">Показать исходник</string>
+    <string name="ru_diagram_show_diagram">Показать диаграмму</string>
     <string name="ru_diagram_copy_source">Копировать исходник</string>
     <string name="ru_diagram_source_copied">Исходник скопирован</string>
     <string name="ru_diagram_copy_failed">Не удалось скопировать</string>

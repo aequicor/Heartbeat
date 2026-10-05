@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.plantumlsupport.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlDiagramType
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlSource
 import net.sourceforge.plantuml.FileFormat
@@ -10,6 +11,7 @@ import net.sourceforge.plantuml.FileFormatOption
 import net.sourceforge.plantuml.SourceStringReader
 import net.sourceforge.plantuml.TitledDiagram
 import net.sourceforge.plantuml.core.Diagram
+import net.sourceforge.plantuml.dot.GraphvizRuntimeEnvironment
 import net.sourceforge.plantuml.dot.GraphvizUtils
 import net.sourceforge.plantuml.error.PSystemError
 import net.sourceforge.plantuml.preproc.Defines
@@ -23,9 +25,12 @@ import java.io.ByteArrayOutputStream
  * engine runs only under PlantUML's SANDBOX security profile: no file or URL includes, no environment variables.
  * PlantUML reads the profile once per process from a system property; [JvmPlantUmlEngine] sets it before the first
  * drawing and refuses to draw if another profile is already active. The layout is always Smetana (forced process-wide
- * and set by the preamble), so a Graphviz `dot` — installed or bundled — is never launched. Images larger than
- * [PlantUmlLimits] would be cropped by PlantUML; they are reported as too large instead. Errors of the virtual
- * machine during a drawing (memory, recursion) are failures of that drawing, not of the application.
+ * and set by the preamble), and the Graphviz executable is pinned to a path that cannot exist, so a `dot` — installed,
+ * named by `GRAPHVIZ_DOT` or bundled for Windows — is never launched, not even by service diagrams (`version`,
+ * `testdot`) that query it while being parsed. Only diagram classes of [PlantUmlDiagramType]s are drawn; service and
+ * easter-egg diagrams are unsupported. Images larger than [PlantUmlLimits] would be cropped by PlantUML; they are
+ * reported as too large instead. Memory and recursion errors during a drawing are caught, but the drawing shares the
+ * application's heap: [PlantUmlSource.parse] keeps preprocessor directives that can amplify work away from the engine.
  */
 internal class JvmPlantUmlEngine : PlantUmlEngine {
     private val isSandboxed: Boolean by lazy(::enterSandbox)
@@ -57,8 +62,15 @@ internal class JvmPlantUmlEngine : PlantUmlEngine {
         val reader = SourceStringReader(Defines.createEmpty(), source.text, preamble)
         return when (val diagram = reader.blocks.firstOrNull()?.diagram) {
             null -> PlantUmlResult.SyntaxError(null, NO_DIAGRAM)
+
             is PSystemError -> syntaxError(diagram, source, preamble)
-            else -> export(diagram, source, limits)
+
+            else -> if (diagram.javaClass.packageName in DrawnDiagramPackages) {
+                export(diagram, source, limits)
+            } else {
+                log.d { "PlantUML ${diagram.javaClass.simpleName} is not a drawn diagram type=${source.type}" }
+                PlantUmlResult.Unsupported
+            }
         }
     }
 
@@ -110,6 +122,9 @@ internal class JvmPlantUmlEngine : PlantUmlEngine {
         System.setProperty(SECURITY_PROFILE_PROPERTY, SecurityProfile.SANDBOX.name)
         // No pragma or skin parameter of a diagram may switch the layout to an external Graphviz process.
         TitledDiagram.FORCE_SMETANA = true
+        // Takes precedence over GRAPHVIZ_DOT and the bundled Windows dot. A path with an inner NUL never exists and
+        // never starts a process; PlantUML trims the value, so the NUL must not be at either end.
+        GraphvizRuntimeEnvironment.getInstance().setDotExecutable(NO_GRAPHVIZ)
         val profile = SecurityUtils.getSecurityProfile()
         if (profile != SecurityProfile.SANDBOX) {
             log.e { "PlantUML security profile is $profile instead of SANDBOX; diagrams are not drawn" }
@@ -122,6 +137,26 @@ internal class JvmPlantUmlEngine : PlantUmlEngine {
         const val SECURITY_PROFILE_PROPERTY = "PLANTUML_SECURITY_PROFILE"
         const val NO_DIAGRAM = "No diagram found"
         const val SYNTAX_ERROR = "Syntax error"
+        const val NO_GRAPHVIZ = "graphviz\u0000disabled"
+
+        /** Packages of the diagram classes of [PlantUmlDiagramType]; anything else PlantUML builds is not drawn. */
+        val DrawnDiagramPackages = setOf(
+            "activitydiagram",
+            "activitydiagram3",
+            "cheneer",
+            "classdiagram",
+            "descdiagram",
+            "ebnf",
+            "gantt",
+            "jsondiagram",
+            "mindmap",
+            "regexdiagram",
+            "salt",
+            "sequencediagram",
+            "statediagram",
+            "timingdiagram",
+            "wbs",
+        ).mapTo(HashSet()) { "net.sourceforge.plantuml.$it" }
     }
 }
 

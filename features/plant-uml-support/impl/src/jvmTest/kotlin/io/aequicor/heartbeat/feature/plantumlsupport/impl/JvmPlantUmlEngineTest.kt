@@ -9,9 +9,11 @@ import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlSource
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.plantUmlPreamble
 import net.sourceforge.plantuml.TitledDiagram
+import net.sourceforge.plantuml.dot.GraphvizRuntimeEnvironment
 import net.sourceforge.plantuml.security.SecurityProfile
 import net.sourceforge.plantuml.security.SecurityUtils
 import java.io.ByteArrayInputStream
+import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.abs
 import kotlin.test.Test
@@ -73,9 +75,7 @@ class JvmPlantUmlEngineTest {
         assertEquals(2, file.line)
         assertTrue("localhost" !in file.message)
         assertIs<PlantUmlResult.SyntaxError>(render("@startuml\n!include https://example.com/x.puml\nA -> B\n@enduml"))
-        assertIs<PlantUmlResult.SyntaxError>(
-            render("@startuml\n!includeurl https://example.com/x.puml\nA -> B\n@enduml"),
-        )
+        assertNull(PlantUmlSource.parse("@startuml\n!includeurl https://example.com/x.puml\nA -> B\n@enduml"))
         assertIs<PlantUmlResult.Image>(render("@startuml\nA -> B : %getenv(\"HOME\")\n@enduml"))
         assertEquals(SecurityProfile.SANDBOX, SecurityUtils.getSecurityProfile())
     }
@@ -97,6 +97,38 @@ class JvmPlantUmlEngineTest {
     }
 
     @Test
+    fun `service diagrams are not drawn and never launch graphviz`() {
+        val marker = File.createTempFile("heartbeat-dot", ".marker").apply { delete() }
+        val dot = File.createTempFile("heartbeat-dot", ".sh").apply {
+            writeText("#!/bin/sh\necho \"$@\" >> '${marker.absolutePath}'\necho 'dot - graphviz version 2.43.0'\n")
+            setExecutable(true)
+        }
+        val previous = System.setProperty(GRAPHVIZ_DOT, dot.absolutePath)
+        try {
+            listOf("version", "testdot", "license", "listfonts").forEach { service ->
+                listOf(service, "@startuml\n$service\n@enduml").forEach {
+                    val result = render(it)
+                    assertTrue(result == Unsupported || result is PlantUmlResult.SyntaxError, "$it: $result")
+                }
+            }
+            assertIs<PlantUmlResult.Image>(render("!pragma layout dot\nclass A"))
+            assertTrue(!marker.exists(), "dot was launched: ${marker.takeIf(File::exists)?.readText()}")
+            assertTrue(GraphvizRuntimeEnvironment.getInstance().getenvGraphvizDot().orEmpty().contains('\u0000'))
+        } finally {
+            if (previous == null) System.clearProperty(GRAPHVIZ_DOT) else System.setProperty(GRAPHVIZ_DOT, previous)
+            dot.delete()
+            marker.delete()
+        }
+    }
+
+    @Test
+    fun `standard library procedures stay available`() {
+        val c4 = "@startuml\n!include <C4/C4_Container>\nPerson(user, \"User\")\nSystem(studio, \"Studio\")\n" +
+            "Rel(user, studio, \"asks\")\n@enduml"
+        assertIs<PlantUmlResult.Image>(render(c4))
+    }
+
+    @Test
     fun `an error in the author's own style keeps its line`() {
         val result = render("@startuml\n<style>\nroot {\n  FontColor\n}\n</style>\nA -> B\n@enduml")
         assertEquals(2, assertIs<PlantUmlResult.SyntaxError>(result).line)
@@ -110,6 +142,8 @@ class JvmPlantUmlEngineTest {
     }
 
     private companion object {
+        const val GRAPHVIZ_DOT = "GRAPHVIZ_DOT"
+        val Unsupported = PlantUmlResult.Unsupported
         val LightStyle = PlantUmlStyle(
             text = 0xFF242426.toInt(),
             secondaryText = 0xFF6B6B70.toInt(),

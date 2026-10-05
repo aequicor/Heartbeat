@@ -52,6 +52,7 @@ class DefaultPlantUmlRendererTest {
             ),
             worker = worker,
             limits = PlantUmlLimits(maxSourceCharacters = 100),
+            timeSource = testScheduler.timeSource,
         )
 
     @Test

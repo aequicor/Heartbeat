@@ -41,7 +41,29 @@ class PlantUmlDomainTest {
     }
 
     @Test
-    fun `the result cache keeps drawings and syntax errors within its byte budget`() {
+    fun `preprocessor definitions assignments and loops never reach the engine`() {
+        listOf(
+            "!\$a = \"x\"\n!\$a = \$a + \$a\nA -> B : \$a",
+            "  ! \$a = 1\nA -> B",
+            "!define TWICE(x) x x\nA -> B",
+            "!while 1 == 1\n!endwhile",
+            "!foreach \$i in [1, 2]\n!endfor",
+            "!procedure \$p()\nA -> B\n!endprocedure\n\$p()",
+            "!function \$f()\n!return 1\n!endfunction",
+            "!includeurl https://example.com/x.puml",
+            "@startuml\n!unquoted procedure P(x)\n@enduml",
+        ).forEach { source -> assertNull(PlantUmlSource.parse(source), source) }
+        listOf(
+            "!pragma teoz true\nA -> B",
+            "!include <C4/C4_Container>\nPerson(u, \"User\")",
+            "!theme plain\nA -> B",
+            "!if 1 == 1\nA -> B\n!else\nB -> A\n!endif",
+            "A -> B : not a directive !while",
+        ).forEach { source -> assertEquals(PlantUmlDiagramType.Uml, PlantUmlSource.parse(source)?.type, source) }
+    }
+
+    @Test
+    fun `the result cache keeps deterministic results within its byte budget`() {
         val cache = PlantUmlResultCache(maxEntries = 8, maxBytes = 10)
         val style = PlantUmlStyle(0, 0, 0, 0, 0, 0, fontSize = 14f, isDark = false)
         fun request(source: String) = PlantUmlRequest(source, style, scale = 1f)
@@ -52,6 +74,10 @@ class PlantUmlDomainTest {
         assertSame(small, cache[request("small")])
         assertEquals(PlantUmlResult.SyntaxError(2, "Syntax Error?"), cache[request("error")])
         assertNull(cache[request("busy")], "transient failures are not cached")
+        cache.put(request("huge"), PlantUmlResult.Failed(PlantUmlFailure.TooLarge))
+        cache.put(request("version"), PlantUmlResult.Unsupported)
+        assertEquals(PlantUmlResult.Failed(PlantUmlFailure.TooLarge), cache[request("huge")])
+        assertEquals(PlantUmlResult.Unsupported, cache[request("version")])
         cache.put(request("large"), PlantUmlResult.Image(ByteArray(8), 1f, 1f, 1f))
         assertNull(cache[request("small")], "evicted by bytes")
         assertTrue(cache[request("large")] is PlantUmlResult.Image)

@@ -47,9 +47,9 @@ public enum class HbDiagramFailure {
 /** Outcome of [HbDiagramRenderer.render]. */
 @Immutable
 public sealed interface HbDiagramResult {
-    /** A drawn diagram: [bitmap] in physical pixels, shown at its logical [size]. Equality is by identity. */
+    /** A drawn diagram: [bitmap] in physical pixels, shown at its logical [size]. Equal only for the same bitmap. */
     @Immutable
-    public class Image(public val bitmap: ImageBitmap, public val size: DpSize) : HbDiagramResult
+    public data class Image(val bitmap: ImageBitmap, val size: DpSize) : HbDiagramResult
 
     /** The source is not valid; [line] is 1-based in the fence source, null when the renderer cannot tell. */
     @Immutable
@@ -109,7 +109,9 @@ public fun HbDiagramsProvider(
     labels: HbDiagramLabels = HbDiagramLabels(),
     content: @Composable () -> Unit,
 ) {
-    val diagrams = remember(renderer, labels) { renderer?.let { HbDiagrams(it, labels, HbDiagramImageCache()) } }
+    // Drawn images do not depend on the labels: a new locale keeps them.
+    val images = remember(renderer) { HbDiagramImageCache() }
+    val diagrams = remember(renderer, labels, images) { renderer?.let { HbDiagrams(it, labels, images) } }
     CompositionLocalProvider(LocalHbDiagrams provides diagrams, content = content)
 }
 
@@ -120,7 +122,7 @@ public fun HbDiagramsProvider(
 public fun decodeHbImageBitmap(bytes: ByteArray): ImageBitmap = decodeAttachmentImage(bytes)
 
 @Stable
-internal class HbDiagrams(
+internal data class HbDiagrams(
     val renderer: HbDiagramRenderer,
     val labels: HbDiagramLabels,
     val images: HbDiagramImageCache,

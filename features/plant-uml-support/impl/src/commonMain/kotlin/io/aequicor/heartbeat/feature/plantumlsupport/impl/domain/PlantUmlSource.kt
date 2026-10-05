@@ -43,13 +43,34 @@ internal data class PlantUmlSource(
             setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
         )
 
+        /** A preprocessor directive at the start of a line, by its name (`$` for a variable assignment). */
+        private val Directive = Regex("^\\s*!\\s*(\\$|[A-Za-z_]+)", RegexOption.MULTILINE)
+
         /**
-         * Prepares [source], or returns null when it is not drawn here: a start directive of another type, or a
-         * layout engine the build does not contain.
+         * Directives an author may use. Definitions, assignments and loops (`!define`, `!function`, `!procedure`,
+         * `!$var =`, `!while`, `!foreach`…) can grow memory or time exponentially from a few lines, and the engine
+         * shares the application's process; standard library procedures stay callable through `!include <…>`.
+         */
+        private val AllowedDirectives = setOf(
+            "pragma",
+            "include",
+            "theme",
+            "if",
+            "ifdef",
+            "ifndef",
+            "elseif",
+            "else",
+            "endif",
+        )
+
+        /**
+         * Prepares [source], or returns null when it is not drawn here: a start directive of another type, a
+         * layout engine the build does not contain, or a preprocessor directive outside [AllowedDirectives].
          */
         fun parse(source: String): PlantUmlSource? {
             val text = source.replace("\r\n", "\n").replace('\r', '\n')
             if (ElkLayout.containsMatchIn(text)) return null
+            if (Directive.findAll(text).any { it.groupValues[1].lowercase() !in AllowedDirectives }) return null
             val lines = text.lines().map { it.trim() }
             val startLine = lines.indexOfFirst { it.startsWith("@start", ignoreCase = true) }
             if (startLine < 0) {

@@ -14,10 +14,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -25,6 +28,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TestTimeSource
 
 /** A started drawing that hangs: the engine thread is real, the waits follow the wall clock. */
 class PlantUmlTimeoutTest {
@@ -56,6 +61,48 @@ class PlantUmlTimeoutTest {
                 executor.submit {}.get(5, TimeUnit.SECONDS)
                 assertTrue(renderer.render(hung) is PlantUmlResult.Image, "the late result is cached")
                 assertTrue(renderer.render(other) is PlantUmlResult.Image)
+            }
+        } finally {
+            release.countDown()
+            scope.cancel()
+            executor.shutdownNow()
+        }
+    }
+
+    @Test
+    fun `a hung drawing nobody waits for keeps later requests out of the queue`() = runTest {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val drawn = CopyOnWriteArrayList<String>()
+        val engine = PlantUmlEngine { source, _, _ ->
+            drawn += source.text
+            if ("A -> B" in source.text) {
+                entered.countDown()
+                release.await(5, TimeUnit.SECONDS)
+            }
+            PlantUmlResult.Image(ByteArray(8), 10f, 10f, 1f)
+        }
+        val clock = TestTimeSource()
+        val executor = Executors.newSingleThreadExecutor()
+        val scope = CoroutineScope(SupervisorJob())
+        val renderer = DefaultPlantUmlRenderer(
+            engine = engine,
+            toggles = EnabledToggles,
+            scope = scope,
+            worker = executor.asCoroutineDispatcher(),
+            limits = PlantUmlLimits(timeout = 300.milliseconds),
+            timeSource = clock,
+        )
+        try {
+            withContext(Dispatchers.Default) {
+                val leaving = launch { renderer.render(hung) }
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+                leaving.cancelAndJoin()
+                clock += 1.seconds
+                assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Busy), renderer.render(other))
+                release.countDown()
+                executor.submit {}.get(5, TimeUnit.SECONDS)
+                assertEquals(listOf(hung.source), drawn, "the busy request was never queued behind the hung drawing")
             }
         } finally {
             release.countDown()

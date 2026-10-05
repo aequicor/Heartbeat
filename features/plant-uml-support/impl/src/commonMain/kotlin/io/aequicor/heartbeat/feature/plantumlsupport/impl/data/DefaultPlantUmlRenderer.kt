@@ -22,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
 /**
@@ -29,7 +30,8 @@ import kotlin.time.TimeSource
  * drawing per request, and time limits. Drawings run in the application [scope] on the single-threaded [worker], so a
  * caller that leaves (a row scrolled away) still gets the cached result later. A caller waits at most one time limit
  * for its drawing to start (else busy) and one more for it to finish (else timeout). A started drawing that outlives
- * its limit cannot be interrupted reliably; while it still runs, new requests fail fast as busy.
+ * its limit cannot be interrupted reliably; while it still runs — whether or not anyone still waits for it — new
+ * requests fail fast as busy instead of queueing behind it. [timeSource] measures how long the current drawing runs.
  */
 internal class DefaultPlantUmlRenderer(
     private val engine: PlantUmlEngine,
@@ -37,11 +39,14 @@ internal class DefaultPlantUmlRenderer(
     private val scope: CoroutineScope,
     private val worker: CoroutineDispatcher,
     private val limits: PlantUmlLimits = PlantUmlLimits(),
+    private val timeSource: TimeSource = TimeSource.Monotonic,
 ) : PlantUmlRenderer {
     private val lock = Mutex()
     private val cache = PlantUmlResultCache(limits.cacheEntries, limits.cacheBytes)
     private val drawings = mutableMapOf<PlantUmlRequest, Drawing>()
-    private var abandoned: Drawing? = null
+
+    /** When the drawing on the worker started, or null while the worker is idle. Guarded by [lock]. */
+    private var running: TimeMark? = null
 
     override val availability: Flow<Boolean> = toggles.observe(PlantUmlEnabled)
 
@@ -59,7 +64,7 @@ internal class DefaultPlantUmlRenderer(
                 log.v { "PlantUML cache hit" }
                 return cached
             }
-            if (abandoned?.result?.isActive == true) {
+            if (running?.let { it.elapsedNow() >= limits.timeout } == true) {
                 log.v { "PlantUML engine still busy with a timed out drawing" }
                 return PlantUmlResult.Failed(PlantUmlFailure.Busy)
             }
@@ -69,9 +74,8 @@ internal class DefaultPlantUmlRenderer(
             log.d { "PlantUML drawing did not start within ${limits.timeout}" }
             return PlantUmlResult.Failed(PlantUmlFailure.Busy)
         }
-        return withTimeoutOrNull(limits.timeout) { drawing.result.await() } ?: lock.withLock {
+        return withTimeoutOrNull(limits.timeout) { drawing.result.await() } ?: run {
             log.w { "PlantUML drawing exceeded ${limits.timeout}; the engine stays busy until it finishes" }
-            if (drawing.result.isActive) abandoned = drawing
             PlantUmlResult.Failed(PlantUmlFailure.Timeout)
         }
     }
@@ -91,7 +95,8 @@ internal class DefaultPlantUmlRenderer(
     }
 
     private suspend fun draw(source: PlantUmlSource, request: PlantUmlRequest): PlantUmlResult {
-        val started = TimeSource.Monotonic.markNow()
+        val started = timeSource.markNow()
+        lock.withLock { running = started }
         try {
             var result = drawAt(source, request, request.scale)
             if (result == TOO_LARGE && request.scale > 1f) {
@@ -103,7 +108,12 @@ internal class DefaultPlantUmlRenderer(
             return result
         } finally {
             // Even an Error from the engine must not leave a failed drawing that every later request would join.
-            withContext(NonCancellable) { lock.withLock { drawings.remove(request) } }
+            withContext(NonCancellable) {
+                lock.withLock {
+                    running = null
+                    drawings.remove(request)
+                }
+            }
         }
     }
 

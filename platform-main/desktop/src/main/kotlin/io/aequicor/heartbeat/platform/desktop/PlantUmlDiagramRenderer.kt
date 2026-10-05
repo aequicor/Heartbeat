@@ -50,7 +50,7 @@ internal class PlantUmlDiagramRenderer(
     }
 
     private companion object {
-        val log = Log.tag("PlantUmlDiagrams")
+        val log = Log.tag("PlantUmlDiagramRenderer")
     }
 }
 
