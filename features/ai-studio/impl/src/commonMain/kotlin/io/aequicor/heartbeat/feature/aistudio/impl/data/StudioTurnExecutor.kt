@@ -46,6 +46,8 @@ internal data class StudioTurnRequest(
     val attachments: List<ResourceRef> = emptyList(),
     /** Delivered only after native acceptance; not persisted or used as worktree identity. */
     val onAccepted: suspend () -> Unit = {},
+    /** Host directives for the engine only (a scheduler wake); never shown in the transcript. */
+    val directives: List<String> = emptyList(),
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }

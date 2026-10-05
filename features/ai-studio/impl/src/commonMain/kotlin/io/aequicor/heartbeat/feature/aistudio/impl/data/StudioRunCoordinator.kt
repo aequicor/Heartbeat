@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.SingleIn
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
@@ -24,7 +25,11 @@ internal interface StudioRunHost {
     suspend fun finishedRun(id: String)
 }
 
-/** Reserves a chat before action handoff, independently of the lifetime of the UI caller. */
+/**
+ * Reserves a chat before action handoff, independently of the lifetime of the UI caller. One per profile: the studio
+ * runtime and scheduled runs share its busy set.
+ */
+@SingleIn(ProfileScope::class)
 @Inject
 internal class StudioRunCoordinator(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
