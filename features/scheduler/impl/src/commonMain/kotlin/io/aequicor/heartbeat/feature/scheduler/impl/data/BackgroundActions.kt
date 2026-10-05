@@ -76,7 +76,7 @@ internal class BackgroundActions(
     private val journal: ActionJournal,
     private val commands: CommandRunner,
     private val workspaces: LocalWorkspaces,
-    private val hosts: Set<ScheduledSessionHost>,
+    private val hosts: Lazy<Set<ScheduledSessionHost>>,
     private val toggles: FeatureToggles,
     private val clock: Clock,
     // Optional until an application bundle installs the AI engine facade.
@@ -194,7 +194,7 @@ internal class BackgroundActions(
 
     /** The helper created by the first host that creates sessions; null when none did. */
     private suspend fun spawnOrNull(id: ActionId, request: SpawnRequest): SessionRef? = try {
-        hosts.sortedByDescending { it.priority }.firstNotNullOfOrNull { it.spawn(request) }
+        hosts.value.sortedByDescending { it.priority }.firstNotNullOfOrNull { it.spawn(request) }
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {

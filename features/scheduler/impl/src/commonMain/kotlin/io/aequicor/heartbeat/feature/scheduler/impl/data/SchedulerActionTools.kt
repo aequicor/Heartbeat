@@ -58,13 +58,15 @@ private const val MAX_TIMEOUT_SECONDS = 21_600L
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class SchedulerActionTools(
-    private val actions: BackgroundActions,
+    // Lazy: the actions reach the engine runtime; the tool list must not build it.
+    private val backgroundActions: Lazy<BackgroundActions>,
     private val scheduler: WakeScheduler,
     private val machine: SchedulerMachine,
     private val toggles: FeatureToggles,
     private val clock: Clock,
 ) : AgentToolContribution {
     private val log = Log.tag("SchedulerActionTools")
+    private val actions: BackgroundActions get() = backgroundActions.value
 
     override val isDetachedSupported: Boolean get() = true
 

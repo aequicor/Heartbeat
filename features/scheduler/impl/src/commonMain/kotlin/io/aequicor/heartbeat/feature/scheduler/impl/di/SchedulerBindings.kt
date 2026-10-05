@@ -41,7 +41,7 @@ public object SchedulerBindings {
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         storage: WakeStorage,
-        hosts: Set<ScheduledSessionHost>,
+        hosts: Lazy<Set<ScheduledSessionHost>>,
     ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(storage, hosts))
 
     @Provides
@@ -73,6 +73,7 @@ public interface SchedulerMultibindings {
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class SchedulerStartup(
+    private val toggles: FeatureToggles,
     private val machine: Lazy<SchedulerMachine>,
     private val driver: Lazy<WakeDriver>,
     private val actions: Lazy<BackgroundActions>,
@@ -82,7 +83,8 @@ internal class SchedulerStartup(
         val scheduler = machine.value
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
-        scope.coroutineScope.launch { actions.value.recover() }
+        // Background actions (and the engine runtime behind them) are built only when the scheduler is on.
+        scope.coroutineScope.launch { if (toggles.get(SchedulerEnabled)) actions.value.recover() }
     }
 }
 

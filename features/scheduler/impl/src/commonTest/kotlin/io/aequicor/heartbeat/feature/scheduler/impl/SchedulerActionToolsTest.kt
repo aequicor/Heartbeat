@@ -22,8 +22,13 @@ import kotlin.test.assertTrue
 class SchedulerActionToolsTest {
     private val inProject = AgentToolContext(SESSION, PROJECT, TurnId("t1"), target = TARGET)
 
-    private fun TestScope.tools(fixture: ActionsFixture, toggles: Toggles = Toggles()) =
-        SchedulerActionTools(fixture.actions, WakeScheduler(fixture.machine), fixture.machine, toggles, fixture.clock)
+    private fun TestScope.tools(fixture: ActionsFixture, toggles: Toggles = Toggles()) = SchedulerActionTools(
+        lazyOf(fixture.actions),
+        WakeScheduler(fixture.machine),
+        fixture.machine,
+        toggles,
+        fixture.clock,
+    )
 
     private fun args(vararg pairs: Pair<String, String>) = JsonObject(
         pairs.associate { (k, v) -> k to JsonPrimitive(v) },

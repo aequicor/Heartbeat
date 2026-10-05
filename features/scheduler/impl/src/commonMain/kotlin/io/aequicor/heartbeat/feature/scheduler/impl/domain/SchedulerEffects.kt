@@ -23,8 +23,11 @@ import kotlinx.coroutines.withTimeoutOrNull
  * and an older revision never overwrites a newer one. Every delivery settles on its own, so one unreachable session
  * does not hold back the others.
  */
-internal class SchedulerEffects(private val storage: WakeStorage, private val hosts: Set<ScheduledSessionHost>) :
-    EffectHandler<SchedulerEffect, SchedulerIntent> {
+internal class SchedulerEffects(
+    private val storage: WakeStorage,
+    // Lazy: hosts reach the engine runtime, which must not start with the profile while nothing is due.
+    private val hosts: Lazy<Set<ScheduledSessionHost>>,
+) : EffectHandler<SchedulerEffect, SchedulerIntent> {
     private val log = Log.tag("SchedulerEffects")
     private val writes = Mutex()
     private var stored = -1L
@@ -81,6 +84,6 @@ internal class SchedulerEffects(private val storage: WakeStorage, private val ho
     }
 
     private suspend fun hostFor(request: WakeRequest): ScheduledSessionHost =
-        hosts.sortedByDescending { it.priority }.firstOrNull { it.owns(request.session) }
+        hosts.value.sortedByDescending { it.priority }.firstOrNull { it.owns(request.session) }
             ?: throw SessionUnavailableException("No host owns the session")
 }

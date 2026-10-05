@@ -92,7 +92,7 @@ internal class ActionsFixture(
         journal,
         commands,
         Projects(),
-        hosts,
+        lazyOf(hosts),
         toggles,
         clock,
     )
