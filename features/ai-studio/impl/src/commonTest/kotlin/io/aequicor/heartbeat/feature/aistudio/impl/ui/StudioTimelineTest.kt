@@ -169,6 +169,40 @@ class StudioTimelineTest {
     }
 
     @Test
+    fun `a surviving cache restores cards introduced by a discarded replacement cache`() {
+        val placement = TimelineWeaves()
+        val surviving = TimelineCache(placement)
+        surviving.update(listOf(prompt), labels)
+        val messages = listOf(prompt, reply("Done", isStreaming = false))
+        val cards = listOf(card("build:compile"))
+        TimelineCache(placement).update(messages, labels, cards)
+
+        val updated = surviving.update(messages, labels, cards)
+        assertEquals(listOf("m1", "m2", "build:compile"), updated.messages.map { it.id })
+        assertSame(updated, surviving.update(messages, labels, cards))
+    }
+
+    @Test
+    fun `unchanged inputs still synchronize cards refreshed by another cache`() {
+        val placement = TimelineWeaves()
+        val surviving = TimelineCache(placement)
+        val cards = listOf(card("build:compile"))
+        surviving.update(listOf(prompt), labels, cards)
+        val completed = cards.single().copy(text = "Completed")
+        TimelineCache(placement).update(listOf(prompt), labels, listOf(completed))
+
+        val updated = surviving.update(listOf(prompt), labels, nextRetained = setOf(completed.id))
+        assertEquals(completed, updated.messages.last())
+        TimelineCache(placement).update(
+            listOf(prompt),
+            labels,
+            listOf(completed.copy(text = "Failed")),
+        )
+        val refreshed = surviving.update(listOf(prompt), labels, nextRetained = setOf(completed.id))
+        assertEquals("Failed", refreshed.messages.last().text)
+    }
+
+    @Test
     fun `woven cards refresh in place and retire once neither offered nor retained`() {
         val cache = TimelineCache()
         val running = card("build:compile")

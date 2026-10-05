@@ -144,6 +144,54 @@ class StudioWorktreeFeedTest {
     }
 
     @Test
+    fun `returning to a session refreshes previously shown builds outside the recent window`() {
+        val running = BuildUi("first", "compile", BuildPhaseUi.Running, "", null)
+        val initial = timeline(task(WorktreePhaseUi.Idle, builds = listOf(running)))
+        val placement = TimelineWeaves()
+        val timelineLabels = TimelineLabels(
+            section = "Session",
+            you = "You",
+            agent = "Agent",
+            studio = "Studio",
+            stoppedTemplate = "Stopped after %1\$s",
+            failed = FailureLabels(unknown = "Failed", limit = "Limit"),
+            durations = DurationLabels(secondsTemplate = "%1\$d s", minutesTemplate = "%1\$d min %2\$d s"),
+        )
+        TimelineCache(placement).update(emptyList(), timelineLabels, initial.messages, initial.retained)
+        assertEquals(HbToolStatus.Running, initial.card("build:first").status)
+        val builds = listOf(running.copy(phase = BuildPhaseUi.Failed, output = "Compile failed", failure = "Exit1")) +
+            (1..4).map { BuildUi("later$it", "test", BuildPhaseUi.Completed, "", null) }
+        val feed = WorktreeFeed(
+            "chat",
+            "chat",
+            task(WorktreePhaseUi.Idle, builds = builds),
+            WorktreeJournalUi.Ready,
+            isPreparing = false,
+        )
+        val current = worktreeTimeline(feed, labels, placement.cards.keys)
+        val restored = TimelineCache(placement).update(emptyList(), timelineLabels, current.messages, current.retained)
+        assertEquals(
+            listOf("build:first", "build:later2", "build:later3", "build:later4"),
+            restored.messages.map { it.id },
+        )
+        val call = assertIs<HbMessagePart.Tool>(restored.messages.first().parts.single()).call
+        assertEquals(HbToolStatus.Error, call.status)
+        assertEquals("Compile failed", assertIs<HbToolBlock.Console>(call.blocks.single()).text)
+        assertTrue(call.actions.isEmpty())
+        assertTrue(current.commands.isEmpty())
+
+        val stillRunning = worktreeTimeline(
+            feed.copy(task = task(WorktreePhaseUi.Idle, builds = listOf(running) + builds.drop(1))),
+            labels,
+            placement.cards.keys,
+        )
+        assertEquals(
+            AiStudioScreenIntent.CancelWorktreeBuild("chat", "first"),
+            stillRunning.press("build:first", "cancel-build-first"),
+        )
+    }
+
+    @Test
     fun `journal notices replace stale decisions and keep the verified pull request`() {
         val loading = timeline(task(WorktreePhaseUi.AwaitingDecision), WorktreeJournalUi.Loading)
         assertEquals(listOf(JOURNAL_LOADING_ID), loading.messages.map { it.id })

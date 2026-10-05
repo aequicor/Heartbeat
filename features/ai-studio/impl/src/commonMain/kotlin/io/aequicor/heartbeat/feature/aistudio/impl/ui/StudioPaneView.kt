@@ -133,13 +133,14 @@ internal fun StudioPaneView(
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val worktreeFeed = content.worktreeFeed()
+        val feedId = content.feedId() ?: worktreeFeed?.key
         val worktree = if (worktreeFeed == null) {
             NoWorktree
         } else {
             val labels = worktreeLabels()
-            remember(worktreeFeed, labels) { worktreeTimeline(worktreeFeed, labels) }
+            val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
+            remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
         }
-        val feedId = content.feedId() ?: worktreeFeed?.key
         val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
         val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
         if (feedId == null && !isCenteredComposer) {

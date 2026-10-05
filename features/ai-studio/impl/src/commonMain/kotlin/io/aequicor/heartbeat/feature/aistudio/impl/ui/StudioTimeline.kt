@@ -108,6 +108,8 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
     private var history: HbChatTimeline = HbChatTimeline.Empty
     private var cards: List<HbChatMessage> = emptyList()
     private var retained: Set<String> = emptySet()
+    private var observedCards = placement.cards
+    private var observedPositions = placement.positions
 
     /** Cards already woven, by id; their insertion points replay full rebuilds in weave order. */
     private var woven: Map<String, HbChatMessage>
@@ -127,14 +129,23 @@ internal class TimelineCache(private val placement: TimelineWeaves = TimelineWea
         nextCards: List<HbChatMessage> = emptyList(),
         nextRetained: Set<String> = emptySet(),
     ): HbChatTimeline {
-        if (next == messages && nextCards == cards) {
+        // A replacement pane may have advanced placement before its composition was discarded.
+        val isPlacementChanged = observedCards !== woven || observedPositions !== weaves
+        if (!isPlacementChanged && next == messages && nextCards == cards) {
             if (nextLabels == labels && nextRetained == retained) return history
         }
         val sections = sectionsFor(next, nextLabels)
-        history = syncMessages(next, nextLabels, sections)
+        history = if (isPlacementChanged) {
+            rebuild(next, sections, nextLabels)
+        } else {
+            syncMessages(next, nextLabels, sections)
+        }
         messages = next
         labels = nextLabels
-        return weave(next, nextCards, nextRetained, sections, nextLabels)
+        val updated = weave(next, nextCards, nextRetained, sections, nextLabels)
+        observedCards = woven
+        observedPositions = weaves
+        return updated
     }
 
     /** Streams into the latest message and appends the arrived ones; another source rebuilds the timeline. */
@@ -277,7 +288,7 @@ internal fun rememberStudioTimeline(
     retained: ImmutableSet<String> = persistentSetOf(),
 ): HbChatTimeline {
     val cache = remember(sessionId, state) { TimelineCache(state.session(sessionId)) }
-    return remember(cache, messages, labels, cards, retained) { cache.update(messages, labels, cards, retained) }
+    return cache.update(messages, labels, cards, retained)
 }
 
 internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this) {
