@@ -36,6 +36,7 @@ ktor = "3.6.0"
 kstatemachine = "0.38.1"
 flowmvi = "3.2.1"
 fluent = "v0.1.0"
+haze = "1.7.3" # compose-fluent brings haze 1.6.6, built for Compose 1.8
 macos = "1.1.0"
 kotlinx-collectionsImmutable = "0.5.2"
 desktop-jdk = "21"
@@ -50,6 +51,7 @@ koog-ollama = { module = "ai.koog:prompt-executor-ollama-client", version.ref = 
 koog-ktor = { module = "ai.koog:http-client-ktor", version.ref = "koog" }
 jna-platform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 fluent = { module = "io.github.compose-fluent:fluent", version.ref = "fluent" }
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 macos = { module = "dev.nucleusframework:compose-macos-ui", version.ref = "macos" }
 kotlinx-collectionsImmutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinx-collectionsImmutable" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
