@@ -99,8 +99,16 @@ compose.desktop {
             // Windows: Inno Setup installer, see `packageInnoSetup` below.
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             // The jlink runtime holds only listed JDK modules; keep in sync with `suggestRuntimeModules`.
-            // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge.
-            modules("java.instrument", "java.management", "jdk.httpserver", "jdk.unsupported")
+            // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
+            // java.prefs and java.scripting: the in-process PlantUML engine.
+            modules(
+                "java.instrument",
+                "java.management",
+                "java.prefs",
+                "java.scripting",
+                "jdk.httpserver",
+                "jdk.unsupported",
+            )
             packageName = "io.aequicor"
             packageVersion = "1.0.0"
             description = "Heartbeat AI Studio"
