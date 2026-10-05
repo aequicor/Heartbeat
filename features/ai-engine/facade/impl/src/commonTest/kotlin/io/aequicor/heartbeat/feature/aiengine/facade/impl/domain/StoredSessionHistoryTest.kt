@@ -3,6 +3,8 @@ package io.aequicor.heartbeat.feature.aiengine.facade.impl.domain
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -12,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
@@ -26,14 +29,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StoredSessionHistoryTest {
@@ -43,9 +50,13 @@ class StoredSessionHistoryTest {
     private val live = LiveHistory()
     private val native = FakeNativeSession(ref, ActiveSessionState.Running(Turn(TurnId("turn"), null, TestTarget)))
 
-    private fun add(ref: SessionRef = this.ref): ActiveSession = object : ActiveSession by native {
+    private fun add(
+        ref: SessionRef = this.ref,
+        native: FakeNativeSession = this.native,
+        history: LiveHistory = live,
+    ): ActiveSession = object : ActiveSession by native {
         override val ref = ref
-        override val features: EngineFeatures = FeatureTable(mapOf(SessionHistory.id to available(live)))
+        override val features: EngineFeatures = FeatureTable(mapOf(SessionHistory.id to available(history)))
     }.also(handles::add)
 
     private fun stored(features: EngineFeatures = NoEngineFeatures) = capabilities.stored(
@@ -76,6 +87,8 @@ class StoredSessionHistoryTest {
         assertEquals<List<SessionEvent>>(listOf(event), observed)
         assertIs<ActiveSessionState.Running>(native.state.value)
         assertEquals(0, native.closes)
+        assertEquals(0, live.events.subscriptionCount.value)
+        assertEquals(0, native.native.subscriptionCount.value)
         assertEquals(FeatureAccess.Unsupported, stored.features.resolve(SendsPrompts))
     }
 
@@ -85,12 +98,65 @@ class StoredSessionHistoryTest {
         val stored = stored(FeatureTable(mapOf(SessionHistory.id to available(archived))))
         assertSame(archived, stored.features.resolve(SessionHistory).orFail())
         val handle = add()
-        assertSame(live, stored.features.resolve(SessionHistory).orFail())
+        assertSame(live.snapshot, stored.features.resolve(SessionHistory).orFail().page())
         native.native.value = ActiveSessionState.Closing()
         assertSame(archived, stored.features.resolve(SessionHistory).orFail())
         native.close()
         handles.remove(handle)
         assertSame(archived, stored.features.resolve(SessionHistory).orFail())
+    }
+
+    @Test
+    fun `closing a borrowed owner releases the reader and allows the same session to reconnect`() = runTest {
+        val owner = add()
+        val stored = stored()
+        val history = stored.features.resolve(SessionHistory).orFail()
+        val page = history.page()
+        val observed = mutableListOf<SessionEvent>()
+        val reader = async {
+            assertFailsWith<EngineException> {
+                history.watch(page.checkpoint).collect { observed += it }
+            }
+        }
+        runCurrent()
+        val before = SessionEvent.ItemRemoved(HistoryCheckpoint("1"), ItemId("old"), 1)
+        live.events.emit(before)
+        runCurrent()
+        assertEquals<List<SessionEvent>>(listOf(before), observed)
+
+        native.native.value = ActiveSessionState.Closing()
+        runCurrent()
+        assertTrue(reader.isCompleted)
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), reader.await().failure)
+        assertEquals(0, live.events.subscriptionCount.value)
+        assertEquals(0, native.native.subscriptionCount.value)
+        assertEquals(0, native.closes)
+        assertFailsWith<EngineException> { history.page() }
+        native.close()
+        handles.remove(owner)
+
+        val replacement = LiveHistory()
+        add(native = FakeNativeSession(ref), history = replacement)
+        val renewed = stored.features.resolve(SessionHistory).orFail()
+        assertSame(replacement.snapshot, renewed.page())
+        val next = async { renewed.watch(renewed.page().checkpoint).first() }
+        runCurrent()
+        val after = SessionEvent.ItemRemoved(HistoryCheckpoint("1"), ItemId("new"), 1)
+        replacement.events.emit(after)
+        runCurrent()
+        assertEquals(after, next.await())
+        assertEquals(0, replacement.events.subscriptionCount.value)
+    }
+
+    @Test
+    fun `a borrowed watch started after owner closure fails without retaining a subscription`() = runTest {
+        add()
+        val history = stored().features.resolve(SessionHistory).orFail()
+        val page = history.page()
+        native.close()
+        val failure = assertFailsWith<EngineException> { history.watch(page.checkpoint).collect {} }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed), failure.failure)
+        assertEquals(0, live.events.subscriptionCount.value)
     }
 
     @Test
@@ -110,8 +176,8 @@ class StoredSessionHistoryTest {
 
 private class LiveHistory : SessionHistory {
     val events = MutableSharedFlow<SessionEvent>()
-    override suspend fun page(request: HistoryPageRequest) =
-        HistoryPage(emptyList(), null, null, HistoryCheckpoint("0"), HistoryCoverage.Complete)
+    val snapshot = HistoryPage(emptyList(), null, null, HistoryCheckpoint("0"), HistoryCoverage.Complete)
+    override suspend fun page(request: HistoryPageRequest) = snapshot
 
     override fun watch(after: HistoryCheckpoint) = events
 }

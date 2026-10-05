@@ -81,7 +81,13 @@ class ActiveSessionRegistry : BindingUsage {
             it.ref == ref && it.state.value != ActiveSessionState.Closed &&
                 it.state.value !is ActiveSessionState.Closing
         }
-        .map { it.features.resolve(SessionHistory) }
+        .map { handle ->
+            when (val access = handle.features.resolve(SessionHistory)) {
+                is FeatureAccess.Available -> FeatureAccess.Available(BorrowedSessionHistory(handle, access.feature))
+                is FeatureAccess.Unavailable -> access
+                FeatureAccess.Unsupported -> access
+            }
+        }
         .firstOrNull { it != FeatureAccess.Unsupported }
 
     /** Whether another handle of [ref] is executing a turn. */

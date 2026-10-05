@@ -16,8 +16,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Adapter session seen through the facade. History borrows an open handle's stream while available, falling
- * back to stored history after it closes. Readers never own or close that handle. Resumption always passes
+ * Adapter session seen through the facade. History borrows an open handle's stream while available. Closing its
+ * owner ends the subscription; resolving again falls back to stored history or borrows a replacement handle.
+ * Readers never own or close that handle. Resumption always passes
  * route checks and attaches through the profile runtime; other capabilities remain the stored adapter's.
  */
 class StoredSession(
