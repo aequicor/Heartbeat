@@ -9,19 +9,32 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
 import kotlinx.coroutines.flow.StateFlow
 
 /**
- * Adapter session seen through the facade. Metadata and history capabilities are the adapter's; resumption is
- * always the facade's, because it must pass route checks and attach through the profile runtime.
+ * Adapter session seen through the facade. History borrows an open handle's stream while available. Closing its
+ * owner ends the subscription; resolving again falls back to stored history or borrows a replacement handle.
+ * Readers never own or close that handle. Resumption always passes
+ * route checks and attaches through the profile runtime; other capabilities remain the stored adapter's.
  */
-class StoredSession(private val stored: EngineSession, resume: () -> FeatureAccess<EngineFeature>) : EngineSession {
+class StoredSession(
+    private val stored: EngineSession,
+    history: () -> FeatureAccess<SessionHistory>? = { null },
+    resume: () -> FeatureAccess<EngineFeature>,
+) : EngineSession {
     override val summary: StateFlow<SessionSummary> get() = stored.summary
 
-    override val features: EngineFeatures = FeatureTable(mapOf(ResumesSessions.id to resume), stored.features)
+    override val features: EngineFeatures = FeatureTable(
+        mapOf(
+            ResumesSessions.id to resume,
+            SessionHistory.id to { history() ?: stored.features.resolve(SessionHistory) },
+        ),
+        stored.features,
+    )
 }
 
 /** Engine-wide native discovery backed by the unified catalog, restricted to one engine. */
