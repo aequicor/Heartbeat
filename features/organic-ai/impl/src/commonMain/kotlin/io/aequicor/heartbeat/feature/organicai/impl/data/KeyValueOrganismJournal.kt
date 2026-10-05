@@ -67,9 +67,11 @@ internal class KeyValueOrganismJournal(
         }
         val retention = if (organism.isDeveloping) Retention.Permanent else Retention.expiring(Expiry.After(KEEP_ENDED))
         val raw = withContext(dispatchers.default) { json.encodeToString(Organism.serializer(), organism) }
-        store.set(record(organism.id.value), raw, retention)
+        // The index goes first: an id without a record is dropped on load, while a record nobody indexes would be
+        // lost to restore and kept forever.
         val ids = store.get(INDEX).orEmpty()
         if (organism.id.value !in ids) store.set(INDEX, ids + organism.id.value)
+        store.set(record(organism.id.value), raw, retention)
         versions[organism.id] = organism.version
         log.v { "organism ${organism.id.value} version ${organism.version} saved" }
     }

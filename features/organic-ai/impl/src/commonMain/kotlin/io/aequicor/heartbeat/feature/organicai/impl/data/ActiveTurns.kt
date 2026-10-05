@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -23,10 +24,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 private val log = Log.tag("ActiveTurns")
 
@@ -48,8 +51,10 @@ internal fun ActiveSessionState.activeTurn(): Turn? = when (this) {
 }
 
 /**
- * Submits [text] as [request]. [trust] goes only to a session that applies trust levels. When submission fails
- * after the engine already took the request, the turn it started is returned instead of the failure.
+ * Submits [text] as [request]. [trust] goes only to a session that applies trust levels. Only an ambiguous delivery
+ * may have started a turn: then the turn the session remembers for [request] is followed instead of the failure. A
+ * definite refusal never started one, so it fails the submission, and an unavailable session is synchronized so it
+ * can take the next turn.
  */
 internal suspend fun ActiveSession.submit(request: RequestId, text: String, trust: TrustLevel?): TurnId {
     val trusted = trust?.takeIf { features.resolve(AppliesTrustLevels) is FeatureAccess.Available }
@@ -57,21 +62,27 @@ internal suspend fun ActiveSession.submit(request: RequestId, text: String, trus
     return try {
         features.resolve(SendsPrompts).orThrow().send(prompt)
     } catch (e: EngineException) {
-        log.w(e) { "submission of ${request.value} failed; checking native acceptance" }
-        state.value.activeTurn()?.takeIf { it.request == request }?.id ?: throw e
+        val isAmbiguous = (e.failure as? EngineFailure.Request)?.reason == RequestFailureReason.OutcomeUnknown
+        val started = state.value.activeTurn()?.takeIf { isAmbiguous && it.request == request }
+        if (started == null) {
+            if (state.value is ActiveSessionState.Unavailable) synchronize()
+            throw e
+        }
+        log.w(e) { "submission of ${request.value} has an unknown outcome; following its turn" }
+        started.id
     }
 }
 
 /**
- * Waits for [turn] to end, reporting the permission requests of that turn whenever they change. An unavailable
- * session is synchronized once; if it still knows no outcome, the outcome is unknown. A closed handle ends the wait.
+ * Waits for [turn] to end, reporting the permission requests of that turn whenever they change. Each time the
+ * session becomes unavailable it is synchronized (see [recover]). A session that runs the turn no more and does not
+ * report it as its last one lost it: the outcome is unknown. A closed handle ends the wait.
  */
 internal suspend fun ActiveSession.awaitTurn(
     turn: TurnId,
     onPending: suspend (List<PermissionRequest>) -> Unit,
 ): TurnOutcome {
     var pending = emptyList<PermissionRequest>()
-    var isSynchronized = false
     var outcome: TurnOutcome? = null
     state.first { current ->
         val awaiting = (current as? ActiveSessionState.AwaitingUserAction)
@@ -82,28 +93,46 @@ internal suspend fun ActiveSession.awaitTurn(
             pending = awaiting
             onPending(awaiting)
         }
-        outcome = current.endOf(turn)
-        if (outcome == null && current is ActiveSessionState.Unavailable && !isSynchronized) {
-            // Synchronization may leave the state as it was, which emits nothing new: read it again here.
-            isSynchronized = true
-            synchronize()
-            outcome = state.value.endOf(turn) ?: state.value.lostTurn()
-        }
+        outcome = current.endOf(turn) ?: if (current is ActiveSessionState.Unavailable) recover(turn) else null
         outcome != null
     }
     if (pending.isNotEmpty()) onPending(emptyList())
     return outcome ?: TurnOutcome.Unknown
 }
 
-/** Cancels the running turn, waits up to [wait] for it to stop and closes the handle. */
-internal suspend fun ActiveSession.stop(wait: Duration) {
-    val turn = state.value.activeTurn()
-    if (turn != null) {
-        cancelQuietly(turn.id)
-        withTimeoutOrNull(wait) { state.first { it.activeTurn() == null } }
-            ?: log.w { "turn on ${ref.engine.value} did not stop in time; closing the handle" }
+/**
+ * Synchronizes an unavailable session with growing pauses until it leaves that state or tells how [turn] ended.
+ * Synchronization may leave the state as it was, which emits nothing new, so the state is read again after each
+ * attempt; a session that stays unavailable fails the turn with its failure instead of waiting forever.
+ */
+private suspend fun ActiveSession.recover(turn: TurnId): TurnOutcome? {
+    var pause = SYNC_PAUSE
+    repeat(SYNC_ATTEMPTS) { attempt ->
+        if (attempt > 0) {
+            delay(pause)
+            pause *= 2
+        }
+        synchronize()
+        val current = state.value as? ActiveSessionState.Unavailable ?: return state.value.endOf(turn)
+        (current.endOf(turn) ?: current.lostTurn())?.let { return it }
     }
-    withContext(NonCancellable) { close() }
+    val failure = (state.value as? ActiveSessionState.Unavailable)?.failure ?: return state.value.endOf(turn)
+    log.w(EngineException(failure)) { "session on ${ref.engine.value} stayed unavailable; its turn failed" }
+    return TurnOutcome.Failed(failure)
+}
+
+/** Cancels the running turn, waits up to [wait] for it to stop and closes the handle, even when stopping fails. */
+internal suspend fun ActiveSession.stop(wait: Duration) {
+    try {
+        val turn = state.value.activeTurn()
+        if (turn != null) {
+            cancelQuietly(turn.id)
+            withTimeoutOrNull(wait) { state.first { it.activeTurn() == null } }
+                ?: log.w { "turn on ${ref.engine.value} did not stop in time; closing the handle" }
+        }
+    } finally {
+        withContext(NonCancellable) { close() }
+    }
 }
 
 /** Best-effort cancellation; a session that cannot cancel is logged. */
@@ -118,7 +147,8 @@ internal suspend fun ActiveSession.cancelQuietly(turn: TurnId) {
 }
 
 private fun ActiveSessionState.endOf(turn: TurnId): TurnOutcome? = when (this) {
-    is ActiveSessionState.Ready -> lastTurn?.takeIf { it.id == turn }?.outcome
+    // A session that is ready again but reports another turn as its last one no longer knows this turn.
+    is ActiveSessionState.Ready -> if (lastTurn?.id == turn) lastTurn?.outcome else TurnOutcome.Unknown
 
     is ActiveSessionState.Unavailable -> lastTurn?.takeIf { activeTurn == null && it.id == turn }?.outcome
 
@@ -144,3 +174,6 @@ private suspend fun ActiveSession.synchronize() {
         log.w(e) { "session on ${ref.engine.value} could not be synchronized" }
     }
 }
+
+private const val SYNC_ATTEMPTS = 6
+private val SYNC_PAUSE = 2.seconds

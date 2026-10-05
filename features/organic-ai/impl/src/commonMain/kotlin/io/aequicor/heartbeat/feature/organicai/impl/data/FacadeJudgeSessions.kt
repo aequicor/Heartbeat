@@ -33,7 +33,8 @@ import kotlin.uuid.Uuid
 
 /**
  * A new judge session per call: no project, no hosted tools, one turn that may not ask the user for anything (a
- * permission request ends it), bounded in time. The session is always stopped, closed and archived afterwards.
+ * permission request ends it), bounded in time. Only a completed turn gives a verdict. The session is always
+ * stopped, closed and archived afterwards.
  */
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -55,6 +56,8 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
                 session.awaitTurn(turn) { pending -> if (pending.isNotEmpty()) session.cancelQuietly(turn) }
             } ?: throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
             if (outcome is TurnOutcome.Failed) throw EngineException(outcome.failure)
+            // A stopped or unconfirmed deliberation may break off mid-sentence: no verdict is read from it.
+            if (outcome != TurnOutcome.Completed) return ""
             val history = session.features.resolve(SessionHistory).orThrow()
             return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn).orEmpty()
         } finally {
@@ -66,8 +69,11 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
     private suspend fun dismiss(session: ActiveSession) {
         try {
             session.stop(STOP_WAIT)
-            val archives = facade.sessions.get(session.ref).features.resolve(ArchivesSessions)
-            (archives as? FeatureAccess.Available)?.feature?.setArchived(true)
+            when (val archives = facade.sessions.get(session.ref).features.resolve(ArchivesSessions)) {
+                is FeatureAccess.Available -> archives.feature.setArchived(true)
+                is FeatureAccess.Unavailable -> log.w(EngineException(archives.reason)) { "judge session not archived" }
+                FeatureAccess.Unsupported -> log.d { "${session.ref.engine.value} sessions cannot be archived" }
+            }
             log.i { "judge session on ${session.ref.engine.value} dismissed" }
         } catch (e: CancellationException) {
             throw e

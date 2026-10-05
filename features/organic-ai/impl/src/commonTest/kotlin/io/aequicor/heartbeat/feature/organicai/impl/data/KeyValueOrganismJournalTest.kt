@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -72,6 +73,15 @@ class KeyValueOrganismJournalTest {
     }
 
     @Test
+    fun `an interrupted first save leaves no record outside the index`() = runTest {
+        stores.store.failing = "organism.o1"
+        assertFailsWith<IllegalStateException> { journal.save(organism()) }
+        assertEquals(setOf("o1"), stores.store.values["index"])
+        assertTrue(KeyValueOrganismJournal(stores, TestDispatchers).load().isEmpty())
+        assertEquals(emptySet<String>(), stores.store.values["index"])
+    }
+
+    @Test
     fun `ended organisms expire while developing ones are kept`() = runTest {
         journal.save(organism())
         assertTrue(stores.store.retentions.getValue("organism.o1").isPermanent)
@@ -111,12 +121,16 @@ class KeyValueOrganismJournalTest {
         val values = mutableMapOf<String, Any>()
         val retentions = mutableMapOf<String, Retention>()
 
+        /** A key whose writes fail, as an interrupted write would. */
+        var failing: String? = null
+
         override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = emptyFlow()
 
         @Suppress("UNCHECKED_CAST") // Test fake: one value type per key.
         override suspend fun <T : Any> get(key: StoreKey<T>): T? = values[key.name] as T?
 
         override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
+            check(key.name != failing) { "write interrupted" }
             values[key.name] = value
             retentions[key.name] = retention
         }

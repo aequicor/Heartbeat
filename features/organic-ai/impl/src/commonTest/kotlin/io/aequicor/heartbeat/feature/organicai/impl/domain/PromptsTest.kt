@@ -145,6 +145,10 @@ class PromptsTest {
         )
         assertEquals("final", answerOf(items, TurnId("t1")))
         assertNull(answerOf(items, TurnId("t2")))
+        // A turn whose prompt never reached history does not borrow the answer of the turn before it.
+        assertNull(answerOf(items.take(3), TurnId("t2")))
+        val trailing = items.take(3) + message(MessageRole.Assistant, "  ", turn = "t1", position = 3)
+        assertEquals("final", answerOf(trailing, TurnId("t1")))
         val unmarked = listOf(
             message(MessageRole.Assistant, "old", position = 0),
             message(MessageRole.User, "go", position = 1),

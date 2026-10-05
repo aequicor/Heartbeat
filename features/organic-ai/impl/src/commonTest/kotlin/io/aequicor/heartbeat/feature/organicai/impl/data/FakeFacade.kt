@@ -35,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
@@ -60,10 +61,18 @@ import kotlinx.coroutines.flow.emptyFlow
 
 /**
  * A native session whose engine answers every prompt at once with [finish] (null keeps the turn running) and
- * whose history is [items]. It records prompts, cancellations, decisions, archiving and closes.
+ * whose history is [items]. A [sendFailure] fails submissions the way the facade does, leaving the session
+ * unavailable with the submitted turn; synchronization moves it to [synchronized] (null fails it). It records
+ * prompts, cancellations, decisions, synchronizations, archiving and closes.
  */
 internal class FakeSession(override val ref: SessionRef, private val hasTrust: Boolean = true) : ActiveSession {
     var historyFailure: EngineFailure? = null
+    var sendFailure: EngineFailure? = null
+    var synchronized: ActiveSessionState? = null
+    var synchronizations = 0
+
+    /** The state a resumption finds the session in. */
+    var resumedAs: ActiveSessionState = ActiveSessionState.Ready()
     val prompts = mutableListOf<PromptRequest>()
     val cancelled = mutableListOf<TurnId>()
     val decisions = mutableListOf<PermissionDecision>()
@@ -89,6 +98,10 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
         override suspend fun send(request: PromptRequest): TurnId {
             prompts += request
             val turn = TurnId("turn-${prompts.size}")
+            sendFailure?.let { failure ->
+                state.value = ActiveSessionState.Unavailable(failure, Turn(turn, request.id, TARGET))
+                throw EngineException(failure)
+            }
             state.value = ActiveSessionState.Running(Turn(turn, request.id, TARGET))
             finish?.let { end(turn, it) }
             return turn
@@ -99,6 +112,13 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
         override suspend fun cancel(turn: TurnId) {
             cancelled += turn
             end(turn, TurnOutcome.Cancelled)
+        }
+    }
+
+    private val reconciles = object : ReconcilesSession {
+        override suspend fun synchronize() {
+            synchronizations++
+            state.value = synchronized ?: throw EngineException(EngineFailure.Unknown())
         }
     }
 
@@ -129,6 +149,7 @@ internal class FakeSession(override val ref: SessionRef, private val hasTrust: B
             put(CancelsTurns, FeatureAccess.Available(cancels))
             put(RequestsPermissions, FeatureAccess.Available(permissions))
             put(SessionHistory, FeatureAccess.Available(history))
+            put(ReconcilesSession, FeatureAccess.Available(reconciles))
             if (hasTrust) put(AppliesTrustLevels, FeatureAccess.Available(object : AppliesTrustLevels {}))
         },
     )
@@ -152,6 +173,7 @@ internal class FakeFacade(
 ) : EngineFacade {
     val creations = mutableListOf<CreateSessionRequest>()
     var onCreate: suspend () -> Unit = {}
+    var onResume: suspend () -> Unit = {}
     val resumptions = mutableListOf<ResumeSessionRequest>()
 
     private val creates = object : CreatesSessions {
@@ -177,7 +199,8 @@ internal class FakeFacade(
             val resumes = object : ResumesSessions {
                 override suspend fun resume(request: ResumeSessionRequest): ActiveSession {
                     resumptions += request
-                    session.state.value = ActiveSessionState.Ready()
+                    session.state.value = session.resumedAs
+                    onResume()
                     return session
                 }
             }
