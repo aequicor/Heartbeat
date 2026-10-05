@@ -95,6 +95,13 @@ lint/            detekt-rules — собственный набор правил
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
 > только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
 > Smetana, без сети), тема из токенов, ошибка — строка и исходник, клик — полный размер; на Android/iOS fence остаётся кодом.
+> `features:scheduler:{api,impl}` — сон и пробуждение сессий (тогл `scheduler.enabled`, по умолчанию false): агент
+> инструментами хоста `scheduler_sleep`/`signal`/`cancel`/`list` засыпает до события, времени или таймера и
+> просыпается новым ходом со своей заметкой. Единая профильная шина `SchedulerBus` и ключи `EventKey`
+> (`system.network.*`, `session.<id>.turn_finished`, `action.<id>.finished`, `custom.*`); машина `SchedulerMachineKey`
+> в ProfileScope хранит пробуждения в профиле (переживают рестарт, доставка at-least-once). Доставка — SPI
+> `ScheduledSessionHost`: ai-studio — ходом в чате, иначе фолбэк через фасад. Фоновые действия (тогл `scheduler.actions`):
+> `scheduler_start_action` — команда в проекте (Desktop) или агент-помощник в новом чате с пробуждением по результату.
 > Приложение: `core:mvi`, фичи `welcome`, `ai-studio`, `toggles-panel`, `ai-engine:connections` (профильные маршруты); платформенные входы подключены к root.
 
 ## Жёсткие правила (нарушение = блокер ревью)

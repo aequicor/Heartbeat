@@ -78,6 +78,7 @@ kotlin {
             implementation(projects.features.aiSessionEngineTransfer.api)
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.agentLearning.api)
+            implementation(projects.features.scheduler.api)
             implementation(projects.core.di.ext)
             implementation(projects.features.aiEngine.authenticator.api)
             implementation(projects.features.aiEngine.facade.api)
