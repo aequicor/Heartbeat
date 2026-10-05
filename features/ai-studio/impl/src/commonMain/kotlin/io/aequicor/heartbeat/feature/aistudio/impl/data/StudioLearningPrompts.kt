@@ -42,14 +42,14 @@ internal class StudioLearningPrompts(
     private val signals = mutableMapOf<String, Set<LearningSignal>>()
     private val hinted = mutableMapOf<String, Set<LearningSignal>>()
 
-    /** The prompt the engine receives for [prompt] typed by the user in chat [id]. */
-    suspend fun prompt(id: String, prompt: String): String {
+    /** The prompt the engine receives for [prompt] in chat [id], with the caller's host [directives] after it. */
+    suspend fun prompt(id: String, prompt: String, directives: List<String> = emptyList()): String {
         if (!toggles.get(AgentLearningEnabled)) {
             lock.withLock {
                 signals.remove(id)
                 hinted.remove(id)
             }
-            return withHostDirectives(prompt, emptyList())
+            return withHostDirectives(prompt, directives)
         }
         val isRemember = rememberText(prompt) != null
         // A hint would turn into arguments of the user's own CLI command, and a /remember turn does no other work:
@@ -68,7 +68,7 @@ internal class StudioLearningPrompts(
         }
         return withHostDirectives(
             prompt,
-            listOfNotNull(hint),
+            directives + listOfNotNull(hint),
             leading = listOfNotNull(REMEMBER_DIRECTIVE.takeIf { isRemember }),
         )
     }

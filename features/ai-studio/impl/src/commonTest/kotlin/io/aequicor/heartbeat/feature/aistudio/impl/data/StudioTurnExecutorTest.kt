@@ -60,6 +60,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
@@ -75,6 +76,25 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
+    @Test
+    fun `cancelling scheduled preparation rejects prepared worktree ownership without sending a prompt`() = runTest {
+        val fixture = TurnFixture()
+        val submission = StudioRunSubmission()
+        val prepared = CompletableDeferred<Unit>()
+        fixture.host.beforeSubmit = { prepared.await() }
+        val result = async { fixture.executor.execute(fixture.host, fixture.request.copy(submission = submission)) }
+        runCurrent()
+        assertTrue(fixture.machine.sent.any { it is WorktreeIntent.Public.RunStarted })
+        assertNull(fixture.host.submitted)
+        assertTrue(submission.cancel())
+        result.cancelAndJoin()
+        assertTrue(fixture.machine.sent.last() is WorktreeIntent.Public.RunRejected)
+        assertTrue(fixture.events.none { it == "submit" || it == "cancel" })
+        prepared.complete(Unit)
+        runCurrent()
+        assertNull(fixture.host.submitted)
+    }
+
     @Test
     fun `native attachment prompt uses the same request identity as prepared worktree ownership`() = runTest {
         val fixture = TurnFixture()
@@ -485,6 +505,7 @@ private class ExecutorHost(
     var submitted: StudioTurnRequest? = null
     var isIsolated = true
     var openCount = 0
+    var beforeSubmit: suspend () -> Unit = {}
     override suspend fun isWorktree(id: String) = isIsolated
     override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
         openCount++
@@ -493,6 +514,8 @@ private class ExecutorHost(
         return active
     }
     override suspend fun submitTurn(active: ActiveSession, request: StudioTurnRequest): TurnId {
+        beforeSubmit()
+        request.submission?.begin()
         events += "submit"
         submitted = request
         if (isNativeSubmissionEnabled) {

@@ -102,8 +102,8 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 import kotlin.uuid.Uuid
 
-private val ChatSpec = KeyValueSpec("ai_studio_chats")
-private val ChatsKey = jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
+internal val ChatSpec = KeyValueSpec("ai_studio_chats")
+internal val ChatsKey = jsonKey("chats", ListSerializer(StudioChatRecord.serializer()))
 
 /**
  * Persistent identity and projection; no credential material or opaque history cursors are stored.
@@ -138,6 +138,7 @@ internal data class StudioChatRecord(
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @Inject
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
@@ -345,13 +346,7 @@ internal class EngineStudioRepository(
     private suspend fun deliverAction(id: String, action: WorktreeActionRequest) {
         try {
             state.first { id !in it.running }
-            val stored = record(id)
-            val confirmed = state.value.configurations[id]?.applied ?: stored.configuration
-            val defaults = defaults()
-            val settings = defaults.copy(
-                modelId = confirmed?.modelId ?: stored.target?.studioModelId().orEmpty(),
-                approval = confirmed?.approval ?: defaults.approval,
-            )
+            val settings = hostRunSettings(record(id), state.value.configurations[id]?.applied, defaults())
             launchRun(id, action.prompt, settings, action.kind, RequestId(action.operation), waitForIdle = true) {
                 worktrees.send(WorktreeIntent.Public.ActionDelivered(id, action.operation))
                 worktrees.await(id, failOnTaskError = false) {
@@ -412,7 +407,7 @@ internal class EngineStudioRepository(
         this,
         StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted),
         waitForIdle,
-        beforeExecute,
+        beforeExecute = beforeExecute,
     )
 
     override suspend fun startedRun(id: String, at: Instant) {
@@ -843,7 +838,8 @@ private class StudioNativeSessionOperations(
         trust: TrustLevel?,
     ): TurnId {
         log.i { "Send the reserved native request" }
-        val prompt = learning.prompt(request.id, request.prompt)
+        val prompt = learning.prompt(request.id, request.prompt, request.directives)
+        request.submission?.begin()
         return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
     }
 
