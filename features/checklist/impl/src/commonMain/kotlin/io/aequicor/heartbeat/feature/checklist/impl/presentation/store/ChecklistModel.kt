@@ -74,17 +74,20 @@ internal class ChecklistModel(
     }
 }
 
-internal fun ChecklistState.toUi(id: String): ChecklistScreenState {
-    if (this is ChecklistState.Loading) return ChecklistScreenState(hasFailed = hasFailed)
-    val ready = this as ChecklistState.Ready
-    val card = ready.journal.cards.firstOrNull { it.id == id } ?: return ChecklistScreenState()
+internal fun ChecklistState.toUi(id: String): ChecklistScreenState = when (this) {
+    is ChecklistState.Loading -> ChecklistScreenState(hasFailed = hasFailed)
+    is ChecklistState.Ready -> toScreenState(id)
+}
+
+private fun ChecklistState.Ready.toScreenState(id: String): ChecklistScreenState {
+    val card = journal.cards.firstOrNull { it.id == id } ?: return ChecklistScreenState()
     return ChecklistScreenState(
         title = card.title,
         fields = card.fields.map { field ->
             val answer = card.answers[field.id] ?: ChecklistAnswer()
             ChecklistFieldUi(
                 field.id, field.title, field.type == ChecklistInput.Text, field.type == ChecklistInput.MultiChoice,
-                field.isRequired, field.min, field.max,
+                field.isRequired, field.minimumSelections, field.max,
                 field.choices.map { ChecklistChoiceUi(it.id, it.title) }.toImmutableList(),
                 answer.selected.toImmutableSet(), answer.text,
             )

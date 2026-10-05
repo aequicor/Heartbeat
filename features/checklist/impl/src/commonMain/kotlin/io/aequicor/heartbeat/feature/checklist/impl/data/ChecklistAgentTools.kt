@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.checklist.api.Checklist
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistCompletionMode
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistField
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistInput
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistIntent
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistState
 import io.aequicor.heartbeat.feature.checklist.impl.domain.ChecklistMachine
@@ -258,6 +259,7 @@ private fun specification(args: JsonObject): Creation {
     require(
         fields.size in 1..MAX_FIELDS && fields.all { it.choices.size <= MAX_CHOICES && it.title.length <= MAX_TITLE },
     )
+    require(fields.none { it.type == ChecklistInput.MultiChoice && it.isRequired && it.max == 0 })
     val title = requireNotNull(args["title"]).jsonPrimitive.content
     require(title.length <= MAX_TITLE)
     val mode = args["mode"]?.jsonPrimitive?.content?.let(ChecklistCompletionMode::valueOf)

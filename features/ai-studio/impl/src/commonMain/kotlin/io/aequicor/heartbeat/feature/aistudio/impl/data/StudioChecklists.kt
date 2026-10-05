@@ -130,18 +130,26 @@ internal fun StudioChatRecord.checklistReadiness(events: List<ChecklistEvent>): 
 
 /** Resolves attachments by trusted tool/turn identities, never by list position or the currently selected chat. */
 internal fun List<StudioMessage>.withChecklists(events: List<ChecklistEvent>): List<StudioMessage> {
-    val anchors = events.groupBy { event ->
-        val owner = filterIsInstance<StudioMessage.Reply>().firstOrNull { reply ->
-            event.callId != null && reply.tools.any { it.id == event.callId }
-        }
-        owner?.id ?: filterIsInstance<StudioMessage.Reply>().firstOrNull { it.historyTurn == event.turn }?.id
-    }
+    val replies = filterIsInstance<StudioMessage.Reply>()
+    val anchors = events.groupBy { replies.checklistOwner(it) }
     return map { message ->
         if (message is StudioMessage.Reply) {
             message.copy(checklistIds = anchors[message.id].orEmpty().map { it.id })
         } else {
             message
         }
+    }
+}
+
+/** A persisted result wins; streaming fallbacks require the original turn and cannot contradict a result. */
+private fun List<StudioMessage.Reply>.checklistOwner(event: ChecklistEvent): String? {
+    firstOrNull { reply -> reply.tools.any { it.createdChecklistId == event.id } }?.let { return it.id }
+    val turn = filter { it.historyTurn == event.turn }
+    val callOwner = turn.firstOrNull { reply -> event.callId != null && reply.tools.any { it.id == event.callId } }
+    return when {
+        callOwner == null -> turn.firstOrNull()?.id
+        callOwner.tools.any { it.id == event.callId && it.createdChecklistId == null } -> callOwner.id
+        else -> null
     }
 }
 

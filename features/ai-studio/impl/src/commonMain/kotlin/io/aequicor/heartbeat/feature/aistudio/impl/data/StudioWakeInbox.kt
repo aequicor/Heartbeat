@@ -43,6 +43,14 @@ internal class StudioWakeInbox(
         store.set(ReceiptsKey, Json.encodeToString(read() + (request.value to WakeReceipt.Accepted)))
     }
 
+    /** Safe only after the submission gate proved that native submission never began. */
+    suspend fun cancelledBeforeSubmission(request: RequestId) = lock.withLock {
+        val receipts = read()
+        if (receipts[request.value] == WakeReceipt.Submitting) {
+            store.set(ReceiptsKey, Json.encodeToString(receipts - request.value))
+        }
+    }
+
     private suspend fun read(): Map<String, WakeReceipt> {
         val raw = store.get(ReceiptsKey) ?: return emptyMap()
         return try {

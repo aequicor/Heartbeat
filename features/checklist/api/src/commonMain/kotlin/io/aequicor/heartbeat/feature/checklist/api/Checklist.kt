@@ -46,6 +46,9 @@ public data class ChecklistField(
         require(type == ChecklistInput.Text || choices.isNotEmpty())
         require(type != ChecklistInput.MultiChoice || (min in 0..max && max <= choices.size))
     }
+
+    /** Effective lower bound for multiple choices; required fields always need at least one selection. */
+    public val minimumSelections: Int get() = maxOf(min, if (isRequired) 1 else 0)
 }
 
 /** Draft or frozen answer. No model-facing tool can change these values. */
@@ -91,14 +94,14 @@ public data class Checklist(
     override fun toString(): String = "Checklist(id=$id, status=$status, revision=$revision)"
 }
 
-/** Validates a completed answer; empty optional fields are allowed. */
+/** Validates a completed answer; required fields need an answer even when their selection minimum is zero. */
 public fun ChecklistField.accepts(answer: ChecklistAnswer): Boolean {
     if (!acceptsDraft(answer)) return false
     if (!isRequired && answer.text.isBlank() && answer.selected.isEmpty()) return true
     return when (type) {
         ChecklistInput.Text -> !isRequired || answer.text.isNotBlank()
         ChecklistInput.SingleChoice -> answer.selected.size == 1
-        ChecklistInput.MultiChoice -> answer.selected.size in min..max
+        ChecklistInput.MultiChoice -> answer.selected.size in minimumSelections..max
     }
 }
 

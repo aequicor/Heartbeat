@@ -11,6 +11,19 @@ class StudioWakeInboxTest {
     private val request = RequestId("request")
 
     @Test
+    fun `confirmed cancellation clears only unsubmitted receipts`() = runTest {
+        val stores = ChecklistTestStores()
+        val inbox = StudioWakeInbox(stores)
+        inbox.submitting(request)
+        inbox.cancelledBeforeSubmission(request)
+        assertNull(StudioWakeInbox(stores).receipt(request))
+        inbox.submitting(request)
+        inbox.accepted(request)
+        inbox.cancelledBeforeSubmission(request)
+        assertEquals(WakeReceipt.Accepted, StudioWakeInbox(stores).receipt(request))
+    }
+
+    @Test
     fun `wake inbox survives restart distinguishing unknown acceptance from accepted request`() = runTest {
         val stores = ChecklistTestStores()
         val inbox = StudioWakeInbox(stores)

@@ -18,6 +18,28 @@ import kotlin.test.assertTrue
 
 class ChecklistToolsTest {
     @Test
+    fun `required multiple choice cannot prohibit every selection`() = runTest {
+        val storage = ChecklistStorage(ChecklistTestStores())
+        val machine = PersistingChecklist(
+            storage,
+            ChecklistJournal(generations = mapOf(EventKeys.sessionSegment(TEST_SESSION) to TEST_REQUEST)),
+        )
+        val tools = ChecklistAgentTools(lazyOf(machine), lazyOf(storage), ChecklistTestToggles())
+        val args = Json.parseToJsonElement(
+            """{"key":"manual","title":"Verify","mode":"MarkSessionReady",
+            "fields":[{"id":"checks","title":"Checks","type":"MultiChoice","required":true,"min":0,"max":0,
+            "choices":[{"id":"ok","title":"OK"}]}]}""",
+        ).jsonObject
+        val result = tools.execute(
+            AgentToolContext(TEST_SESSION, null, TurnId("turn"), TEST_REQUEST),
+            "checklist_create",
+            args,
+        )
+        assertTrue(result.isError)
+        assertTrue((machine.state.value as ChecklistState.Ready).journal.cards.isEmpty())
+    }
+
+    @Test
     fun `failed create retry confirms durable same card and never creates a duplicate`() = runTest {
         val stores = ChecklistTestStores()
         val storage = ChecklistStorage(stores)

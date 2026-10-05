@@ -102,6 +102,9 @@ internal class EngineStudioScheduledChats(
             waitForIdle = true,
             cancelBeforeSubmission = true,
             beforeExecute = { if (prompt.isDeduplicationRequired) inbox.submitting(prompt.request) },
+            onCancelledBeforeSubmission = {
+                if (prompt.isDeduplicationRequired) inbox.cancelledBeforeSubmission(prompt.request)
+            },
             isExecutionEnabled = if (prompt.ownerFeature == ChecklistEvents.OWNER) {
                 toggles.observe(
                     ChecklistEnabled,

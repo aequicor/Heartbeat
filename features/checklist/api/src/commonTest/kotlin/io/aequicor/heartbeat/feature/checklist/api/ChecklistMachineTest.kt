@@ -101,6 +101,20 @@ class ChecklistMachineTest {
     }
 
     @Test
+    fun `required multiple choice with zero minimum cannot complete without an answer`() {
+        val field = choice.copy(type = ChecklistInput.MultiChoice, min = 0, max = 1)
+        val unchecked = card.copy(fields = listOf(field))
+        assertEquals(1, field.minimumSelections)
+        assertFalse(unchecked.isCompletionAllowed)
+        ChecklistMachineSpec.assertIgnored(
+            ChecklistState.Ready(ChecklistJournal(listOf(unchecked))),
+            ChecklistIntent.Public.Complete(unchecked.id),
+        )
+        assertTrue(unchecked.copy(answers = mapOf(field.id to ChecklistAnswer(setOf("ok")))).isCompletionAllowed)
+        assertTrue(unchecked.copy(fields = listOf(field.copy(isRequired = false))).isCompletionAllowed)
+    }
+
+    @Test
     fun `new request supersedes readiness but preserves continuation cards`() {
         val ready = card.copy(mode = ChecklistCompletionMode.MarkSessionReady)
         val old = ChecklistJournal(listOf(ready))

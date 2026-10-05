@@ -68,6 +68,8 @@ data class StudioToolRun(
     val diff: String? = null,
     val feedback: FeedbackRecord? = null,
     val learning: StudioLearningCall? = null,
+    /** Stable attachment identity decoded only from a successful hosted checklist creation result. */
+    val createdChecklistId: String? = null,
 )
 
 /** What a self-learning tool call does: saving an instruction or loading a learned skill. */

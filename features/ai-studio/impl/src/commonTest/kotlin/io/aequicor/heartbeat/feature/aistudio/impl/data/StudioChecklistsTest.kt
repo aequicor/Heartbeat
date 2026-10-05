@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioToolRun
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistCompletionMode
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvent
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
@@ -98,6 +99,26 @@ class StudioChecklistsTest {
         assertEquals(listOf("card"), attached.checklistIds)
         val streamed = listOf(reply.copy(text = "Answer after tool", isStreaming = true)).withChecklists(listOf(event))
         assertEquals(attached.checklistIds, (streamed.single() as StudioMessage.Reply).checklistIds)
+    }
+
+    @Test
+    fun `streaming call fallback uses its turn when a native call id repeats`() {
+        val tool = StudioToolRun("call_0", "checklist_create")
+        val old = StudioMessage.Reply("old", Clock.System.now(), tools = listOf(tool), historyTurn = "old-turn")
+        val current = old.copy(id = "current", historyTurn = event.turn)
+        val replies = listOf(old, current).withChecklists(listOf(event.copy(callId = tool.id)))
+            .filterIsInstance<StudioMessage.Reply>()
+        assertTrue(replies.first().checklistIds.isEmpty())
+        assertEquals(listOf(event.id), replies.last().checklistIds)
+    }
+
+    @Test
+    fun `a different creation result blocks a conflicting call and turn fallback`() {
+        val tool = StudioToolRun("call_0", "checklist_create", createdChecklistId = "other-card")
+        val reply = StudioMessage.Reply("reply", Clock.System.now(), tools = listOf(tool), historyTurn = event.turn)
+        val attached = listOf(reply).withChecklists(listOf(event.copy(callId = tool.id)))
+            .single() as StudioMessage.Reply
+        assertTrue(attached.checklistIds.isEmpty())
     }
 
     @Test

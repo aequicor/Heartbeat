@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
+import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioReplyPart
@@ -220,6 +221,7 @@ private class NativeAnswer(val id: String, initialTurn: String?) {
             output = listOfNotNull(previous?.output?.takeIf(String::isNotBlank), item.parts.text())
                 .filter(String::isNotBlank).joinToString("\n"),
             learning = previous?.learning,
+            createdChecklistId = item.createdChecklistId(previous) ?: previous?.createdChecklistId,
         )
         if (index >= 0) parts[index] = StudioReplyPart.Tool(updated) else parts += StudioReplyPart.Tool(updated)
     }
@@ -251,3 +253,12 @@ private fun List<ContentPart>.text(): String = joinToString("\n") {
         is ContentPart.Resource -> "[${it.resource.mediaType}]"
     }
 }
+
+/** The host result survives native history reloads even when the adapter loses turn and bridge-call identities. */
+private fun SessionItem.ToolResult.createdChecklistId(invocation: StudioToolRun?): String? {
+    if (failure != null || invocation == null || hostedToolName(invocation.title) != "checklist_create") return null
+    val result = (parts.singleOrNull() as? ContentPart.Text)?.text ?: return null
+    return CHECKLIST_CREATED.matchEntire(result)?.groupValues?.get(1)
+}
+
+private val CHECKLIST_CREATED = Regex("Checklist ([a-z0-9_-]{1,32}) created\\. End your turn and wait for the user\\.")

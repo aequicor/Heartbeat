@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.checklist.impl.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -91,16 +92,22 @@ private fun ChecklistField(field: ChecklistFieldUi, enabled: Boolean, onIntent: 
                 accessibleLabel = field.title,
             )
         } else {
-            field.choices.forEach { choice ->
-                val isSelected = choice.id in field.selected
-                HbChoiceRow(
-                    choice.title,
-                    isSelected,
-                    field.isMultiple,
-                    { onIntent(ChecklistScreenIntent.Choice(field.id, choice.id)) },
-                    modifier = Modifier.testTag("checklist-choice-${field.id}-${choice.id}"),
-                    enabled = enabled && (!field.isMultiple || isSelected || field.selected.size < field.max),
-                )
+            val choicesModifier = Modifier.testTag("checklist-choices-${field.id}")
+            HbColumn(
+                modifier = if (field.isMultiple) choicesModifier else choicesModifier.selectableGroup(),
+                gap = HbTheme.spacing.s,
+            ) {
+                field.choices.forEach { choice ->
+                    val isSelected = choice.id in field.selected
+                    HbChoiceRow(
+                        choice.title,
+                        isSelected,
+                        field.isMultiple,
+                        { onIntent(ChecklistScreenIntent.Choice(field.id, choice.id)) },
+                        modifier = Modifier.testTag("checklist-choice-${field.id}-${choice.id}"),
+                        enabled = enabled && (!field.isMultiple || isSelected || field.selected.size < field.max),
+                    )
+                }
             }
         }
     }

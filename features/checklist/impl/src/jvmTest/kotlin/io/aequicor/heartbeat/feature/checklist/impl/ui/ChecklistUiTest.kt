@@ -12,7 +12,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -40,6 +43,7 @@ import io.aequicor.heartbeat.feature.checklist.impl.presentation.store.Checklist
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalTestApi::class)
@@ -71,14 +75,27 @@ class ChecklistUiTest {
     }
 
     @Test
+    fun `single choice options expose a selectable group independently from checkboxes`() = runSkikoComposeUiTest {
+        setContent { HbTheme { ChecklistScreen(checklistSample(), {}) } }
+        onNodeWithTag("checklist-choices-result")
+            .assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.SelectableGroup))
+        onNodeWithTag("checklist-choices-check")
+            .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.SelectableGroup))
+    }
+
+    @Test
     fun `card emits keyboard and text actions and completed state freezes input`() = runSkikoComposeUiTest {
         var state by mutableStateOf(checklistSample())
         val intents = mutableListOf<ChecklistScreenIntent>()
         setContent { HbTheme { ChecklistScreen(state, intents::add) } }
-        onNodeWithTag("checklist-choice-check-dark").performClick()
-        onNodeWithTag("checklist-choice-check-dark").performKeyInput { pressKey(Key.Spacebar) }
+        onNodeWithTag("checklist").performKeyInput { pressKey(Key.Tab) }
+        onNodeWithTag("checklist-choice-check-light").assertIsFocused().performKeyInput { pressKey(Key.Tab) }
+        onNodeWithTag("checklist-choice-check-dark").assertIsFocused().performKeyInput { pressKey(Key.Spacebar) }
+        runOnIdle {
+            assertEquals(listOf<ChecklistScreenIntent>(ChecklistScreenIntent.Choice("check", "dark")), intents)
+            intents.clear()
+        }
         onNodeWithTag("checklist-text-text").performTextInput(" Additional notes")
-        assertTrue(intents.any { it is ChecklistScreenIntent.Choice })
         assertTrue(intents.any { it is ChecklistScreenIntent.Text })
         runOnIdle { state = state.copy(phase = ChecklistPhaseUi.Completed) }
         onNodeWithTag("checklist-choice-check-dark").assertIsNotEnabled()
