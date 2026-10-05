@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker
 
+import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlDiagramType
@@ -20,12 +21,16 @@ internal data class PlantUmlWorkerRequest(
 )
 
 /** The worker's answer: the drawing [result] and the warnings and errors the engine logged while drawing. */
-internal data class PlantUmlWorkerReply(val result: PlantUmlResult, val diagnostics: List<String>)
+internal data class PlantUmlWorkerReply(val result: PlantUmlResult, val diagnostics: List<PlantUmlWorkerDiagnostic>)
+
+/** A record the worker logged at [level] (warning or error) under [tag]; [message] includes its stack trace. */
+internal data class PlantUmlWorkerDiagnostic(val level: LogLevel, val tag: String, val message: String)
 
 /**
  * Binary frames on the worker's standard streams, written and read by the same build of the app: enums travel as
  * ordinals (the release build's shrinker breaks lookups by name). Lengths and ordinals are bounded on reading, so a
- * broken stream fails with an [IOException] instead of a huge allocation.
+ * broken stream fails with an [IOException] instead of a huge allocation; texts of the worker (messages that may
+ * quote the source, diagnostics) are cut to fit those bounds when written.
  */
 internal fun DataOutputStream.writeRequest(request: PlantUmlWorkerRequest) {
     writeByte(FRAME_REQUEST)
@@ -68,7 +73,7 @@ internal fun DataOutputStream.writeReply(reply: PlantUmlWorkerReply) {
         is PlantUmlResult.SyntaxError -> {
             writeByte(RESULT_SYNTAX_ERROR)
             writeInt(result.line ?: NO_LINE)
-            writeText(result.message)
+            writeBoundedText(result.message)
         }
 
         is PlantUmlResult.Failed -> {
@@ -78,8 +83,13 @@ internal fun DataOutputStream.writeReply(reply: PlantUmlWorkerReply) {
 
         PlantUmlResult.Unsupported -> writeByte(RESULT_UNSUPPORTED)
     }
-    writeInt(reply.diagnostics.size)
-    reply.diagnostics.forEach(::writeText)
+    val diagnostics = reply.diagnostics.take(MAX_DIAGNOSTICS)
+    writeInt(diagnostics.size)
+    diagnostics.forEach { diagnostic ->
+        writeInt(diagnostic.level.ordinal)
+        writeBoundedText(diagnostic.tag)
+        writeBoundedText(diagnostic.message)
+    }
     flush()
 }
 
@@ -102,7 +112,13 @@ internal fun DataInputStream.readReply(maxPngBytes: Int): PlantUmlWorkerReply {
 
         else -> throw IOException("Unexpected worker result $kind")
     }
-    val diagnostics = List(readCount(MAX_DIAGNOSTICS)) { readText(MAX_TEXT_BYTES) }
+    val diagnostics = List(readCount(MAX_DIAGNOSTICS)) {
+        PlantUmlWorkerDiagnostic(
+            level = LogLevel.entries[readCount(LogLevel.entries.lastIndex)],
+            tag = readText(MAX_TEXT_BYTES),
+            message = readText(MAX_TEXT_BYTES),
+        )
+    }
     return PlantUmlWorkerReply(result, diagnostics)
 }
 
@@ -112,15 +128,19 @@ private fun DataOutputStream.writeText(text: String) {
     write(bytes)
 }
 
+/** UTF-8 takes at most three bytes per UTF-16 character, so the cut text always fits [MAX_TEXT_BYTES]. */
+private fun DataOutputStream.writeBoundedText(text: String) = writeText(text.take(MAX_TEXT_BYTES / UTF8_MAX_BYTES))
+
 private fun DataInputStream.readText(maxBytes: Int): String =
     ByteArray(readCount(maxBytes)).also(::readFully).decodeToString()
 
 private fun DataInputStream.readCount(max: Int): Int =
     readInt().also { if (it !in 0..max) throw IOException("Worker frame value $it is out of bounds") }
 
-/** Diagnostics the worker sends per reply, and the length of each one. */
+/** Diagnostics the worker sends per reply, and the byte length of each text. */
 internal const val MAX_DIAGNOSTICS = 4
 internal const val MAX_TEXT_BYTES = 16 * 1024
+private const val UTF8_MAX_BYTES = 3
 private const val MAX_SOURCE_BYTES = 1024 * 1024
 private const val MAX_PREAMBLE_LINES = 256
 private const val END_OF_STREAM = -1

@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import net.sourceforge.plantuml.SourceStringReader
 import java.io.File
 import java.nio.file.Files
@@ -52,13 +54,16 @@ internal class JavaPlantUmlWorkerLauncher(private val jvmOptions: List<String> =
  * standard error, away from the replies. No display, no perf data files.
  */
 internal val WORKER_JVM_OPTIONS: List<String> = listOf(
-    "-Xmx384m",
+    "-Xmx${WORKER_HEAP_MIB}m",
     "-XX:+ExitOnOutOfMemoryError",
     "-XX:+UseSerialGC",
     "-XX:-UsePerfData",
     "-XX:+DisplayVMOutputToStderr",
     "-Djava.awt.headless=true",
 )
+
+/** The worker's heap cap in MiB; the worker checks it on start. */
+internal const val WORKER_HEAP_MIB: Long = 384
 
 /** HotSpot's exit code for `-XX:+ExitOnOutOfMemoryError`. */
 internal const val WORKER_OUT_OF_MEMORY_EXIT: Int = 3
@@ -67,13 +72,25 @@ internal const val WORKER_OUT_OF_MEMORY_EXIT: Int = 3
 internal fun workerEnvironment(parent: Map<String, String>): Map<String, String> =
     parent.filterKeys { name -> WorkerEnvironment.any { it.equals(name, ignoreCase = true) } }
 
+/** core:logging's logging backend, not visible to this module at compile time. */
+private const val NAPIER = "io.github.aakira.napier.Napier"
+
 private val WorkerEnvironment = setOf("TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE", "SystemRoot", "windir")
 
 /** The app's classpath, and the jars of the worker's own classes when a class loader hides them from it. */
 private fun workerClasspath(): String {
     val paths = linkedSetOf<String>()
     paths += System.getProperty("java.class.path").split(File.pathSeparator).filter { it.isNotBlank() }
-    listOf(PlantUmlWorkerLauncher::class.java, SourceStringReader::class.java, Unit::class.java).forEach { type ->
+    val loader = PlantUmlWorkerLauncher::class.java.classLoader
+    val types = listOf(
+        PlantUmlWorkerLauncher::class.java,
+        PlantUmlResult::class.java,
+        Log::class.java,
+        Class.forName(NAPIER, false, loader),
+        SourceStringReader::class.java,
+        Unit::class.java,
+    )
+    types.forEach { type ->
         type.protectionDomain?.codeSource?.location?.let { paths += Path.of(it.toURI()).toString() }
     }
     return paths.joinToString(File.pathSeparator)

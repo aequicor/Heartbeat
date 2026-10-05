@@ -19,7 +19,7 @@ internal const val MAX_DIAGRAM_CHARACTERS = 16 * 1024
 private val PlantUmlFenceNames = setOf("plantuml", "puml")
 
 /**
- * PlantUML start directives recognized in an untagged fence: diagram types drawn in-process. Directives that
+ * PlantUML start directives recognized in an untagged fence: diagram types the bundled engine draws. Directives that
  * need external tools (for example `@startdot`) are not listed and remain code.
  */
 private val PlantUmlStart = Regex(

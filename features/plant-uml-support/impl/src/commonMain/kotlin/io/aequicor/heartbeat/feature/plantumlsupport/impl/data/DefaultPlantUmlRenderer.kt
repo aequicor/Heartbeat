@@ -75,7 +75,8 @@ internal class DefaultPlantUmlRenderer(
             return PlantUmlResult.Failed(PlantUmlFailure.Busy)
         }
         return withTimeoutOrNull(limits.timeout) { drawing.result.await() } ?: run {
-            log.w { "PlantUML drawing did not finish within ${limits.timeout}" }
+            // The engine logs why the drawing ran out of time; this caller only stops waiting.
+            log.d { "PlantUML drawing did not finish within ${limits.timeout}" }
             PlantUmlResult.Failed(PlantUmlFailure.Timeout)
         }
     }

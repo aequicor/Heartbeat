@@ -100,7 +100,8 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Deb)
             // The jlink runtime holds only listed JDK modules; keep in sync with `suggestRuntimeModules`.
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
-            // java.prefs and java.scripting: the PlantUML engine of the diagram worker process.
+            // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
+            // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
             modules(
                 "java.instrument",
                 "java.management",

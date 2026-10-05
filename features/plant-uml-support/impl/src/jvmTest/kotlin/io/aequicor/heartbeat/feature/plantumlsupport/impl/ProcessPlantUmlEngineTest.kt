@@ -1,12 +1,19 @@
 package io.aequicor.heartbeat.feature.plantumlsupport.impl
 
+import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlFailure
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlResult
 import io.aequicor.heartbeat.feature.plantumlsupport.api.PlantUmlStyle
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.ProcessPlantUmlEngine
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.DiagnosticsSink
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.JavaPlantUmlWorkerLauncher
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PLANTUML_WORKER_READY
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerLauncher
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.PlantUmlWorkerRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.WORKER_JVM_OPTIONS
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.readReply
+import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.runPlantUmlWorker
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.workerEnvironment
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.data.worker.writeRequest
 import io.aequicor.heartbeat.feature.plantumlsupport.impl.domain.PlantUmlLimits
@@ -16,6 +23,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.FileDescriptor
 import java.io.FileOutputStream
@@ -43,13 +53,18 @@ class ProcessPlantUmlEngineTest {
     @AfterTest
     fun tearDown() = scope.cancel()
 
-    private fun engine(idleTimeout: Duration = 1.minutes) = ProcessPlantUmlEngine(
+    private fun engine(
+        idleTimeout: Duration = 1.minutes,
+        // A heap the memory bomb exhausts in well under a second.
+        launcher: PlantUmlWorkerLauncher = JavaPlantUmlWorkerLauncher(heap("128m")),
+    ) = ProcessPlantUmlEngine(
         scope = scope,
         timers = Dispatchers.Default,
-        // A heap the memory bomb exhausts in well under a second.
-        launcher = JavaPlantUmlWorkerLauncher(WORKER_JVM_OPTIONS.map { if (it.startsWith("-Xmx")) "-Xmx128m" else it }),
+        launcher = launcher,
         idleTimeout = idleTimeout,
     )
+
+    private fun heap(size: String) = WORKER_JVM_OPTIONS.map { if (it.startsWith("-Xmx")) "-Xmx$size" else it }
 
     private fun ProcessPlantUmlEngine.draw(
         text: String,
@@ -107,8 +122,11 @@ class ProcessPlantUmlEngineTest {
     @Test
     fun `cancelling the scope ends a hung drawing at once`() {
         val engine = engine()
+        assertIs<PlantUmlResult.Image>(engine.draw(DIAGRAM))
+        val worker = assertNotNull(engine.process)
         val result = CompletableFuture.supplyAsync { engine.draw(BACKTRACKING) }
-        val worker = awaitWorker(engine)
+        Thread.sleep(500)
+        assertTrue(!result.isDone, "the drawing hangs")
         scope.cancel()
         assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), result.get(10, TimeUnit.SECONDS))
         worker.onExit().get(10, TimeUnit.SECONDS)
@@ -132,12 +150,52 @@ class ProcessPlantUmlEngineTest {
         }
     }
 
-    private fun awaitWorker(engine: ProcessPlantUmlEngine): ProcessHandle {
-        repeat(100) {
-            engine.process?.let { return it }
-            Thread.sleep(50)
+    @Test
+    fun `long error messages that quote the source stay syntax errors`() {
+        val engine = engine()
+        val quoting = "@startuml\n!\$a = \"${"x".repeat(40_000)}\"\n!assert 0 : \$a\nA -> B\n@enduml"
+        val error = assertIs<PlantUmlResult.SyntaxError>(engine.draw(quoting))
+        assertTrue(error.message.length < 40_000, "cut to fit the reply")
+        assertIs<PlantUmlResult.Image>(engine.draw(DIAGRAM))
+    }
+
+    @Test
+    fun `a worker without its heap cap refuses to start and starts pause after repeated failures`() {
+        var starts = 0
+        val unbounded = JavaPlantUmlWorkerLauncher(heap("2g"))
+        val engine = engine(launcher = PlantUmlWorkerLauncher { unbounded.start().also { starts++ } })
+        repeat(4) { assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), engine.draw(DIAGRAM)) }
+        assertEquals(3, starts, "the fourth drawing starts no worker")
+    }
+
+    @Test
+    fun `an engine exception is reported and the worker keeps serving`() {
+        val request = ByteArrayOutputStream().also { bytes ->
+            val source = PlantUmlSource.parse(DIAGRAM) ?: error("unsupported sample")
+            DataOutputStream(bytes).writeRequest(PlantUmlWorkerRequest(source, emptyList(), limits))
         }
-        error("no worker started")
+        val replies = ByteArrayOutputStream()
+        val diagnostics = DiagnosticsSink()
+        Log.init(isDebug = false, sinks = listOf(diagnostics))
+        try {
+            runPlantUmlWorker(
+                input = DataInputStream(ByteArrayInputStream(request.toByteArray() + request.toByteArray())),
+                output = DataOutputStream(replies),
+                engine = { _, _, _ -> error("engine broke") },
+                diagnostics = diagnostics,
+            )
+        } finally {
+            Log.init(isDebug = false)
+        }
+        val input = DataInputStream(ByteArrayInputStream(replies.toByteArray()))
+        assertEquals(PLANTUML_WORKER_READY, input.readInt())
+        repeat(2) {
+            val reply = input.readReply(limits.maxPngBytes)
+            assertEquals(PlantUmlResult.Failed(PlantUmlFailure.Internal), reply.result)
+            val diagnostic = reply.diagnostics.single()
+            assertEquals(LogLevel.WARNING, diagnostic.level)
+            assertTrue("engine broke" in diagnostic.message)
+        }
     }
 
     @Test
