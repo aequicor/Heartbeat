@@ -38,6 +38,8 @@ internal data class ChatDemoCopy(
     val response: String,
     val section: String = "Today · Studio",
     val historySection: String = "Earlier session",
+    /** Markdown with PlantUML fences shown through the catalog diagram renderer; blank skips the sample. */
+    val diagramSample: String = "",
 )
 
 /** Local catalog state. Persistent timeline updates only the streaming tail, never the full history. */

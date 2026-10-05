@@ -199,4 +199,20 @@
     <string name="ru_worktree_failed">Ошибка операции worktree</string>
     <string name="ru_worktree_failure">В исходной рабочей папке есть незакоммиченные изменения. Сохраните их или создайте коммит, затем проверьте папку перед слиянием.</string>
     <string name="ru_worktree_recheck">Проверить рабочую папку</string>
+    <string name="ru_diagram_sample">### Диаграммы\n\nБлок PlantUML превращается в картинку; выберите её, чтобы открыть в полном размере.\n\n```plantuml\n@startuml\nYou -&gt; Studio : sketch the flow\nStudio --&gt; You : diagram\n@enduml\n```\n\nОшибочный блок объясняет проблему над исходником:\n\n```plantuml\n@startuml\nYou -&gt; : error\n@enduml\n```\n\nБольшая диаграмма вписывается в колонку, а в полном размере прокручивается в обе стороны:\n\n```plantuml\n@startuml\nnote over You : wide\n@enduml\n```\n\nЗанятый рендерер предлагает повторить:\n\n```plantuml\n@startuml\nnote over You : busy\n@enduml\n```</string>
+    <string name="ru_diagram_rendering">Рисуем диаграмму…</string>
+    <string name="ru_diagram_title">Диаграмма</string>
+    <string name="ru_diagram_open_full_size">Открыть в полном размере</string>
+    <string name="ru_diagram_close">Закрыть</string>
+    <string name="ru_diagram_syntax_error">Ошибка в диаграмме: {message}</string>
+    <string name="ru_diagram_syntax_error_at_line">Ошибка в диаграмме · строка {line}: {message}</string>
+    <string name="ru_diagram_too_large">Диаграмма слишком большая для отрисовки.</string>
+    <string name="ru_diagram_timeout">Диаграмма рисовалась слишком долго.</string>
+    <string name="ru_diagram_busy">Ещё рисуется другая диаграмма.</string>
+    <string name="ru_diagram_failed">Не удалось нарисовать диаграмму.</string>
+    <string name="ru_diagram_show_source">Исходник</string>
+    <string name="ru_diagram_show_diagram">Диаграмма</string>
+    <string name="ru_diagram_copy_source">Копировать исходник</string>
+    <string name="ru_diagram_source_copied">Исходник скопирован</string>
+    <string name="ru_diagram_copy_failed">Не удалось скопировать</string>
 </resources>

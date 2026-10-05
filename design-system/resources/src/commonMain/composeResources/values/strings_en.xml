@@ -199,4 +199,20 @@
     <string name="en_worktree_failed">Worktree operation failed</string>
     <string name="en_worktree_failure">The original checkout has uncommitted changes. Save or commit them, then check again before merging.</string>
     <string name="en_worktree_recheck">Check checkout</string>
+    <string name="en_diagram_sample">### Diagrams\n\nA PlantUML fence becomes a picture; select it to open the full size.\n\n```plantuml\n@startuml\nYou -&gt; Studio : sketch the flow\nStudio --&gt; You : diagram\n@enduml\n```\n\nAn invalid fence explains the problem above its source:\n\n```plantuml\n@startuml\nYou -&gt; : error\n@enduml\n```\n\nA large diagram fits the column; full size scrolls both ways:\n\n```plantuml\n@startuml\nnote over You : wide\n@enduml\n```\n\nA busy renderer offers a retry:\n\n```plantuml\n@startuml\nnote over You : busy\n@enduml\n```</string>
+    <string name="en_diagram_rendering">Rendering diagram…</string>
+    <string name="en_diagram_title">Diagram</string>
+    <string name="en_diagram_open_full_size">Open full size</string>
+    <string name="en_diagram_close">Close</string>
+    <string name="en_diagram_syntax_error">Diagram error: {message}</string>
+    <string name="en_diagram_syntax_error_at_line">Diagram error · line {line}: {message}</string>
+    <string name="en_diagram_too_large">The diagram is too large to draw.</string>
+    <string name="en_diagram_timeout">The diagram took too long to draw.</string>
+    <string name="en_diagram_busy">Another diagram is still drawing.</string>
+    <string name="en_diagram_failed">The diagram could not be drawn.</string>
+    <string name="en_diagram_show_source">Show source</string>
+    <string name="en_diagram_show_diagram">Show diagram</string>
+    <string name="en_diagram_copy_source">Copy source</string>
+    <string name="en_diagram_source_copied">Source copied</string>
+    <string name="en_diagram_copy_failed">Could not copy</string>
 </resources>
