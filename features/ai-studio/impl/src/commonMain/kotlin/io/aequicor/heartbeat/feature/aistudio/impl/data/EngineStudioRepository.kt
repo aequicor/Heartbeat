@@ -329,9 +329,9 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
-            organismId = organism?.let { organisms.admit(id, it, isWorktree) },
+            organismId = id.takeIf { organism != null },
         )
-        val record = conversations.create(pending, ::saveConversation)
+        val record = organisms.create(pending, organism, isWorktree) { conversations.create(it, ::saveConversation) }
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
     }

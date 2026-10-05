@@ -124,7 +124,9 @@ internal fun StudioComposer(
         stopLabel = stringResource(Res.string.composer_stop),
         modifier = modifier.testTag("composer-${pane.id}"),
         hasAttachments = content.attachments.isNotEmpty(),
-        canSend = support?.accepts(content.attachments) ?: content.attachments.isEmpty(),
+        // An organism grows from a written goal alone, so files added before choosing it must go first.
+        canSend = !(pane.isOrganism && content.attachments.isNotEmpty()) &&
+            (support?.accepts(content.attachments) ?: content.attachments.isEmpty()),
         layout = HbComposerLayout.Panel,
         inputMaxHeight = if (isCompact && !HbTheme.dimensions.isDesktop) {
             HbTheme.dimensions.composerMaxHeight

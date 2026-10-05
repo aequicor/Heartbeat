@@ -58,11 +58,16 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.OrganismRequest
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.organicai.api.Cell
+import io.aequicor.heartbeat.feature.organicai.api.CellId
+import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.Conception
+import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
+import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import kotlinx.coroutines.CoroutineScope
@@ -79,6 +84,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -128,17 +134,42 @@ class StudioOrganismsTest {
     }
 
     @Test
-    fun `an organism chat is admitted only when its organism could be conceived`() = runTest {
-        val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections, profile(this)) }
-        val living = organisms(OrganicMachine(OrganicAiState.Living()))
+    fun `an organism chat is saved only once its organism is conceived`() = runTest {
+        val machine = OrganicMachine(OrganicAiState.Living())
+        val organisms = StudioOrganisms(Registry(machine), selections, profile(this))
+        val saved = mutableListOf<StudioChatRecord>()
         val request = OrganismRequest("Build", settings)
-        assertEquals("chat-2", living.admit("chat-2", request, isWorktree = false))
-        val long = request.copy(goal = "x".repeat(OrganismBounds.MAX_GOAL + 1))
-        assertFailsWith<IllegalArgumentException> { living.admit("chat-2", long, isWorktree = false) }
-        assertFailsWith<IllegalArgumentException> { living.admit("chat-2", request, isWorktree = true) }
-        assertFailsWith<IllegalStateException> { organisms(null).admit("chat-2", request, isWorktree = false) }
-        val broken = organisms(OrganicMachine(OrganicAiState.Broken))
-        assertFailsWith<IllegalStateException> { broken.admit("chat-2", request, isWorktree = false) }
+        assertEquals(chat, organisms.create(chat, request, isWorktree = false) { it.also(saved::add) })
+        assertEquals(listOf(chat), saved)
+        assertTrue(machine.sent.single() is OrganicAiIntent.Public.Conceive)
+        // Its first prompt only accepts the organism that already lives.
+        machine.state.value = OrganicAiState.Living(mapOf(OrganismId("chat-1") to organism("chat-1")))
+        var accepted = 0
+        assertEquals(RunOutcome.Completed, organisms.conceive(chat, "Build", settings, emptyList()) { accepted++ })
+        assertEquals(1, accepted)
+        assertEquals(1, machine.sent.size)
+    }
+
+    @Test
+    fun `a refused organism leaves no chat and an unsaved chat aborts its organism`() = runTest {
+        val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections, profile(this)) }
+        val request = OrganismRequest("Build", settings)
+        val refusals = listOf(
+            organisms(null) to request,
+            organisms(OrganicMachine(OrganicAiState.Broken)) to request,
+            organisms(OrganicMachine(OrganicAiState.Living())) to request.copy(goal = "x".repeat(MAX_GOAL + 1)),
+        )
+        refusals.forEach { (refusing, asked) ->
+            assertFails { refusing.create(chat, asked, isWorktree = false) { error("A refused chat is not saved") } }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            organisms(OrganicMachine(OrganicAiState.Living())).create(chat, request, isWorktree = true) { it }
+        }
+        val machine = OrganicMachine(OrganicAiState.Living())
+        assertFailsWith<IllegalStateException> {
+            organisms(machine).create(chat, request, isWorktree = false) { error("The disk is full") }
+        }
+        assertEquals(OrganicAiIntent.Public.Abort(OrganismId("chat-1")), machine.sent.last())
     }
 
     @Test
@@ -297,3 +328,17 @@ private fun profile(test: TestScope) = object : ScopeHandle {
     override val savedState: ScopeSavedState get() = error("Unused")
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }
+
+private val MAX_GOAL = OrganismBounds.MAX_GOAL
+
+/** The smallest organism: a zygote alone. */
+private fun organism(id: String) = Organism(
+    OrganismId(id),
+    "Build",
+    target = null,
+    immunityTarget = null,
+    workspace = null,
+    trust = null,
+    limits = GrowthLimits(),
+    cells = listOf(Cell(CellId.ZYGOTE, "zygote", null, "Build", CellPhase.Resting)),
+)

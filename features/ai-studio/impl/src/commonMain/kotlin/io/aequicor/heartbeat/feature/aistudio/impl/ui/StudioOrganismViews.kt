@@ -163,6 +163,8 @@ internal fun OrganismNotices(
 ) {
     val sessionId = content.session?.id ?: return
     val organism = content.organism
+    // While its organism is being conceived the chat runs; only one out of view afterwards is explained.
+    if (organism == null && content.session.isRunning) return
     if (organism == null) {
         HbText(
             stringResource(Res.string.organism_unavailable),
@@ -178,7 +180,7 @@ internal fun OrganismNotices(
     organism.permissions.forEach { request ->
         // Request ids come from each cell's engine, so only the cell makes them unique.
         val id = "${request.cell}-${request.requestId}"
-        key(id) {
+        key(request.cell, request.requestId) {
             HbColumn(
                 Modifier.padding(HbTheme.spacing.m).testTag("organism-permission-$id"),
                 gap = HbTheme.spacing.s,

@@ -21,12 +21,13 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiMachineKey
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiOutput
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
-import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -42,24 +43,39 @@ internal class StudioOrganisms(
     private val log = Log.tag("StudioOrganisms")
 
     /**
-     * The organism id of the new chat [chat] created for [request]: the chat's own id. Fails when the organism could
-     * not be conceived now: the goal is too long, no model is chosen, organic AI is off or asleep, or the chat runs
-     * in an isolated checkout, which organism turns bypass. Asked before the chat is saved, so a refusal leaves no
-     * chat without its organism.
+     * Saves the new chat [chat] through [save], for an organism grown from [request] when there is one. The organism
+     * is conceived first and the chat saved only then, both owned by the profile, so neither a refusal (no model, a
+     * too long goal, organic AI off or asleep) nor a closed screen leaves a chat without its organism; a chat that is
+     * not saved aborts its organism. An organism never runs in an isolated checkout, which its turns would bypass.
      */
-    suspend fun admit(chat: String, request: OrganismRequest, isWorktree: Boolean): String {
+    suspend fun create(
+        chat: StudioChatRecord,
+        request: OrganismRequest?,
+        isWorktree: Boolean,
+        save: suspend (StudioChatRecord) -> StudioChatRecord,
+    ): StudioChatRecord {
+        if (request == null) return save(chat)
         require(!isWorktree) { "An organism does not run in an isolated checkout" }
-        require(request.goal.length <= OrganismBounds.MAX_GOAL) { "The goal is too long for an organism" }
-        target(request.settings.modelId, stored = null)
-        living()
-        return chat
+        return owned("organism chat creation") {
+            val machine = living()
+            conceive(machine, chat, request.goal, request.settings)
+            try {
+                save(chat)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val aborted = machine.send(OrganicAiIntent.Public.Abort(OrganismId(chat.id)))
+                log.i { "organism ${chat.id} aborted, since its chat was not saved: $aborted" }
+                throw e
+            }
+        }
     }
 
     /**
-     * The first prompt of an organism chat is the organism's goal: conceives the organism of [chat] on the chat's
-     * model, project and trust and reports it accepted; the chat never gets a native session of its own. Like a run,
-     * the conception belongs to the profile: closing the screen meanwhile does not cancel it. Null for an ordinary
-     * chat. Fails when organic AI is off or asleep, when the chat already has its organism, or with [attachments].
+     * The first prompt of an organism chat is the organism's goal. The organism of a chat created here already lives,
+     * so the prompt is only accepted; an organism chat without one (created before organisms were conceived with
+     * their chats) conceives it on the chat's model, project and trust. The chat never gets a native session of its
+     * own. Null for an ordinary chat. Fails when organic AI is off or asleep, or with [attachments].
      */
     suspend fun conceive(
         chat: StudioChatRecord,
@@ -70,25 +86,21 @@ internal class StudioOrganisms(
     ): RunOutcome? {
         if (chat.organismId == null) return null
         require(attachments.isEmpty()) { "An organism grows from a written goal alone" }
-        return profile.coroutineScope.async {
-            try {
-                Result.success(conceived(chat, goal, settings, onAccepted))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                // Logged here: the screen that asked may be gone by now.
-                log.w(e) { "organism conception for a studio chat failed" }
-                Result.failure(e)
-            }
-        }.await().getOrThrow()
+        return owned("organism conception") {
+            val machine = living()
+            val organisms = (machine.state.value as? OrganicAiState.Living)?.organisms.orEmpty()
+            if (OrganismId(chat.id) !in organisms) conceive(machine, chat, goal, settings)
+            onAccepted()
+            RunOutcome.Completed
+        }
     }
 
-    private suspend fun conceived(
+    private suspend fun conceive(
+        machine: OrganicMachineRef,
         chat: StudioChatRecord,
         goal: String,
         settings: RunSettings,
-        onAccepted: suspend () -> Unit,
-    ): RunOutcome {
+    ) {
         val chosen = chat.configuration?.modelId ?: chat.target?.studioModelId() ?: settings.modelId
         val conception = Conception(
             OrganismId(chat.id),
@@ -97,11 +109,27 @@ internal class StudioOrganisms(
             workspace = chat.executionWorkspace ?: chat.projectId?.let(::WorkspaceRef),
             trust = settings.approval.toTrust(),
         )
-        val result = living().send(OrganicAiIntent.Public.Conceive(conception))
+        val result = machine.send(OrganicAiIntent.Public.Conceive(conception))
         log.i { "organism ${conception.id.value} conception for a studio chat: $result" }
         check(result == SendResult.Accepted) { "The organism was not conceived" }
-        onAccepted()
-        return RunOutcome.Completed
+    }
+
+    /**
+     * Runs [block] in the profile, so a closed screen does not cut it in half. A failure reaches the caller, or is
+     * logged here once the caller has gone, never both.
+     */
+    private suspend fun <T> owned(what: String, block: suspend () -> T): T {
+        val caller = currentCoroutineContext().job
+        return profile.coroutineScope.async {
+            try {
+                Result.success(block())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (!caller.isActive) log.w(e) { "$what failed after its screen closed" }
+                Result.failure(e)
+            }
+        }.await().getOrThrow()
     }
 
     private suspend fun target(chosen: String, stored: EngineTarget?): EngineTarget {
@@ -114,7 +142,7 @@ internal class StudioOrganisms(
     }
 
     /** The organic AI machine once it lives, waiting a while for it to start and wake. */
-    private suspend fun living(): MachineRef<OrganicAiState, OrganicAiIntent.Public, OrganicAiOutput> {
+    private suspend fun living(): OrganicMachineRef {
         val machine = withTimeoutOrNull(WAIT_MILLIS) {
             machines.observe(OrganicAiMachineKey).filterNotNull().first()
         } ?: error("Organic AI is turned off")
@@ -129,3 +157,5 @@ internal class StudioOrganisms(
         const val WAIT_MILLIS = 30_000L
     }
 }
+
+private typealias OrganicMachineRef = MachineRef<OrganicAiState, OrganicAiIntent.Public, OrganicAiOutput>
