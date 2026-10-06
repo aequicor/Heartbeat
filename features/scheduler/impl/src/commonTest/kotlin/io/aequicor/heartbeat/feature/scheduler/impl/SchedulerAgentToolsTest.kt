@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Arguments
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.InMemorySchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.impl.data.SchedulerAgentTools
 import io.aequicor.heartbeat.feature.scheduler.impl.data.WakeScheduler
@@ -42,11 +43,13 @@ class SchedulerAgentToolsTest {
         state: SchedulerState = SchedulerState.Ready(),
         toggles: Toggles = Toggles(),
         network: FakeNetwork = FakeNetwork(),
+        hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
     ): Fixture {
         val clock = VirtualClock(testScheduler)
         val machine = SpecMachine(state)
         val bus = InMemorySchedulerBus(clock)
-        return Fixture(machine, bus, SchedulerAgentTools(machine, WakeScheduler(machine), bus, toggles, clock, network))
+        val tools = SchedulerAgentTools(machine, WakeScheduler(machine, lazyOf(hosts)), bus, toggles, clock, network)
+        return Fixture(machine, bus, tools)
     }
 
     private suspend fun Fixture.call(name: String, vararg arguments: Pair<String, Any>): AgentToolResult =
@@ -82,6 +85,19 @@ class SchedulerAgentToolsTest {
         assertEquals(WakeCondition(deadline = START + 90.seconds), wake.request.condition)
         assertEquals(WakeOrigin.Agent(TurnId("t1")), wake.request.origin)
         assertTrue(wake.id.value in result.text && "End your turn" in result.text)
+    }
+
+    @Test
+    fun `sleep without an owning host never promises a wake or registers one`() = runTest {
+        for (hosts in listOf(emptySet(), setOf(FakeHost(priority = 1, owned = setOf(OTHER))))) {
+            val fixture = fixture(hosts = hosts)
+            val result = fixture.call(SchedulerTools.SLEEP, Arguments.AFTER_SECONDS to 30)
+            assertTrue(result.isError, result.text)
+            assertTrue("no wake was scheduled" in result.text, result.text)
+            assertTrue("Continue the task in this turn" in result.text, result.text)
+            assertTrue(fixture.machine.sent.isEmpty())
+            assertTrue((fixture.machine.state.value as SchedulerState.Ready).wakes.isEmpty())
+        }
     }
 
     @Test

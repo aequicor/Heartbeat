@@ -12,14 +12,19 @@ import io.aequicor.heartbeat.feature.organicai.api.depth
 import io.aequicor.heartbeat.feature.organicai.api.isAlive
 import io.aequicor.heartbeat.feature.organicai.api.isZygote
 
-/** A turn carries host instructions and, only at genesis, the user's task. Results are tool output only. */
+/** A turn carries host instructions and the user's genesis or follow-up text. Results are tool output only. */
 internal fun turnPrompt(organism: Organism, cell: Cell): String {
     val phase = cell.phase as? CellPhase.Working ?: error("Only a working cell has a turn")
-    val body = if (phase.work == Work.Genesis) cell.task else ""
+    val body = when (val work = phase.work) {
+        Work.Genesis -> cell.task
+        is Work.FollowUp -> work.text
+        Work.CheckInbox, is Work.Letters -> ""
+    }
     val directives = buildList {
-        add(if (phase.isRecovery || phase.work == Work.Genesis) role(organism, cell) else reminder(organism, cell))
+        val isRoleNeeded = phase.work !is Work.FollowUp && (phase.isRecovery || phase.work == Work.Genesis)
+        add(if (isRoleNeeded) role(organism, cell) else reminder(organism, cell))
         if (phase.isRecovery) add(RECOVERY)
-        if (phase.work != Work.Genesis) add(CHECK_INBOX)
+        if (phase.work == Work.CheckInbox || phase.work is Work.Letters) add(CHECK_INBOX)
     }
     return withHostDirectives(body, directives = emptyList(), leading = directives)
 }

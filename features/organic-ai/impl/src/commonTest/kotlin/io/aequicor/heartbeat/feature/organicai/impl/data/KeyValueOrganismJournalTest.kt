@@ -13,8 +13,10 @@ import io.aequicor.heartbeat.core.datastore.StoreKey
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelection
 import io.aequicor.heartbeat.feature.aiengine.connections.api.ModelSelections
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
+import io.aequicor.heartbeat.feature.organicai.api.Work
 import io.aequicor.heartbeat.feature.organicai.impl.TARGET
 import io.aequicor.heartbeat.feature.organicai.impl.organism
 import kotlinx.coroutines.CoroutineDispatcher
@@ -40,6 +42,19 @@ class KeyValueOrganismJournalTest {
         journal.save(organism)
         assertEquals(setOf(organism.id.value), stores.store.values["index"])
         assertEquals(listOf(organism), KeyValueOrganismJournal(stores, TestDispatchers).load())
+    }
+
+    @Test
+    fun `a pending follow-up survives reopening the journal with its inputs`() = runTest {
+        val initial = organism()
+        val work = Work.FollowUp("Check the revised design", listOf(ResourceRef("attachment:new", "image/png")))
+        val pending = initial.copy(
+            cells = initial.cells.map {
+                it.copy(phase = (it.phase as CellPhase.Working).copy(work = work))
+            },
+        )
+        journal.save(pending)
+        assertEquals(listOf(pending), KeyValueOrganismJournal(stores, TestDispatchers).load())
     }
 
     @Test

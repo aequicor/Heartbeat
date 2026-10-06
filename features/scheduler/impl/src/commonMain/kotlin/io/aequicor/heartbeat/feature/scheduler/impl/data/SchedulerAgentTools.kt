@@ -108,7 +108,9 @@ internal class SchedulerAgentTools(
                     "message when ${condition.describe()}.",
             )
 
-            is ScheduleOutcome.Rejected, ScheduleOutcome.NotTaken, ScheduleOutcome.Unconfirmed ->
+            is ScheduleOutcome.Rejected, ScheduleOutcome.NoHost,
+            ScheduleOutcome.NotTaken, ScheduleOutcome.Unconfirmed,
+            ->
                 failure(outcome.failureMessage())
         }
     }
@@ -184,6 +186,7 @@ internal class SchedulerAgentTools(
             started by ${SchedulerTools.START_ACTION} return their actual completion key.
             After a successful ${SchedulerTools.SLEEP}, end your turn. The session resumes with a new message when
             one of the events arrives or the deadline passes; the message repeats your note.
+            If sleep is refused, no wake is promised: continue the task in this turn instead of ending to wait.
             Event keys: system.network.available / system.network.lost,
             session.<id>.turn_finished of another session (it prints its key with ${SchedulerTools.LIST}),
             custom.<name> signals published with ${SchedulerTools.SIGNAL}.

@@ -32,7 +32,9 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
@@ -151,7 +153,7 @@ internal fun StudioComposer(
                 settings.modelId,
                 content.models,
                 onIntent,
-                canSelect = !content.isSettingPending,
+                canSelect = !content.isSettingPending && content.organism == null,
                 paneId = pane.id,
             )
         },
@@ -175,10 +177,14 @@ private fun StudioComposerLeading(
         draft = content.draft,
         isRememberEnabled = content.isRememberEnabled,
         onFocusInput = onFocusInput,
-        approval = content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() },
+        approval = if (content.organism != null) {
+            content.organism.approval
+        } else {
+            content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() }
+        },
         onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
-        approvalEnabled = !content.isSettingPending,
+        approvalEnabled = !content.isSettingPending && content.organism == null,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },
         onOrganism = { onIntent(AiStudioScreenIntent.SelectOrganism(content.pane.id, it)) },
     )
@@ -278,6 +284,8 @@ private fun ComposerEffort(
     hasDemoPreferences: Boolean,
     onIntent: (AiStudioScreenIntent) -> Unit,
 ) {
+    // Organism turns keep their own session configuration; new-chat effort choices would not apply.
+    if (content.organism != null) return
     val model = content.models.firstOrNull { it.id == content.settings.modelId }
     if (model != null && model.reasoningEfforts.isNotEmpty()) {
         val selected = if (content.configuration != null) {
@@ -300,11 +308,13 @@ private fun PaneContent.supportsRunPreferences(): Boolean = models.any { model -
 private fun PaneContent.isTrustSupported(): Boolean = models.any { it.id == settings.modelId && it.isTrustSupported }
 
 /**
- * Whether the session takes prompts at all. An organism chat takes its goal again only while organic AI is on and
- * its organism is out of view (never conceived, or no longer kept).
+ * Whether the shown session takes prompts. A completed zygote takes a follow-up; an organism out of view takes
+ * its goal again. Both require organic AI to be on. Descendants and judges remain read-only.
  */
-private fun PaneContent.takesPrompts(): Boolean =
-    session?.isContinuable != false || (session.isOrganism && organism == null && isOrganismEnabled)
+private fun PaneContent.takesPrompts(): Boolean = session?.isContinuable != false || (
+    session.isOrganism && isOrganismEnabled && subSession == PrimarySubSession &&
+        (organism == null || organism.status == OrganismStatusUi.Completed)
+)
 
 /** Running requests retain cancellation; pending permissions block another prompt. */
 private fun PaneContent.isComposerEnabled(): Boolean = !pane.isCreating && !isPickingProject && !isStopping &&

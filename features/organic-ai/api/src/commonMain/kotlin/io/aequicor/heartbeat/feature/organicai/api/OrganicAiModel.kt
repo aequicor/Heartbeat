@@ -266,6 +266,12 @@ public sealed interface Work {
     @Serializable
     public data object Genesis : Work
 
+    /** A new user message to the existing zygote; its inputs survive restart and stalled-turn recovery. */
+    @Serializable
+    public data class FollowUp(val text: String, val attachments: List<ResourceRef> = emptyList()) : Work {
+        override fun toString(): String = "FollowUp(text=${text.length} chars, attachments=${attachments.size})"
+    }
+
     /** Legacy saved work; restored into the inbox instead of being submitted as chat text. */
     @Serializable
     public data class Letters(val letters: List<Letter>) : Work {

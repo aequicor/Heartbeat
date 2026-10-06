@@ -22,6 +22,8 @@ internal suspend fun submitStudioDraft(
     withState {
         val chat = panes.firstOrNull { it.id == paneId }?.sessionId
         if (selectedNative(chat) != PrimarySubSession) return@withState
+        val isOrganism = sessions.any { it.id == chat && it.isOrganism }
+        if (isOrganism && (subSessions[chat] ?: PrimarySubSession) != PrimarySubSession) return@withState
         val submissionId = Uuid.random().toString()
         val pending = pendingSubmission(paneId, submissionId)
         log.i { "Submit pane draft with attachments count=${pending.attachments.size}" }

@@ -123,7 +123,8 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
     val session = displayedSession(pane.sessionId)
     val startedAt = runStartedAt[pane.sessionId]
     val configuration = configurations[pane.sessionId]
-    val effectiveSettings = paneSettings(session, configuration)
+    val organism = organisms[pane.sessionId]
+    val effectiveSettings = paneSettings(session, configuration).forOrganism(organism)
     return PaneContent(
         pane = pane,
         session = session,
@@ -138,7 +139,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
         isOrganismEnabled = isOrganismEnabled,
-        organism = organisms[pane.sessionId],
+        organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
@@ -153,7 +154,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
             models.any { it.id == settings.modelId && it.isResearchSupported },
         models = modelsForProject(
             pane.projectId ?: session?.projectId,
-            configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank),
+            paneModelId(session, configuration, organism),
         ),
         isProjectAddingAvailable = isProjectAddingAvailable && addingProjectTo == null,
         isPickingProject = addingProjectTo == pane.id,
@@ -170,6 +171,16 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         worktree = worktrees[pane.sessionId],
         worktreeJournal = worktreeJournal,
     )
+}
+
+private fun paneModelId(session: SessionUi?, configuration: SessionConfigurationUi?, organism: OrganismUi?): String? =
+    organism?.modelId ?: configuration?.modelId ?: session?.modelId?.takeIf(String::isNotBlank)
+
+/** Existing organisms keep their execution settings when the defaults for new chats change. */
+private fun SettingsUi.forOrganism(organism: OrganismUi?): SettingsUi = if (organism == null) {
+    this
+} else {
+    copy(modelId = organism.modelId ?: modelId, approval = organism.approval ?: approval)
 }
 
 /** An organism chat shows the live transcript of its chosen sub-session instead of a stored one. */

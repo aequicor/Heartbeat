@@ -5,8 +5,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EnvironmentUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.InputSupportUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProviderUsageUi
@@ -15,6 +18,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionCon
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionObservationUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.attachmentSupport
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.persistentSetOf
@@ -63,6 +67,32 @@ class StudioScreenModelsTest {
         )
         assertNull(resting.paneContent(pane).contextUsage)
         assertEquals(false, resting.paneContent(pane).session?.isRunning)
+    }
+
+    @Test
+    fun `follow-up settings and attachment support come from the organism instead of new chat defaults`() {
+        val support = InputSupportUi(mediaTypes = persistentListOf("image/png"))
+        val original = ModelUi("original", "Original", isLocalProjectSupported = true, inputSupport = support)
+        val changed = ModelUi("changed", "Changed", isLocalProjectSupported = true)
+        val existing = state.copy(
+            sessions = persistentListOf(session.copy(isOrganism = true, isContinuable = false)),
+            settings = state.settings.copy(modelId = changed.id, approval = ApprovalUi.Ask),
+            models = persistentListOf(original, changed),
+            organisms = persistentMapOf(
+                "s" to OrganismUi(
+                    OrganismStatusUi.Completed,
+                    persistentListOf(),
+                    modelId = original.id,
+                    approval = ApprovalUi.AutoApprove,
+                ),
+            ),
+        )
+        val pane = existing.paneContent(existing.panes.first())
+        assertEquals(original.id, pane.settings.modelId)
+        assertEquals(ApprovalUi.AutoApprove, pane.settings.approval)
+        assertEquals(support, existing.attachmentSupport(0))
+        assertEquals(changed.id, existing.paneContent(PaneUi(7)).settings.modelId)
+        assertEquals(ApprovalUi.Ask, existing.paneContent(PaneUi(7)).settings.approval)
     }
 
     @Test

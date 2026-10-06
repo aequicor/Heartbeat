@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
+import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenu
 import io.aequicor.heartbeat.ds.components.HbMenuItem
@@ -126,7 +127,19 @@ internal fun OrganismSwitcher(content: PaneContent, onIntent: (AiStudioScreenInt
             isChecked = sub.key == content.subSession,
         )
     } + organism?.let { organismActions(it) }.orEmpty()
-    HbRow(gap = HbTheme.spacing.xs) {
+    HbRow(gap = HbTheme.spacing.xs, verticalAlignment = Alignment.CenterVertically) {
+        if (organism?.status == OrganismStatusUi.Completed) {
+            val completed = stringResource(Res.string.organism_status_completed)
+            HbTooltip(completed) {
+                HbIcon(
+                    HbIcons.Check,
+                    completed,
+                    Modifier.testTag("organism-completed-${content.pane.id}")
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    tint = HbTheme.surfaces.success,
+                )
+            }
+        }
         Box {
             HbButton(
                 current?.let { subSessionLabel(it) } ?: stringResource(Res.string.organism_sub_sessions),
@@ -184,7 +197,7 @@ private fun SessionActivityBadge(count: Int, known: Boolean) {
 @Composable
 private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotNull(
     HbMenuItem(RESUME_ACTION, stringResource(Res.string.organism_resume), isGroupStart = true)
-        .takeIf { organism.status == OrganismStatusUi.Stalled },
+        .takeIf { organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Completed },
     HbMenuItem(
         ABORT_ACTION,
         stringResource(Res.string.organism_abort),

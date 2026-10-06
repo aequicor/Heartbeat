@@ -75,6 +75,7 @@ private fun Organism.evolve(intent: OrganismIntent): Step? = when (intent) {
     is OrganicAiIntent.Public.Conceive -> null
     is OrganicAiIntent.Public.Abort -> abort()
     is OrganicAiIntent.Public.Resume -> resume()
+    is OrganicAiIntent.Public.FollowUp -> followUp(intent)
     is OrganicAiIntent.Public.Decide -> decide(intent.cell, intent.decision)
     is OrganicAiIntent.Internal.Targeted -> targeted(intent.target)
     is OrganicAiIntent.Internal.Unresolved -> unresolved()
@@ -164,8 +165,24 @@ private fun Organism.unresolved(): Step? {
     return Step(updated(zygote.id) { it.copy(phase = CellPhase.Stalled(Breakdown.NoModel, phase.work)) })
 }
 
+private fun Organism.followUp(intent: OrganicAiIntent.Public.FollowUp): Step? {
+    if (status !is OrganismStatus.Completed || zygote.phase !is CellPhase.Completed) return null
+    if ((intent.text.isBlank() && intent.attachments.isEmpty()) || intent.text.length > OrganismBounds.MAX_GOAL) {
+        return null
+    }
+    val continued = updated(zygote.id) {
+        begin(it.copy(isAwaitingResults = false), Work.FollowUp(intent.text, intent.attachments))
+    }.copy(status = OrganismStatus.Developing)
+    return if (target == null) Step(continued, isResolving = true) else Step(continued, drive = zygote.id)
+}
+
 private fun Organism.resume(): Step? {
     val zygote = zygote
+    if (status is OrganismStatus.Completed && zygote.phase is CellPhase.Completed) {
+        val restarted = updated(zygote.id) { recover(it.copy(isAwaitingResults = false), Work.Genesis) }
+            .copy(status = OrganismStatus.Developing)
+        return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
+    }
     if (!isDeveloping) return null
     val resumed = cells.filter { it.phase == CellPhase.Resting && !it.isAwaitingResults }.map { it.id }
     if (zygote.phase == CellPhase.Resting && resumed.isNotEmpty()) {

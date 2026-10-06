@@ -370,7 +370,7 @@ internal class EngineStudioRepository(
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
-        return organisms.conceive(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
+        return organisms.submit(record(sessionId), prompt, settings, attachments, onAccepted) ?: launchRun(
             sessionId,
             prompt,
             settings,

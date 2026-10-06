@@ -688,6 +688,10 @@ class AiStudioModel(
             val pane = panes.firstOrNull { it.id == (paneId ?: focusedPaneId) } ?: return@withState
             isHandled = false
             val sessionId = pane.sessionId ?: return@withState
+            if (organisms[sessionId] != null) {
+                isHandled = true
+                return@withState
+            }
             val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
             if (studioModelTarget(modelId) == null) return@withState
             isHandled = true

@@ -53,17 +53,19 @@ internal interface CellSessions {
     /**
      * The open handle of [key]: the cached one, [existing] resumed, or a new session. Cells get the detached hosted
      * tools, since the organism shows their permission requests to the user. A lysed cell is never opened again.
+     * [generation] is the cell turn counter: a late retirement of an older turn cannot close this handle.
      */
-    suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?): CellHandle
+    suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int = 0): CellHandle
 
     /** Delivers the user's [decision] to the open handle of [key]. */
     suspend fun respond(key: CellKey, decision: PermissionDecision)
 
     /**
      * Lets the session of [key] go. [ReleaseMode.Lyse] cancels its turn, closes it and archives the session;
-     * failures are logged, never thrown, so one cell cannot keep others alive.
+     * failures are logged, never thrown, so one cell cannot keep others alive. Retirement applies only to
+     * [generation] or an older open handle; lysis always ends the cell.
      */
-    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode)
+    suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int = 0)
 
     /** Cancels every running turn and closes every handle without archiving, before sleep. */
     suspend fun releaseAll()

@@ -163,6 +163,31 @@ class AiStudioModelTest {
     }
 
     @Test
+    fun `a draft shown on an organism child cannot be submitted to the zygote`() = runTest {
+        val workspace = StudioWorkspace(
+            emptyList(),
+            listOf(StudioSession("s-facade", null, "Organism", TestClock(this).now(), isOrganism = true)),
+        )
+        val repository = object : StudioRepository by InMemoryStudioRepository(TestClock(this)) {
+            override fun observeWorkspace() = flowOf(workspace)
+        }
+        val fixture = Fixture(this, ready, repository)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Follow up"))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", "c1"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertTrue(fixture.machine.sent.none { it is AiStudioIntent.Public.Submit })
+        assertEquals("Follow up", screen.states.value.draft(0))
+        assertTrue(screen.states.value.submissions.isEmpty())
+
+        fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", PrimarySubSession))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        assertEquals(1, fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().size)
+    }
+
+    @Test
     fun `a failed submit restores the prompt into its composer`() = runTest {
         val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
         val fixture = Fixture(this, failed)

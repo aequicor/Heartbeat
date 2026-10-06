@@ -25,6 +25,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | Conceive | new id | + organism, zygote Working(Genesis) | Persist; Drive, or Resolve without a model | — |
  * | Living | Targeted / Unresolved | developing, no model yet | model / zygote Stalled(NoModel) | Persist; Drive | — |
  * | Living | Resume | stalled / unarmed resting | recovery / reminder | Persist; DriveCells / Drive / Resolve | — |
+ * | Living | Resume | completed | Developing, zygote recovery | Persist; Drive / Resolve | — |
+ * | Living | FollowUp | completed, valid input | Developing, zygote Working(FollowUp) | Persist; Drive / Resolve | — |
  * | Living | Abort | developing | living cells Dead(Aborted), Aborted | Persist; Release(Lyse) | Finished |
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
@@ -45,6 +47,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * All result text is returned through the receive tool,
  * never through a prompt. A result arriving during a turn never interrupts it. Explicit waits and read cursors
  * survive restart; legacy saved letters turns are moved back into inboxes before recovery.
+ * A user can resume a completed zygote with its goal and history; descendants and inbox cursors stay unchanged.
+ * Follow-up messages start a fresh zygote turn in the same session; their text and inputs survive recovery.
+ * A completed organism never restarts automatically, and an aborted organism cannot be resumed.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →

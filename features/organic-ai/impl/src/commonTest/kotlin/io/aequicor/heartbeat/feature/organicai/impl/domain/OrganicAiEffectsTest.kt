@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
@@ -100,6 +101,24 @@ class OrganicAiEffectsTest {
         val organism = organism(cell(C1, phase = working(C1, work = work))).copy(attachments = images)
         effects.handle(OrganicAiEffect.Drive(organism, C1, request(C1)), machine)
         assertEquals(emptyList(), cells.handle.inputs.last())
+    }
+
+    @Test
+    fun `follow-up and its recovery submit only the new message and its own inputs`() = runTest {
+        val inputs = listOf(ResourceRef("attachment:follow-up", "image/png"))
+        val work = Work.FollowUp("Check this revised design", inputs)
+        for (recovery in listOf(false, true)) {
+            val initial = organism().copy(attachments = listOf(ResourceRef("attachment:goal", "image/png")))
+            val continued = initial.copy(
+                cells = initial.cells.map {
+                    if (it.id == ZYGOTE) it.copy(phase = working(ZYGOTE, work = work, isRecovery = recovery)) else it
+                },
+            )
+            effects.handle(OrganicAiEffect.Drive(continued, ZYGOTE, request(ZYGOTE)), machine)
+            assertEquals(work.text, stripHostDirectives(cells.handle.submitted.last().second))
+            assertEquals(inputs, cells.handle.inputs.last())
+            assertEquals(continued, journal.saved.last())
+        }
     }
 
     @Test
@@ -323,7 +342,7 @@ class OrganicAiEffectsTest {
         val responses = mutableListOf<Pair<CellKey, PermissionDecision>>()
         var releasedAll = 0
 
-        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?): CellHandle {
+        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
             return handle
@@ -333,7 +352,7 @@ class OrganicAiEffectsTest {
             responses += key to decision
         }
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode) {
+        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
             released += Triple(key, session, mode)
         }
 

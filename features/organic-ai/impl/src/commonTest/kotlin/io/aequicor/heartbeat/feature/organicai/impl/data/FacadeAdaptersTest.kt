@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellKey
 import io.aequicor.heartbeat.feature.organicai.impl.domain.CellRoute
 import io.aequicor.heartbeat.feature.organicai.impl.message
 import io.aequicor.heartbeat.feature.organicai.impl.session
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -70,6 +71,61 @@ class FacadeAdaptersTest {
             listOf(ContentPart.Text("work"), ContentPart.Image(image), ContentPart.Resource(document)),
             native.prompts.single().parts,
         )
+    }
+
+    @Test
+    fun `late retirement cannot close the handle of a resumed cell`() = runTest {
+        val native = FakeSession(session("continued"))
+        val cells = FacadeCellSessions(FakeFacade(ArrayDeque(listOf(native))))
+        cells.open(key, route, existing = null, generation = 1)
+        val resumed = cells.open(key, route, existing = native.ref, generation = 2)
+        cells.release(key, native.ref, ReleaseMode.Retire, generation = 1)
+        assertEquals(0, native.closes)
+        assertFailsWith<EngineException> { cells.open(key, route, native.ref, generation = 1) }
+        resumed.submit(RequestId("continued"), "check the remaining work", TrustLevel.AutoEdits)
+        assertEquals(1, native.prompts.size)
+        cells.release(key, native.ref, ReleaseMode.Retire, generation = 2)
+        assertEquals(1, native.closes)
+    }
+
+    @Test
+    fun `a slow resumption cannot replace or cancel a newer turn's handle`() = runTest {
+        val old = FakeSession(session("continued")).apply {
+            resumedAs = ActiveSessionState.Running(Turn(TurnId("active"), RequestId("new"), TARGET))
+        }
+        val newer = FakeSession(old.ref).apply { resumedAs = old.resumedAs }
+        val stored = mutableMapOf(old.ref to old)
+        val facade = FakeFacade(stored = stored)
+        val blocked = CompletableDeferred<Unit>()
+        facade.onResume = { if (facade.resumptions.size == 1) blocked.await() }
+        val cells = FacadeCellSessions(facade)
+        val stale = async { assertFailsWith<EngineException> { cells.open(key, route, old.ref, generation = 1) } }
+        runCurrent()
+        stored[old.ref] = newer
+        cells.open(key, route, old.ref, generation = 2)
+        blocked.complete(Unit)
+        stale.await()
+        assertEquals(1, old.closes)
+        assertTrue(old.cancelled.isEmpty())
+        assertFalse(old.isArchived)
+        assertEquals(0, newer.closes)
+        cells.open(key, route, old.ref, generation = 2).submit(RequestId("new"), "work", null)
+        assertEquals(1, newer.prompts.size)
+        assertEquals(2, facade.resumptions.size)
+    }
+
+    @Test
+    fun `a completed cell can reopen its retired session and still be lysed`() = runTest {
+        val native = FakeSession(session("continued"))
+        val facade = FakeFacade(ArrayDeque(listOf(native)), stored = mapOf(native.ref to native))
+        val cells = FacadeCellSessions(facade)
+        cells.open(key, route, existing = null, generation = 1)
+        cells.release(key, native.ref, ReleaseMode.Retire, generation = 1)
+        cells.open(key, route, native.ref, generation = 2)
+        assertEquals(1, facade.resumptions.size)
+        cells.release(key, native.ref, ReleaseMode.Lyse, generation = 2)
+        assertTrue(native.isArchived)
+        assertFailsWith<EngineException> { cells.open(key, route, native.ref, generation = 3) }
     }
 
     @Test

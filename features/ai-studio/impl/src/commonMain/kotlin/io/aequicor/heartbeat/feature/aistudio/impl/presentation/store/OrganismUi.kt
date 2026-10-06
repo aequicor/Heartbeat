@@ -4,6 +4,8 @@ import androidx.compose.runtime.Immutable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
@@ -27,6 +29,9 @@ data class OrganismUi(
     val status: OrganismStatusUi,
     val subSessions: ImmutableList<SubSessionUi>,
     val permissions: ImmutableList<OrganismPermissionUi> = persistentListOf(),
+    /** The organism's fixed execution route and trust, independent of new-chat defaults. */
+    val modelId: String? = null,
+    val approval: ApprovalUi? = null,
 )
 
 /** The selected session's live execution and context; [key] prevents stale data after selection changes. */
@@ -108,6 +113,13 @@ data class OrganismPermissionUi(
 enum class OrganismActionUi { Abort, Resume }
 
 internal fun Organism.toUi(): OrganismUi = OrganismUi(
+    modelId = target?.studioModelId(),
+    approval = when (trust) {
+        TrustLevel.Ask -> ApprovalUi.Ask
+        TrustLevel.AutoEdits -> ApprovalUi.AutoEdits
+        TrustLevel.Full -> ApprovalUi.AutoApprove
+        null -> null
+    },
     status = when {
         status is OrganismStatus.Completed -> OrganismStatusUi.Completed
 

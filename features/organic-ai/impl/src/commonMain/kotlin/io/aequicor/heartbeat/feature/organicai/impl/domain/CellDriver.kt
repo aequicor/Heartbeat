@@ -35,14 +35,18 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
         }
         val key = CellKey(organism.id, id)
         log.i { "organism ${organism.id.value} cell ${id.value}: ${phase.kind()} turn ${cell.turns} starts" }
-        val handle = cells.open(key, CellRoute(target, organism.workspace, organism.trust), cell.session)
+        val handle = cells.open(key, CellRoute(target, organism.workspace, organism.trust), cell.session, cell.turns)
         if (cell.session == null) {
             val bound = OrganicAiIntent.Internal.SessionBound(organism.id, id, request, handle.session)
             if (machine.send(bound) != SendResult.Accepted) return abandon(key, handle, turn = null)
         }
         val turn = phase.takeIf { it.isRecovery }?.let { handle.activeTurn() } ?: run {
             journal.save(organism)
-            val attachments = organism.attachments.takeIf { phase.work == Work.Genesis }.orEmpty()
+            val attachments = when (val work = phase.work) {
+                Work.Genesis -> organism.attachments
+                is Work.FollowUp -> work.attachments
+                Work.CheckInbox, is Work.Letters -> emptyList()
+            }
             handle.submit(request, turnPrompt(organism, cell), organism.trust, attachments)
         }
         val accepted = OrganicAiIntent.Internal.TurnAccepted(organism.id, id, request, turn)
@@ -83,6 +87,7 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
     private fun CellPhase.Working.kind(): String = when {
         isRecovery -> "recovery"
         work == Work.Genesis -> "genesis"
+        work is Work.FollowUp -> "follow-up"
         else -> "inbox reminder"
     }
 
