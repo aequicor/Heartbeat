@@ -321,7 +321,7 @@ internal class CodexSession(
         }
     }
 
-    /** Reads the native thread; only an idle thread or our own in-progress turn leaves Unavailable. */
+    /** Reconciles only our mapped turn; a missing turn never proves the remembered execution stopped. */
     private suspend fun reconcile() {
         val before = machine.state.value
         if (before !is ActiveSessionState.Unavailable) {
@@ -387,6 +387,8 @@ internal class CodexSession(
     }
 
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
+        // Rollout projections may omit turns or their status. Unknown means proven stopped, not missing data.
+        if (active != null && remembered?.text("status") !in TERMINAL_STATUSES) return
         val completed = if (active != null && remembered != null && finished.add(active.id)) {
             ActiveSessionIntent.Internal.Finished(active.id, outcome(remembered))
         } else {
@@ -741,6 +743,7 @@ internal class CodexSession(
 
     private companion object {
         const val IN_PROGRESS = "inProgress"
+        val TERMINAL_STATUSES = setOf("completed", "interrupted", "failed")
         val HOSTED_ALLOW = PermissionOptionId("hosted.allow")
         val HOSTED_DENY = PermissionOptionId("hosted.deny")
     }
