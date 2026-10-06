@@ -2,15 +2,19 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 
 import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.Inject
+import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledTaskHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
@@ -33,6 +37,17 @@ internal data class ScheduledRunRoute(val target: EngineTarget? = null, val appr
 
 /** The studio's side of scheduled runs. */
 internal interface StudioScheduledChats {
+    /** Runs a graph assignment with durable native outcome tracking in its existing chat. */
+    suspend fun runGraphTask(
+        chatId: String,
+        request: SpawnRequest,
+        previousExecution: String?,
+        admission: kotlinx.coroutines.flow.Flow<Boolean>,
+    ): GraphTaskResult = error("Graph execution is unavailable")
+
+    /** Stops and reconciles native work in the graph's chat. */
+    suspend fun stopGraphTask(chatId: String): Boolean = false
+
     /** The chat whose native session is [session], or null. */
     suspend fun chatOf(session: SessionRef): StudioScheduledChat?
 
@@ -40,7 +55,7 @@ internal interface StudioScheduledChats {
     suspend fun sessionOf(chatId: String): SessionRef?
 
     /** Creates an empty chat in [projectId] (null: without a project) and returns its id. */
-    suspend fun createHelperChat(projectId: String?, title: String): String
+    suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef? = null): String
 
     /**
      * Runs [prompt] as the next turn of chat [chatId], waiting while it is busy, on [route]. [onAccepted] runs once the
@@ -59,13 +74,13 @@ internal interface StudioScheduledChats {
  * busy chat and keeps the chat's model and approval. Helper agents get their own chat in the parent's project. The
  * turn runs in the profile scope; this host returns as soon as the engine accepted it.
  */
-@ContributesIntoSet(ProfileScope::class)
+@ContributesIntoSet(ProfileScope::class, binding = binding<ScheduledSessionHost>())
 @Inject
 internal class StudioScheduledSessionHost(
     // Lazy: the studio runtime depends on the hosted tools, whose background actions depend on these hosts.
     private val scheduledChats: Lazy<StudioScheduledChats>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
-) : ScheduledSessionHost {
+) : ScheduledTaskHost {
     private val log = Log.tag("StudioScheduledSessionHost")
     private val chats: StudioScheduledChats get() = scheduledChats.value
 
@@ -88,6 +103,20 @@ internal class StudioScheduledSessionHost(
         submit(chat, request.prompt, request.target, approvalFrom = parent.id)
         return checkNotNull(chats.sessionOf(chat)) { "The helper conversation has no session" }
     }
+
+    override suspend fun prepareTask(request: SpawnRequest): String? {
+        val parent = chats.chatOf(request.parent) ?: return null
+        return chats.createHelperChat(parent.projectId, request.title, request.workspace)
+    }
+
+    override suspend fun runTask(
+        hostTask: String,
+        request: SpawnRequest,
+        previousExecution: String?,
+        admission: kotlinx.coroutines.flow.Flow<Boolean>,
+    ): GraphTaskResult = chats.runGraphTask(hostTask, request, previousExecution, admission)
+
+    override suspend fun stopTask(hostTask: String): Boolean = chats.stopGraphTask(hostTask)
 
     /**
      * Starts the run in the profile and waits only for acceptance; a run that ends without it is a failure. A caller

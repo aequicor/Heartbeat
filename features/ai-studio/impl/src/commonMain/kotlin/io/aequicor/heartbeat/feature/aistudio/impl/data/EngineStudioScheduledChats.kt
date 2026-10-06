@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -17,6 +18,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
+import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 
@@ -35,9 +38,19 @@ internal class EngineStudioScheduledChats(
     private val host: StudioRunHost,
     private val inbox: StudioWakeInbox,
     private val toggles: FeatureToggles,
+    private val graphExecutions: StudioGraphExecutions,
 ) : StudioScheduledChats {
     private val log = Log.tag("EngineStudioScheduledChats")
     private val store by lazy { stores.keyValue(ChatSpec) }
+
+    override suspend fun runGraphTask(
+        chatId: String,
+        request: SpawnRequest,
+        previousExecution: String?,
+        admission: kotlinx.coroutines.flow.Flow<Boolean>,
+    ): GraphTaskResult = graphExecutions.run(chatId, request, previousExecution, admission)
+
+    override suspend fun stopGraphTask(chatId: String): Boolean = graphExecutions.stop(chatId)
 
     override suspend fun chatOf(session: SessionRef): StudioScheduledChat? {
         log.v { "find the chat of a session" }
@@ -51,9 +64,9 @@ internal class EngineStudioScheduledChats(
         return store.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
     }
 
-    override suspend fun createHelperChat(projectId: String?, title: String): String {
+    override suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef?): String {
         log.i { "create a helper conversation hasProject=${projectId != null}" }
-        return repository.createSession(projectId, title, isWorktree = false).id
+        return repository.createSession(projectId, title, isWorktree = false, executionWorkspace = workspace).id
     }
 
     override suspend fun runScheduled(

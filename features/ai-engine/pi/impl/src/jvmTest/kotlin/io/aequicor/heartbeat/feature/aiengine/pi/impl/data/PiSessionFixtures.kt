@@ -279,7 +279,7 @@ internal class FakeConnection : PiConnection {
             ),
         )
         return Json.parseToJsonElement(
-            """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":$isStreaming,
+            """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":$isStreaming,"isCompacting":false,
                "thinkingLevel":"$thinkingLevel",
                "model":$selectedModel}""",
         ).jsonObject

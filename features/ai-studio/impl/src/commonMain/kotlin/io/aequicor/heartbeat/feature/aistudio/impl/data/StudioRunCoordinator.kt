@@ -166,6 +166,12 @@ internal class StudioRunSubmission(private val executionEnabled: Flow<Boolean>? 
         log.v { "Native submission took ownership of the scheduled run" }
     }
 
+    /** Already accepted native work retains profile ownership independently of admission for new submissions. */
+    fun adopt() {
+        check(phase.compareAndSet(Phase.Preparing, Phase.Submitted)) { "Native recovery ownership was revoked" }
+        log.v { "Recovered native turn retained profile ownership" }
+    }
+
     fun cancel(): Boolean {
         val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
         log.v { "Scheduled preparation cancellation accepted=$isCancelled" }

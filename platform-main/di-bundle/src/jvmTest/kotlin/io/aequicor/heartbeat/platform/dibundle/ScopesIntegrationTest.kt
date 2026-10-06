@@ -44,8 +44,12 @@ class ScopesIntegrationTest {
         Dispatchers.resetMain()
     }
 
-    private fun newProcess(persisted: PersistedProfile): TestAppGraph =
-        createGraphFactory<TestAppGraph.Factory>().create(persisted).also { processes += it }
+    private suspend fun newProcess(persisted: PersistedProfile): TestAppGraph {
+        // Process death releases app-owned DataStore files without signing out the persisted profile.
+        processes.forEach { (it.appScope as OwnedScope).close() }
+        processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
+        return createGraphFactory<TestAppGraph.Factory>().create(persisted).also { processes += it }
+    }
 
     private val ProfileSession.accessors get() = graph as TestProfileAccessors
 

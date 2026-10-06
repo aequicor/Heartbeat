@@ -55,6 +55,24 @@ class DefaultAgentToolsTest {
     }
 
     @Test
+    fun `only exact durable authorization covers a command without changing trust`() = runTest {
+        val owner = ToolOwner(AgentToolAction.Command)
+        val tools = DefaultAgentTools(setOf(owner))
+        val context = toolContext(TrustLevel.Ask)
+        owner.existing = AgentToolApproval("tool", "Tool", binding = "1")
+        assertFalse(tools.execute(context, "tool", EMPTY_ARGS).isError)
+        assertEquals(1, owner.calls)
+        owner.revision = 2
+        assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
+        owner.existing = AgentToolApproval("tool", "Tool")
+        assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
+        owner.existing = null
+        assertTrue(tools.execute(context, "tool", EMPTY_ARGS).isError)
+        assertEquals(TrustLevel.Ask, context.trust)
+        assertEquals(1, owner.calls)
+    }
+
+    @Test
     fun `declined or disappeared tool never reaches the contribution`() = runTest {
         val owner = ToolOwner(AgentToolAction.Command)
         val tools = DefaultAgentTools(setOf(owner))
@@ -264,6 +282,9 @@ class DefaultAgentToolsTest {
 
 private class ToolOwner(action: AgentToolAction) : AgentToolContribution {
     private val spec = AgentToolSpec("tool", "Tool", EMPTY_ARGS, action)
+    var existing: AgentToolApproval? = null
+    override suspend fun existingAuthorization(context: AgentToolContext, spec: AgentToolSpec, arguments: JsonObject) =
+        existing
     var isAvailable = true
     var isApprovalInvalid = false
     var calls = 0

@@ -15,7 +15,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -38,6 +40,7 @@ internal class CodexLease(private val session: CodexSession) :
     CancelsTurns,
     RequestsPermissions,
     AppliesTrustLevels,
+    RestoresSessionTurns,
     SessionHistory {
     private val log = Log.tag("CodexLease")
     override val ref = session.ref
@@ -67,6 +70,14 @@ internal class CodexLease(private val session: CodexSession) :
             log.d { "Codex lease state changed" }
             mutableState.value = it
         }
+    }
+
+    override suspend fun checkpoint(request: RequestId): String? = command { session.recovery.checkpoint(request) }
+    override suspend fun inspect(checkpoint: String?) = command {
+        session.runtime.gate()
+        session.recovery.inspect(
+            checkpoint,
+        )
     }
 
     override suspend fun send(request: PromptRequest): TurnId = command { session.send(request) }

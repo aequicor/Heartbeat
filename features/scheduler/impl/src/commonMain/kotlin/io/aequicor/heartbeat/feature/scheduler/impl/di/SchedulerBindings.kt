@@ -21,9 +21,14 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineSpec
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTaskGraphs
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineSpec
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
+import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphDriver
+import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphMachine
+import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
@@ -37,6 +42,14 @@ import kotlin.time.Clock
 @ContributesTo(ProfileScope::class)
 @BindingContainer
 public object SchedulerBindings {
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun taskGraphMachine(
+        launcher: MachineLauncher,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
+        persistence: TaskGraphPersistence,
+    ): TaskGraphMachine = launcher.launch(TaskGraphMachineSpec, scope, persistence)
+
     @Provides
     @SingleIn(ProfileScope::class)
     internal fun persistence(storage: WakeStorage): SchedulerPersistence = SchedulerPersistence(storage)
@@ -83,12 +96,14 @@ internal class SchedulerStartup(
     private val machine: Lazy<SchedulerMachine>,
     private val driver: Lazy<WakeDriver>,
     private val actions: Lazy<BackgroundActions>,
+    private val graphs: Lazy<TaskGraphDriver>,
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
 ) : ProfileStartup {
     override fun start() {
         val scheduler = machine.value
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
+        graphs.value.start()
         // Background actions (and the engine runtime behind them) are built only when the scheduler is on.
         scope.coroutineScope.launch {
             toggles.observe(SchedulerEnabled).first { it }
@@ -110,4 +125,9 @@ public object SchedulerToggleBindings {
     @Provides
     @IntoSet
     public fun schedulerActions(): FeatureToggle<*> = SchedulerActions
+
+    /** Graph execution is separately gated while the existing scheduler remains compatible. */
+    @Provides
+    @IntoSet
+    public fun schedulerTaskGraphs(): FeatureToggle<*> = SchedulerTaskGraphs
 }
