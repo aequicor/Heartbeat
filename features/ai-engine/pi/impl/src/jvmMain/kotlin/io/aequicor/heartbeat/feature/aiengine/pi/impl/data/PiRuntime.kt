@@ -18,10 +18,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -52,16 +54,16 @@ internal data class PiRuntimeServices(
 
 internal class PiRuntime(
     private val credentials: PiRuntimeCredentials,
-    private val environment: PiSessionEnvironment,
+    internal val environment: PiSessionEnvironment,
     private val services: PiRuntimeServices,
 ) : EngineRuntime,
     PiSessions {
     private val log = Log.tag("PiRuntime")
     override val identity get() = credentials.identity
     private val source get() = credentials.source
-    private val credential get() = credentials.fingerprint
+    internal val credential get() = credentials.fingerprint
     private val profile get() = environment.profile
-    private val dispatchers get() = environment.dispatchers
+    internal val dispatchers get() = environment.dispatchers
     private val settings get() = services.settings
     private val processes get() = services.processes
     private val workspaces get() = services.workspaces
@@ -71,10 +73,19 @@ internal class PiRuntime(
     // Reserved before transcript lookup and process startup; only accessed under mutex.
     private val attaching = mutableSetOf<SessionRef>()
 
+    private val ownedTurns = PiOwnedTurns(this, processes, sessions, attaching, mutex)
+
     @Volatile override var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
-        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to services.nativeWeb))
+        PiFeatures(
+            listOf(
+                CreatesSessions to this,
+                AttachesSessions to this,
+                NativeWebFetch to services.nativeWeb,
+                StopsOwnedTurns to ownedTurns,
+            ),
+        )
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {
@@ -85,6 +96,18 @@ internal class PiRuntime(
         }
         if (settings.source(identity.source) != source || processes.credentialFingerprint(source) != credential) {
             authenticationFailure(AuthFailureReason.SourceChanged, identity.source)
+        }
+    }
+
+    internal fun ensureOpen() {
+        if (isClosed || profile.isClosed) piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
+    }
+
+    internal suspend fun validateStop(access: OwnedTurnAccess) {
+        validate()
+        val configuration = settings.snapshot()
+        if (configuration.bindings[access.target.binding.value] != source) {
+            authenticationFailure(AuthFailureReason.AuthMismatch, identity.source)
         }
     }
 
@@ -109,7 +132,7 @@ internal class PiRuntime(
         mutex.withLock {
             validate()
             validateTarget(request.target, settings.snapshot())
-            if (isServed(ref) || !attaching.add(ref)) busy()
+            if (isServed(ref) || ownedTurns.isReserved(ref.nativeId) || !attaching.add(ref)) busy()
         }
         try {
             val file = processes.transcript(ref.nativeId)
@@ -192,10 +215,12 @@ internal class PiRuntime(
         }
     }
 
-    override suspend fun close() = mutex.withLock {
-        isClosed = true
-        sessions.toList().forEach { it.shutdown() }
-        sessions.clear()
+    override suspend fun close() {
+        val closing = mutex.withLock {
+            isClosed = true
+            sessions.toList().also { sessions.clear() }
+        }
+        closing.forEach { it.shutdown() }
     }
 }
 
