@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -69,9 +70,13 @@ class ManagedActiveSession(
     model: ModelId,
     private val parts: SessionParts,
     private val policy: SessionPolicy,
+    hookContext: SessionHookContext? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
+    private val hookHandle = hookContext?.let { context ->
+        SessionHookHandle(policy.hooks, context) { policy.finishUnaccepted(ref, it) }
+    }
     private val currentModel = MutableStateFlow(model)
 
     override val state: StateFlow<ActiveSessionState> get() = machine.state
@@ -94,9 +99,11 @@ class ManagedActiveSession(
 
     /** Starts the native bridge and the closing watcher in the handle [scope]. */
     fun start(scope: CoroutineScope, onClosed: () -> Unit) {
+        hookHandle?.start(scope, machine)
         scope.launch { bridge() }
         scope.launch {
             machine.state.first { it == ActiveSessionState.Closed }
+            hookHandle?.closed()
             policy.registry.remove(this@ManagedActiveSession)
             onClosed()
         }
@@ -144,6 +151,7 @@ class ManagedActiveSession(
         val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
         if (result != SendResult.Accepted) {
             answer.cancel()
+            hookHandle?.refused(turn.id)
             fail(result.failure())
         }
         when (val outcome = untilStopped { answer.await() }) {
@@ -195,7 +203,8 @@ class ManagedActiveSession(
                 }
                 val turn = Turn(policy.newTurnId(), request.id, EngineTarget(route.engine, route.binding, model))
                 policy.bindTurn(ref, request.id, turn)
-                submit(request, turn)
+                val prepared = hookHandle?.prepare(request, turn) ?: request
+                submit(prepared, turn)
             }
         }
     }

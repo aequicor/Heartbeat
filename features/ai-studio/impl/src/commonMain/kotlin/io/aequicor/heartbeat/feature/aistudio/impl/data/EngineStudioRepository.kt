@@ -621,13 +621,13 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+                .create(studioCreateRequest(target, workspace))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+                .resume(studioResumeRequest(target, workspace))
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
@@ -922,3 +922,11 @@ internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.AutoEdits -> TrustLevel.AutoEdits
     ApprovalMode.AutoApprove -> TrustLevel.Full
 }
+
+/** Studio presents tool calls and permissions, so its own sessions opt into profile instructions and hooks. */
+private fun studioCreateRequest(target: EngineTarget, workspace: WorkspaceRef?): CreateSessionRequest =
+    CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+
+/** Resuming another segment retains the same Studio ownership contract. */
+private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
+    ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)

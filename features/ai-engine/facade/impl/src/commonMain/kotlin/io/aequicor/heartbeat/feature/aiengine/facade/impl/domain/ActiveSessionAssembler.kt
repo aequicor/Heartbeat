@@ -10,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionOutput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -35,7 +37,12 @@ interface SessionHandleScope {
 /** Opens a facade handle around an attached native handle. */
 fun interface ActiveSessionHost {
     /** A machine-backed handle for [native] on the checked [route]. */
-    suspend fun open(native: ActiveSession, route: ExecutionRoute, model: ModelId): ActiveSession
+    suspend fun open(
+        native: ActiveSession,
+        route: ExecutionRoute,
+        model: ModelId,
+        areSessionHooksEnabled: Boolean,
+    ): ActiveSession
 }
 
 /** Builds handles; native commands run in the profile-owned [commands] scope. */
@@ -46,6 +53,7 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
         route: ExecutionRoute,
         model: ModelId,
         handle: SessionHandleScope,
+        areSessionHooksEnabled: Boolean = false,
     ): ActiveSession {
         val effects = ActiveSessionEffects(native, commands)
         val spec = activeSessionMachineSpec(ActiveSessionMachineKey(handle.id), native.state.value.asInitial())
@@ -60,6 +68,11 @@ class ActiveSessionAssembler(private val policy: SessionPolicy, private val comm
                 checkNotNull(handle.scope.coroutineContext[Job]),
             ),
             policy,
+            hookContext = if (areSessionHooksEnabled) {
+                SessionHookContext(native.ref, route.workspace, null, null, SessionOwner(handle.id))
+            } else {
+                null
+            },
         )
         policy.registry.add(session)
         session.start(handle.scope, handle::close)

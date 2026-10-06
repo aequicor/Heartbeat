@@ -78,6 +78,8 @@ public data class CreateSessionRequest(
     val target: EngineTarget,
     val workspace: WorkspaceRef? = null,
     val areDetachedToolsEnabled: Boolean = false,
+    /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
+    val areSessionHooksEnabled: Boolean = false,
 )
 
 /**
@@ -89,6 +91,8 @@ public data class ResumeSessionRequest(
     val target: EngineTarget,
     val workspace: WorkspaceRef? = null,
     val areDetachedToolsEnabled: Boolean = false,
+    /** Opts this handle's own turns into profile session hooks; service sessions leave this false. */
+    val areSessionHooksEnabled: Boolean = false,
 )
 
 /** Accepted request correlation and multimodal content. RequestId is not a promise of native deduplication. */

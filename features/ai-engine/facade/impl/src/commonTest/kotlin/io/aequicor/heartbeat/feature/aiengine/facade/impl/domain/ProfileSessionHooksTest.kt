@@ -45,7 +45,7 @@ class ProfileSessionHooksTest {
     @Test
     fun `ownership is synchronous and another handle cannot inherit interception`() = runTest {
         val hook = RecordingHook()
-        val dispatcher = dispatcher(hook)
+        val dispatcher = testSessionHooks(hook)
         dispatcher.bindTurn(CONTEXT)
         assertNull(dispatcher.context(SESSION, REQUEST, TURN))
         dispatcher.observe(SessionLifecycle.Opened(CONTEXT))
@@ -60,7 +60,7 @@ class ProfileSessionHooksTest {
     @Test
     fun `observations belong to accepted turns and are deduplicated`() = runTest {
         val hook = RecordingHook()
-        val dispatcher = dispatcher(hook)
+        val dispatcher = testSessionHooks(hook)
         dispatcher.observe(SessionLifecycle.Opened(CONTEXT))
         dispatcher.observe(SessionLifecycle.Opened(CONTEXT))
         dispatcher.bindTurn(CONTEXT)
@@ -82,7 +82,7 @@ class ProfileSessionHooksTest {
 
     @Test
     fun `closing one handle preserves a different owner's turn`() = runTest {
-        val dispatcher = dispatcher(RecordingHook())
+        val dispatcher = testSessionHooks(RecordingHook())
         val other = CONTEXT.copy(owner = SessionOwner("other"))
         dispatcher.observe(SessionLifecycle.Opened(CONTEXT))
         dispatcher.observe(SessionLifecycle.Opened(other))
@@ -109,13 +109,13 @@ class ProfileSessionHooksTest {
                 error("private source text")
             }
         }
-        val dispatcher = dispatcher(deny, failing).opened()
+        val dispatcher = testSessionHooks(deny, failing).opened()
         assertEquals(ToolHookVerdict.Deny("no"), dispatcher.beforeTool(call()))
     }
 
     @Test
     fun `slow hooks share one timeout and force asking`() = runTest {
-        val dispatcher = dispatcher(HangingHook(), HangingHook()).opened()
+        val dispatcher = testSessionHooks(HangingHook(), HangingHook()).opened()
         assertIs<ToolHookVerdict.Ask>(dispatcher.beforeTool(call()))
         assertEquals(1_200, currentTime)
     }
@@ -128,7 +128,7 @@ class ProfileSessionHooksTest {
             override suspend fun afterTool(call: HookedToolCall, result: AgentToolResult): String = error("source")
             override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = error("source")
         }
-        val dispatcher = dispatcher(hook).opened()
+        val dispatcher = testSessionHooks(hook).opened()
         assertNull(dispatcher.beforePrompt(CONTEXT, "private prompt"))
         assertNull(dispatcher.afterTool(call(), AgentToolResult("private result")))
         assertIs<ToolHookVerdict.Ask>(dispatcher.beforeTool(call()))
@@ -137,7 +137,7 @@ class ProfileSessionHooksTest {
     @Test
     fun `tool notes are bounded and disabled hooks are skipped`() = runTest {
         val hook = RecordingHook()
-        val dispatcher = dispatcher(hook).opened()
+        val dispatcher = testSessionHooks(hook).opened()
         assertEquals(2_000, dispatcher.afterTool(call(), AgentToolResult("result"))?.length)
         hook.isIntercepting = false
         assertNull(dispatcher.afterTool(call(), AgentToolResult("result")))
@@ -148,7 +148,7 @@ class ProfileSessionHooksTest {
     @Test
     fun `native callbacks without a facade turn still run hooks for their exact request`() = runTest {
         val hook = RecordingHook()
-        val dispatcher = dispatcher(hook).opened()
+        val dispatcher = testSessionHooks(hook).opened()
         val native = call(CONTEXT.copy(turn = null)).copy(isNative = true)
         assertIs<ToolHookVerdict.Ask>(dispatcher.beforeTool(native))
         assertEquals(1, hook.calls)
@@ -209,7 +209,7 @@ class ProfileSessionHooksTest {
                 isCancelled = true
             }
         }
-        val dispatcher = dispatcher(hook).opened()
+        val dispatcher = testSessionHooks(hook).opened()
         val call = async { dispatcher.beforeTool(call()) }
         runCurrent()
         call.cancel(CancellationException("caller stopped"))
@@ -241,7 +241,7 @@ private class HangingHook : SessionHook {
     override suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = awaitCancellation()
 }
 
-private fun TestScope.dispatcher(vararg hooks: SessionHook): ProfileSessionHooks {
+internal fun TestScope.testSessionHooks(vararg hooks: SessionHook): ProfileSessionHooks {
     val dispatcher = StandardTestDispatcher(testScheduler)
     val provider = object : DispatcherProvider {
         override val io: CoroutineDispatcher = dispatcher
