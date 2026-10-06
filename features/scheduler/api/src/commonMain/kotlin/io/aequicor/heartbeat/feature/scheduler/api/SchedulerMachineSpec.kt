@@ -20,6 +20,8 @@ import kotlin.time.Instant
  * | Ready | Schedule | otherwise | stay | Rejected |
  * | Ready | Cancel | pending, not delivering, same session if given | Ready(−wake) | Persist; Cancelled |
  * | Ready | CancelSession | the session has a pending wake not delivering | Ready(−wakes) | Persist; Cancelled |
+ * | Ready | CancelOwned | matching owner wakes not delivering | Ready(−wakes) | Persist; Cancelled |
+ * | Ready | CancelOwned | none pending for owner | stay | — |
  * | Ready | Observed | ≥1 pending wake matches the event | Ready(delivering+) | Deliver |
  * | Ready | Tick | ≥1 pending deadline ≤ now | Ready(delivering+) | Deliver |
  * | Ready | Deferred | the wake is delivering | Ready(delivering−) | retain wake for replay |
@@ -67,6 +69,20 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                 effect { state.persist(state.wakes - state.cancellable { it.session == intent.session }.toSet()) }
                 output { SchedulerOutput.Cancelled(state.cancellable { it.session == intent.session }.map { it.id }) }
             }
+            on<SchedulerIntent.Public.CancelOwned>(
+                guard = { state.ownedPending(intent.feature).isNotEmpty() },
+            ) {
+                stay { state.changed(state.wakes - state.ownedPending(intent.feature).toSet()) }
+                effect {
+                    state.persist(state.wakes - state.ownedPending(intent.feature).toSet())
+                }
+                output {
+                    SchedulerOutput.Cancelled(state.ownedPending(intent.feature).map { it.id })
+                }
+            }
+            on<SchedulerIntent.Public.CancelOwned>(
+                guard = { state.ownedPending(intent.feature).isEmpty() },
+            )
             on<SchedulerIntent.Internal.Observed>(
                 guard = { state.cancellable { it.matches(intent.event) }.isNotEmpty() },
             ) {
@@ -136,6 +152,9 @@ private fun SchedulerState.Ready.rejection(request: WakeRequest, now: Instant): 
 /** Pending wakes that are not being delivered and satisfy [predicate]. */
 private inline fun SchedulerState.Ready.cancellable(predicate: (ScheduledWake) -> Boolean): List<ScheduledWake> =
     wakes.filter { it.id !in delivering && predicate(it) }
+
+private fun SchedulerState.Ready.ownedPending(feature: String): List<ScheduledWake> =
+    cancellable { it.request.ownerFeature == feature }
 
 private fun ScheduledWake.matchesCancel(cancel: SchedulerIntent.Public.Cancel): Boolean =
     id == cancel.id && (cancel.session == null || cancel.session == session)

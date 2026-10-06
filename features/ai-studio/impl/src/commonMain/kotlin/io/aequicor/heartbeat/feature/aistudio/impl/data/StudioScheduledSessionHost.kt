@@ -70,6 +70,7 @@ internal class StudioScheduledSessionHost(
     private val chats: StudioScheduledChats get() = scheduledChats.value
 
     override val priority: Int = STUDIO_HOST_PRIORITY
+    override val isWakeAdmissionSupported: Boolean = true
 
     override suspend fun owns(session: SessionRef): Boolean = chats.chatOf(session) != null
 

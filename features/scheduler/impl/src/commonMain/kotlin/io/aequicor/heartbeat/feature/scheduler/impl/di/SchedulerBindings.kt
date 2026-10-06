@@ -22,6 +22,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineSpec
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerEffects
@@ -48,7 +49,8 @@ public object SchedulerBindings {
         @ForScope(ProfileScope::class) scope: ScopeHandle,
         persistence: SchedulerPersistence,
         hosts: Lazy<Set<ScheduledSessionHost>>,
-    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(persistence, hosts))
+        owners: Lazy<Set<ScheduledWakeOwner>>,
+    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(persistence, hosts, owners))
 
     @Provides
     internal fun driver(
@@ -66,6 +68,10 @@ public interface SchedulerMultibindings {
     /** Hosts that own sessions and deliver wake prompts through their normal turn lifecycle. */
     @Multibinds(allowEmpty = true)
     public fun scheduledSessionHosts(): Set<ScheduledSessionHost>
+
+    /** Feature-owned admission controllers; resolved lazily only for owned wake delivery. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledWakeOwners(): Set<ScheduledWakeOwner>
 
     /** Platform signal sources. */
     @Multibinds(allowEmpty = true)

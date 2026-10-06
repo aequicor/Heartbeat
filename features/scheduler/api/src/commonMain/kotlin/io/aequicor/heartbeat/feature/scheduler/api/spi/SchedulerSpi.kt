@@ -23,6 +23,8 @@ public data class WakePrompt(
     val isDeduplicationRequired: Boolean = false,
     /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
     val ownerFeature: String? = null,
+    /** Live owner decision for this attempt; hosts must check it again immediately before native submission. */
+    val admission: Flow<ScheduledWakeAdmission>? = null,
 ) {
     override fun toString(): String = "WakePrompt(request=$request)"
 }
@@ -48,12 +50,17 @@ public interface ScheduledSessionHost {
     /** Higher wins among hosts that own a session. */
     public val priority: Int
 
+    /** Whether this host enforces live admission through an atomic pre-submission handoff. */
+    public val isWakeAdmissionSupported: Boolean get() = false
+
     /** Whether this host keeps the transcript of [session]. */
     public suspend fun owns(session: SessionRef): Boolean
 
     /**
      * Submits [prompt] as the next turn of the session of [request], waiting while the session is busy. Returns once
      * the engine accepted the turn; the turn itself belongs to the profile. Throws when the prompt was not accepted.
+     * [WakePrompt.admission] must gate waiting and preparation until the native submission boundary; a Defer or Drop
+     * revokes this attempt permanently. Once submission begins, owner changes cannot cancel profile-owned work.
      */
     public suspend fun wake(request: WakeRequest, prompt: WakePrompt)
 

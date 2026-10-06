@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -159,6 +160,33 @@ class SchedulerMachineTest {
     }
 
     @Test
+    fun `cancel owned removes pending owner wakes across sessions but preserves delivery and other owners`() {
+        val pending = wake("pending").let { it.copy(request = it.request.copy(ownerFeature = "harness")) }
+        val otherSession = wake("other-session", target = other).let {
+            it.copy(request = it.request.copy(ownerFeature = "harness"))
+        }
+        val delivering = wake("delivering").let { it.copy(request = it.request.copy(ownerFeature = "harness")) }
+        val unrelated = wake("unrelated").let { it.copy(request = it.request.copy(ownerFeature = "checklist")) }
+        val agent = wake("agent")
+        val ready = SchedulerState.Ready(
+            listOf(pending, otherSession, delivering, unrelated, agent),
+            setOf(delivering.id),
+        )
+        val remaining = listOf(delivering, unrelated, agent)
+        spec.assertTransition(
+            ready,
+            SchedulerIntent.Public.CancelOwned("harness"),
+            ready.copy(wakes = remaining, revision = 1),
+            effects = listOf(SchedulerEffect.Persist(remaining, 1)),
+            outputs = listOf(SchedulerOutput.Cancelled(listOf(pending.id, otherSession.id))),
+        )
+        spec.assertTransition(ready, SchedulerIntent.Public.CancelOwned("absent"), ready)
+        val onlyDelivering = SchedulerState.Ready(listOf(delivering), setOf(delivering.id))
+        spec.assertTransition(onlyDelivering, SchedulerIntent.Public.CancelOwned("harness"), onlyDelivering)
+        spec.assertIgnored(SchedulerState.Loading, SchedulerIntent.Public.CancelOwned("harness"))
+    }
+
+    @Test
     fun `matching event delivers every waiting session once`() {
         val ready = SchedulerState.Ready(listOf(wake("w1"), wake("w2", target = other)))
         val observed = event(done)
@@ -232,6 +260,14 @@ class SchedulerMachineTest {
             spec.onEffectFailure(SchedulerEffect.Load, IllegalStateException()),
         )
         assertEquals(null, spec.onEffectFailure(SchedulerEffect.Persist(emptyList(), 1), IllegalStateException()))
+    }
+
+    @Test
+    fun `legacy feature origin defaults its label and custom labels round trip`() {
+        val legacy = Json.decodeFromString<WakeOrigin.Feature>("""{"name":"checklist"}""")
+        assertEquals("checklist", legacy.label)
+        val labeled = WakeOrigin.Feature("harness", "Compose harness")
+        assertEquals(labeled, Json.decodeFromString<WakeOrigin.Feature>(Json.encodeToString(labeled)))
     }
 
     @Test

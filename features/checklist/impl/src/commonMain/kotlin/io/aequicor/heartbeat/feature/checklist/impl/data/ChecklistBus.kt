@@ -174,7 +174,7 @@ private fun Checklist.wake() = WakeRequest(
     target = target,
     condition = WakeCondition(setOf(ChecklistEvents.changed(id, ChecklistStatus.Completed))),
     note = "The user completed checklist $id. Read its frozen answers using checklist_get and continue the task.",
-    origin = WakeOrigin.Agent(turn),
+    origin = WakeOrigin.Feature(ChecklistEvents.OWNER, "Checklist"),
     isDeduplicationRequired = true,
     ownerFeature = ChecklistEvents.OWNER,
 )
