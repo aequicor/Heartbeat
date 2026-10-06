@@ -64,7 +64,7 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
      * their saved transcript, and subsequent live events append only newly observed items. If no consumer copy
      * exists, this journal cannot display the incomplete native tail; the native file remains unchanged.
      */
-    fun restore(branch: PiStoredBranch) = synchronized(lock) {
+    fun restore(branch: PiStoredBranch, answers: Map<String, TurnId?> = emptyMap()) = synchronized(lock) {
         check(items.isEmpty()) { "Pi history is already populated" }
         coverage = if (branch.isComplete) HistoryCoverage.Complete else HistoryCoverage.Partial
         if (!branch.isComplete) {
@@ -75,10 +75,15 @@ internal class PiJournal(private val originals: (JsonObject) -> List<ContentPart
         }
         val messages = branch.messages
         val statuses = settled(messages)
+        // A repeated native message cannot identify a unique original turn, even if one copy was observed live.
+        val keys = messages.map(::piAnswerKey)
+        val counts = keys.filterNotNull().groupingBy { it }.eachCount()
         messages.forEachIndexed { index, message ->
-            publish(message(message, info(items.size, null)))
+            val key = keys[index]?.takeIf { counts[it] == 1 }
+            val turn = key?.let(answers::get)
+            publish(message(message, info(items.size, turn)))
             PiMessages.tools(message).forEachIndexed { call, tool ->
-                publish(toolCall(tool, null, statuses[index to call] ?: ToolCallStatus.Cancelled))
+                publish(toolCall(tool, turn, statuses[index to call] ?: ToolCallStatus.Cancelled))
             }
         }
         log.i { "Pi history restored: ${items.size} items, coverage=${coverage.name}" }

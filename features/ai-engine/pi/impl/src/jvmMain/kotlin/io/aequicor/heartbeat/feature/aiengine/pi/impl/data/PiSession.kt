@@ -112,8 +112,9 @@ internal class PiSession(
     private var isEffectStarted = false
     private var turn: Turn? = restored?.active?.turn
     private val isExecutionOwned = restored?.active == null
+    private val answers by lazy { PiAnswerCorrelations(environment.turns, ref, route, ownership) }
     private val turnJournal get() = PiTurnJournal(environment.turns, ref, route, ownership)
-    private val settlements = PiTurnSettlements({ turnJournal }, ::failed)
+    private val settlements = PiTurnSettlements({ turnJournal }, ::failed) { answers.pending(it) }
     private val isAdmissionBlocked get() = isCommandPending || settlements.isPublishing
 
     // Policy for future tool approvals; pending requests keep their original decision. Confined to main.
@@ -213,7 +214,7 @@ internal class PiSession(
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
             stored?.let { promptResources.restore(ref, it) }
-            stored?.let(journal::restore)
+            stored?.let { journal.restore(it, answers.restore()) }
             sessionFile = snapshot.string("sessionFile")
             sessionConfiguration.start(snapshot)
             isStarted = true
@@ -577,6 +578,7 @@ internal class PiSession(
         usage.event(record)
         // Configuration events can arrive before get_state establishes the native identity.
         nativeRef?.let { promptResources.event(it, record) }
+        if (nativeRef != null) answers.record(record, turn?.id)
         journal.record(record, turn?.id)
         when (record.string("type")) {
             "agent_start" -> turn?.let {
