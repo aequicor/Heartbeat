@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -365,14 +366,22 @@ internal class ClaudeSession(
         isResume: Boolean,
         detachedTools: Boolean,
     ): List<String> {
+        val policy = environment.tools.nativeTools(ToolPolicyScope(ref.engine, route.workspace, ref, target))
+        val isSearchEnabled = toggles.get(SearchEngineTools)
+        val flags = claudeToolFlags(
+            policy,
+            isSearchEnabled,
+            subagents = (route.workspace != null || detachedTools) &&
+                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            providerSearch = route.workspace == null,
+        )
         val arguments = claudeArguments(
             target.model,
             ref.nativeId,
             isResume,
-            search = toggles.get(SearchEngineTools),
+            search = flags.allowed.any { it in ClaudeSearchTools.values },
             effort = request.reasoningEffort,
-            subagents = (route.workspace != null || detachedTools) &&
-                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            tools = flags,
         )
         return if (request.parts.any { it !is ContentPart.Text }) {
             arguments + listOf("--input-format", "stream-json")

@@ -426,20 +426,17 @@ class ClaudeProcessTest {
             Files.createTempDirectory("heartbeat-mcp-test"),
         )
         try {
-            val arguments = claudeSearchArguments(claudeArguments(search = true), config)
+            val base = claudeArguments(search = true)
+            val arguments = claudeSearchArguments(base, config, claudeToolFlags(base))
             assertFalse(SEARCH_BRIDGE_MARKER in arguments)
             assertTrue("--strict-mcp-config" in arguments)
             val tools = arguments.single { it.startsWith("--tools=") }.removePrefix("--tools=").split(',')
             val allowed = arguments.single { it.startsWith("--allowedTools=") }.removePrefix("--allowedTools=")
             assertEquals(
-                listOf(
-                    "WebSearch",
-                    "mcp__heartbeat_search__web_search",
-                    "mcp__heartbeat_search__web_fetch",
-                ),
+                listOf("WebSearch"),
                 tools,
             )
-            assertEquals(tools, allowed.split(','))
+            assertEquals(ClaudeSearchTools.values.toList(), allowed.split(','))
             assertEquals(config.toString(), arguments[arguments.indexOf("--mcp-config") + 1])
             val contents = Files.readString(config)
             assertTrue("http://127.0.0.1:4321/mcp" in contents)

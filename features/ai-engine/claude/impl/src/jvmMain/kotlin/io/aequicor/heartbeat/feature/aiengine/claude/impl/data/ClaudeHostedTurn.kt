@@ -60,8 +60,11 @@ internal class ClaudeHostedTurn(
     }
 
     private suspend fun attach(project: WorkspaceRef?): ClaudeHostedTools? {
-        if (environment.tools.specifications(project).isEmpty()) return null
-        val capability = environment.bridge.attach(project) {
+        val scope = AgentToolScope(project, context.target, session = context.ref, isRefreshedPerTurn = true)
+        val specs = environment.tools.specifications(scope)
+        if (specs.isEmpty()) return null
+        val declared = scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name })
+        val capability = environment.bridge.attach(declared) {
             if (isActive()) {
                 observer.acceptHostedCall()
                 callbacks.persist()
@@ -80,7 +83,7 @@ internal class ClaudeHostedTurn(
             }
         }
         attachment = capability
-        val instructions = environment.tools.instructions(AgentToolScope(project, context.target))
+        val instructions = environment.tools.instructions(declared)
         return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
     }
 

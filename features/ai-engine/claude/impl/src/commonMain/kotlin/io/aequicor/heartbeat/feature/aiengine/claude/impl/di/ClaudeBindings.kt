@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
+import io.aequicor.heartbeat.feature.aiengine.claude.impl.data.ClaudeNativeCatalog
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeBackend
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeEngineManager
 import io.aequicor.heartbeat.feature.aiengine.claude.impl.domain.ClaudeManagementSpec
@@ -68,6 +69,7 @@ public object ClaudeBindings {
                     ),
                 ),
                 isLocalWorkspaceSupported = true,
+                nativeTools = ClaudeNativeCatalog,
                 declaredFeatures = setOf(
                     ReportsProviderUsage.id,
                     SessionContextUsage.id,

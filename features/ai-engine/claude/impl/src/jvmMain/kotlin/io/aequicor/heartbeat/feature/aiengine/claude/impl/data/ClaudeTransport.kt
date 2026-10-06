@@ -205,11 +205,10 @@ internal class ProcessClaudeTransport(
                     arguments,
                     checkNotNull(bridgeConfig),
                     checkNotNull(instructionFile),
-                    isSearchEnabled,
-                    isProviderSearchKept = !hosted.isProject,
+                    claudeToolFlags(arguments),
                 )
             } else {
-                bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
+                bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) } ?: arguments
             }
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
@@ -437,36 +436,20 @@ internal data class ClaudeHostedTools(
     override fun toString(): String = "ClaudeHostedTools(***)"
 }
 
-/**
- * Native coding tools remain disabled. CLI approval covers only the host, which applies its own trust gate.
- * [isProviderSearchKept] keeps the provider-side `WebSearch` a session without a project has without hosted
- * tools, so attaching detached tools does not take web search away from a plain chat.
- */
+/** Adds host preapproval without changing the native set selected by the turn policy. */
 internal fun claudeHostedArguments(
     arguments: List<String>,
     config: Path,
     instructions: Path,
-    search: Boolean,
-    isProviderSearchKept: Boolean = false,
-): List<String> {
-    val isProviderSearch = search && isProviderSearchKept
-    val allowed = buildList {
-        addAll(nativeAgentTools(arguments))
-        add("mcp__${HOSTED_TOOLS_SERVER}__*")
-        if (search) add("mcp__heartbeat_search__*")
-        if (isProviderSearch) add(CLAUDE_PROVIDER_SEARCH)
-    }
-    val native = nativeAgentTools(arguments) + listOfNotNull(CLAUDE_PROVIDER_SEARCH.takeIf { isProviderSearch })
-    return withoutToolOptions(arguments) + listOf("--tools=" + native.joinToString(",")) +
-        listOf(
-            "--permission-mode=dontAsk",
-            "--allowedTools=${allowed.joinToString(",")}",
-            "--mcp-config",
-            config.toString(),
-            "--append-system-prompt-file",
-            instructions.toString(),
-        )
-}
+    tools: ClaudeToolFlags,
+): List<String> = withoutToolOptions(arguments) +
+    tools.copy(allowed = tools.allowed + "mcp__${HOSTED_TOOLS_SERVER}__*").arguments() + listOf(
+        "--permission-mode=dontAsk",
+        "--mcp-config",
+        config.toString(),
+        "--append-system-prompt-file",
+        instructions.toString(),
+    )
 
 /** Hosted coding and optional public web search share one strict MCP configuration. */
 internal fun claudeHostedConfig(
@@ -499,13 +482,8 @@ private fun mcpServer(origin: String, token: String) = buildJsonObject {
  * The CLI's own `WebSearch` runs at the provider and stays available next to the bridge tools. Its `WebFetch`
  * would fetch from this device without the bridge's public-host check, so pages are read only through the bridge.
  */
-internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
-    withoutToolOptions(arguments) + listOf(
-        "--tools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
-        "--allowedTools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
-        "--mcp-config",
-        config.toString(),
-    )
+internal fun claudeSearchArguments(arguments: List<String>, config: Path, tools: ClaudeToolFlags): List<String> =
+    withoutToolOptions(arguments) + tools.arguments() + listOf("--mcp-config", config.toString())
 
 internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path): Path {
     val config = buildJsonObject {
@@ -570,14 +548,8 @@ internal fun BufferedReader.readFrame(): String? {
 
 internal const val MAX_FRAME_CHARS = 2 * 1024 * 1024
 
-private const val CLAUDE_PROVIDER_SEARCH = "WebSearch"
-
-private const val CLAUDE_SEARCH_TOOLS =
-    "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"
-
-/** Rebuild one exact allowlist; neither inherited native tools nor duplicate CLI options are admitted. */
-private fun nativeAgentTools(arguments: List<String>): List<String> =
-    if ("--tools=$CLAUDE_AGENT_TOOLS" in arguments) CLAUDE_AGENT_TOOLS.split(',') else emptyList()
-
-private fun withoutToolOptions(arguments: List<String>): List<String> =
-    arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") }
+/** Replace the complete generated tool selection; no earlier native permission list can survive rebuilding. */
+private fun withoutToolOptions(arguments: List<String>): List<String> = arguments.filterNot {
+    it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") ||
+        it.startsWith("--disallowedTools=")
+}
