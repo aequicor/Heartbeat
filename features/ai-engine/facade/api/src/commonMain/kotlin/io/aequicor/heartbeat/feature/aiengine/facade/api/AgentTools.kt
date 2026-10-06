@@ -116,9 +116,18 @@ public interface AgentToolContribution {
 
     /**
      * Instructions for a concrete session; adapters building a system prompt call this form. The default ignores
-     * the target. The workspace-only form remains for transports announcing the server (MCP `initialize`).
+     * the target. Legacy text is omitted when only part of this contribution is declared, since it may instruct
+     * the model to call an unavailable tool. Overrides must honor [AgentToolScope.declared] themselves.
      */
-    public suspend fun instructions(scope: AgentToolScope): String = instructions(scope.workspace)
+    public suspend fun instructions(scope: AgentToolScope): String =
+        if (scope.declared != null && specifications(scope.copy(declared = null)).any {
+                it.name !in scope.declared
+            }
+        ) {
+            ""
+        } else {
+            instructions(scope.workspace)
+        }
 
     /**
      * Requires an explicit user decision beyond the [AgentToolAction] × [TrustLevel] table. It can only add a
@@ -234,6 +243,15 @@ public interface AgentToolBridge {
         workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment
+
+    /**
+     * Creates a capability whose handshake and declarations use this immutable trusted scope. Implementations
+     * with scoped policy support also verify the session identity on each call when [AgentToolScope.session] is set.
+     */
+    public suspend fun attach(
+        scope: AgentToolScope,
+        context: suspend () -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = attach(scope.workspace, context)
 }
 
 /** Mobile/default bridge rejects local process access. */

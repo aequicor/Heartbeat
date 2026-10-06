@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
@@ -68,6 +69,7 @@ class SchedulerAgentToolsTest {
             listOf(SchedulerTools.SLEEP, SchedulerTools.SIGNAL, SchedulerTools.CANCEL, SchedulerTools.LIST),
             fixture().tools.specifications(null).map { it.name },
         )
+        assertEquals("", fixture().tools.instructions(AgentToolScope(null, declared = setOf(SchedulerTools.LIST))))
         val off = fixture(toggles = Toggles(enabled = false))
         assertTrue(off.tools.specifications(null).isEmpty())
         assertEquals("", off.tools.instructions(io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope(null)))

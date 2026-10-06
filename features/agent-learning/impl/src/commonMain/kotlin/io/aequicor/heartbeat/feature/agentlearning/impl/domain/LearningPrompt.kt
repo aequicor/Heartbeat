@@ -26,7 +26,11 @@ private fun LearnedInstruction.appliesTo(target: EngineTarget?): Boolean {
  * The self-learning protocol followed by the learned instructions of the session, newest first within the budget.
  * Model instructions come before general ones, skills are listed by name and description only.
  */
-internal fun learningPrompt(host: HostPlatform, applicable: List<LearnedInstruction>): String {
+internal fun learningPrompt(
+    host: HostPlatform,
+    applicable: List<LearnedInstruction>,
+    declared: Set<String>? = null,
+): String {
     val budget = PromptBudget(LEARNED_PROMPT_BUDGET)
     val sections = listOfNotNull(
         section("Model-specific instructions learned earlier", applicable, InstructionKind.Model, budget) {
@@ -37,7 +41,7 @@ internal fun learningPrompt(host: HostPlatform, applicable: List<LearnedInstruct
         },
         section(
             "Learned skills (call ${LearningTools.LOAD_SKILL} with the name before a matching task)",
-            applicable,
+            applicable.takeIf { declared == null || LearningTools.LOAD_SKILL in declared }.orEmpty(),
             InstructionKind.Skill,
             budget,
         ) { "- ${it.title}" + if (it.description.isBlank()) "" else " — ${it.description}" },
@@ -47,7 +51,8 @@ internal fun learningPrompt(host: HostPlatform, applicable: List<LearnedInstruct
     } else {
         ""
     }
-    return (listOf(protocol(host)) + sections).joinToString("\n\n") + omitted
+    val protocol = protocol(host).takeIf { declared == null || LearningTools.REMEMBER in declared }
+    return (listOfNotNull(protocol) + sections).joinToString("\n\n") + omitted
 }
 
 private fun section(

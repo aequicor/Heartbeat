@@ -97,19 +97,19 @@ internal class DefaultAgentTools(
     )
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
-        declarations(workspace).map { it.second }
+        specifications(AgentToolScope(workspace))
 
-    override suspend fun instructions(workspace: WorkspaceRef?): String = owners(workspace)
-        .map { it.instructions(workspace) }
-        .joined()
+    override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
+        declarations(scope).map { it.second }
 
-    override suspend fun instructions(scope: AgentToolScope): String = owners(scope.workspace)
-        .filter { owner ->
-            val declared = scope.declared ?: return@filter true
-            owner.specifications(scope.workspace).any { it.name in declared }
-        }
-        .map { it.instructions(scope) }
-        .joined()
+    override suspend fun instructions(workspace: WorkspaceRef?): String = instructions(AgentToolScope(workspace))
+
+    override suspend fun instructions(scope: AgentToolScope): String {
+        val declarations = declarations(scope)
+        val allowed = declarations.map { it.second.name }.toSet()
+        val scoped = scope.copy(declared = allowed)
+        return declarations.mapTo(linkedSetOf()) { it.first }.map { it.instructions(scoped) }.joined()
+    }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
         coroutineScope {
@@ -174,7 +174,7 @@ internal class DefaultAgentTools(
         name: String,
         arguments: JsonObject,
     ): AgentToolResult {
-        val declaration = declarations(context.workspace).singleOrNull { it.second.name == name }
+        val declaration = declarations(context.toolScope(), isExecuting = true).singleOrNull { it.second.name == name }
             ?: return AgentToolResult("Tool is unavailable for this session", isError = true)
         val (owner, spec) = declaration
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
@@ -244,7 +244,11 @@ internal class DefaultAgentTools(
         return if (isDecisionRequired && !context.permissions.request(shown)) {
             log.i { "Hosted tool declined name=${spec.name}" }
             AgentToolResult("The user declined this action", isError = true)
-        } else if (declarations(context.workspace).none { it.first === owner && it.second == spec }) {
+        } else if (declarations(
+                context.toolScope(),
+                isExecuting = true,
+            ).none { it.first === owner && it.second == spec }
+        ) {
             AgentToolResult("Tool became unavailable", isError = true)
         } else if (isDecisionRequired && owner.approval(context, spec, arguments) != approval) {
             AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
@@ -253,11 +257,30 @@ internal class DefaultAgentTools(
         }
     }
 
-    private suspend fun declarations(workspace: WorkspaceRef?): List<Pair<AgentToolContribution, AgentToolSpec>> {
-        val result = owners(workspace).flatMap { owner -> owner.specifications(workspace).map { owner to it } }
-        check(result.map { it.second.name }.distinct().size == result.size) { "Duplicate hosted tool name" }
-        return result
+    private suspend fun declarations(
+        scope: AgentToolScope,
+        isExecuting: Boolean = false,
+    ): List<Pair<AgentToolContribution, AgentToolSpec>> {
+        val available = owners(scope.workspace).flatMap { owner -> owner.specifications(scope).map { owner to it } }
+        check(available.map { it.second.name }.distinct().size == available.size) { "Duplicate hosted tool name" }
+        val names = catalog().flatMap { it.tools }.map { it.name }.toSet() + available.map { it.second.name }
+        val policy = policies.resolve(
+            ToolPolicyScope(
+                scope.target?.engine ?: scope.session?.engine,
+                scope.workspace,
+                scope.session,
+                scope.target,
+            ),
+            names,
+            isExecuting,
+        ) ?: return emptyList()
+        return available.filter { (_, spec) ->
+            spec.name !in policy.hostedDenied && (scope.declared?.contains(spec.name) != false)
+        }
     }
+
+    private fun AgentToolContext.toolScope(): AgentToolScope =
+        AgentToolScope(workspace, target, session = session, isRefreshedPerTurn = true)
 
     private fun owners(workspace: WorkspaceRef?): List<AgentToolContribution> =
         contributions.filter { workspace != null || it.isDetachedSupported }

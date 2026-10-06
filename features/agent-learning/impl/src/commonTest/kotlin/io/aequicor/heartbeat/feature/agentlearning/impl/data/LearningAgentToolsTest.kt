@@ -282,6 +282,18 @@ class LearningAgentToolsTest {
         for (excluded in listOf("Disabled rule", "Chat rule", "Codex quirk", "Opus quirk", "Content of Release")) {
             assertFalse(excluded in text, excluded)
         }
+        val withoutSkills = tools(machine).instructions(
+            AgentToolScope(PROJECT, TARGET, declared = setOf(LearningTools.REMEMBER)),
+        )
+        assertFalse("Release" in withoutSkills)
+        assertFalse(LearningTools.LOAD_SKILL in withoutSkills)
+        assertTrue("Project rule" in withoutSkills)
+        val withoutRemember = tools(machine).instructions(
+            AgentToolScope(PROJECT, TARGET, declared = setOf(LearningTools.LOAD_SKILL)),
+        )
+        assertFalse(LearningTools.REMEMBER in withoutRemember)
+        assertTrue("Release — When releasing" in withoutRemember)
+        assertTrue("Project rule" in withoutRemember)
         val chat = tools(machine).instructions(AgentToolScope(null, TARGET))
         assertTrue("Chat rule" in chat)
         assertFalse("Project rule" in chat)
