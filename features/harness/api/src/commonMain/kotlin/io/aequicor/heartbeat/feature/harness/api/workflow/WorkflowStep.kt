@@ -31,7 +31,7 @@ public data class WorkflowStep(
     val attempt: Int = 0,
     val turn: TurnId? = null,
     val phase: StepPhase = StepPhase.Prepared,
-    val result: JsonElement? = null,
+    @Serializable(with = WorkflowStepResultSerializer::class) val result: JsonElement? = null,
     val failure: WorkflowFailure? = null,
 ) {
     init {
