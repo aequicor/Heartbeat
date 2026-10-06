@@ -242,13 +242,16 @@ private suspend fun CodexRuntime.refreshOnChanges(intervalMillis: Long, refresh:
         }
         try {
             while (true) {
+                val isFinalRefresh = isClosed
                 val isPollingRequired = refresh()
-                // A closed runtime has no future notifications; let callers reacquire a live reader.
-                if (isClosed) break
-                if (isPollingRequired) {
-                    withTimeoutOrNull(intervalMillis) { changes.receive() }
-                } else {
-                    changes.receive()
+                // A final refresh must start after closure, even if an earlier RPC reply succeeded.
+                if (isFinalRefresh) break
+                if (!isClosed) {
+                    if (isPollingRequired) {
+                        withTimeoutOrNull(intervalMillis) { changes.receive() }
+                    } else {
+                        changes.receive()
+                    }
                 }
             }
         } finally {

@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.yield
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
@@ -216,6 +217,27 @@ class CodexSessionObservationTest {
             runCurrent()
             assertEquals(requests, fixture.requestCount)
         }
+    }
+
+    @Test
+    fun `shutdown after the last RPC reply invalidates the final tree snapshot`() = runTest {
+        val fixture = ObservationFixture(Fixture(this))
+        val delegate = fixture.fixture.wire.handler
+        fixture.fixture.wire.handler = { message ->
+            delegate(message)
+            if (message.text("method") == "thread/turns/list") {
+                // Deliver a successful reply before closing, while request() is still inside write().
+                yield()
+                fixture.fixture.runtime.close()
+            }
+        }
+        val snapshots = mutableListOf<SessionTreeSnapshot>()
+        val observation = backgroundScope.launch { fixture.observe().collect { snapshots += it } }
+        runCurrent()
+        assertTrue(observation.isCompleted)
+        assertEquals(SessionTreeCoverage.Unavailable, snapshots.last().coverage)
+        assertEquals(SessionActivity.Unknown, snapshots.last().nodes.single().activity)
+        assertEquals(0, fixture.fixture.runtime.treeChanges.subscriptionCount.value)
     }
 
     @Test
