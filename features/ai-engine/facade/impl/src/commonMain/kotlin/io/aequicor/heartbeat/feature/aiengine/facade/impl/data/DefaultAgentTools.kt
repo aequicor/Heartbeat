@@ -124,6 +124,15 @@ internal class DefaultAgentTools(
     override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         withInvocation(context, NativeVerdict.Deny("Native turn has ended")) { nativeGate.authorize(it, call) }
 
+    override suspend fun authorizeHosted(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): NativeVerdict = withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
+        val result = executeAuthorized(it, name, arguments, isAdapterOperated = true)
+        if (result.isError) NativeVerdict.Deny(result.text) else NativeVerdict.Allow
+    }
+
     private suspend fun <T> withInvocation(
         context: AgentToolContext,
         ended: T,
@@ -189,8 +198,10 @@ internal class DefaultAgentTools(
         context: AgentToolContext,
         name: String,
         arguments: JsonObject,
+        isAdapterOperated: Boolean = false,
     ): AgentToolResult {
-        val declaration = declarations(context.toolScope(), isExecuting = true).singleOrNull { it.second.name == name }
+        val declaration = declarations(context.toolScope(), isExecuting = true, isAdapterOperated = isAdapterOperated)
+            .singleOrNull { it.second.name == name }
             ?: return AgentToolResult("Tool is unavailable for this session", isError = true)
         val (owner, spec) = declaration
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
@@ -209,6 +220,10 @@ internal class DefaultAgentTools(
             val refusal = authorizationRefusal(context, owner, spec, arguments, approval, verdict)
             if (refusal != null) {
                 refusal
+            } else if (isAdapterOperated) {
+                currentCoroutineContext().ensureActive()
+                // The adapter performs the operation only after this authorization returns successfully.
+                AgentToolResult("")
             } else {
                 currentCoroutineContext().ensureActive()
                 val result = owner.execute(context.copy(authorization = approval), name, arguments)
@@ -263,6 +278,7 @@ internal class DefaultAgentTools(
         } else if (declarations(
                 context.toolScope(),
                 isExecuting = true,
+                isAdapterOperated = owner.isAdapterOperated,
             ).none { it.first === owner && it.second == spec }
         ) {
             AgentToolResult("Tool became unavailable", isError = true)
@@ -276,8 +292,10 @@ internal class DefaultAgentTools(
     private suspend fun declarations(
         scope: AgentToolScope,
         isExecuting: Boolean = false,
+        isAdapterOperated: Boolean = false,
     ): List<Pair<AgentToolContribution, AgentToolSpec>> {
-        val available = owners(scope.workspace).flatMap { owner -> owner.specifications(scope).map { owner to it } }
+        val available = owners(scope.workspace).filter { it.isAdapterOperated == isAdapterOperated }
+            .flatMap { owner -> owner.specifications(scope).map { owner to it } }
         check(available.map { it.second.name }.distinct().size == available.size) { "Duplicate hosted tool name" }
         val names = catalog().flatMap { it.tools }.map { it.name }.toSet() + available.map { it.second.name }
         val policy = policies.resolve(

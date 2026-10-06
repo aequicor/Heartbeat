@@ -88,6 +88,14 @@ public data class AgentToolResult(val text: String, val isError: Boolean = false
  * A session without a project (workspace null) consults only contributions with [isDetachedSupported].
  */
 public interface AgentToolContribution {
+    /**
+     * Adapter-operated host tools publish policy metadata here but execute through their existing transport.
+     * They are excluded from generic hosted declarations and execute; adapters must call
+     * [ProfileAgentTools.authorizeHosted] immediately before using their own transport. This flag is trusted
+     * contribution metadata, never selected by model arguments. Search is an adapter-operated host tool.
+     */
+    public val isAdapterOperated: Boolean get() = false
+
     /** Stable settings group key, independent of feature availability. */
     public val group: String get() = "other"
 
@@ -202,6 +210,15 @@ public interface ProfileAgentTools {
      */
     public suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         NativeVerdict.Deny("Native authorization is unavailable")
+
+    /**
+     * Authorizes a declared [AgentToolContribution.isAdapterOperated] tool, without executing it. Applies the
+     * contribution's availability, action, approval, hooks and hosted Off policy under the turn barrier; ordinary
+     * hosted tools cannot use this route. Original [arguments] reach the hook and the approval unchanged.
+     * The adapter must preserve the captured turn lifetime through its subsequent transport operation.
+     */
+    public suspend fun authorizeHosted(context: AgentToolContext, name: String, arguments: JsonObject): NativeVerdict =
+        NativeVerdict.Deny("Adapter tool authorization is unavailable")
 
     /**
      * Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources.
