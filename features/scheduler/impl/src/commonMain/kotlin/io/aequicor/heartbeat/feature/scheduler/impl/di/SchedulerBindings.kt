@@ -30,7 +30,6 @@ import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -85,7 +84,6 @@ public interface SchedulerMultibindings {
 @ContributesIntoSet(ProfileScope::class)
 @Inject
 internal class SchedulerStartup(
-    private val toggles: FeatureToggles,
     private val machine: Lazy<SchedulerMachine>,
     private val driver: Lazy<WakeDriver>,
     private val actions: Lazy<BackgroundActions>,
@@ -95,11 +93,8 @@ internal class SchedulerStartup(
         val scheduler = machine.value
         scope.coroutineScope.launch { scheduler.send(SchedulerIntent.Internal.Start) }
         driver.value.start(scope.coroutineScope)
-        // Background actions (and the engine runtime behind them) are built only when the scheduler is on.
-        scope.coroutineScope.launch {
-            toggles.observe(SchedulerEnabled).first { it }
-            actions.value.start()
-        }
+        // Cleanup and quota recovery are required even while wake delivery is disabled.
+        scope.coroutineScope.launch { actions.value.start() }
     }
 }
 

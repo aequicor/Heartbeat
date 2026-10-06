@@ -36,8 +36,32 @@ internal typealias BackgroundCapacityMachine =
 internal class ProfileBackgroundCapacity(
     private val machine: BackgroundCapacityMachine,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val journal: ActionJournal,
 ) {
     private val lock = Mutex()
+    private var isRestored = false
+
+    /** One barrier shared by every acquisition: existing native work is counted before any new admission. */
+    suspend fun restore() = lock.withLock {
+        if (isRestored) return@withLock
+        val reservations = journal.readAll().filter {
+            it.kind == "agent" && it.payload == null && (it.helper != null || it.parent == null || it.request == null)
+        }.map { record ->
+            BackgroundReservation(
+                record.id,
+                record.id,
+                record.parent,
+                if (record.parent == null) BackgroundCapacityKind.Helper else BackgroundCapacityKind.Scheduled,
+            )
+        }
+        // Commit and remember the barrier together; caller cancellation must not replay already released records.
+        withContext(NonCancellable) {
+            check(machine.send(BackgroundCapacityIntent.Internal.Restore(reservations)) == SendResult.Accepted) {
+                "Background capacity recovery unavailable"
+            }
+            isRestored = true
+        }
+    }
 
     /** The legacy scheduler path refuses immediately, retaining its per-session limit. */
     suspend fun tryAcquireScheduled(id: ActionId, parent: SessionRef): BackgroundCapacityRejection? = acquire(
@@ -57,6 +81,7 @@ internal class ProfileBackgroundCapacity(
     }
 
     private suspend fun acquire(request: BackgroundReservation): BackgroundCapacityRejection? {
+        restore()
         var isSubmitted = false
         var isHandedOff = false
         try {

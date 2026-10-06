@@ -88,7 +88,7 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `every start asks the user, and helpers start no helpers`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         val tools = tools(fixture)
         val spec = tools.specifications(PROJECT).single()
         val full = inProject.copy(trust = io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel.Full)
@@ -165,7 +165,7 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `failed journal write rolls back the helper wake and reserved slot`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         val tools = tools(fixture)
         val helper = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "task", Arguments.WAKE_NOTE to "review")
         fixture.journal.beforeAdd = { error("storage unavailable") }

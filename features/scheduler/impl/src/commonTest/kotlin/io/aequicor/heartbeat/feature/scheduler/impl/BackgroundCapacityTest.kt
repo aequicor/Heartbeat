@@ -4,10 +4,13 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityIntent
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundCapacityMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -46,7 +49,7 @@ class BackgroundCapacityTest {
     @Test
     fun `cancelling a queued helper removes only its reservation`() = runTest {
         val machine = CapacitySpecMachine()
-        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope))
+        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope), MemoryJournal())
         repeat(4) { capacity.acquireHelper(ActionId("h$it"), ActionId("run"), null) }
         val waiting = async { capacity.acquireHelper(ActionId("waiting"), ActionId("run"), null) }
         runCurrent()
@@ -61,7 +64,7 @@ class BackgroundCapacityTest {
     @Test
     fun `cancellation racing a grant returns the newly admitted capacity`() = runTest {
         val machine = CapacitySpecMachine()
-        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope))
+        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope), MemoryJournal())
         repeat(4) { capacity.acquireHelper(ActionId("h$it"), ActionId("run"), null) }
         val waiting = async { capacity.acquireHelper(ActionId("waiting"), ActionId("run"), null) }
         runCurrent()
@@ -82,7 +85,7 @@ class BackgroundCapacityTest {
                 }
             }
         }
-        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope))
+        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope), MemoryJournal())
         assertFailsWith<CancellationException> {
             capacity.acquireHelper(ActionId("helper"), ActionId("run"), null)
         }
@@ -95,7 +98,7 @@ class BackgroundCapacityTest {
         val profile = object : ScopeHandle by TestScopeHandle(backgroundScope) {
             override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { action() }
         }
-        val capacity = ProfileBackgroundCapacity(machine, profile)
+        val capacity = ProfileBackgroundCapacity(machine, profile, MemoryJournal())
         assertFailsWith<CancellationException> {
             capacity.acquireHelper(ActionId("helper"), ActionId("run"), null)
         }
@@ -112,7 +115,7 @@ class BackgroundCapacityTest {
                 return DisposableHandle { closing -= action }
             }
         }
-        val capacity = ProfileBackgroundCapacity(machine, profile)
+        val capacity = ProfileBackgroundCapacity(machine, profile, MemoryJournal())
         repeat(4) { capacity.acquireHelper(ActionId("h$it"), ActionId("run"), null) }
         val waiting = async { capacity.acquireHelper(ActionId("waiting"), ActionId("run"), null) }
         runCurrent()
@@ -127,7 +130,7 @@ class BackgroundCapacityTest {
     @Test
     fun `a duplicate acquisition cannot release the original reservation`() = runTest {
         val machine = CapacitySpecMachine()
-        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope))
+        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope), MemoryJournal())
         capacity.acquireHelper(ActionId("helper"), ActionId("run"), null)
         assertFailsWith<IllegalStateException> {
             capacity.acquireHelper(ActionId("helper"), ActionId("other"), null)
@@ -136,5 +139,41 @@ class BackgroundCapacityTest {
             listOf(ActionId("helper")),
             (machine.state.value as BackgroundCapacityState.Ready).active.map { it.id },
         )
+    }
+
+    @Test
+    fun `concurrent first acquisitions await one durable restore and never resurrect released records`() = runTest {
+        val persisted = (1..7).map { ActionRecord(ActionId("old$it"), "agent", START) }
+        val gate = CompletableDeferred<Unit>()
+        var reads = 0
+        val journal = object : ActionJournal by MemoryJournal(persisted) {
+            override suspend fun readAll(): List<ActionRecord> {
+                reads++
+                gate.await()
+                return persisted
+            }
+        }
+        val machine = CapacitySpecMachine()
+        val capacity = ProfileBackgroundCapacity(machine, TestScopeHandle(backgroundScope), journal)
+        val first = async { capacity.acquireHelper(ActionId("first"), ActionId("run1"), null) }
+        val second = async { capacity.acquireHelper(ActionId("second"), ActionId("run2"), null) }
+        runCurrent()
+        assertFalse(first.isCompleted)
+        assertFalse(second.isCompleted)
+        assertEquals(1, reads)
+        assertEquals(BackgroundCapacityState.Ready(), machine.state.value)
+        gate.complete(Unit)
+        runCurrent()
+        assertTrue(first.isCompleted)
+        assertFalse(second.isCompleted)
+        assertEquals(8, (machine.state.value as BackgroundCapacityState.Ready).active.size)
+        capacity.release(persisted.first().id)
+        second.await()
+        capacity.restore()
+        capacity.restore()
+        assertEquals(1, reads)
+        val active = (machine.state.value as BackgroundCapacityState.Ready).active
+        assertEquals(8, active.size)
+        assertTrue(active.none { it.id == persisted.first().id })
     }
 }

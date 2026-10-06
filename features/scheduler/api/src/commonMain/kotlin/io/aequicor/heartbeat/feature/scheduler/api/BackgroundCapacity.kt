@@ -43,7 +43,7 @@ public data class BackgroundReservation(
     }
 }
 
-/** Ephemeral capacity; process restart begins empty and recovering workflows reacquire their leases. */
+/** Ephemeral capacity; durable scheduled helpers are restored before admission, workflows reacquire their leases. */
 public sealed interface BackgroundCapacityState : MachineState {
     /** Active reservations and helper requests waiting in arrival order. No native work starts while queued. */
     public data class Ready(
@@ -54,6 +54,12 @@ public sealed interface BackgroundCapacityState : MachineState {
 
 /** Capacity commands; release is sent only after native work is settled or confirmed cancelled. */
 public sealed interface BackgroundCapacityIntent : MachineIntent {
+    /** Recovery accounts for work already running; it must never grant permission to start more native work. */
+    public sealed interface Internal : BackgroundCapacityIntent {
+        /** Restores existing work even above current limits. Repeated identical reservations are idempotent. */
+        public data class Restore(val reservations: List<BackgroundReservation>) : Internal
+    }
+
     /** Commands used by the profile admission service. */
     public sealed interface Public : BackgroundCapacityIntent {
         /** Grants, queues helpers, or refuses scheduled actions according to the same atomic bounds. */

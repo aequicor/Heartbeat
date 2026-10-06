@@ -33,13 +33,14 @@ import kotlinx.coroutines.withContext
 /** Profile-owned helper supervision; host metadata is durable, live leases and operation handles are ephemeral. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<HelperAgents>())
+@ContributesBinding(ProfileScope::class, binding = binding<ScheduledHelperLeases>())
 @Inject
 internal class ProfileHelperAgents(
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
     private val capacity: ProfileBackgroundCapacity,
     private val results: ActionResults,
-) : HelperAgents,
+) : ScheduledHelperLeases,
     HelperLeaseRegistry {
     private val lock = Mutex()
     private val recovering = mutableSetOf<HelperId>()
@@ -99,6 +100,31 @@ internal class ProfileHelperAgents(
                 }
             }
         }
+    }
+
+    /** Transfers an already acquired scheduled reservation without consuming a second profile slot. */
+    override suspend fun adoptScheduled(
+        owner: ActionId,
+        parent: SessionRef,
+        existing: HelperId?,
+        expectedRequest: RequestId?,
+    ): ManagedHelperLease? {
+        val restored = existing?.let { resolve(it) }
+        restored?.second?.checkOwner(owner, parent)
+        check(restored?.second?.lastRequest == null || restored.second.lastRequest == expectedRequest) {
+            "Scheduled helper request does not match its journal"
+        }
+        val host = restored?.first ?: hosts.value.sortedByDescending { it.priority }
+            .firstOrNull { it.canHostHelper(parent) } ?: return null
+        val lease = ManagedHelperLease(
+            HelperLeaseIdentity(owner, owner, parent, existing, restored?.second?.lastRequest),
+            host,
+            this,
+            profile,
+            capacity,
+        )
+        if (existing != null) bind(existing, lease)
+        return lease
     }
 
     override suspend fun create(

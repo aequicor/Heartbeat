@@ -357,6 +357,7 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
     var beforeMetadata: suspend () -> Unit = {}
     var beforeCreate: suspend () -> Unit = {}
     var beforePrompt: suspend () -> Unit = {}
+    var beforeResult: suspend () -> Unit = {}
     var cancellation: suspend (RequestId) -> HelperCancellation = {
         HelperCancellation.Terminal(HelperResult(it, HelperOutcome.Cancelled, ""))
     }
@@ -382,7 +383,10 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
         return HelperSubmission.Accepted(prompt.request, OTHER)
     }
 
-    override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? = results[request]
+    override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? {
+        beforeResult()
+        return results[request]
+    }
 
     override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation {
         cancellations += request

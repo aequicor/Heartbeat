@@ -58,6 +58,8 @@ internal class ActionResults(
         }
     }
 
+    suspend fun isOwned(id: ActionId): Boolean = lock.withLock { id in active }
+
     /** Registers a scheduler-owned operation before its native work starts. */
     suspend fun begin(record: ActionRecord) = lock.withLock {
         check(active.add(record.id)) { "Action already running" }
@@ -105,7 +107,8 @@ internal class ActionResults(
         machine.state.first { it is SchedulerState.Ready }
         lock.withLock {
             journal.readAll().forEach { stored ->
-                if (stored.payload == null && stored.id in active) return@forEach
+                // A missing helper result is not proof that native work ended; its lease owner reconciles it.
+                if (stored.payload == null && (stored.id in active || stored.kind == "agent")) return@forEach
                 val record = if (stored.payload != null) {
                     stored
                 } else {
