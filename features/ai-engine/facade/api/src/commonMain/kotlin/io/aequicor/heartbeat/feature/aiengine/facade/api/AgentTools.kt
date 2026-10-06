@@ -115,6 +115,18 @@ public interface AgentToolContribution {
         arguments: JsonObject,
     ): Boolean = false
 
+    /**
+     * A previously granted, durable authorization covering this exact operation, or null. Implementations must
+     * verify the trusted session owner and immutable approved work; model arguments never confer permission.
+     * Only an exact match with [approval], including a nonblank host-owned binding, covers the trust gate.
+     * This does not change session trust or authorize different commands. The handler revalidates the binding.
+     */
+    public suspend fun existingAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolApproval? = null
+
     /** Presentation for the one trust gate. */
     public fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =
         AgentToolApproval(spec.name, spec.description)

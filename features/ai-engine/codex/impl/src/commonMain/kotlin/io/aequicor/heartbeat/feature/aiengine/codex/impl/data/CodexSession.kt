@@ -87,6 +87,8 @@ internal class CodexSession(
         },
     )
 
+    val recovery = CodexTurnRecovery(ref, machine, nativeTurns, ::readNativeHistory, ::outcome) { nativeTurn = it }
+
     private val leases = mutableSetOf<CodexLease>()
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {

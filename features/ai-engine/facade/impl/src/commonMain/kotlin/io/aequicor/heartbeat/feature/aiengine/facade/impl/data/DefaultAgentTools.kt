@@ -186,13 +186,15 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
             AgentToolAction.Command -> context.trust != TrustLevel.Full
         }
         // The owner may add a decision (its own approval policy); it can never remove one the table demands.
-        val isDecisionRequired = isRequiredByTrust || owner.requiresDecision(context, spec, arguments)
+        val existing = owner.existingAuthorization(context, spec, arguments)
+        val isCovered = !existing?.binding.isNullOrBlank() && existing == approval
+        val isDecisionRequired = !isCovered && (isRequiredByTrust || owner.requiresDecision(context, spec, arguments))
         return if (isDecisionRequired && !context.permissions.request(approval)) {
             log.i { "Hosted tool declined name=${spec.name}" }
             AgentToolResult("The user declined this action", isError = true)
         } else if (declarations(context.workspace).none { it.first === owner && it.second == spec }) {
             AgentToolResult("Tool became unavailable", isError = true)
-        } else if (isDecisionRequired && owner.approval(context, spec, arguments) != approval) {
+        } else if ((isDecisionRequired || isCovered) && owner.approval(context, spec, arguments) != approval) {
             AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
         } else {
             null

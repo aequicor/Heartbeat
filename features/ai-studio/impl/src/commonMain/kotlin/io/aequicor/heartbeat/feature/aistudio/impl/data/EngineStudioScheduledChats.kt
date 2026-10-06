@@ -17,6 +17,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
+import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 
@@ -35,9 +37,19 @@ internal class EngineStudioScheduledChats(
     private val host: StudioRunHost,
     private val inbox: StudioWakeInbox,
     private val toggles: FeatureToggles,
+    private val graphExecutions: StudioGraphExecutions,
 ) : StudioScheduledChats {
     private val log = Log.tag("EngineStudioScheduledChats")
     private val store by lazy { stores.keyValue(ChatSpec) }
+
+    override suspend fun runGraphTask(
+        chatId: String,
+        request: SpawnRequest,
+        previousExecution: String?,
+        admission: kotlinx.coroutines.flow.Flow<Boolean>,
+    ): GraphTaskResult = graphExecutions.run(chatId, request, previousExecution, admission)
+
+    override suspend fun stopGraphTask(chatId: String): Boolean = graphExecutions.stop(chatId)
 
     override suspend fun chatOf(session: SessionRef): StudioScheduledChat? {
         log.v { "find the chat of a session" }

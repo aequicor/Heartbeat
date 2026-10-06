@@ -163,6 +163,15 @@ internal class PiSession(
     override val ref: SessionRef get() = requireNotNull(nativeRef)
     override val state = machine.state
     override val contextUsage: SessionContextUsage get() = usage
+    val turnRecovery = PiTurnRecovery({ ref }, { turn ?: (state.value as? ActiveSessionState.Ready)?.lastTurn }) {
+        withContext(dispatchers.main) {
+            mutex.withLock {
+                validate()
+                ensureOpen()
+                withContext(NonCancellable) { connected() }.command("get_state")
+            }
+        }
+    }
     override val features: EngineFeatures = piSessionFeatures(this, journal) { promptResources.support }
 
     /** Native session of this handle once started; null before [start] succeeds. */

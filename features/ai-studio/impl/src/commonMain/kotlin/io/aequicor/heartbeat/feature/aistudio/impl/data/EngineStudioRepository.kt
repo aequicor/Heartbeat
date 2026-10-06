@@ -141,6 +141,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @Inject
 internal class EngineStudioRepository(

@@ -33,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
@@ -40,6 +41,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
@@ -76,6 +78,57 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
+    @Test
+    fun `recreated ready handle submits recovery only after fresh idle inspection`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        f.active.state.value = ActiveSessionState.Ready()
+        f.active.inspection = TurnInspection.Idle
+        f.host.beforeSubmit = { f.active.state.value = ActiveSessionState.Ready(f.turn) }
+        f.tools.release.complete(Unit)
+        f.executor.execute(f.host, f.request.copy(recoveryRequests = listOf(RequestId("old"))))
+        assertEquals(1, f.active.inspections)
+        assertTrue(f.host.submitted != null)
+    }
+
+    @Test
+    fun `unowned native activity cannot trigger a recovery submission`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        f.active.state.value = ActiveSessionState.Ready()
+        f.active.inspection = TurnInspection.Unknown
+        var outcome: TurnOutcome? = null
+        f.executor.execute(
+            f.host,
+            f.request.copy(
+                recoveryRequests = listOf(RequestId("old")),
+                onOutcome = { outcome = it },
+            ),
+        )
+        assertNull(f.host.submitted)
+        assertEquals(TurnOutcome.Unknown, outcome)
+    }
+
+    @Test
+    fun `persisted native receipt recovers completion without submitting another turn`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        f.active.state.value = ActiveSessionState.Ready()
+        f.active.inspection = TurnInspection.Observed(RequestId("old"), TurnOutcome.Completed)
+        var outcome: TurnOutcome? = null
+        f.executor.execute(
+            f.host,
+            f.request.copy(
+                recoveryRequests = listOf(RequestId("old")),
+                recoveryCheckpoint = "native receipt",
+                onOutcome = { outcome = it },
+            ),
+        )
+        assertNull(f.host.submitted)
+        assertEquals("native receipt", f.active.inspectedCheckpoint)
+        assertEquals(TurnOutcome.Completed, outcome)
+    }
+
     @Test
     fun `cancelling scheduled preparation rejects prepared worktree ownership without sending a prompt`() = runTest {
         val fixture = TurnFixture()
@@ -563,6 +616,17 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
     override val state = MutableStateFlow<ActiveSessionState>(ActiveSessionState.Ready(turn))
     var submittedRequest: PromptRequest? = null
     var sendFailure: EngineException? = null
+    var inspection: TurnInspection? = null
+    var inspections = 0
+    var inspectedCheckpoint: String? = null
+    private val inspector = object : RestoresSessionTurns {
+        override suspend fun checkpoint(request: RequestId): String? = null
+        override suspend fun inspect(checkpoint: String?): TurnInspection {
+            inspections++
+            inspectedCheckpoint = checkpoint
+            return checkNotNull(inspection)
+        }
+    }
     var reconciliations = 0
     var reconcile: suspend () -> Unit = {}
     private val prompts = object : SendsPrompts {
@@ -587,9 +651,13 @@ private class ExecutorSession(private val turn: Turn) : ActiveSession {
         override fun watch(after: HistoryCheckpoint) = emptyFlow<SessionEvent>()
     }
     override val features = object : EngineFeatures {
-        override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-            listOf(history, prompts, reconciler).firstNotNullOfOrNull { key.type.safeCast(it) }
-                ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
+        override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> = listOfNotNull(
+            history,
+            prompts,
+            reconciler,
+            inspector.takeIf { inspection != null },
+        ).firstNotNullOfOrNull { key.type.safeCast(it) }
+            ?.let { FeatureAccess.Available(it) } ?: FeatureAccess.Unsupported
     }
     override suspend fun close() = Unit
 }
