@@ -46,6 +46,13 @@ public sealed interface SchedulerIntent : MachineIntent {
 
         /** Cancels every pending wake of [session] (its chat was deleted or it no longer wants to sleep). */
         public data class CancelSession(val session: SessionRef) : Public
+
+        /**
+         * Cancels pending wakes belonging to [feature]. Delivering wakes are settled by their live owner admission:
+         * this command never claims to revoke an already submitted native turn. Accepted as a no-op when none match;
+         * ignored while Loading, so callers must wait for Ready before sending it.
+         */
+        public data class CancelOwned(val feature: String) : Public
     }
 
     /** Effect results, bus events and timer ticks. */

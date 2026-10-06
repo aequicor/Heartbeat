@@ -61,9 +61,9 @@ public sealed interface WakeOrigin {
     @Serializable
     public data class Agent(val turn: TurnId) : WakeOrigin
 
-    /** Another feature, by its [name]. */
+    /** Another feature, by its stable [name] and human-readable [label]; old records use the name as label. */
     @Serializable
-    public data class Feature(val name: String) : WakeOrigin
+    public data class Feature(val name: String, val label: String = name) : WakeOrigin
 }
 
 /**
@@ -143,6 +143,12 @@ public enum class WakeFailure {
 
     /** The session stayed busy longer than [SchedulerLimits.DELIVERY_TIMEOUT]. */
     Busy,
+
+    /** Owner is missing, ambiguous or failed to supply a current admission decision. */
+    OwnerUnavailable,
+
+    /** The owning feature revoked this wake before native submission. */
+    OwnerRejected,
 
     /** An unexpected error; details are in the log. */
     Unknown,

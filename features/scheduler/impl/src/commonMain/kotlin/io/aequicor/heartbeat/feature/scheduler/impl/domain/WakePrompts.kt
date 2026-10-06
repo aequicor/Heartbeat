@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 
@@ -20,8 +21,18 @@ internal fun wakePrompt(delivery: WakeDelivery): WakePrompt {
         is WakeReason.Deadline -> "$VISIBLE_DEADLINE ${reason.at}"
     }
     val directive = buildString {
-        append("Scheduler wake ${wake.id}: you put this session to sleep with ${SchedulerTools.SLEEP}")
-        appendLine(" at ${wake.createdAt}.")
+        when (val origin = wake.request.origin) {
+            is WakeOrigin.Agent -> {
+                append("Scheduler wake ${wake.id}: you put this session to sleep with ${SchedulerTools.SLEEP}")
+                appendLine(" at ${wake.createdAt}.")
+            }
+
+            is WakeOrigin.Feature -> {
+                appendLine(
+                    "Scheduler wake ${wake.id}: ${origin.label} scheduled this continuation at ${wake.createdAt}.",
+                )
+            }
+        }
         when (reason) {
             is WakeReason.Event -> {
                 val event = reason.event
@@ -37,8 +48,14 @@ internal fun wakePrompt(delivery: WakeDelivery): WakePrompt {
 
             is WakeReason.Deadline -> appendLine("Woken because the deadline ${reason.at} passed.")
         }
-        if (wake.request.note.isNotBlank()) appendLine("Your note for this moment:").appendLine(wake.request.note)
-        append("Continue the task from here. Verify the current status of the awaited work; your note is not ")
+        if (wake.request.note.isNotBlank()) {
+            val title = when (wake.request.origin) {
+                is WakeOrigin.Agent -> "Your note for this moment:"
+                is WakeOrigin.Feature -> "Feature context for this continuation:"
+            }
+            appendLine(title).appendLine(wake.request.note)
+        }
+        append("Continue the task from here. Verify the current status of the awaited work; the note alone is not ")
         append("evidence that it is still running. If it has finished, process the result and continue or give ")
         append("the final report. Use build_status for run_build. Sleep again only for a verified pending event ")
         append("with a known producer or an explicitly requested delay.")

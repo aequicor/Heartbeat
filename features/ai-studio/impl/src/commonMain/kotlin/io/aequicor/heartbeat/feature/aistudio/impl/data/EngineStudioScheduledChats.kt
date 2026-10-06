@@ -5,7 +5,6 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -15,8 +14,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
-import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
-import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 
@@ -34,7 +31,6 @@ internal class EngineStudioScheduledChats(
     private val runs: StudioRunCoordinator,
     private val host: StudioRunHost,
     private val inbox: StudioWakeInbox,
-    private val toggles: FeatureToggles,
 ) : StudioScheduledChats {
     private val log = Log.tag("EngineStudioScheduledChats")
     private val store by lazy { stores.keyValue(ChatSpec) }
@@ -105,13 +101,7 @@ internal class EngineStudioScheduledChats(
             onCancelledBeforeSubmission = {
                 if (prompt.isDeduplicationRequired) inbox.cancelledBeforeSubmission(prompt.request)
             },
-            isExecutionEnabled = if (prompt.ownerFeature == ChecklistEvents.OWNER) {
-                toggles.observe(
-                    ChecklistEnabled,
-                )
-            } else {
-                null
-            },
+            admission = prompt.admission,
         )
     }
 }

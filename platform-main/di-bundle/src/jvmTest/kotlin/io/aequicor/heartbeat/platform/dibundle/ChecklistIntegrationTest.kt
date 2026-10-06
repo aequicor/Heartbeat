@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistAnswer
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistEnabled
+import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistIntent
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistMachineKey
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistState
@@ -23,6 +24,12 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.RunStartedEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
+import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
+import io.aequicor.heartbeat.feature.scheduler.api.WakeId
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filterIsInstance
@@ -61,6 +68,28 @@ class ChecklistIntegrationTest {
         app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `checklist contributes exactly one wake owner that follows its toggle without starting a chat`() = runTest {
+        val profile = app.profileSessions.open(ProfileId("checklist-owner"))
+        val access = profile.graph as TestChecklistAccessors
+        val owner = access.wakeOwners.single { it.feature == ChecklistEvents.OWNER }
+        val request = WakeRequest(
+            WakeId("owner-check"),
+            session,
+            null,
+            WakeCondition(setOf(ChecklistEvents.Synchronize)),
+            "",
+            WakeOrigin.Feature(ChecklistEvents.OWNER),
+            ownerFeature = ChecklistEvents.OWNER,
+        )
+        assertEquals(ScheduledWakeAdmission.Defer, owner.admission(request).first())
+        toggles.toggleControl.setOverride(ChecklistEnabled, true)
+        assertEquals(ScheduledWakeAdmission.Allow, owner.admission(request).first())
+        toggles.toggleControl.setOverride(ChecklistEnabled, false)
+        assertEquals(ScheduledWakeAdmission.Defer, owner.admission(request).first())
+        app.profileSessions.close()
     }
 
     @Test
@@ -114,4 +143,5 @@ interface TestChecklistAccessors {
     val tools: ProfileAgentTools
     val machines: MachineRegistry
     val bus: SchedulerBus
+    val wakeOwners: Set<ScheduledWakeOwner>
 }
