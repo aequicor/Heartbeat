@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import kotlinx.serialization.json.JsonNull
@@ -20,20 +21,32 @@ internal val CodexDisabledCapabilities: List<String> = listOf(
  * Supplied on start and resume only when hosted declarations exist; the dispatcher remains the authority for
  * the current turn's trust level, so these thread-wide instructions never cache an approval decision.
  */
-internal fun codexHostedInstructions(workflow: String): String = """
+internal fun codexHostedInstructions(workflow: String, actions: Set<AgentToolAction>): String {
+    val capabilities = when {
+        AgentToolAction.Edit in actions && AgentToolAction.Command in actions ->
+            "hosted tools can edit workspace files and run commands within their declared scope."
+
+        AgentToolAction.Edit in actions -> "hosted tools can edit workspace files within their declared scope."
+
+        AgentToolAction.Command in actions -> "hosted tools can run commands within their declared scope."
+
+        else -> "the currently available hosted tools provide read access within their declared scope."
+    }
+    return """
     Heartbeat hosted tools and permissions:
     The read-only sandbox applies only to Codex's built-in tools. Native network restrictions and
     approvalPolicy=never also apply only to native execution. Heartbeat's declared hosted tools are a separate,
-    authorized execution path: hosted tools can edit workspace files and run commands within their declared scope.
-    Use the available hosted tools for project changes, Git operations, builds, and other actions they support.
+    authorized execution path: $capabilities
+    Use only the available hosted tools and the actions their declarations support.
     Heartbeat applies the user's current approval mode to each hosted call: Ask requests confirmation for
     mutations; AutoEdits automatically approves file edits; Full automatically approves edits and commands.
     Call the appropriate hosted tool directly for the user's task; Heartbeat asks for confirmation when required.
     Do not treat the native read-only sandbox as evidence that hosted edits are forbidden or request a new
     writable session solely because of it. Report an access limitation if the hosted tool actually returns one.
     Respect hosted tool refusals and scope limits; do not bypass them through native tools or sandbox changes.
-    """.trimIndent().let { permissions ->
-    listOf(permissions, workflow).filter(String::isNotBlank).joinToString("\n\n")
+        """.trimIndent().let { permissions ->
+        listOf(permissions, workflow).filter(String::isNotBlank).joinToString("\n\n")
+    }
 }
 
 /**

@@ -48,7 +48,7 @@ class CodexDetachedToolsTest {
     @Test
     fun `chat thread opens without detached tools when a contribution fails`() = runTest {
         val failingSpecifications = object : ProfileAgentTools by ScopedTools(listOf("remember")) {
-            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
                 error("Contribution failed")
         }
         val failingInstructions = object : ProfileAgentTools by ScopedTools(listOf("remember")) {

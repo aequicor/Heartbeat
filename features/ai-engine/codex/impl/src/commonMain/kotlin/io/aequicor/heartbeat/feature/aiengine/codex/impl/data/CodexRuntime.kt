@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
@@ -25,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRuntime
@@ -335,9 +337,11 @@ internal class CodexRuntime(
         workspace: WorkspaceRef?,
         isEligible: Boolean,
     ): HostedOpening {
-        val manifest = if (isEligible) hostedManifest(workspace) else null
+        val scope = AgentToolScope(workspace, target, session = nativeId?.let(::sessionRef))
+        val specs = if (isEligible) host.tools.specifications(scope) else emptyList()
+        val manifest = hostedManifest(workspace, specs)
         val hosted = validateHostedResume(nativeId, workspace, manifest)
-        val parameters = hosted.takeIf { isEligible }?.let { hostedParameters(workspace, target, it) }
+        val parameters = hosted.takeIf { isEligible }?.let { hostedParameters(scope, specs, it) }
         return HostedOpening(manifest, parameters, isServed = isEligible && hosted != null)
     }
 
@@ -398,8 +402,7 @@ internal class CodexRuntime(
     }
 
     /** Resume restores native declarations; changing them silently would advertise tools Codex cannot call. */
-    private suspend fun hostedManifest(workspace: WorkspaceRef?): String? {
-        val tools = host.tools.specifications(workspace)
+    private fun hostedManifest(workspace: WorkspaceRef?, tools: List<AgentToolSpec>): String? {
         if (tools.isEmpty()) return null
         return buildJsonObject {
             put("version", MANIFEST_VERSION)
@@ -437,7 +440,15 @@ internal class CodexRuntime(
             host.workspaces.resolve(it) ?: config.workspaces[it]
                 ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
         }
-        val declarations = hosted?.first.orEmpty() + if (tools.isSearchEnabled) searchToolSpecs() else emptyList()
+        val policy = host.tools.nativeTools(
+            ToolPolicyScope(identity.engine, workspace, nativeId?.let(::sessionRef), target),
+        )
+        val search = if (tools.isSearchEnabled) {
+            searchToolSpecs().filter { (it as JsonObject).text("name") !in policy.hostedDenied }
+        } else {
+            emptyList()
+        }
+        val declarations = hosted?.first.orEmpty() + search
         val instructions = hosted?.second.orEmpty()
         val isolation = codexIsolationConfig(
             rpc,
@@ -455,7 +466,9 @@ internal class CodexRuntime(
             put("sandbox", SANDBOX_MODE)
             if (path != null) put("cwd", path)
             if (nativeId == null && declarations.isNotEmpty()) put("dynamicTools", JsonArray(declarations))
-            if (instructions.isNotBlank()) put("developerInstructions", instructions)
+            if ((nativeId != null && hosted != null) || instructions.isNotBlank()) {
+                put("developerInstructions", instructions)
+            }
             put("config", isolation)
             if (nativeId != null) put("threadId", nativeId)
         }
@@ -466,11 +479,14 @@ internal class CodexRuntime(
      * describes project edits, so a session without a project gets only the contributions' own instructions.
      */
     private suspend fun hostedParameters(
-        workspace: WorkspaceRef?,
-        target: EngineTarget,
+        scope: AgentToolScope,
+        specs: List<AgentToolSpec>,
         thread: HostedThread,
     ): Pair<List<JsonObject>, String> {
-        val declarations = host.tools.specifications(workspace).map { spec ->
+        val frozen = (thread as? HostedThread.Resumed)?.tools
+        val allowed = specs.filter { frozen == null || it.name in frozen }
+        val declared = allowed.map { it.name }.toSet()
+        val declarations = allowed.map { spec ->
             buildJsonObject {
                 put("type", "function")
                 put("name", spec.name)
@@ -478,12 +494,16 @@ internal class CodexRuntime(
                 put("inputSchema", spec.inputSchema)
             }
         }
-        val declared = (thread as? HostedThread.Resumed)?.tools
-        val instructions = host.tools.instructions(AgentToolScope(workspace, target, declared))
-        val hasTools = declared?.isNotEmpty() ?: declarations.isNotEmpty()
-        val text = if (hasTools && workspace != null) codexHostedInstructions(instructions) else instructions
+        val instructions = host.tools.instructions(scope.copy(declared = declared))
+        val text = if (allowed.isNotEmpty() && scope.workspace != null) {
+            codexHostedInstructions(instructions, allowed.map { it.action }.toSet())
+        } else {
+            instructions
+        }
         return declarations to text
     }
+
+    private fun sessionRef(nativeId: String): SessionRef = SessionRef(identity.engine, config.historySource, nativeId)
 
     private suspend fun event(message: JsonObject) {
         if (message.isTreeChange()) treeChanges.tryEmit(Unit)
