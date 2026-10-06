@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
@@ -51,12 +52,14 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         wire.write(json("method" to "initialized".json()))
     }
 
+    /** Shared by user operations and background polling; per-request diagnostics belong to trace. */
+    @HighFrequency
     suspend fun request(method: String, params: JsonObject = JsonObject(emptyMap())): JsonObject {
         failure?.let { throw it }
         val id = (++nextId).toString()
         val result = CompletableDeferred<JsonObject>()
         pending[id] = result
-        log.d { "Codex request method=$method" }
+        log.v { "Codex request method=$method" }
         try {
             wire.write(json("id" to id.json(), "method" to method.json(), "params" to params))
             return withTimeoutOrNull(REQUEST_TIMEOUT) { result.await() }
