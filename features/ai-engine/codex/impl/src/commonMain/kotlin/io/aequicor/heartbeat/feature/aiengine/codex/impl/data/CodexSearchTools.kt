@@ -1,9 +1,15 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -55,8 +61,8 @@ private fun toolSpec(
     )
 }
 
-internal suspend fun executeSearchTool(search: SearchEngine, tool: String, arguments: JsonElement): JsonObject {
-    val args = arguments as? JsonObject ?: return toolFailure("InvalidInput")
+internal suspend fun executeSearchTool(search: SearchEngine, tool: String, arguments: JsonElement): AgentToolResult {
+    val args = arguments as? JsonObject ?: return AgentToolResult("InvalidInput", isError = true)
     return try {
         val output = when (tool) {
             "web_search" -> {
@@ -84,17 +90,17 @@ internal suspend fun executeSearchTool(search: SearchEngine, tool: String, argum
                 }
             }
 
-            else -> return toolFailure("InvalidInput")
+            else -> return AgentToolResult("InvalidInput", isError = true)
         }
-        toolResult(true, output.toString())
+        AgentToolResult(output.toString())
     } catch (e: CancellationException) {
         throw e
     } catch (e: SearchException) {
         searchLog.w(e) { "Search tool failed" }
-        toolFailure(e.failure.name)
+        AgentToolResult(e.failure.name, isError = true)
     } catch (e: Exception) {
         searchLog.w(e) { "Search tool failed" }
-        toolFailure("Unavailable")
+        AgentToolResult("Unavailable", isError = true)
     }
 }
 
@@ -119,4 +125,57 @@ internal fun toolResult(success: Boolean, text: String): JsonObject = buildJsonO
             ),
         ),
     )
+}
+
+/** Adapter-operated search passes the same policy, hook and permission gate as other hosted tools. */
+internal suspend fun executeHostedSearch(
+    search: SearchEngine,
+    tools: ProfileAgentTools,
+    context: AgentToolContext,
+    name: String,
+    arguments: JsonElement,
+): JsonObject {
+    val args = arguments as? JsonObject ?: return toolFailureResult("InvalidInput")
+    return try {
+        when (val verdict = tools.authorizeHosted(context, name, args)) {
+            is NativeVerdict.Deny -> toolResult(false, verdict.reason)
+
+            NativeVerdict.Allow -> {
+                currentCoroutineContext().ensureActive()
+                val result = executeSearchTool(search, name, args)
+                val note = searchResultNote(tools, context, name, args, result)
+                currentCoroutineContext().ensureActive()
+                val text = listOfNotNull(note?.take(MAX_TOOL_NOTE)?.takeIf(String::isNotBlank), result.text)
+                    .joinToString("\n\n")
+                toolResult(!result.isError, text)
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        searchLog.w(IllegalStateException("Hosted search failed (${e::class.simpleName.orEmpty()})")) {
+            "Codex hosted search unavailable"
+        }
+        toolFailureResult("Unavailable")
+    }
+}
+
+private const val MAX_TOOL_NOTE = 2_000
+
+/** A context-only hook failure cannot erase the provider result, but cancellation still revokes delivery. */
+private suspend fun searchResultNote(
+    tools: ProfileAgentTools,
+    context: AgentToolContext,
+    name: String,
+    arguments: JsonObject,
+    result: AgentToolResult,
+): String? = try {
+    tools.afterHosted(context, name, arguments, result)
+} catch (e: CancellationException) {
+    throw e
+} catch (e: Exception) {
+    searchLog.w(IllegalStateException("Search result hook failed (${e::class.simpleName.orEmpty()})")) {
+        "Codex search result context unavailable"
+    }
+    null
 }

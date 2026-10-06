@@ -112,7 +112,7 @@ internal class Fixture(
     searchTools: Boolean = true,
     configuration: CodexLocalConfiguration = CodexLocalConfiguration(),
     tools: io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools =
-        io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools,
+        AllowedSearchTools,
     manifests: CodexToolManifests = MemoryCodexToolManifests(),
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
@@ -288,3 +288,14 @@ internal class FakeLauncher : MachineLauncher {
 internal fun <T : EngineFeature> ActiveSession.feature(key: EngineFeatureKey<T>): T =
     (features.resolve(key) as FeatureAccess.Available).feature
 internal val Prompt = PromptRequest(RequestId("prompt"), listOf(ContentPart.Text("hello")))
+
+/** Explicit search authorization for transport fixtures; production NoAgentTools continues to deny. */
+internal object AllowedSearchTools : io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools by
+io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools {
+    override suspend fun authorizeHosted(
+        context: io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+    ): io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict =
+        io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict.Allow
+}
