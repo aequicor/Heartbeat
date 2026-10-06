@@ -48,12 +48,12 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
     }
 
     /**
-     * A prompt of an organism chat is its organism's goal: conceives the organism of [chat] on the chat's model,
-     * project and trust and reports it accepted; the chat never gets a native session of its own. Null for an
-     * ordinary chat. The goal's [attachments] are retained by the organism for its cells. Fails when organic AI is
-     * off or asleep, or when the organism already lives: it takes no further prompts.
+     * Conceives the organism of [chat] from its first message, or submits a follow-up to its completed zygote.
+     * The chat never gets a native session of its own. Null for an ordinary chat. The machine owns acceptance;
+     * rejected messages keep the caller's draft. Each turn retains its own [attachments] through recovery.
+     * Fails when organic AI is off/asleep, the organism is busy/aborted, or input is invalid.
      */
-    suspend fun conceive(
+    suspend fun submit(
         chat: StudioChatRecord,
         goal: String,
         settings: RunSettings,
@@ -63,7 +63,13 @@ internal class StudioOrganisms(private val machines: MachineRegistry, private va
         if (chat.organismId == null) return null
         val machine = living()
         val organisms = (machine.state.value as? OrganicAiState.Living)?.organisms.orEmpty()
-        check(OrganismId(chat.id) !in organisms) { "The organism already lives and takes no further prompts" }
+        if (OrganismId(chat.id) in organisms) {
+            val result = machine.send(OrganicAiIntent.Public.FollowUp(OrganismId(chat.id), goal, attachments))
+            log.i { "organism ${chat.id} follow-up for a studio chat: $result" }
+            check(result == SendResult.Accepted) { "The organism cannot accept a follow-up now" }
+            onAccepted()
+            return RunOutcome.Completed
+        }
         val chosen = chat.configuration?.modelId ?: chat.target?.studioModelId() ?: settings.modelId
         val conception = Conception(
             OrganismId(chat.id),

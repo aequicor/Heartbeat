@@ -205,7 +205,8 @@ internal fun AiStudioScreenState.rejectSubmission(id: String, sessionId: String 
 
 internal fun AiStudioScreenState.attachmentSupport(paneId: Int): InputSupportUi? {
     val sessionId = panes.firstOrNull { it.id == paneId }?.sessionId
-    val modelId = configurations[sessionId]?.modelId ?: session(sessionId)?.modelId ?: settings.modelId
+    val modelId = organisms[sessionId]?.modelId ?: configurations[sessionId]?.modelId
+        ?: session(sessionId)?.modelId ?: settings.modelId
     return models.firstOrNull { it.id == modelId }?.inputSupport
 }
 

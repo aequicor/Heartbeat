@@ -80,6 +80,7 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.api.OrganismId
+import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
@@ -122,7 +123,7 @@ class StudioOrganismsTest {
         val machine = OrganicMachine(OrganicAiState.Living())
         var accepted = 0
         val organisms = StudioOrganisms(Registry(machine), selections)
-        val outcome = organisms.conceive(chat, "Build it", settings, emptyList()) { accepted++ }
+        val outcome = organisms.submit(chat, "Build it", settings, emptyList()) { accepted++ }
         assertEquals(RunOutcome.Completed, outcome)
         assertEquals(1, accepted)
         val expected = Conception(
@@ -139,9 +140,9 @@ class StudioOrganismsTest {
     fun `an ordinary chat is not an organism and an organism retains its goal inputs`() = runTest {
         val machine = OrganicMachine(OrganicAiState.Living())
         val organisms = StudioOrganisms(Registry(machine), selections)
-        assertNull(organisms.conceive(chat.copy(organismId = null), "Hi", settings, emptyList()) {})
+        assertNull(organisms.submit(chat.copy(organismId = null), "Hi", settings, emptyList()) {})
         val files = listOf(ResourceRef("attachment:image", "image/png"))
-        assertEquals(RunOutcome.Completed, organisms.conceive(chat, "", settings, files) {})
+        assertEquals(RunOutcome.Completed, organisms.submit(chat, "", settings, files) {})
         val conception = (machine.sent.single() as OrganicAiIntent.Public.Conceive).conception
         assertEquals(files, conception.attachments)
         assertEquals("", conception.goal)
@@ -162,22 +163,45 @@ class StudioOrganismsTest {
     }
 
     @Test
-    fun `a living organism takes no further prompts`() = runTest {
+    fun `a rejected follow-up never acknowledges or conceives another organism`() = runTest {
         val machine = OrganicMachine(OrganicAiState.Living(mapOf(OrganismId("chat-1") to organism("chat-1"))))
+            .apply { result = SendResult.Ignored }
         val organisms = StudioOrganisms(Registry(machine), selections)
-        assertFailsWith<IllegalStateException> { organisms.conceive(chat, "More", settings, emptyList()) {} }
-        assertEquals(emptyList(), machine.sent)
+        var accepted = false
+        assertFailsWith<IllegalStateException> {
+            organisms.submit(chat, "More", settings, emptyList()) { accepted = true }
+        }
+        assertEquals(false, accepted)
+        assertEquals(
+            listOf<OrganicAiIntent.Public>(OrganicAiIntent.Public.FollowUp(OrganismId(chat.id), "More")),
+            machine.sent,
+        )
+    }
+
+    @Test
+    fun `a completed organism takes a message and inputs in the existing chat`() = runTest {
+        val completed = organism(chat.id).copy(status = OrganismStatus.Completed("done"))
+        val machine = OrganicMachine(OrganicAiState.Living(mapOf(completed.id to completed)))
+        val organisms = StudioOrganisms(Registry(machine), selections)
+        val inputs = listOf(ResourceRef("attachment:next", "image/png"))
+        var accepted = 0
+        assertEquals(RunOutcome.Completed, organisms.submit(chat, "More", settings, inputs) { accepted++ })
+        assertEquals(1, accepted)
+        assertEquals(
+            listOf<OrganicAiIntent.Public>(OrganicAiIntent.Public.FollowUp(completed.id, "More", inputs)),
+            machine.sent,
+        )
     }
 
     @Test
     fun `conception fails while organic AI is off, broken or refuses`() = runTest {
         val organisms = { machine: OrganicMachine? -> StudioOrganisms(Registry(machine), selections) }
-        assertFailsWith<IllegalStateException> { organisms(null).conceive(chat, "Build", settings, emptyList()) {} }
+        assertFailsWith<IllegalStateException> { organisms(null).submit(chat, "Build", settings, emptyList()) {} }
         assertFailsWith<IllegalStateException> {
-            organisms(OrganicMachine(OrganicAiState.Broken)).conceive(chat, "Build", settings, emptyList()) {}
+            organisms(OrganicMachine(OrganicAiState.Broken)).submit(chat, "Build", settings, emptyList()) {}
         }
         val refusing = OrganicMachine(OrganicAiState.Living()).apply { result = SendResult.Ignored }
-        assertFailsWith<IllegalStateException> { organisms(refusing).conceive(chat, "Build", settings, emptyList()) {} }
+        assertFailsWith<IllegalStateException> { organisms(refusing).submit(chat, "Build", settings, emptyList()) {} }
     }
 
     @Test

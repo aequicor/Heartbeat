@@ -229,7 +229,6 @@
     <string name="organism_dispute">Immunity %1$s · dispute</string>
     <string name="organism_abort">Stop the organism</string>
     <string name="organism_resume">Continue</string>
-    <string name="organism_completed_hint">The organism has finished. Continue if work remains; the goal and conversation history will be preserved.</string>
     <string name="organism_permission_attention">Your answer is needed</string>
     <string name="organism_permission">%1$s asks for permission: %2$s</string>
     <string name="organism_state_germinating">starting</string>

@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonSize
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
+import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenu
 import io.aequicor.heartbeat.ds.components.HbMenuItem
@@ -47,7 +48,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.activeDesc
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_complaint
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_completed_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_dispute
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission
@@ -127,7 +127,19 @@ internal fun OrganismSwitcher(content: PaneContent, onIntent: (AiStudioScreenInt
             isChecked = sub.key == content.subSession,
         )
     } + organism?.let { organismActions(it) }.orEmpty()
-    HbRow(gap = HbTheme.spacing.xs) {
+    HbRow(gap = HbTheme.spacing.xs, verticalAlignment = Alignment.CenterVertically) {
+        if (organism?.status == OrganismStatusUi.Completed) {
+            val completed = stringResource(Res.string.organism_status_completed)
+            HbTooltip(completed) {
+                HbIcon(
+                    HbIcons.Check,
+                    completed,
+                    Modifier.testTag("organism-completed-${content.pane.id}")
+                        .semantics { liveRegion = LiveRegionMode.Polite },
+                    tint = HbTheme.surfaces.success,
+                )
+            }
+        }
         Box {
             HbButton(
                 current?.let { subSessionLabel(it) } ?: stringResource(Res.string.organism_sub_sessions),
@@ -228,21 +240,6 @@ internal fun OrganismNotices(
                 stringResource(organism.status.label()),
                 Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
                     .semantics { liveRegion = LiveRegionMode.Polite },
-            )
-        }
-        if (organism.status == OrganismStatusUi.Completed) {
-            HbText(
-                stringResource(Res.string.organism_completed_hint),
-                Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth).fillMaxWidth()
-                    .padding(HbTheme.spacing.m).testTag("organism-completed-${content.pane.id}")
-                    .semantics { liveRegion = LiveRegionMode.Polite },
-            )
-            HbButton(
-                stringResource(Res.string.organism_resume),
-                { onIntent(AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)) },
-                Modifier.padding(HbTheme.spacing.m).testTag("organism-resume-${content.pane.id}"),
-                style = HbButtonStyle.Secondary,
-                size = HbButtonSize.Small,
             )
         }
         organism.permissions.forEach { request ->

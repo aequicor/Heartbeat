@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 
@@ -64,6 +65,19 @@ public sealed interface OrganicAiIntent : MachineIntent {
         public data class Resume(override val organism: OrganismId) :
             Public,
             OrganismIntent
+
+        /**
+         * Starts a new user turn of a completed zygote in its existing session. The original goal, descendants and
+         * their results stay unchanged. Ignored while developing, after abort, or for empty/oversized input.
+         */
+        public data class FollowUp(
+            override val organism: OrganismId,
+            val text: String,
+            val attachments: List<ResourceRef> = emptyList(),
+        ) : Public,
+            OrganismIntent {
+            override fun toString(): String = "FollowUp(organism=${organism.value}, text=${text.length} chars)"
+        }
 
         /** The user's answer to a permission request a working [cell] is awaiting. */
         public data class Decide(

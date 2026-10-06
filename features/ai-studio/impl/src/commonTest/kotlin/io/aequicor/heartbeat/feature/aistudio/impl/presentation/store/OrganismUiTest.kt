@@ -1,6 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionInput
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -9,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.organicai.api.Breakdown
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.Cell
@@ -94,6 +99,14 @@ class OrganismUiTest {
             ),
             ui.subSessions,
         )
+    }
+
+    @Test
+    fun `the organism exposes its retained route and trust to the composer`() {
+        val target = EngineTarget(EngineId("pi"), EngineBindingId("local"), ModelId("model"))
+        val ui = organism.copy(target = target, trust = TrustLevel.Full).toUi()
+        assertEquals(target.studioModelId(), ui.modelId)
+        assertEquals(ApprovalUi.AutoApprove, ui.approval)
     }
 
     @Test
