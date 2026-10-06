@@ -73,7 +73,7 @@ internal class CodexSession(
     private var isCreatedHere = false
     var isMaterialized = false
     val isMaterializationRequired get() = isCreatedHere && !isMaterialized && nativeTurns.isEmpty()
-    val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null
+    val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null && !hostedJobs.hasPending
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
@@ -84,7 +84,7 @@ internal class CodexSession(
     private val finished = mutableSetOf<TurnId>()
 
     /** Retains revoked hosted work for the explicit stop coordinator to await outside session locks. */
-    val hostedJobs = CodexHostedJobs(scope.coroutineScope)
+    val hostedJobs = CodexHostedJobs(scope.coroutineScope) { runtime.release(this) }
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(
             ActiveSessionMachineKey(Uuid.random().toString()),

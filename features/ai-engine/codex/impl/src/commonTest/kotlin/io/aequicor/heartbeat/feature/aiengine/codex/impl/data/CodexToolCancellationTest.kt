@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
@@ -174,6 +175,41 @@ class CodexToolCancellationTest {
         assertTrue(session.hostedJobs.drain(turn))
         assertEquals(pending.request.id, assertNotNull(resolved).request)
         assertEquals(0, tools.executions)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `last lease retirement waits for hosted cleanup then releases automatically`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        val search = object : SearchEngine {
+            override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+                try {
+                    awaitCancellation()
+                } finally {
+                    withContext(NonCancellable) { cleanup.await() }
+                }
+            }
+            override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("Unused")
+        }
+        val fixture = Fixture(this, search)
+        val lease = fixture.open()
+        lease.feature(SendsPrompts).send(Prompt)
+        val execution = fixture.wire.peers.last()
+        fixture.event(
+            "item/tool/call",
+            "turnId" to "native-turn".json(),
+            "tool" to "web_search".json(),
+            "arguments" to json("query" to "topic".json()),
+            id = TOOL_REQUEST_ID,
+        )
+        runCurrent()
+        lease.close()
+        fixture.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to "completed".json()))
+        runCurrent()
+        assertFalse(execution.isClosed)
+        cleanup.complete(Unit)
+        runCurrent()
+        assertTrue(execution.isClosed)
         fixture.runtime.close()
     }
 

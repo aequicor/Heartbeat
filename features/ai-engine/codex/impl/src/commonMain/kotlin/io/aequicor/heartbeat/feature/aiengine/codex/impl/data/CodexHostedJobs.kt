@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -12,9 +13,16 @@ import kotlinx.coroutines.withTimeoutOrNull
  * but cancelled parents remain reachable until all children actually finish, including non-cancellable cleanup.
  * Ordinary completion and explicit cancellation share this barrier; neither may forget an undrained child.
  */
-internal class CodexHostedJobs(private val scope: CoroutineScope, private val timeoutMillis: Long = DRAIN_TIMEOUT) {
+internal class CodexHostedJobs(
+    private val scope: CoroutineScope,
+    private val timeoutMillis: Long = DRAIN_TIMEOUT,
+    private val onDrained: () -> Unit = {},
+) {
     private val jobs = mutableMapOf<TurnId, CompletableJob>()
     private val closed = mutableSetOf<TurnId>()
+
+    /** Cancelling is still pending: non-cancellable child cleanup must finish before session retirement. */
+    val hasPending: Boolean get() = jobs.values.any { !it.isCompleted }
 
     fun isClosed(turn: TurnId): Boolean = turn in closed
     fun lifetime(turn: TurnId): Job? = jobs[turn]
@@ -22,7 +30,12 @@ internal class CodexHostedJobs(private val scope: CoroutineScope, private val ti
     /** Call only after rechecking that this turn is still current, following every suspending admission check. */
     fun parent(turn: TurnId): Job? {
         jobs.entries.removeAll { it.value.isCompleted }
-        return if (isClosed(turn)) null else jobs.getOrPut(turn) { SupervisorJob(scope.coroutineContext[Job]) }
+        if (isClosed(turn)) return null
+        return jobs[turn] ?: SupervisorJob(scope.coroutineContext[Job]).also { parent ->
+            jobs[turn] = parent
+            // Completion may run on a child's dispatcher; session bookkeeping stays on the injected main scope.
+            parent.invokeOnCompletion { scope.launch { onDrained() } }
+        }
     }
 
     fun revoke(turn: TurnId) {
