@@ -81,6 +81,9 @@ internal class FakeWire private constructor(
         set(value) {
             journal.handler = value
         }
+    var owner: CodexExecutionOwner? = null
+    var captureOwner: suspend () -> CodexExecutionOwner? = { owner }
+    override suspend fun processOwner(): CodexExecutionOwner? = captureOwner()
     var isClosed = false
     override val messages = incoming.receiveAsFlow()
     fun fork(off: CodexNativeOff = CodexNativeOff()): FakeWire = FakeWire(journal, off).also { journal.peers += it }

@@ -28,12 +28,12 @@ internal class CodexTurnJournal(
         }
     }
 
-    suspend fun begin(turn: Turn, trust: TrustLevel) = guarded {
+    suspend fun begin(turn: Turn, trust: TrustLevel, processOwner: CodexExecutionOwner? = null) = guarded {
         checkNotNull(ownership) { "Native store ownership unavailable" }
         records.update(ref) { previous ->
             val before = previous?.also(::validate) ?: CodexTurnSnapshot(ref, route, ownership)
             check(before.active == null && before.last?.turn?.id != turn.id) { "Previous turn is unresolved" }
-            before.copy(active = CodexTurnRecord(turn, null, trust))
+            before.copy(active = CodexTurnRecord(turn, null, trust, processOwner))
         }
     }
 

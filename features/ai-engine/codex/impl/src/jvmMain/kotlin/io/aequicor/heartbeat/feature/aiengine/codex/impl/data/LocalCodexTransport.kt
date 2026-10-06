@@ -224,6 +224,11 @@ internal class ProcessCodexWire(
     private val isClosed = AtomicBoolean(false)
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
     private val writes = Mutex()
+    private val ownership = CodexProcessOwnership(process::toHandle, dispatchers)
+
+    override suspend fun processOwner(): CodexExecutionOwner? =
+        if (isClosed.get()) null else ownership.capture().takeUnless { isClosed.get() }
+
     override val messages = flow {
         try {
             val input = process.inputStream.bufferedReader(Charsets.UTF_8)

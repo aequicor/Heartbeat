@@ -30,6 +30,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -167,9 +169,11 @@ class LocalCodexTransportTest {
             assertEquals("captured", data.text("label"))
             assertEquals(home, data.text("home"))
             assertEquals("first", data.text("executable"))
+            assertNotNull(wire.processOwner())
         } finally {
             wire.close()
         }
+        assertNull(wire.processOwner())
         val arguments = args.readLines()
         assertTrue("model_reasoning_effort=\"low\"" in arguments)
         assertEquals(

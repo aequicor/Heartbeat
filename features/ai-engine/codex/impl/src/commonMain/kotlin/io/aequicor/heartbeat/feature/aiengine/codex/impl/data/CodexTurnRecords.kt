@@ -21,7 +21,13 @@ import okio.ByteString.Companion.encodeUtf8
 
 /** Native correlation is absent until a response or event establishes acceptance of this exact request. */
 @Serializable
-internal data class CodexTurnRecord(val turn: Turn, val nativeId: String?, val trust: TrustLevel) {
+internal data class CodexTurnRecord(
+    val turn: Turn,
+    val nativeId: String?,
+    val trust: TrustLevel,
+    /** Absent on legacy records or when the OS cannot establish exact process identity. */
+    val processOwner: CodexExecutionOwner? = null,
+) {
     init {
         requireNotNull(turn.request)
         require(nativeId == null || nativeId.isNotBlank())
