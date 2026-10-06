@@ -38,6 +38,20 @@ internal interface StudioTurnHost {
     suspend fun failedTurn(id: String, error: Exception): RunOutcome
 }
 
+/** Records exact acceptance and terminal evidence without coupling the executor to helper storage. */
+internal interface StudioTurnObserver {
+    suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) = Unit
+    suspend fun terminalTurn(
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        turn: TurnId,
+        outcome: TurnOutcome,
+        isHistoryCurrent: Boolean,
+    ) = Unit
+}
+
+internal object NoStudioTurnObserver : StudioTurnObserver
+
 /** Host-created identity; native tools never supply an action's kind or operation. */
 internal data class StudioTurnRequest(
     val id: String,
@@ -58,7 +72,11 @@ internal data class StudioTurnRequest(
 
 /** Confirms terminal native state and revokes tools before any worktree action lease is released. */
 @Inject
-internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, private val tools: ProfileAgentTools) {
+internal class StudioTurnExecutor(
+    private val worktrees: StudioWorktrees,
+    private val tools: ProfileAgentTools,
+    private val observer: StudioTurnObserver = NoStudioTurnObserver,
+) {
     private val log = Log.tag("StudioTurnExecutor")
 
     suspend fun execute(host: StudioTurnHost, request: StudioTurnRequest): RunOutcome {
@@ -110,9 +128,10 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
         val observation = launch { host.observeHistory(request.id, history) }
         val permissions = launch { active.state.collect { host.updatePermissions(request.id, it) } }
         try {
-            val turn = host.submitTurn(active, request)
             progress.active = active
+            val turn = host.submitTurn(active, request)
             progress.turn = turn
+            observer.acceptedTurn(request, active, turn)
             notifyAccepted(request)
             if (progress.isIsolated) worktrees.accepted(request.id, request.request, active.ref, turn)
             if (host.shouldStop(request.id)) host.requestStop(request.id, active, turn)
@@ -121,7 +140,10 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             tools.finishTurn(active.ref, turn)
             observation.cancelAndJoin()
             host.refreshHistory(request.id, history)
-            val outcome = terminal.lastCompletedTurn()?.outcome ?: TurnOutcome.Unknown
+            val completed = checkNotNull(terminal.lastCompletedTurn())
+            check(completed.request == request.request) { "Terminal turn belongs to another request" }
+            val outcome = checkNotNull(completed.outcome) { "Terminal outcome is unavailable" }
+            observer.terminalTurn(request, active, turn, outcome, isHistoryCurrent = true)
             worktrees.settled(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn, outcome)
             host.outcome(request.id, outcome)
         } finally {
@@ -154,6 +176,10 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
             if (stopped == null) observeInterrupted(host, request, active, turn, progress.isIsolated)
         }
         tools.finishTurn(active.ref, turn)
+        val terminal = active.state.value.takeIf { it.isTerminalFor(turn) }?.lastCompletedTurn()
+        if (terminal?.request == request.request && terminal.outcome != null) {
+            observer.terminalTurn(request, active, turn, checkNotNull(terminal.outcome), isHistoryCurrent = false)
+        }
         worktrees.failed(request.id.takeIf { progress.isIsolated }, request.request, active.ref, turn)
     }
 
