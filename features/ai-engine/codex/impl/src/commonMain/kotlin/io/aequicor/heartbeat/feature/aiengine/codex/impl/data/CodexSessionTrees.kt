@@ -194,14 +194,15 @@ private class CodexTreeHistory(
     override fun watch(after: HistoryCheckpoint): Flow<SessionEvent> = channelFlow {
         val updates = launch { history.watch(after).collect { send(it) } }
         try {
-            runtime.refreshOnChanges(HISTORY_REFRESH_MILLIS) { refresh().isPollingRequired }
+            runtime.refreshOnChanges(HISTORY_REFRESH_MILLIS) { refresh() }
         } finally {
             updates.cancel()
         }
     }.flowOn(runtime.dispatchers.main)
 
+    /** Returns whether activity or incomplete replay still requires fallback polling. */
     @HighFrequency
-    private suspend fun refresh(): SessionActivity {
+    private suspend fun refresh(): Boolean {
         gate()
         val thread = rpc.request(
             "thread/read",
@@ -213,7 +214,7 @@ private class CodexTreeHistory(
         history.seeded(isComplete = replay.isCanonical)
         // Legacy replay synthesizes item IDs and omits tools. Even Partial replay could replace a richer
         // stored suffix, so only a canonical full snapshot may add items to this private journal.
-        if (!replay.isCanonical) return activity
+        if (!replay.isCanonical) return true
         for (turn in replay.turns) {
             val id = TurnId(turn.text("id") ?: protocolFailure())
             (runtime.host.resourceHistory.parts(ref, id.value) ?: runtime.host.resourceHistory.parts(root, id.value))
@@ -223,7 +224,7 @@ private class CodexTreeHistory(
                 if (!history.matches(native)) history.nativeItem(native, id)
             }
         }
-        return activity
+        return activity.isPollingRequired
     }
 }
 
@@ -241,7 +242,10 @@ private suspend fun CodexRuntime.refreshOnChanges(intervalMillis: Long, refresh:
         }
         try {
             while (true) {
-                if (refresh()) {
+                val isPollingRequired = refresh()
+                // A closed runtime has no future notifications; let callers reacquire a live reader.
+                if (isClosed) break
+                if (isPollingRequired) {
                     withTimeoutOrNull(intervalMillis) { changes.receive() }
                 } else {
                     changes.receive()
@@ -257,7 +261,8 @@ private val SessionActivity.isPollingRequired: Boolean get() = isActive || this 
 
 private fun JsonObject.activity(root: SessionRef, latest: JsonObject?): SessionActivity {
     val state = treeNode(root).activity
-    if (state.isActive || state == SessionActivity.Failed) return state
+    // A saved terminal turn cannot prove that an unloaded thread is still inactive.
+    if (state.isActive || state == SessionActivity.Failed || state == SessionActivity.Unknown) return state
     return when (latest?.text("status")) {
         "completed" -> SessionActivity.Completed
         "interrupted" -> SessionActivity.Cancelled

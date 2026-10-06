@@ -1,13 +1,17 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionActivity
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
@@ -17,6 +21,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -135,6 +140,85 @@ class CodexSessionObservationTest {
     }
 
     @Test
+    fun `partial completed history retries until canonical replay becomes available`() = runTest {
+        val fixture = ObservationFixture(Fixture(this))
+        fixture.isCanonical = false
+        val history = fixture.trees.history(fixture.root, fixture.root, fixture.access)
+        val page = history.page()
+        assertEquals(HistoryCoverage.Partial, page.coverage)
+        val events = mutableListOf<SessionEvent>()
+        val observation = backgroundScope.launch { history.watch(page.checkpoint).collect { events += it } }
+        runCurrent()
+        assertTrue(events.isEmpty())
+
+        fixture.isCanonical = true
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(events.any { it is SessionEvent.ItemUpserted })
+        val requests = fixture.requestCount
+        advanceTimeBy(10_000)
+        runCurrent()
+        assertEquals(requests, fixture.requestCount)
+        observation.cancel()
+    }
+
+    @Test
+    fun `completed replay of an unloaded thread retains tree and history polling`() = runTest {
+        val fixture = ObservationFixture(Fixture(this))
+        fixture.states["root"] = "notLoaded"
+        fixture.turnStates["root"] = "completed"
+        val snapshots = mutableListOf<SessionTreeSnapshot>()
+        val treeObservation = backgroundScope.launch { fixture.observe().collect { snapshots += it } }
+        runCurrent()
+        assertEquals(SessionActivity.Unknown, snapshots.last().nodes.single().activity)
+        val treeRequests = fixture.requestCount
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertTrue(fixture.requestCount > treeRequests)
+        treeObservation.cancel()
+        runCurrent()
+
+        val history = fixture.trees.history(fixture.root, fixture.root, fixture.access)
+        val page = history.page()
+        val events = mutableListOf<SessionEvent>()
+        val historyObservation = backgroundScope.launch { history.watch(page.checkpoint).collect { events += it } }
+        runCurrent()
+        fixture.reply = "updated externally"
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertTrue(events.any { it is SessionEvent.ItemUpserted })
+        historyObservation.cancel()
+    }
+
+    @Test
+    fun `runtime shutdown wakes idle readers and releases their subscriptions`() = runTest {
+        for (transportFailure in listOf(false, true)) {
+            val fixture = ObservationFixture(Fixture(this))
+            val snapshots = mutableListOf<SessionTreeSnapshot>()
+            val treeObservation = backgroundScope.launch { fixture.observe().collect { snapshots += it } }
+            val history = fixture.trees.history(fixture.root, fixture.root, fixture.access)
+            val page = history.page()
+            val historyObservation = backgroundScope.async {
+                assertFailsWith<EngineException> { history.watch(page.checkpoint).collect {} }
+            }
+            runCurrent()
+            assertEquals(SessionTreeCoverage.Complete, snapshots.last().coverage)
+            if (transportFailure) fixture.fixture.wire.incoming.close() else fixture.fixture.runtime.close()
+            runCurrent()
+            assertTrue(historyObservation.isCompleted)
+            historyObservation.await()
+            assertTrue(treeObservation.isCompleted)
+            assertEquals(SessionTreeCoverage.Unavailable, snapshots.last().coverage)
+            assertEquals(SessionActivity.Unknown, snapshots.last().nodes.single().activity)
+            assertEquals(0, fixture.fixture.runtime.treeChanges.subscriptionCount.value)
+            val requests = fixture.requestCount
+            advanceTimeBy(10_000)
+            runCurrent()
+            assertEquals(requests, fixture.requestCount)
+        }
+    }
+
+    @Test
     fun `invalidation during the first snapshot is retained and cancellation stops reads`() = runTest {
         val fixture = ObservationFixture(Fixture(this))
         val delegate = fixture.fixture.wire.handler
@@ -167,6 +251,7 @@ private class ObservationFixture(val fixture: Fixture) {
     val access = SessionTreeAccess(fixture.target)
     val trees = CodexSessionTrees(fixture.runtime, fixture.rpc)
     val states = linkedMapOf("root" to "idle")
+    val turnStates = mutableMapOf<String, String>()
     var isCanonical = true
     var reply = "initial"
     val requestCount get() = fixture.wire.written.size
@@ -198,7 +283,7 @@ private class ObservationFixture(val fixture: Fixture) {
         } else {
             ""
         }
-        val status = when (states[id]) {
+        val status = turnStates[id] ?: when (states[id]) {
             "idle" -> "completed"
             "active" -> "inProgress"
             else -> "unknown"
