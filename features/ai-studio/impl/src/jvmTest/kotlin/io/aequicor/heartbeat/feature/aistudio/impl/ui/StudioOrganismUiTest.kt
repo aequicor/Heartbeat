@@ -14,7 +14,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toAwtImage
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -186,7 +188,8 @@ class StudioOrganismUiTest {
                     }
                 }
             }
-            onNodeWithTag("organism-completed-0").assertIsDisplayed()
+            val completed = onNodeWithTag("organism-completed-0").assertIsDisplayed().fetchSemanticsNode()
+            assertEquals(LiveRegionMode.Polite, completed.config[SemanticsProperties.LiveRegion])
             onNodeWithTag("organism-resume-0").assertIsEnabled().performClick()
             onNodeWithTag("organism-switcher-0").performClick()
             onAllNodesWithText(resume)[1].performClick()

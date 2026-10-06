@@ -234,7 +234,8 @@ internal fun OrganismNotices(
             HbText(
                 stringResource(Res.string.organism_completed_hint),
                 Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth).fillMaxWidth()
-                    .padding(HbTheme.spacing.m).testTag("organism-completed-${content.pane.id}"),
+                    .padding(HbTheme.spacing.m).testTag("organism-completed-${content.pane.id}")
+                    .semantics { liveRegion = LiveRegionMode.Polite },
             )
             HbButton(
                 stringResource(Res.string.organism_resume),
