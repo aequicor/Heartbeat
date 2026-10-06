@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -44,6 +45,8 @@ internal data class PiTurnSnapshot(
     val stopping: PiTurnRecord? = null,
     /** Incomplete descendant discovery cannot be repaired by an empty snapshot after the parent exited. */
     val stopInspection: String? = null,
+    /** Completed native assistant message fingerprints; null is a permanently ambiguous repeated message. */
+    val answerTurns: Map<String, TurnId?> = emptyMap(),
 ) {
     init {
         require(ownership.isNotBlank())

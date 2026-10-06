@@ -40,16 +40,26 @@ internal class PiTurnJournal(
         }
     }
 
-    suspend fun finish(turn: TurnId, outcome: TurnOutcome): PiTurnRecord? = guarded {
-        val known = records.get(ref)?.also(::validate) ?: return@guarded null
-        if (known.active?.turn?.id != turn) return@guarded known.last?.takeIf { it.turn.id == turn }
-        val snapshot = records.update(ref) { previous ->
-            val before = checkNotNull(previous).also(::validate)
-            val active = before.active?.takeIf { it.turn.id == turn } ?: return@update before
-            before.copy(active = null, last = active.copy(turn = active.turn.copy(outcome = outcome)))
+    suspend fun finish(turn: TurnId, outcome: TurnOutcome, answers: Map<String, TurnId?> = emptyMap()): PiTurnRecord? =
+        guarded {
+            val known = records.get(ref)?.also(::validate) ?: return@guarded null
+            if (known.active?.turn?.id != turn) return@guarded known.last?.takeIf { it.turn.id == turn }
+            val snapshot = records.update(ref) { previous ->
+                val before = checkNotNull(previous).also(::validate)
+                val active = before.active?.takeIf { it.turn.id == turn } ?: return@update before
+                check(answers.values.all { it == null || it == turn })
+                val merged = before.answerTurns.toMutableMap()
+                answers.forEach { (key, observed) ->
+                    merged[key] = if (key !in merged || merged[key] == observed) observed else null
+                }
+                before.copy(
+                    active = null,
+                    last = active.copy(turn = active.turn.copy(outcome = outcome)),
+                    answerTurns = merged,
+                )
+            }
+            snapshot.last?.takeIf { it.turn.id == turn }
         }
-        snapshot.last?.takeIf { it.turn.id == turn }
-    }
 
     /** Claims only this active request. No native IO can begin until this fence is durable. */
     suspend fun fenceStop(request: RequestId, turn: TurnId?): PiTurnRecord? = guarded {

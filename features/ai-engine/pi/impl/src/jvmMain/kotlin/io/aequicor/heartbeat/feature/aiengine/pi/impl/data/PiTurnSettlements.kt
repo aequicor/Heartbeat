@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 internal class PiTurnSettlements(
     private val journal: () -> PiTurnJournal,
     private val failed: suspend (EngineFailure) -> Unit,
+    private val answers: (TurnId) -> Map<String, TurnId?> = { emptyMap() },
 ) {
     private var pending: Turn? = null
     private var publishers = 0
@@ -38,7 +39,7 @@ internal class PiTurnSettlements(
 
     private suspend fun persist(turn: TurnId, outcome: TurnOutcome): PiTurnRecord {
         val known = pending?.takeIf { it.id == turn }?.outcome ?: outcome
-        val receipt = journal().finish(turn, known)
+        val receipt = journal().finish(turn, known, answers(turn))
             ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         if (pending?.id == turn) pending = null
         return receipt
