@@ -30,3 +30,33 @@ internal fun claudeArguments(
 internal val ClaudeEffortLevels = setOf("low", "medium", "high", "xhigh", "max")
 
 internal const val SEARCH_BRIDGE_MARKER = "--heartbeat-search-bridge"
+
+/** A verified gate plan or a legacy turn with all additional native tools removed. */
+internal data class ClaudeTurnPlan(
+    val arguments: List<String>,
+    val native: ClaudeNativeWorkspace?,
+    val gated: Set<String>,
+)
+
+/** Existing multimodal submissions are already user JSON frames; plain text is never reparsed as protocol. */
+internal fun claudeUserFrame(
+    request: io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest,
+    text: String,
+): kotlinx.serialization.json.JsonObject = if (request.parts.any {
+        it !is io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart.Text
+    }
+) {
+    parseClaudeObject(text)
+} else {
+    kotlinx.serialization.json.buildJsonObject {
+        put("type", kotlinx.serialization.json.JsonPrimitive("user"))
+        put(
+            "message",
+            kotlinx.serialization.json.buildJsonObject {
+                put("role", kotlinx.serialization.json.JsonPrimitive("user"))
+                put("content", kotlinx.serialization.json.JsonPrimitive(text))
+            },
+        )
+        put("parent_tool_use_id", kotlinx.serialization.json.JsonNull)
+    }
+}

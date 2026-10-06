@@ -72,6 +72,9 @@ internal interface ClaudeTransport {
      */
     suspend fun pinned(launch: LaunchContext? = null): ClaudeTransport = this
 
+    /** Version of this transport's captured executable, without consulting later launch settings. */
+    suspend fun version(): String? = null
+
     /** The executable [launch] would start and its version; never signs in or starts a session. */
     suspend fun locate(launch: LaunchContext): Installation = Installation(InstallSource.Missing)
 }
@@ -142,7 +145,9 @@ internal class ProcessClaudeTransport(
         resolveClaudeStartup(launch ?: launches.context(ClaudeEngine.Id), configuration)
 
     /** `claude --version`, bounded; an executable that does not answer has no known version. */
-    private suspend fun version(startup: ClaudeStartup): String? = try {
+    override suspend fun version(): String? = version(startup(null))
+
+    suspend fun version(startup: ClaudeStartup): String? = try {
         var version: String? = null
         withProbeTimeout {
             run(startup, listOf("--version"), "", null, true, null) { line ->
@@ -422,6 +427,8 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = launch?.let { base.pinned(it) } ?: this
 
     override suspend fun locate(launch: LaunchContext): Installation = base.locate(launch)
+
+    override suspend fun version(): String? = base.version(startup)
 }
 
 /**
@@ -442,9 +449,9 @@ internal fun claudeHostedArguments(
     config: Path,
     instructions: Path,
     tools: ClaudeToolFlags,
-): List<String> = withoutToolOptions(arguments) +
+): List<String> = withoutToolOptions(arguments).filterNot { it.startsWith("--permission-mode=") } +
     tools.copy(allowed = tools.allowed + "mcp__${HOSTED_TOOLS_SERVER}__*").arguments() + listOf(
-        "--permission-mode=dontAsk",
+        if ("--permission-prompt-tool=stdio" in arguments) "--permission-mode=default" else "--permission-mode=dontAsk",
         "--mcp-config",
         config.toString(),
         "--append-system-prompt-file",

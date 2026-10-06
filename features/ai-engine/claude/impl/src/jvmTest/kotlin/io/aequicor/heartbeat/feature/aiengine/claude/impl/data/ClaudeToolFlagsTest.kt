@@ -31,7 +31,7 @@ class ClaudeToolFlagsTest {
         val session = runtime.create(CreateSessionRequest(testTarget))
         session.features.available(SendsPrompts).send(prompt("first"))
         runCurrent()
-        assertEquals(setOf("Read", "WebSearch"), claudeToolFlags(fixture.transport.calls.last()).native)
+        assertEquals(setOf("WebSearch"), claudeToolFlags(fixture.transport.calls.last()).native)
         policy = ResolvedToolPolicy(nativeOff = setOf("Read"), hostedDenied = setOf("web_search", "web_fetch"))
         session.features.available(SendsPrompts).send(prompt("next"))
         runCurrent()
@@ -60,6 +60,16 @@ class ClaudeToolFlagsTest {
             assertEquals(1, arguments.count { it.startsWith("--allowedTools=") })
         }
         for (name in native) assertFailsWith<IllegalArgumentException> { ClaudeToolFlags(allowed = setOf(name)) }
+    }
+
+    @Test
+    fun `hosted builder preserves gated mode without adding dontAsk`() {
+        val flags = ClaudeToolFlags(native = setOf("Bash"))
+        val gateOptions = listOf("--permission-prompt-tool=stdio", "--permission-mode=default")
+        val base = claudeArguments(tools = flags) + gateOptions
+        val arguments = claudeHostedArguments(base, Path.of("config"), Path.of("prompt"), flags)
+        assertEquals(listOf("--permission-mode=default"), arguments.filter { it.startsWith("--permission-mode=") })
+        assertFalse("Bash" in claudeToolFlags(arguments).allowed)
     }
 
     @Test

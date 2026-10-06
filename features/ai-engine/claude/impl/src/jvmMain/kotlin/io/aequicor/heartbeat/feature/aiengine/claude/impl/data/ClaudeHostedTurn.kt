@@ -64,27 +64,28 @@ internal class ClaudeHostedTurn(
         val specs = environment.tools.specifications(scope)
         if (specs.isEmpty()) return null
         val declared = scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name })
-        val capability = environment.bridge.attach(declared) {
-            if (isActive()) {
-                observer.acceptHostedCall()
-                callbacks.persist()
-                AgentToolContext(
-                    context.ref,
-                    project,
-                    observer.turn.id,
-                    context.request.id,
-                    context.request.trust ?: TrustLevel.Ask,
-                    permissions,
-                    lifetime = lifetime,
-                    target = context.target,
-                )
-            } else {
-                null
-            }
-        }
+        val capability = environment.bridge.attach(declared) { toolContext() }
         attachment = capability
         val instructions = environment.tools.instructions(declared)
         return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
+    }
+
+    /** Native and hosted calls establish Accepted before publishing a permission, independently of stdout. */
+    suspend fun toolContext(): AgentToolContext? {
+        if (!isActive()) return null
+        observer.acceptHostedCall()
+        callbacks.persist()
+        if (!isActive()) return null
+        return AgentToolContext(
+            context.ref,
+            context.workspace,
+            observer.turn.id,
+            context.request.id,
+            context.request.trust ?: TrustLevel.Ask,
+            permissions,
+            lifetime = lifetime,
+            target = context.target,
+        )
     }
 
     private fun isActive(): Boolean = isOpen.get() && !observer.isFinished && callbacks.isCurrent()

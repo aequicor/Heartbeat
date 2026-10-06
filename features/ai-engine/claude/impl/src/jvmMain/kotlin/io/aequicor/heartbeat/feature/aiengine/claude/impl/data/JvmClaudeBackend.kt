@@ -60,6 +60,7 @@ internal class JvmClaudeBackend(
     private val catalog: ClaudeCatalog,
     private val tools: ProfileAgentTools = NoAgentTools,
     private val bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    private val native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     private val resources: ResourceResolver = ResourceResolver { null },
     private val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
 ) : ClaudeBackend {
@@ -212,6 +213,7 @@ internal class JvmClaudeBackend(
             catalog = catalog,
             tools = tools,
             bridge = bridge,
+            native = native,
             resources = resources,
             resourceHistory = resourceHistory,
             inputSupport = { model ->
