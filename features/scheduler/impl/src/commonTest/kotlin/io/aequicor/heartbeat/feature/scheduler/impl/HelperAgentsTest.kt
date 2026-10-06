@@ -101,6 +101,24 @@ class HelperAgentsTest {
     }
 
     @Test
+    fun `unknown terminal releases capacity and recovery explicitly journals a different request`() = runTest {
+        val fixture = HelpersFixture(this)
+        val lease = fixture.service.acquire(owner)
+        val helper = fixture.service.create(lease, null, TARGET, "Helper")
+        fixture.service.prompt(helper, prompt)
+        fixture.host.results[prompt.request] = HelperResult(prompt.request, HelperOutcome.Unknown, "")
+        assertEquals(HelperReleaseResult.Released, lease.release())
+        assertEquals(0, fixture.active)
+        val restored = fixture.service.acquire(owner, existing = helper)
+        assertEquals(HelperOutcome.Unknown, fixture.service.result(helper, prompt.request)?.outcome)
+        val recovery = prompt.copy(request = RequestId("recovery"), isRecovery = true)
+        fixture.service.prompt(helper, recovery)
+        assertEquals(listOf(prompt, recovery), fixture.host.prompts)
+        assertEquals(HelperReleaseResult.Released, restored.release())
+        assertEquals(0, fixture.active)
+    }
+
+    @Test
     fun `cleanup continues after its caller stops waiting`() = runTest {
         val fixture = HelpersFixture(this)
         val gate = CompletableDeferred<Unit>()

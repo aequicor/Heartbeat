@@ -12,7 +12,7 @@ import kotlinx.serialization.Serializable
 internal enum class StudioHelperPhase { Preparing, Submitting, Accepted, Terminal, NotSubmitted }
 
 @Serializable
-internal enum class StudioHelperTerminalOutcome { Completed, Failed, Cancelled }
+internal enum class StudioHelperTerminalOutcome { Completed, Failed, Cancelled, Unknown }
 
 /** Exact native identity with a bounded final answer. Diagnostic output never includes that answer. */
 @Serializable
@@ -32,6 +32,7 @@ internal data class StudioHelperTerminal(
             StudioHelperTerminalOutcome.Completed -> HelperOutcome.Completed
             StudioHelperTerminalOutcome.Failed -> HelperOutcome.Failed
             StudioHelperTerminalOutcome.Cancelled -> HelperOutcome.Cancelled
+            StudioHelperTerminalOutcome.Unknown -> HelperOutcome.Unknown
         },
         answer,
         turn,
