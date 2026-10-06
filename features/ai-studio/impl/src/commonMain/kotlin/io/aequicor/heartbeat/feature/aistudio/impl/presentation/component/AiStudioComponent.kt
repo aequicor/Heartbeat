@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentPreviewRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPickRoute
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsPicked
+import io.aequicor.heartbeat.feature.browser.api.BrowserRoute
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistRoute
 import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireRoute
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatRoute
@@ -77,7 +78,7 @@ class AiStudioComponent(
         name = "workspace",
         initial = listOf(StudioChatRoute),
         local = listOf(routeEntry<StudioChatRoute> { _, _, _ -> StudioChat }),
-        global = GlobalRoutes.Only(setOf(ResearchChatRoute::class)),
+        global = GlobalRoutes.Only(setOf(ResearchChatRoute::class, BrowserRoute::class)),
     )
 
     /** Attachment dialogs retain the workspace and sidebar underneath their native modal surface. */
@@ -200,6 +201,24 @@ class AiStudioComponent(
         initial = listOf(QuestionnaireRoute(sessionId)),
         local = emptyList(),
         global = GlobalRoutes.Only(setOf(QuestionnaireRoute::class)),
+    )
+
+    /** Whether the browser entry is offered in the active profile. */
+    val showsBrowser: Flow<Boolean> = entries.showsBrowser
+
+    /** Presentation identity for the workspace header, without exposing feature routes to UI. */
+    fun isBrowserActive(): Boolean = workspace.stack.value.active.configuration.route == BrowserRoute
+
+    /** Opens the browser inside the studio while preserving its sidebar. */
+    fun openBrowser() = workspace.navigator.navigate(
+        BrowserRoute,
+        NavOptions(LaunchMode.BringToFront, NavTarget.Nearest, NavTransition.Fade),
+    )
+
+    /** Returns to the studio chat area, releasing the visible browser surface. */
+    fun closeChatArea() = workspace.navigator.navigate(
+        StudioChatRoute,
+        NavOptions(LaunchMode.BringToFront, NavTarget.Nearest, NavTransition.Fade),
     )
 
     /** Whether the engine connection settings are offered. */

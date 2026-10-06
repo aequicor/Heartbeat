@@ -107,6 +107,9 @@ lint/            detekt-rules — собственный набор правил
 > Codex читает дерево через app-server; Claude сохраняет наблюдённые subagent-события и историю. Студия показывает
 > вложенность, активность и транскрипты только для чтения; неполное покрытие не выдаётся за подтверждённый ноль.
 > Создание нативных субагентов — отдельный тогл `ai.subagents` (по умолчанию false); просмотр истории доступен и без него.
+> `features:browser:{api,impl}` — встроенный браузер в рабочей области студии (тогл `browser.enabled`, по умолчанию false):
+> HTTP(S), адресная строка, назад/вперёд, reload/stop; Desktop — встроенный JCEF с отдельным временным контекстом,
+> iOS — WKWebView с непостоянным хранилищем, Android — WebView без cookies и DOM storage. История живёт до закрытия поверхности.
 > `features:plant-uml-support:{api,impl}` — диаграммы PlantUML в markdown чатов и кодинг-сессий (тогл `plantuml.enabled`,
 > по умолчанию false): закрытый fence `plantuml`/`puml` ДС делает строкой `Diagram` и рисует через SPI `HbDiagramRenderer`;
 > только Desktop — встроенный `plantuml-mit` в отдельном процессе-воркере (свой малый heap, убивается по таймауту; SANDBOX,
