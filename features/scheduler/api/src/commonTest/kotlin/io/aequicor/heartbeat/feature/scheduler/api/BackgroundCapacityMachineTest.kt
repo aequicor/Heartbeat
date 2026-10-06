@@ -132,6 +132,53 @@ class BackgroundCapacityMachineTest {
         )
     }
 
+    @Test
+    fun `restored native work may exceed limits but new work cannot`() {
+        val existing = (1..9).map { scheduled("old$it") }
+        val restored = BackgroundCapacityState.Ready(existing)
+        BackgroundCapacityMachineSpec.assertTransition(
+            BackgroundCapacityState.Ready(),
+            BackgroundCapacityIntent.Internal.Restore(existing),
+            restored,
+        )
+        BackgroundCapacityMachineSpec.assertTransition(
+            restored,
+            BackgroundCapacityIntent.Internal.Restore(existing),
+            restored,
+        )
+        val next = scheduled("next")
+        BackgroundCapacityMachineSpec.assertTransition(
+            restored,
+            BackgroundCapacityIntent.Public.Acquire(next),
+            restored,
+            outputs = listOf(BackgroundCapacityOutput.Rejected(next.id, BackgroundCapacityRejection.ProfileLimit)),
+        )
+        val pending = helper("waiting")
+        BackgroundCapacityMachineSpec.assertTransition(
+            restored,
+            BackgroundCapacityIntent.Public.Acquire(pending),
+            restored.copy(queued = listOf(pending)),
+            outputs = listOf(BackgroundCapacityOutput.Queued(pending.id)),
+        )
+        BackgroundCapacityMachineSpec.assertTransition(
+            restored.copy(queued = listOf(pending)),
+            BackgroundCapacityIntent.Public.Release(existing.first().id),
+            BackgroundCapacityState.Ready(existing.drop(1), listOf(pending)),
+        )
+    }
+
+    @Test
+    fun `restored work still occupies its scheduled parent quota`() {
+        val state = BackgroundCapacityState.Ready((1..3).map { scheduled("old$it") })
+        val next = scheduled("next")
+        BackgroundCapacityMachineSpec.assertTransition(
+            state,
+            BackgroundCapacityIntent.Public.Acquire(next),
+            state,
+            outputs = listOf(BackgroundCapacityOutput.Rejected(next.id, BackgroundCapacityRejection.SessionLimit)),
+        )
+    }
+
     private fun helper(id: String, owner: String = "run") =
         BackgroundReservation(ActionId(id), ActionId(owner), parent, BackgroundCapacityKind.Helper)
 

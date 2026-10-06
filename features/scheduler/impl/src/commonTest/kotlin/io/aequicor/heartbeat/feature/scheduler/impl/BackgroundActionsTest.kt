@@ -1,17 +1,17 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
-import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
@@ -75,12 +75,13 @@ class BackgroundActionsTest {
 
     @Test
     fun `a helper agent reports when its first turn finishes`() = runTest {
-        val host = FakeHost(priority = 1)
+        val host = HelperHostFake()
         val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host))
         val events = mutableListOf<BusEvent>()
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
         assertNull(fixture.actions.startAgent(action, spawn))
-        assertEquals(listOf(spawn), host.spawned)
+        assertEquals(listOf(spawn.prompt.request), host.prompts.map { it.request })
+        host.results[spawn.prompt.request] = HelperResult(spawn.prompt.request, HelperOutcome.Completed, "done")
         fixture.bus.publish(EventKeys.turnFinished(SESSION), EventOrigin.Host)
         fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
         runCurrent()
@@ -91,7 +92,7 @@ class BackgroundActionsTest {
 
     @Test
     fun `running actions are limited per session and the helper is marked`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
         repeat(3) { assertNull(fixture.actions.startCommand(ActionId("c$it"), SESSION, PROJECT, "sleep 1", 1.minutes)) }
         val refused = fixture.actions.startCommand(ActionId("c4"), SESSION, PROJECT, "sleep 1", 1.minutes)
         assertTrue(refused.orEmpty().contains("this session"), refused)
@@ -116,7 +117,7 @@ class BackgroundActionsTest {
             this,
             machine,
             journal = MemoryJournal(
-                listOf(ActionRecord(action, "command", START), ActionRecord(ActionId("a2"), "agent", START)),
+                listOf(ActionRecord(action, "command", START)),
             ),
         )
         fixture.actions.recover()
@@ -214,9 +215,7 @@ class BackgroundActionsTest {
     @Test
     fun `cancelling the caller after helper handoff keeps the accepted helper supervised`() = runTest {
         val mayAccept = CompletableDeferred<Unit>()
-        val host = object : ScheduledSessionHost by FakeHost(priority = 1) {
-            override suspend fun spawn(request: SpawnRequest) = OTHER.also { mayAccept.await() }
-        }
+        val host = HelperHostFake().apply { beforePrompt = { mayAccept.await() } }
         val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host))
         val events = mutableListOf<BusEvent>()
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
@@ -227,6 +226,7 @@ class BackgroundActionsTest {
         mayAccept.complete(Unit)
         runCurrent()
         assertTrue(fixture.actions.isHelper(OTHER))
+        host.results[spawn.prompt.request] = HelperResult(spawn.prompt.request, HelperOutcome.Completed, "done")
         fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
         runCurrent()
         assertTrue(events.any { it.key == EventKeys.actionFinished(action) })
@@ -237,9 +237,7 @@ class BackgroundActionsTest {
     fun `closing the profile during helper startup preserves its interruption record`() = runTest {
         val lifetime = Job(backgroundScope.coroutineContext[Job])
         val profile = TestScopeHandle(CoroutineScope(backgroundScope.coroutineContext + lifetime))
-        val host = object : ScheduledSessionHost by FakeHost(priority = 1) {
-            override suspend fun spawn(request: SpawnRequest): SessionRef = awaitCancellation()
-        }
+        val host = HelperHostFake().apply { beforeCreate = { awaitCancellation() } }
         val sleeper = scheduled("w1", events = setOf(EventKeys.actionFinished(action)))
         val fixture = ActionsFixture(
             this,
@@ -260,6 +258,7 @@ class BackgroundActionsTest {
             journal = fixture.journal,
         )
         restored.actions.recover()
+        runCurrent()
         val observed = restored.machine.sent.filterIsInstance<SchedulerIntent.Internal.Observed>().single()
         assertTrue(observed.event.payload.orEmpty().startsWith("status: interrupted"))
     }

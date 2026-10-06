@@ -4,12 +4,14 @@ import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 
 /**
- * Atomic admission of scheduler actions and workflow helper leases. No capacity survives process restart.
+ * Atomic admission of scheduler actions and workflow helper leases.
+ * Durable running reservations restore before new admission.
  * Release scans the queue in arrival order, skipping requests blocked by their owner limit so another workflow
  * can progress. Existing eligible waiters always get released slots before new acquisitions.
  *
  * | From | Intent | Guard | To | Output |
  * |---|---|---|---|---|
+ * | Ready | Restore | durable existing work | Ready(active union restored) | none |
  * | Ready | Acquire | duplicate id | stay | Rejected(Duplicate) |
  * | Ready | Acquire | new, both bounds hold | Ready(active+) | Granted |
  * | Ready | Acquire | helper, either bound full | Ready(queued+) | Queued |
@@ -23,6 +25,9 @@ public val BackgroundCapacityMachineSpec: MachineSpec<
     BackgroundCapacityOutput,
 > = machineSpec(BackgroundCapacityMachineKey, BackgroundCapacityState.Ready()) {
     state<BackgroundCapacityState.Ready> {
+        on<BackgroundCapacityIntent.Internal.Restore> {
+            stay { state.restore(intent.reservations) }
+        }
         on<BackgroundCapacityIntent.Public.Acquire>(guard = { state.contains(intent.request.id) }) {
             output { BackgroundCapacityOutput.Rejected(intent.request.id, BackgroundCapacityRejection.Duplicate) }
         }
@@ -92,4 +97,19 @@ private fun BackgroundCapacityState.Ready.release(id: ActionId): BackgroundCapac
         }
     }
     return next
+}
+
+private fun BackgroundCapacityState.Ready.restore(
+    reservations: List<BackgroundReservation>,
+): BackgroundCapacityState.Ready {
+    val restored = reservations.associateBy { it.id }
+    check(restored.size == reservations.size) { "Duplicate restored reservation" }
+    check((active + queued).all { restored[it.id]?.let { old -> old == it } != false }) {
+        "Restored reservation conflicts with current ownership"
+    }
+    val existing = active.map { it.id }.toSet()
+    return copy(
+        active = active + reservations.filterNot { it.id in existing },
+        queued = queued.filterNot { it.id in restored },
+    )
 }
