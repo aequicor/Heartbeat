@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandRunner
 import io.aequicor.heartbeat.feature.scheduler.impl.data.InMemorySchedulerBus
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.WakeStorage
 import kotlinx.coroutines.CompletableDeferred
@@ -98,6 +99,8 @@ internal class ActionsFixture(
     val bus = InMemorySchedulerBus(clock)
     val wakeStorage = MemoryWakeStorage((machine.state.value as? SchedulerState.Ready)?.wakes.orEmpty())
     val persistence = SchedulerPersistence(wakeStorage)
+    val capacityMachine = CapacitySpecMachine()
+    val capacity = ProfileBackgroundCapacity(capacityMachine, profile)
     val actions = BackgroundActions(
         profile,
         TestDispatchers(StandardTestDispatcher(scope.testScheduler)),
@@ -110,6 +113,7 @@ internal class ActionsFixture(
         lazyOf(hosts),
         toggles,
         clock,
+        capacity,
     )
 
     init {
