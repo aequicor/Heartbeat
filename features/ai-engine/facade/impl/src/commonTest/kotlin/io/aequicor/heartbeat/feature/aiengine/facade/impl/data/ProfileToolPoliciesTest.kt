@@ -95,6 +95,40 @@ internal class ProfileToolPoliciesTest {
     }
 
     @Test
+    fun `adapter preflight cannot restore native defaults after its restrictive provider fails`() = runTest {
+        var isFailed = false
+        val provider = AgentToolPolicyProvider {
+            if (isFailed) error("private provider detail")
+            ToolPolicy(native = mapOf("read" to ToolSwitch.Off))
+        }
+        val tools = DefaultAgentTools(emptySet(), policies = create(lazyOf(setOf(provider))))
+        val before = tools.nativeToolsForExecution(scope)!!
+        assertEquals(setOf("read"), before.nativeOff)
+        isFailed = true
+        assertNull(tools.nativeToolsForExecution(scope))
+        assertEquals(setOf("read"), tools.nativeTools(scope).nativeOn)
+        assertNull(tools.nativeToolsForExecution(scope))
+        isFailed = false
+        val recovered = tools.nativeToolsForExecution(scope)!!
+        assertEquals(before.nativeOff, recovered.nativeOff)
+        assertTrue(recovered.generation > before.generation)
+    }
+
+    @Test
+    fun `adapter preflight refuses a timed out provider and propagates cancellation`() = runTest {
+        val stalled = DefaultAgentTools(
+            emptySet(),
+            policies = create(lazyOf(setOf(AgentToolPolicyProvider { awaitCancellation() }))),
+        )
+        assertNull(stalled.nativeToolsForExecution(scope))
+        val cancelled = DefaultAgentTools(
+            emptySet(),
+            policies = create(lazyOf(setOf(AgentToolPolicyProvider { throw CancellationException("cancel") }))),
+        )
+        assertFailsWith<CancellationException> { cancelled.nativeToolsForExecution(scope) }
+    }
+
+    @Test
     fun `provider timeout refuses execution while caller cancellation propagates`() = runTest {
         val stalled = create(lazyOf(setOf(AgentToolPolicyProvider { awaitCancellation() })))
         assertNull(stalled.resolve(scope, emptySet(), true))

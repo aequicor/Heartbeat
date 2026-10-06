@@ -196,6 +196,14 @@ public interface ProfileAgentTools {
     /** Effective native tool policy. Declaration failures fall back to adapter defaults. */
     public suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
 
+    /**
+     * Strict policy snapshot before an adapter starts a turn with native tools outside per-call authorization.
+     * Null means the lookup is unavailable and execution must not start. Declaration fallback from [nativeTools]
+     * must never replace this result: it could remove an existing Off restriction. Cancellation propagates.
+     * This snapshot does not grant trust or replace [prepareNative] for tools requiring individual authorization.
+     */
+    public suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy? = null
+
     /** Workflow instructions for the same workspace. */
     public suspend fun instructions(workspace: WorkspaceRef?): String
 
@@ -247,6 +255,8 @@ public interface ProfileAgentTools {
 
 /** Optional adapter dependency used when hosted tools are not installed. */
 public object NoAgentTools : ProfileAgentTools {
+    // This implementation has no policy providers; adapters keep their native defaults.
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = emptyList()
     override suspend fun instructions(workspace: WorkspaceRef?): String = ""
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
