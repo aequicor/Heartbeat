@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.singleLine
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
+import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -227,8 +228,8 @@ internal class LearningAgentTools(
     private suspend fun projectOf(workspace: WorkspaceRef?): Project {
         if (workspace == null) return Project.Known(null)
         val worktrees = machines.find(WorktreeMachineKey)?.state?.value as? WorktreeState.Ready
-        worktrees?.tasks?.values?.firstOrNull { it.executionWorkspace == workspace }?.let {
-            return Project.Known(it.project)
+        worktrees?.sourceProjectOf(workspace)?.let {
+            return Project.Known(it)
         }
         val isSaved = workspaces.isAvailable && workspaces.observe().first().any { it.ref == workspace }
         return if (isSaved) Project.Known(workspace) else Project.Unknown
