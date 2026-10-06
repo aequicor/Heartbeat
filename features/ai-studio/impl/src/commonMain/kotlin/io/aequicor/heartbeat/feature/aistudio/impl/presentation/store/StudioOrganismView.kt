@@ -124,28 +124,43 @@ internal class StudioOrganismView(
         }.distinctUntilChanged()
         combine(organisms(), open, selection) { organisms, ids, selected ->
             ids.mapNotNull { id ->
-                organisms[id]?.let { organism -> id to organism.sessionOf(selected[id] ?: PrimarySubSession) }
+                organisms[id]?.let { organism ->
+                    val key = selected[id] ?: PrimarySubSession
+                    id to (key to organism.sessionOf(key))
+                }
             }.toMap()
         }.distinctUntilChanged()
             .flatMapLatest(::transcriptsOf)
-            .collect { transcripts -> pipeline.updateState { copy(subTranscripts = transcripts.toImmutableMap()) } }
+            .collect { views ->
+                pipeline.updateState {
+                    copy(
+                        subTranscripts = views.mapValues { it.value.first }.toImmutableMap(),
+                        subObservations = views.mapValues { it.value.second }.toImmutableMap(),
+                    )
+                }
+            }
     }
 
-    private fun transcriptsOf(shown: Map<String, OrganismSession?>): Flow<Map<String, ImmutableList<MessageUi>>> =
-        if (shown.isEmpty()) {
-            flowOf(emptyMap())
-        } else {
-            flow {
-                val views = backend.sessionViews()
-                emitAll(
-                    combine(
-                        shown.map { (chat, session) ->
-                            (session?.let { views.observe(it.ref, it.reopening) } ?: flowOf(emptyList()))
-                                .flatMapLatest { messages -> withAttachments(messages.map { it.toUi() }) }
-                                .map { messages -> chat to messages }
-                        },
-                    ) { it.toMap() },
-                )
-            }
+    private fun transcriptsOf(
+        shown: Map<String, Pair<String, OrganismSession?>>,
+    ): Flow<Map<String, Pair<ImmutableList<MessageUi>, SubSessionObservationUi>>> = if (shown.isEmpty()) {
+        flowOf(emptyMap())
+    } else {
+        flow {
+            val views = backend.sessionViews()
+            emitAll(
+                combine(
+                    shown.map { (chat, selected) ->
+                        val (key, session) = selected
+                        val messages = (session?.let { views.observe(it.ref, it.reopening) } ?: flowOf(emptyList()))
+                            .flatMapLatest { items -> withAttachments(items.map { it.toUi() }) }
+                        val observation = session?.let { views.observation(it.ref) } ?: flowOf(null)
+                        combine(messages, observation) { items, snapshot ->
+                            chat to (items to snapshot.toObservationUi(key))
+                        }
+                    },
+                ) { it.toMap() },
+            )
         }
+    }
 }

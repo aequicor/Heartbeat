@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aistudio.impl.data.EngineStudioUsage
 import io.aequicor.heartbeat.feature.aistudio.impl.data.StudioSessionViewer
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 
@@ -20,7 +21,8 @@ object StudioSessionViewsBindings {
     internal fun viewer(
         facade: EngineFacade,
         @ForScope(ProfileScope::class) stores: DataStores,
-    ): StudioSessionViewer = StudioSessionViewer(facade, stores)
+        usage: EngineStudioUsage,
+    ): StudioSessionViewer = StudioSessionViewer(facade, stores, usage)
 
     @Provides
     internal fun views(viewer: StudioSessionViewer): StudioSessionViews = viewer

@@ -160,7 +160,11 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isProjectFailed = projectErrorPane == pane.id,
         permissions = permissions.filter { it.sessionId == pane.sessionId }.toImmutableList(),
         calendar = studioCalendar(now),
-        contextUsage = contexts[pane.sessionId],
+        contextUsage = if (session?.isOrganism == true) {
+            organismObservation(pane.sessionId)?.context
+        } else {
+            contexts[pane.sessionId]
+        },
         providerUsage = providerUsage[effectiveSettings.modelId],
         isWorktreeAvailable = isWorktreeAvailable && worktreeJournal == WorktreeJournalUi.Ready,
         worktree = worktrees[pane.sessionId],
@@ -230,8 +234,16 @@ internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
 }
 
 private fun AiStudioScreenState.displayedSession(id: String?): SessionUi? {
-    val session = session(id)
+    val session = session(id)?.let { current ->
+        val isRunning = organismObservation(id)?.isRunning
+        if (current.isOrganism && isRunning != null) current.copy(isRunning = isRunning) else current
+    }
     return if (selectedNative(id) == PrimarySubSession) session else session?.copy(isContinuable = false)
+}
+
+/** Selection changes hide the previous cell's telemetry immediately, before the new observer emits. */
+private fun AiStudioScreenState.organismObservation(id: String?) = subObservations[id]?.takeIf {
+    selectedNative(id) == PrimarySubSession && it.key == (subSessions[id] ?: PrimarySubSession)
 }
 
 private fun AiStudioScreenState.selectedSubSession(id: String?, session: SessionUi?): String =

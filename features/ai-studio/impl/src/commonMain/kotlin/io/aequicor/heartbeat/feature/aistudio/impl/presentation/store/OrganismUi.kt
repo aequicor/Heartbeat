@@ -1,7 +1,9 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnapshot
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
@@ -26,6 +28,27 @@ data class OrganismUi(
     val subSessions: ImmutableList<SubSessionUi>,
     val permissions: ImmutableList<OrganismPermissionUi> = persistentListOf(),
 )
+
+/** The selected session's live execution and context; [key] prevents stale data after selection changes. */
+@Immutable
+data class SubSessionObservationUi(val key: String, val isRunning: Boolean?, val context: ContextUsageUi?)
+
+internal fun SessionObservationSnapshot?.toObservationUi(key: String): SubSessionObservationUi =
+    SubSessionObservationUi(
+        key,
+        when (val current = this?.state) {
+            null -> null
+
+            is ActiveSessionState.Submitting, is ActiveSessionState.Running,
+            is ActiveSessionState.AwaitingUserAction, is ActiveSessionState.Interrupting,
+            -> true
+
+            is ActiveSessionState.Unavailable -> current.activeTurn != null
+
+            is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> false
+        },
+        this?.context?.toUi(),
+    )
 
 /** Where the organism is in its life; a stalled zygote waits for an explicit resume. */
 enum class OrganismStatusUi { Developing, Stalled, Completed, Aborted }
