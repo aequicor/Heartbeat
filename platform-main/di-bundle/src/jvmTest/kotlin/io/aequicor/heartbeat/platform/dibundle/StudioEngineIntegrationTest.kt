@@ -29,6 +29,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioMachineKey
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -47,6 +48,9 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfiguration
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -149,6 +153,83 @@ class StudioEngineIntegrationTest {
         )
         services.modelSelections.observe().first { it.defaultTarget == target }
         return services
+    }
+
+    @Test
+    fun `empty helper identity survives restart and concurrent ordinary chat creation without native work`() =
+        runStudioTest {
+            val services = configured()
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            val request = HelperCreateRequest(ActionId("workflow"), null, null, target, "Helper", TrustLevel.Full)
+            val helper = async { services.scheduledSessionHosts.maxBy { it.priority }.createHelper(request) }
+            val ordinary = async { services.studioRepository.createSession(null, "Ordinary") }
+            val helperId = helper.await()
+            val ordinaryId = ordinary.await().id
+            val metadata = requireNotNull(services.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(helperId))
+            assertEquals(request.owner, metadata.owner)
+            assertNull(metadata.parent)
+            assertNull(metadata.session)
+            assertNull(metadata.lastRequest)
+            assertNull(services.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(HelperId(ordinaryId)))
+            assertTrue(TestAdapter.runtimes.flatMap { it.natives }.isEmpty())
+            assertTrue(services.studioRepository.observeMessages(helperId.value).first().isEmpty())
+            app.profileSessions.close()
+            val restored = app.profileSessions.open(ProfileId("studio")).graph as AiEngineTestAccessors
+            assertEquals(metadata, restored.scheduledSessionHosts.maxBy { it.priority }.helperMetadata(helperId))
+            assertEquals(
+                setOf(helperId.value, ordinaryId),
+                restored.studioRepository.observeWorkspace().first().sessions.map { it.id }.toSet(),
+            )
+        }
+
+    @Test
+    fun `parentless helper opens its explicit workspace and retains marker after native reopen`() = runStudioTest {
+        TestAdapter.isLocalWorkspaceSupported = true
+        try {
+            val services = configured()
+            val directory = File(persisted.storageRoot, "helper-workspace").apply { mkdirs() }
+            val workspace = services.localWorkspaces.registerManaged(directory.absolutePath).ref
+            val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+            val helpers = services.scheduledSessionHosts.maxBy { it.priority }
+            val helper = helpers.createHelper(
+                HelperCreateRequest(ActionId("workflow"), null, workspace, target, "Helper", TrustLevel.Ask),
+            )
+            val run = startAcceptedRun(services.studioRuntime, helper.value, "Hello", services.studioRuntime.defaults())
+            val engine = TestAdapter.runtimes.single()
+            val native = engine.natives.single()
+            assertEquals(workspace, engine.createdRequests.single().workspace)
+            assertTrue(helpers.isHelper(native.ref))
+            native.finish()
+            assertEquals(RunOutcome.Completed, run.await())
+            services.studioRepository.edit(helper.value, SessionEdit.SetArchived(true))
+            val resumed = startAcceptedRun(
+                services.studioRuntime,
+                helper.value,
+                "Again",
+                services.studioRuntime.defaults(),
+            )
+            assertEquals(1, engine.createdRequests.size)
+            assertTrue(helpers.isHelper(native.ref))
+            assertEquals(native.ref, helpers.helperMetadata(helper)?.session)
+            native.finish()
+            assertEquals(RunOutcome.Completed, resumed.await())
+            val before = services.studioRepository.observeWorkspace().first().sessions.size
+            assertFailsWith<IllegalStateException> {
+                helpers.createHelper(
+                    HelperCreateRequest(
+                        ActionId("other"),
+                        null,
+                        WorkspaceRef("unknown"),
+                        target,
+                        "Unavailable",
+                        TrustLevel.Ask,
+                    ),
+                )
+            }
+            assertEquals(before, services.studioRepository.observeWorkspace().first().sessions.size)
+        } finally {
+            TestAdapter.isLocalWorkspaceSupported = false
+        }
     }
 
     @Test
