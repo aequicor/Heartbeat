@@ -305,7 +305,7 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `unknown submission outcome is reconciled from the native thread`() = runTest {
+    fun `unknown submission with empty native history keeps its request unresolved`() = runTest {
         val fixture = Fixture(this)
         fixture.onTurn = { }
         val session = fixture.open()
@@ -313,7 +313,7 @@ class CodexRuntimeTest {
         assertEquals(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, Prompt.id), failure.failure)
         runCurrent()
         assertTrue(fixture.wire.written.any { it.text("method") == "thread/read" })
-        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        assertEquals(Prompt.id, assertIs<ActiveSessionState.Unavailable>(session.state.value).activeTurn?.request)
     }
 
     @Test
@@ -337,7 +337,7 @@ class CodexRuntimeTest {
         fixture.threadTurns = listOf(nativeTurn("foreign", "completed"))
         fixture.event("turn/completed", "turn" to nativeTurn("foreign", "completed"))
         runCurrent()
-        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        assertEquals(Prompt.id, assertIs<ActiveSessionState.Unavailable>(session.state.value).activeTurn?.request)
     }
 
     @Test
@@ -355,7 +355,7 @@ class CodexRuntimeTest {
     }
 
     @Test
-    fun `foreign running turn keeps session unavailable until its completion`() = runTest {
+    fun `foreign turn completion cannot settle our missing turn`() = runTest {
         val fixture = Fixture(this)
         val base = fixture.wire.handler
         fixture.wire.handler = { if (it.text("method") != "turn/interrupt") base(it) }
@@ -369,7 +369,7 @@ class CodexRuntimeTest {
         fixture.threadTurns = listOf(nativeTurn("other", "completed"))
         fixture.event("turn/completed", "turn" to nativeTurn("other", "completed"))
         runCurrent()
-        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(session.state.value).lastTurn?.outcome)
+        assertEquals(Prompt.id, assertIs<ActiveSessionState.Unavailable>(session.state.value).activeTurn?.request)
     }
 
     private fun nativeTurn(id: String, status: String) = json("id" to id.json(), "status" to status.json())
