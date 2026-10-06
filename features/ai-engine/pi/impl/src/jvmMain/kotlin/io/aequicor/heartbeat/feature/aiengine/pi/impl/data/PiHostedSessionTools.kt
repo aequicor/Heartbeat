@@ -38,7 +38,7 @@ internal class PiHostedSessionTools(
     private val send: suspend (ActiveSessionIntent) -> SendResult,
 ) {
     private val log = Log.tag("PiHostedSessionTools")
-    private val pending = mutableMapOf<PermissionRequestId, CompletableDeferred<Boolean>>()
+    private val pending = mutableMapOf<PermissionRequestId, Pair<CompletableDeferred<Boolean>, PermissionOptionId>>()
     private var attachment: AgentToolBridgeAttachment? = null
     var lifetime: CompletableJob? = null
         private set
@@ -47,7 +47,7 @@ internal class PiHostedSessionTools(
     private var snapshot: AgentToolContext? = null
 
     /** Immutable authority is captured on HTTP ingress without queuing on Main. */
-    private fun context(): AgentToolContext? = snapshot?.takeIf {
+    fun context(): AgentToolContext? = snapshot?.takeIf {
         it.lifetime?.isActive == true && !isInterrupting()
     }
 
@@ -58,7 +58,7 @@ internal class PiHostedSessionTools(
             turn.id,
             turn.request,
             trust,
-            AgentToolPermissions { approval(turn, it) },
+            AgentToolPermissions { approval(turn, hostedApproval(turn, it), HostedAllow) },
             lifetime = lifetime,
             target = turn.target,
         )
@@ -117,18 +117,12 @@ internal class PiHostedSessionTools(
         return PiHostedTools(capability.endpoint, specs, instructions)
     }
 
-    suspend fun approval(turn: Turn, action: AgentToolApproval): Boolean {
+    /** Waits outside the process reader; native approvals retain their original UI id and option labels. */
+    suspend fun approval(turn: Turn, request: PermissionRequest, allow: PermissionOptionId): Boolean {
         val waiting = withContext(environment.dispatchers.main) {
-            if (!canApprove(turn)) return@withContext null
-            val request = PermissionRequest(
-                PermissionRequestId(UUID.randomUUID().toString()),
-                turn.id,
-                action.title,
-                listOf(PermissionOption(Allow, "Разрешить"), PermissionOption(Deny, "Запретить")),
-                description = action.description,
-            )
+            if (!canApprove(turn) || request.id in pending) return@withContext null
             val answer = CompletableDeferred<Boolean>()
-            pending[request.id] = answer
+            pending[request.id] = answer to allow
             permissions[request.id] = request
             if (send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
                 pending.remove(request.id)
@@ -154,12 +148,12 @@ internal class PiHostedSessionTools(
 
     fun answer(decision: PermissionDecision): Boolean {
         val answer = pending.remove(decision.request) ?: return false
-        answer.complete(decision.option == Allow)
+        answer.first.complete(decision.option == answer.second)
         return true
     }
 
     fun dismiss() {
-        pending.values.forEach { it.complete(false) }
+        pending.values.forEach { it.first.complete(false) }
         pending.clear()
     }
 
@@ -169,9 +163,15 @@ internal class PiHostedSessionTools(
         revoke()
         dismiss()
     }
-
-    private companion object {
-        val Allow = PermissionOptionId("hosted.allow")
-        val Deny = PermissionOptionId("hosted.deny")
-    }
 }
+
+private fun hostedApproval(turn: Turn, action: AgentToolApproval): PermissionRequest = PermissionRequest(
+    PermissionRequestId(UUID.randomUUID().toString()),
+    turn.id,
+    action.title,
+    listOf(PermissionOption(HostedAllow, "Разрешить"), PermissionOption(HostedDeny, "Запретить")),
+    description = action.description,
+)
+
+private val HostedAllow = PermissionOptionId("hosted.allow")
+private val HostedDeny = PermissionOptionId("hosted.deny")
