@@ -109,4 +109,4 @@ include(":features:plant-uml-support:api", ":features:plant-uml-support:impl")
 include(":features:scheduler:api", ":features:scheduler:impl")
 
 include(":features:checklist:api", ":features:checklist:impl")
-include(":features:harness:api")
+include(":features:harness:api", ":features:harness:impl")
