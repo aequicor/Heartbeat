@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -150,6 +151,52 @@ internal class NativeToolGateTest {
         assertIs<NativeVerdict.Deny>(tools.authorizeNative(CONTEXT, long))
         assertEquals("NativeToolCall", long.toString())
         assertEquals("NativeVerdict.Deny", NativeVerdict.Deny("private").toString())
+    }
+
+    @Test
+    fun `preflight is noninteractive and its one shot continuation does not repeat hooks`() = runTest {
+        val hook = Hook(ToolHookVerdict.Ask("Review this call"))
+        val tools = fixture(hook)
+        var asked = 0
+        val context = CONTEXT.copy(
+            permissions = AgentToolPermissions {
+                asked++
+                true
+            },
+        )
+        val input = kotlinx.serialization.json.Json.parseToJsonElement("""{"secret":"full-input"}""")
+            as kotlinx.serialization.json.JsonObject
+        val prepared = assertIs<NativePreparation.Ask>(tools.prepareNative(context, call().copy(arguments = input)))
+        assertEquals(0, asked)
+        assertEquals(input, hook.calls.single().arguments)
+        assertEquals(NativeVerdict.Allow, prepared.confirmation.authorize())
+        assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
+        assertEquals(1, hook.calls.size)
+        assertEquals(1, asked)
+    }
+
+    @Test
+    fun `policy change between preflight and approval denies without showing permission`() = runTest {
+        var policy = ENABLED
+        val tools = fixture(policies = ToolPolicyResolver { _, _, _ -> policy })
+        val prepared = assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
+        policy = ResolvedToolPolicy(nativeOff = setOf("read"))
+        assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
+    }
+
+    @Test
+    fun `finished facade turn revokes a prepared confirmation before it is consumed`() = runTest {
+        val tools = fixture()
+        val prepared = assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
+        tools.finishTurn(SESSION, TURN)
+        assertIs<NativeVerdict.Deny>(prepared.confirmation.authorize())
+    }
+
+    @Test
+    fun `preflight preserves trust coverage and never translates continue directly to allow`() = runTest {
+        val tools = fixture()
+        assertEquals(NativePreparation.Allow, tools.prepareNative(CONTEXT, call()))
+        assertIs<NativePreparation.Ask>(tools.prepareNative(CONTEXT, call(covered = { false })))
     }
 
     private suspend fun TestScope.fixture(

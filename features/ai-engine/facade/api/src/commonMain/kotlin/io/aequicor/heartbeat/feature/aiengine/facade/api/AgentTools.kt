@@ -210,6 +210,10 @@ public interface ProfileAgentTools {
      * then hooks, then adapter trust coverage and permission; rechecks policy after the decision. Cancellation
      * revokes the decision. Adapters must recheck their captured turn before answering the native process.
      */
+    public suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
+        NativePreparation.Deny("Native authorization is unavailable")
+
+    /** Performs the noninteractive preflight and, when necessary, its one-shot interactive continuation. */
     public suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
         NativeVerdict.Deny("Native authorization is unavailable")
 

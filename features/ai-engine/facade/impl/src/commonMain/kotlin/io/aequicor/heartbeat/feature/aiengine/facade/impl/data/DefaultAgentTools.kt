@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeConfirmation
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativePreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -121,8 +123,38 @@ internal class DefaultAgentTools(
             executeAuthorized(it, name, arguments)
         }
 
+    override suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
+        withInvocation(context, NativePreparation.Deny("Native turn has ended")) { trusted ->
+            when (val checked = nativeGate.prepare(trusted, call)) {
+                is NativePreflight.Ready -> when (val verdict = checked.verdict) {
+                    NativeVerdict.Allow -> NativePreparation.Allow
+                    is NativeVerdict.Deny -> NativePreparation.Deny(verdict.reason)
+                }
+
+                is NativePreflight.Ask -> {
+                    val consumed = kotlinx.coroutines.CompletableDeferred<Unit>()
+                    NativePreparation.Ask(
+                        NativeConfirmation {
+                            if (!consumed.complete(Unit)) {
+                                NativeVerdict.Deny("Native confirmation has already been consumed")
+                            } else {
+                                // Use the original native context so the facade binding is reapplied exactly once.
+                                withInvocation(context, NativeVerdict.Deny("Native turn has ended")) {
+                                    nativeGate.confirm(it, call, checked.approval)
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
     override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
-        withInvocation(context, NativeVerdict.Deny("Native turn has ended")) { nativeGate.authorize(it, call) }
+        when (val prepared = prepareNative(context, call)) {
+            NativePreparation.Allow -> NativeVerdict.Allow
+            is NativePreparation.Deny -> NativeVerdict.Deny(prepared.reason)
+            is NativePreparation.Ask -> prepared.confirmation.authorize()
+        }
 
     override suspend fun authorizeHosted(
         context: AgentToolContext,

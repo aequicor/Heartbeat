@@ -26,28 +26,26 @@ internal class NativeToolGate(
 ) {
     private val log = Log.tag("NativeToolGate")
 
-    suspend fun authorize(context: AgentToolContext, call: NativeToolCall): NativeVerdict = try {
-        if (!isEnabled(context, call)) {
-            NativeVerdict.Deny("Native tool is disabled or its policy is unavailable")
-        } else {
-            authorizeEnabled(context, call)
+    suspend fun prepare(context: AgentToolContext, call: NativeToolCall): NativePreflight = guarded {
+        if (!isEnabled(context, call)) return@guarded denied("Native tool is disabled or its policy is unavailable")
+        val hook = beforeTool(context, call)
+        if (hook is ToolHookVerdict.Deny) {
+            return@guarded denied("Blocked by a session hook: ${hook.reason.take(HOOK_CHARS)}")
         }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        log.w(IllegalStateException("Native authorization failed (${e::class.simpleName.orEmpty()})")) {
-            "Native tool authorization failed"
-        }
-        NativeVerdict.Deny("Native tool authorization failed")
+        val isApprovalRequired = hook is ToolHookVerdict.Ask || !call.covered(context.trust)
+        currentCoroutineContext().ensureActive()
+        if (!isEnabled(context, call)) return@guarded denied("Native tool became unavailable")
+        if (!isApprovalRequired) return@guarded NativePreflight.Ready(NativeVerdict.Allow)
+        approval(call, hook)
     }
 
-    private suspend fun authorizeEnabled(context: AgentToolContext, call: NativeToolCall): NativeVerdict {
+    private suspend fun beforeTool(context: AgentToolContext, call: NativeToolCall): ToolHookVerdict {
         val hooked = hooks.context(context.session, context.request, context.turn)?.let { bound ->
             HookedToolCall(
                 bound.copy(turn = null),
                 call.name,
                 call.action,
-                buildJsonObject {
+                call.arguments ?: buildJsonObject {
                     put("paths", JsonArray(call.paths.map(::JsonPrimitive)))
                     val command = call.command
                     if (command != null) put("command", command)
@@ -55,38 +53,43 @@ internal class NativeToolGate(
                 isNative = true,
             )
         }
-        val hook = hooked?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
-        val refusal = when {
-            hook is ToolHookVerdict.Deny ->
-                NativeVerdict.Deny("Blocked by a session hook: ${hook.reason.take(HOOK_CHARS)}")
-
-            hook is ToolHookVerdict.Ask || !call.covered(context.trust) -> request(context, call, hook)
-
-            else -> null
-        }
-        if (refusal != null) return refusal
-        currentCoroutineContext().ensureActive()
-        return if (isEnabled(context, call)) {
-            NativeVerdict.Allow
-        } else {
-            NativeVerdict.Deny("Native tool became unavailable")
-        }
+        return hooked?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
     }
 
-    private suspend fun request(
-        context: AgentToolContext,
-        call: NativeToolCall,
-        hook: ToolHookVerdict,
-    ): NativeVerdict.Deny? {
-        val details = (listOfNotNull(call.command) + call.paths).joinToString("\n")
-        if (details.length > APPROVAL_CHARS) return NativeVerdict.Deny("Native action is too long to review in full")
+    private fun approval(call: NativeToolCall, hook: ToolHookVerdict): NativePreflight {
+        val details = call.arguments?.toString() ?: (listOfNotNull(call.command) + call.paths).joinToString("\n")
+        if (details.length > APPROVAL_CHARS) return denied("Native action is too long to review in full")
         val reason = if (hook is ToolHookVerdict.Ask) {
             "A session hook requires confirmation: ${hook.reason.take(HOOK_CHARS)}\n\n"
         } else {
             ""
         }
-        val approval = AgentToolApproval(call.name, "Native tool: ${call.name}", reason + details)
-        return if (context.permissions.request(approval)) null else NativeVerdict.Deny("The user declined this action")
+        return NativePreflight.Ask(AgentToolApproval(call.name, "Native tool: ${call.name}", reason + details))
+    }
+
+    suspend fun confirm(context: AgentToolContext, call: NativeToolCall, approval: AgentToolApproval): NativeVerdict {
+        val result = guarded {
+            if (!isEnabled(context, call)) return@guarded denied("Native tool became unavailable")
+            if (!context.permissions.request(approval)) return@guarded denied("The user declined this action")
+            currentCoroutineContext().ensureActive()
+            if (isEnabled(context, call)) {
+                NativePreflight.Ready(NativeVerdict.Allow)
+            } else {
+                denied("Native tool became unavailable")
+            }
+        }
+        return (result as NativePreflight.Ready).verdict
+    }
+
+    private suspend fun guarded(block: suspend () -> NativePreflight): NativePreflight = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(IllegalStateException("Native authorization failed (${e::class.simpleName.orEmpty()})")) {
+            "Native tool authorization failed"
+        }
+        denied("Native tool authorization failed")
     }
 
     private suspend fun isEnabled(context: AgentToolContext, call: NativeToolCall): Boolean {
@@ -101,3 +104,11 @@ internal class NativeToolGate(
 
 private const val HOOK_CHARS = 2_000
 private const val APPROVAL_CHARS = 8_000
+
+/** Private preflight state; only the dispatcher may bind an approval to a registered invocation. */
+internal sealed interface NativePreflight {
+    data class Ready(val verdict: NativeVerdict) : NativePreflight
+    data class Ask(val approval: AgentToolApproval) : NativePreflight
+}
+
+private fun denied(reason: String): NativePreflight = NativePreflight.Ready(NativeVerdict.Deny(reason))

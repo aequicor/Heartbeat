@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
@@ -10,7 +11,11 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 
 /** Pending decisions belong to one native turn; history replay and stale decisions never authorize tools. */
@@ -22,6 +27,7 @@ internal class ClaudePermissions(
     private val persist: suspend () -> Unit,
     private val canApprove: () -> Boolean,
 ) : AgentToolPermissions {
+    private val log = Log.tag("ClaudePermissions")
     private val lock = Any()
     private val pending = linkedMapOf<PermissionRequestId, Pending>()
     private var isClosed = false
@@ -42,13 +48,22 @@ internal class ClaudePermissions(
                 publish()
             }
         }
-        persist()
         return try {
+            persist()
             item.answer.await() && isActive() && canApprove()
         } finally {
-            synchronized(lock) {
-                if (pending.remove(item.request.id) != null && !isClosed && isActive()) publish()
+            val isWithdrawn = synchronized(lock) {
+                if (pending[item.request.id] !== item) {
+                    false
+                } else {
+                    pending.remove(item.request.id)
+                    observer.permissionResolved(item.request.id)
+                    item.answer.complete(false)
+                    if (!isClosed && isActive()) publish()
+                    true
+                }
             }
+            if (isWithdrawn) withContext(NonCancellable) { persistWithdrawal() }
         }
     }
 
@@ -67,7 +82,10 @@ internal class ClaudePermissions(
     /** Revocation unblocks bridge calls even when they execute outside the native process coroutine. */
     fun close() = synchronized(lock) {
         isClosed = true
-        pending.values.forEach { it.answer.complete(false) }
+        pending.values.forEach {
+            observer.permissionResolved(it.request.id)
+            it.answer.complete(false)
+        }
         pending.clear()
     }
 
@@ -80,6 +98,21 @@ internal class ClaudePermissions(
         }
         pending.clear()
         if (!isClosed && isActive()) publish()
+    }
+
+    private suspend fun persistWithdrawal() {
+        val isSaved = withTimeoutOrNull(WITHDRAWAL_TIMEOUT_MS) {
+            try {
+                persist()
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log.w(e.redacted()) { "Failed to persist permission withdrawal" }
+                false
+            }
+        }
+        if (isSaved == null) log.w { "Permission withdrawal persistence timed out" }
     }
 
     private fun publish() {
@@ -100,3 +133,5 @@ private data class Pending(
 )
 private val ALLOW = PermissionOptionId("allow")
 private val DENY = PermissionOptionId("deny")
+
+private const val WITHDRAWAL_TIMEOUT_MS = 2_000L
