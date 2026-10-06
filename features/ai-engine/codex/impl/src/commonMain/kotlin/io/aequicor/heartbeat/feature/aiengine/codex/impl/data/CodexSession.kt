@@ -73,7 +73,7 @@ internal class CodexSession(
     var isMaterialized = false
     val isMaterializationRequired get() = isCreatedHere && !isMaterialized && nativeTurns.isEmpty()
     val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null &&
-        pendingSubmission == null && !hostedJobs.hasPending
+        pendingSubmission == null && stopping.claim == null && !hostedJobs.hasPending
     private var nativeTurn: String? = null
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
 
@@ -85,14 +85,22 @@ internal class CodexSession(
         submissions.remove(entry.turn.id)
         inputs.remove(entry.turn.id)
     })
-    private val hostedRequests = mutableMapOf<PermissionRequestId, PermissionRequest>()
-    private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<PermissionDecision?>>()
-    private var questions = CodexUserInput(scope.coroutineScope, connection::respondQuietly, ::awaitDecision)
+    private val permissions = CodexHostedPermissions(this) { leases.isNotEmpty() }
+    private var questions = CodexUserInput(scope.coroutineScope, connection::respondQuietly, permissions::awaitDecision)
     private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
     /** Retains revoked hosted work for the explicit stop coordinator to await outside session locks. */
     val hostedJobs = CodexHostedJobs(scope.coroutineScope) { runtime.release(this) }
+    val stopping = CodexSessionStop(this, { record ->
+        val id = record.turn.id
+        if (currentTurn()?.id == id) nativeTurn = null
+        submissions.remove(id)
+        inputs.remove(id)
+        permissions.clear(id)
+        record.nativeId?.let { nativeTurns[it] = id }
+        finished.add(id)
+    }, submission::release)
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(
             ActiveSessionMachineKey(Uuid.random().toString()),
@@ -109,7 +117,7 @@ internal class CodexSession(
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {
         leases -= lease
-        if (leases.isEmpty()) hostedPermissions.values.forEach { it.complete(null) }
+        if (leases.isEmpty()) permissions.release()
         runtime.release(this)
     }
 
@@ -137,12 +145,14 @@ internal class CodexSession(
     fun ensureReadyForPolicy() {
         runtime.ensureOpen()
         if (scope.isClosed) fail(EngineFailure.Session(SessionFailureReason.NotResumable))
-        if (pendingSubmission?.isStopRequested == true) fail(EngineFailure.Session(SessionFailureReason.Busy))
+        if (pendingSubmission?.isStopRequested == true || runtime.ownedTurns.isReserved(ref.nativeId)) {
+            fail(EngineFailure.Session(SessionFailureReason.Busy))
+        }
         if (machine.state.value !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
     }
 
     private fun connectionChanged(source: CodexConnection) {
-        questions = CodexUserInput(scope.coroutineScope, source::respondQuietly, ::awaitDecision)
+        questions = CodexUserInput(scope.coroutineScope, source::respondQuietly, permissions::awaitDecision)
     }
 
     private fun auditReopened(thread: JsonObject) {
@@ -196,6 +206,10 @@ internal class CodexSession(
 
     /** Failures that must not reach the machine because native state settles them instead. */
     private fun isSettledElsewhere(effect: ActiveSessionEffect, error: EngineFailure): Boolean = when {
+        stopping.blocks(effect.codexTurnId()) -> true
+
+        effect is ActiveSessionEffect.Submit && currentTurn()?.id != effect.turn.id -> true
+
         // A rejected interrupt never proves the turn stopped; its native completion still arrives.
         effect is ActiveSessionEffect.Cancel && error is EngineFailure.Request -> true
 
@@ -239,9 +253,8 @@ internal class CodexSession(
 
     /** Starts native reconciliation of an Unavailable session; a failed probe keeps it Unavailable. */
     suspend fun recheck() {
-        if (!runtime.isClosed && pendingSubmission?.isStopRequested != true &&
-            machine.state.value is ActiveSessionState.Unavailable
-        ) {
+        if (stopping.owns(connection) || pendingSubmission?.isStopRequested == true) return
+        if (!runtime.isClosed && machine.state.value is ActiveSessionState.Unavailable) {
             log.i { "Codex session recheck requested" }
             machine.send(ActiveSessionIntent.Public.Recheck)
         }
@@ -268,10 +281,7 @@ internal class CodexSession(
                 interrupt(effect)
             }
 
-            is ActiveSessionEffect.Decide -> {
-                val pending = hostedPermissions.remove(effect.decision.request) ?: protocolFailure()
-                pending.complete(effect.decision)
-            }
+            is ActiveSessionEffect.Decide -> permissions.decide(effect.decision)
 
             is ActiveSessionEffect.Recheck -> reconcile()
 
@@ -360,7 +370,7 @@ internal class CodexSession(
             remembered?.text("status") == IN_PROGRESS && active != null && isActiveExecutionOwned -> machine.send(
                 ActiveSessionIntent.Internal.Synchronized(
                     active,
-                    hostedRequests.values
+                    permissions.pending
                         .filter { it.turn == active.id && it.id !in active.resolvedPermissions },
                 ),
             )
@@ -412,7 +422,7 @@ internal class CodexSession(
             null
         }
         nativeTurn = null
-        hostedRequests.clear()
+        permissions.clear()
         active?.let { cancelTools(it.id) }
         machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
         completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
@@ -420,6 +430,7 @@ internal class CodexSession(
     }
 
     private suspend fun accept(turn: Turn) {
+        if (stopping.blocks(turn.id)) return
         if (pendingSubmission?.let { it.turn.id == turn.id && it.isStopRequested } == true) return
         if (submissions.remove(
                 turn.id,
@@ -614,32 +625,7 @@ internal class CodexSession(
             listOf(PermissionOption(HOSTED_ALLOW, "Разрешить"), PermissionOption(HOSTED_DENY, "Запретить")),
             description = approval.description,
         )
-        return awaitDecision(request)?.option == HOSTED_ALLOW
-    }
-
-    /**
-     * Shows a hosted request and waits for the user's decision. Null means the request could not be shown or was
-     * withdrawn: the turn changed or closed, the machine refused it, or the last lease was released.
-     */
-    private suspend fun awaitDecision(request: PermissionRequest): PermissionDecision? {
-        if (currentTurn()?.id != request.turn || hostedJobs.isClosed(request.turn) || leases.isEmpty()) return null
-        val answer = CompletableDeferred<PermissionDecision?>()
-        hostedPermissions[request.id] = answer
-        hostedRequests[request.id] = request
-        return try {
-            if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted) {
-                history.publish { SessionEvent.PermissionRequested(it, request) }
-                answer.await()
-            } else {
-                null
-            }
-        } finally {
-            hostedPermissions.remove(request.id)
-            hostedRequests.remove(request.id)
-            withContext(NonCancellable) {
-                machine.send(ActiveSessionIntent.Internal.PermissionResolved(request.turn, request.id))
-            }
-        }
+        return permissions.awaitDecision(request)?.option == HOSTED_ALLOW
     }
 
     private fun cancelTools(turn: TurnId) = hostedJobs.revoke(turn)
@@ -666,7 +652,7 @@ internal class CodexSession(
         if (!finished.add(id)) return
         currentTurn()?.takeIf { it.id == id }?.let { accept(it) }
         nativeTurn = null
-        hostedRequests.clear()
+        permissions.clear()
         machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))
         history.publish { SessionEvent.TurnFinished(it, id, outcome) }
         // Finished keeps Unavailable; only Synchronized leaves it.
@@ -705,6 +691,7 @@ internal class CodexSession(
     }
 
     fun shutdown(failure: EngineFailure) {
+        runtime.host.hostedDrains.retain(ref, route, runtime.turnOwnership, hostedJobs)
         connection.close()
         contextUsage.clear()
         failPending(failure)

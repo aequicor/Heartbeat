@@ -81,9 +81,6 @@ internal class CodexRuntime(
             null
         }
     }
-    override val features: EngineFeatures = CodexFeatures(this, providerUsage, CodexSessionTrees(this, rpc), blocked = {
-        if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
-    })
 
     /** Broadcast invalidations, never a second consumer of the RPC request/event channel. */
     internal val treeChanges = MutableSharedFlow<Unit>(
@@ -94,6 +91,20 @@ internal class CodexRuntime(
     private val sessions = mutableMapOf<String, CodexSession>()
     private val connections = mutableSetOf<CodexConnection>()
     private val commands = Mutex()
+    val ownedTurns = CodexOwnedTurns(this, launch, sessions, commands)
+    override val features: EngineFeatures = CodexFeatures(
+        this,
+        providerUsage,
+        CodexSessionTrees(
+            this,
+            rpc,
+        ),
+        ownedTurns,
+        blocked = {
+            if (isClosed) EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed) else null
+        },
+    )
+
     private var account: List<String?>? = null
     private var isUsageAccountTrusted = false
     private var usageAccountEpoch = 0L
@@ -256,6 +267,7 @@ internal class CodexRuntime(
             }
             val route =
                 ExecutionRoute(identity.engine, target.binding, identity.source, identity.revision, workspace)
+            if (ownedTurns.isReserved(nativeId)) fail(EngineFailure.Session(SessionFailureReason.Busy))
             val existing = sessions[nativeId]
             if (existing != null) {
                 if (existing.route != route || existing.target != target) {
@@ -346,7 +358,7 @@ internal class CodexRuntime(
 
     /** Last-handle release keeps active native work alive, then retires only that idle execution process. */
     fun release(session: CodexSession) {
-        if (isClosed || !session.isUnused) return
+        if (isClosed || !session.isUnused || ownedTurns.isReserved(session.ref.nativeId)) return
         profile.coroutineScope.launch { commands.withLock { retireUnused(session) } }
     }
 
@@ -355,7 +367,11 @@ internal class CodexRuntime(
     }
 
     private suspend fun retireLocked(session: CodexSession) {
-        if (sessions[session.ref.nativeId] !== session || !session.isUnused) return
+        if (sessions[session.ref.nativeId] !== session || !session.isUnused ||
+            ownedTurns.isReserved(session.ref.nativeId)
+        ) {
+            return
+        }
         try {
             materialize(session)
         } catch (e: CancellationException) {
@@ -363,7 +379,9 @@ internal class CodexRuntime(
         } catch (e: EngineException) {
             log.w(e) { "Empty Codex thread could not be persisted before closing its process" }
         } finally {
-            if (sessions[session.ref.nativeId] === session && session.isUnused) {
+            if (sessions[session.ref.nativeId] === session && session.isUnused &&
+                !ownedTurns.isReserved(session.ref.nativeId)
+            ) {
                 sessions.remove(session.ref.nativeId)
                 connections.remove(session.connection)
                 session.shutdown(EngineFailure.Session(SessionFailureReason.NotResumable))
@@ -396,8 +414,10 @@ internal class CodexRuntime(
     private fun connectionFailed(connection: CodexConnection, failure: EngineFailure) {
         val affected = sessions.values.filter { it.connection === connection }
         affected.forEach { session ->
-            sessions.remove(session.ref.nativeId)
-            session.shutdown(failure)
+            if (!session.stopping.owns(connection)) {
+                sessions.remove(session.ref.nativeId)
+                session.shutdown(failure)
+            }
         }
         connections.remove(connection)
         connection.close()

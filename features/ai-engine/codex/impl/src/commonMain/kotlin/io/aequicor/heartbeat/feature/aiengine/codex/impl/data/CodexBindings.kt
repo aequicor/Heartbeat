@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -87,6 +88,7 @@ public object CodexBindings {
                 AttachesSessions.id,
                 SendsPrompts.id,
                 CancelsTurns.id,
+                StopsOwnedTurns.id,
                 RequestsPermissions.id,
                 AppliesTrustLevels.id,
                 SessionHistory.id,

@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CancellationException
@@ -39,7 +40,7 @@ internal class CodexSubmissions(
                 fail(EngineFailure.Session(SessionFailureReason.Busy))
             }
             val turn = Turn(TurnId(Uuid.random().toString()), request.id, session.target)
-            val submission = CodexSubmission(turn, session.hostedJobs::revoke)
+            val submission = CodexSubmission(turn, session.hostedJobs::revoke, request.trust ?: TrustLevel.Ask)
             entry = submission
             pending = submission
             return session.connectionMutex.withLock {
@@ -72,6 +73,12 @@ internal class CodexSubmissions(
                 finish(submission)
             }
         }
+    }
+
+    /** The stop coordinator calls this only after persisting and applying the exact terminal receipt. */
+    fun release(submission: CodexSubmission) {
+        check(submission.isStopRequested && submission.boundary.isCompleted)
+        if (pending === submission) pending = null
     }
 
     /** Identity check prevents old cleanup from clearing a newer request; revoked entries require a receipt. */

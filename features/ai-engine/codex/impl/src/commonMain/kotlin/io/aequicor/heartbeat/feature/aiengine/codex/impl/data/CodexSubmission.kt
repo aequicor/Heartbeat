@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CompletableDeferred
@@ -13,7 +14,11 @@ import kotlinx.coroutines.Deferred
  * releasing the caller's acceptance wait does not discard its pre-native boundary or allow a delayed send.
  * The boundary describes possible native execution, independently of the potentially lost acceptance reply.
  */
-internal class CodexSubmission(val turn: Turn, private val revoke: (TurnId) -> Unit = {}) {
+internal class CodexSubmission(
+    val turn: Turn,
+    private val revoke: (TurnId) -> Unit = {},
+    val trust: TrustLevel = TrustLevel.Ask,
+) {
     val accepted = CompletableDeferred<TurnId>()
     private val prepared = CompletableDeferred<CodexSubmissionBoundary>()
     val boundary: Deferred<CodexSubmissionBoundary> get() = prepared

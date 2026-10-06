@@ -151,6 +151,7 @@ internal class Fixture(
     manifests: CodexToolManifests = MemoryCodexToolManifests(),
     turns: CodexTurnRecords = MemoryCodexTurnRecords(),
     launch: PreparedCodexLaunch? = null,
+    hostedDrains: CodexHostedDrains = CodexHostedDrains(),
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -225,6 +226,7 @@ internal class Fixture(
         tools = tools,
         manifests = manifests,
         turns = turns,
+        hostedDrains = hostedDrains,
         resources = ResourceResolver { resources.resolve(it) },
     )
     val runtime = CodexRuntime(
