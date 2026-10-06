@@ -29,7 +29,9 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 import kotlin.time.Duration
 
 /**
@@ -114,6 +116,7 @@ internal data class SidebarInput(
     val sidebar: SidebarUi,
     val selectedId: String?,
     val newSessionProjectId: String?,
+    val awaitingPermission: ImmutableSet<String> = persistentSetOf(),
 )
 
 /** Rename origin of the header of [paneId]. */
@@ -235,6 +238,7 @@ internal fun AiStudioScreenState.sidebarInput(): SidebarInput {
     return SidebarInput(
         projects = projects,
         sessions = sessions,
+        awaitingPermission = permissions.map { it.sessionId }.toImmutableSet(),
         running = running,
         sidebar = sidebar,
         selectedId = focused?.sessionId,

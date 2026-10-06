@@ -45,9 +45,15 @@ data class SessionUi(
     val isAwaitingChecklist: Boolean = false,
     val isReady: Boolean = false,
     val scheduledWait: SessionWaitUi? = null,
+    val parentChatId: String? = null,
+    /** Sidebar-only indentation, derived after filtering and grouping the visible helper tree. */
+    val depth: Int = 0,
+    val isAwaitingPermission: Boolean = false,
+    /** A real parent exists outside the search filter; nested chats inherit that root's sidebar section. */
+    val isNestedInSidebar: Boolean = false,
 ) {
     /** Work is pending even when no engine turn is currently executing. */
-    val isWaiting: Boolean get() = scheduledWait != null || isAwaitingChecklist
+    val isWaiting: Boolean get() = isAwaitingPermission || scheduledWait != null || isAwaitingChecklist
 }
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */

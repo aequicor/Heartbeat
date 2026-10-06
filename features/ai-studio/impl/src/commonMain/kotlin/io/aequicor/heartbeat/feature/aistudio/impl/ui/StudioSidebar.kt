@@ -71,8 +71,8 @@ internal fun StudioSidebar(
     isDrawer: Boolean = false,
 ) {
     val sidebar = input.sidebar
-    val content = remember(input.projects, input.sessions, input.running, sidebar) {
-        sidebarContent(input.projects, input.sessions, input.running, sidebar)
+    val content = remember(input.projects, input.sessions, input.running, input.awaitingPermission, sidebar) {
+        sidebarContent(input.projects, input.sessions, input.running, sidebar, input.awaitingPermission)
     }
     var openMenu by remember { mutableStateOf<String?>(null) }
     var isPinnedExpanded by remember { mutableStateOf(true) }
