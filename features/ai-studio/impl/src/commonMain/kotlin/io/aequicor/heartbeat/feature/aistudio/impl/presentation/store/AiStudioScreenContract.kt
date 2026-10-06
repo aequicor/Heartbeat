@@ -22,7 +22,10 @@ enum class SidebarMode { Workspace, Archive }
 @Immutable
 data class ProjectUi(val id: String, val name: String, val environment: EnvironmentUi, val branch: String)
 
-/** A session row; [isRunning] comes from the machine, everything else from the repository. */
+/** A pending scheduler wake, distinct from a currently executing engine turn. */
+enum class SessionWaitUi { Sleeping, WaitingForEvent }
+
+/** A session row; execution and scheduled waits come from their machines, metadata from the repository. */
 @Immutable
 data class SessionUi(
     val id: String,
@@ -41,7 +44,11 @@ data class SessionUi(
     val isOrganism: Boolean = false,
     val isAwaitingChecklist: Boolean = false,
     val isReady: Boolean = false,
-)
+    val scheduledWait: SessionWaitUi? = null,
+) {
+    /** Work is pending even when no engine turn is currently executing. */
+    val isWaiting: Boolean get() = scheduledWait != null || isAwaitingChecklist
+}
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */
 @Immutable

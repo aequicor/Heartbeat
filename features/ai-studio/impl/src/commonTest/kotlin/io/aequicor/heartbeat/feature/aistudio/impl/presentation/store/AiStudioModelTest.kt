@@ -65,6 +65,15 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
+import io.aequicor.heartbeat.feature.scheduler.api.WakeId
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DisposableHandle
@@ -476,6 +485,30 @@ class AiStudioModelTest {
         assertEquals(ready.panes.map { it.sessionId }, screen.states.value.panes.map { it.sessionId })
     }
 
+    @Test
+    fun `scheduler updates sleeping status without a repository emission`() = runTest {
+        val fixture = Fixture(this, ready, computerRepository(nativeSession))
+        val screen = fixture.subscribe()
+        val now = TestClock(this).now()
+        val wake = ScheduledWake(
+            WakeRequest(
+                WakeId("timer"),
+                nativeSession,
+                null,
+                WakeCondition(deadline = now),
+                "Continue",
+                WakeOrigin.Feature("test"),
+            ),
+            now,
+        )
+        fixture.efforts.scheduler.state.value = SchedulerState.Ready(listOf(wake))
+        runCurrent()
+        assertEquals(SessionWaitUi.Sleeping, screen.states.value.session("s-facade")?.scheduledWait)
+        fixture.efforts.scheduler.state.value = SchedulerState.Ready()
+        runCurrent()
+        assertEquals(null, screen.states.value.session("s-facade")?.scheduledWait)
+    }
+
     private fun TestScope.computerRepository(ref: SessionRef?): StudioRepository {
         val workspace = StudioWorkspace(
             emptyList(),
@@ -644,6 +677,7 @@ private class FakeEfforts :
     override val state = MutableStateFlow<EffortConfigurationState>(EffortConfigurationState.Ready())
     val sent = mutableListOf<Any>()
     val computerUse = FakeComputerUseMachine()
+    val scheduler = FakeSchedulerMachine()
 
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> find(
         key: MachineKey<S, I, P, E, O>,
@@ -652,11 +686,16 @@ private class FakeEfforts :
     @Suppress("UNCHECKED_CAST")
     override fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> observe(
         key: MachineKey<S, I, P, E, O>,
-    ): StateFlow<MachineRef<S, P, O>?> = if (key == ComputerUseMachineKey) {
-        MutableStateFlow<MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>?>(computerUse) as
-            StateFlow<MachineRef<S, P, O>?>
-    } else {
-        MutableStateFlow(null)
+    ): StateFlow<MachineRef<S, P, O>?> = when (key) {
+        ComputerUseMachineKey ->
+            MutableStateFlow<MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput>?>(computerUse) as
+                StateFlow<MachineRef<S, P, O>?>
+
+        SchedulerMachineKey ->
+            MutableStateFlow<MachineRef<SchedulerState, SchedulerIntent.Public, SchedulerOutput>?>(scheduler) as
+                StateFlow<MachineRef<S, P, O>?>
+
+        else -> MutableStateFlow(null)
     }
 
     override suspend fun <S : MachineState, I : MachineIntent, P : I, E : MachineEffect, O : MachineOutput> send(
@@ -685,6 +724,14 @@ private class FakeComputerUseMachine : Machine<ComputerUseState, ComputerUseInte
     override val outputs = MutableSharedFlow<ComputerUseOutput>()
 
     override suspend fun send(intent: ComputerUseIntent): SendResult = SendResult.Accepted
+}
+
+private class FakeSchedulerMachine : Machine<SchedulerState, SchedulerIntent, SchedulerOutput> {
+    override val name = "scheduler"
+    override val state = MutableStateFlow<SchedulerState>(SchedulerState.Loading)
+    override val outputs = MutableSharedFlow<SchedulerOutput>()
+
+    override suspend fun send(intent: SchedulerIntent): SendResult = SendResult.Accepted
 }
 
 private class TestDispatchers(dispatcher: kotlinx.coroutines.CoroutineDispatcher) : DispatcherProvider {

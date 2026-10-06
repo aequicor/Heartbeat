@@ -95,7 +95,7 @@ internal class SessionRows(
             contentColor = HbTheme.colors.textPrimary,
         ) { isActive ->
             val areActionsVisible = isActive || isMenuOpen
-            if (session.isRunning || !areActionsVisible) {
+            if (session.isRunning || session.isWaiting || !areActionsVisible) {
                 SessionIndicator(session)
             }
             if (areActionsVisible) {
@@ -140,6 +140,13 @@ private fun SessionIndicator(session: SessionUi) {
         when {
             session.isRunning -> HbActivityIndicator(Modifier.testTag("session-running-${session.id}"))
 
+            session.scheduledWait != null -> HbIcon(
+                session.waitIcon(),
+                session.waitStatusLabel(),
+                Modifier.testTag("session-waiting-${session.id}"),
+                tint = foreground,
+            )
+
             session.isReady -> HbIcon(HbIcons.Check, session.checklistStatusLabel(), tint = foreground)
 
             session.isAwaitingChecklist -> HbIcon(HbIcons.Chat, session.checklistStatusLabel(), tint = foreground)
@@ -156,7 +163,7 @@ private fun SessionIndicator(session: SessionUi) {
 @Composable
 private fun sessionStatus(session: SessionUi): String = listOfNotNull(
     stringResource(Res.string.session_running).takeIf { session.isRunning },
-    session.checklistStatusLabel(),
+    session.waitStatusLabel(),
     stringResource(Res.string.session_unread).takeIf { session.isUnread },
     session.branch?.let { stringResource(Res.string.session_branch, it) },
 ).joinToString(", ")

@@ -629,7 +629,11 @@ private fun PaneFooter(
     ) {
         val column = Modifier.widthIn(max = HbTheme.dimensions.composerMaxWidth).fillMaxWidth()
         ModelConnectionHint(content, column)
-        if (content.session?.isRunning == true) RunStatus(content.isStopping, content.elapsed, column)
+        if (content.session?.isRunning == true) {
+            RunStatus(content.isStopping, content.elapsed, column)
+        } else if (content.session?.isWaiting == true) {
+            SessionWaitStatus(content.session, column)
+        }
         if (content.isSubmitFailed) {
             HbBadge(stringResource(Res.string.submit_failed), column, tone = HbTone.Danger)
         }

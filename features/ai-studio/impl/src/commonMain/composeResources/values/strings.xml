@@ -254,5 +254,7 @@
     <string name="session_tree_cancelled">cancelled</string>
     <string name="session_tree_failed">failed</string>
     <string name="session_checklist_waiting">Awaiting verification</string>
+    <string name="session_sleeping">Sleeping</string>
+    <string name="session_waiting_event">Waiting for an event</string>
     <string name="session_checklist_ready">Ready</string>
 </resources>

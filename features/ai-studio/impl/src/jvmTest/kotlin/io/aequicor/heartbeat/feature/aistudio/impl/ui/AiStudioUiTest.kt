@@ -21,6 +21,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -39,6 +40,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionOptionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PermissionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionWaitUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
@@ -48,7 +50,10 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.toUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_checklist_waiting
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_running
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_sleeping
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_waiting_event
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.stopping
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
@@ -312,6 +317,95 @@ class AiStudioUiTest {
         onNode(runStatus and hasText(stoppingLabel)).assertDoesNotExist()
         runOnIdle { state = state.copy(stopping = persistentSetOf("s-facade")) }
         onNode(runStatus and hasText(stoppingLabel)).assertIsDisplayed()
+    }
+
+    @Test
+    fun `sleep and event wait replace running status and remain visible on hover`() = runSkikoComposeUiTest(
+        size = Size(1280f, 900f),
+    ) {
+        var sleepingLabel = ""
+        var waitingLabel = ""
+        var state by mutableStateOf(
+            workspace.copy(
+                panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                running = persistentSetOf("s-facade"),
+                transcripts = transcriptsOf("s-facade"),
+                sessions = workspace.sessions.map {
+                    if (it.id == "s-facade") it.copy(scheduledWait = SessionWaitUi.Sleeping) else it
+                }.toImmutableList(),
+            ),
+        )
+        setContent {
+            sleepingLabel = stringResource(Res.string.session_sleeping)
+            waitingLabel = stringResource(Res.string.session_waiting_event)
+            HbTheme(darkTheme = false) { AiStudioContent(state, {}, exits) }
+        }
+        onNodeWithTag("run-status").assertIsDisplayed()
+        onNodeWithTag("session-wait-status").assertDoesNotExist()
+        runOnIdle { state = state.copy(running = persistentSetOf()) }
+        onNodeWithTag("session-s-facade").performMouseInput { moveTo(center) }
+        onNodeWithTag("session-waiting-s-facade", useUnmergedTree = true).assertIsDisplayed()
+        onNodeWithTag("run-status").assertDoesNotExist()
+        onNode(hasAnyAncestor(hasTestTag("session-wait-status")) and hasText(sleepingLabel)).assertIsDisplayed()
+        save("studio-sleeping", captureToImage().toAwtImage())
+        runOnIdle {
+            state = state.copy(
+                sessions = state.sessions.map {
+                    if (it.id == "s-facade") it.copy(scheduledWait = SessionWaitUi.WaitingForEvent) else it
+                }.toImmutableList(),
+            )
+        }
+        onNode(hasAnyAncestor(hasTestTag("session-wait-status")) and hasText(waitingLabel)).assertIsDisplayed()
+        runOnIdle { state = state.copy(running = persistentSetOf("s-facade")) }
+        onNodeWithTag("run-status").assertIsDisplayed()
+        onNodeWithTag("session-wait-status").assertDoesNotExist()
+        runOnIdle {
+            state = state.copy(
+                running = persistentSetOf(),
+                sessions = state.sessions.map { it.copy(scheduledWait = null) }.toImmutableList(),
+            )
+        }
+        onNodeWithTag("session-waiting-s-facade", useUnmergedTree = true).assertDoesNotExist()
+        onNodeWithTag("session-wait-status").assertDoesNotExist()
+    }
+
+    @Test
+    fun `waiting status fits both themes and window widths and checklist remains visible on hover`() {
+        for ((width, isDark) in listOf(1280f to false, 420f to false, 1280f to true, 420f to true)) {
+            runSkikoComposeUiTest(size = Size(width, 900f)) {
+                var checklistLabel = ""
+                var state by mutableStateOf(
+                    workspace.copy(
+                        panes = persistentListOf(PaneUi(0, sessionId = "s-facade")),
+                        transcripts = transcriptsOf("s-facade"),
+                        sessions = workspace.sessions.map {
+                            if (it.id == "s-facade") it.copy(scheduledWait = SessionWaitUi.WaitingForEvent) else it
+                        }.toImmutableList(),
+                    ),
+                )
+                setContent {
+                    checklistLabel = stringResource(Res.string.session_checklist_waiting)
+                    HbTheme(darkTheme = isDark) { AiStudioContent(state, {}, exits) }
+                }
+                onNodeWithTag("session-wait-status").assertIsDisplayed()
+                save("studio-waiting-$width-$isDark", captureToImage().toAwtImage())
+                runOnIdle { state = state.copy(sidebar = state.sidebar.copy(isDrawerOpen = true)) }
+                onNodeWithTag("session-s-facade").performMouseInput { moveTo(center) }
+                onNodeWithTag("session-waiting-s-facade", useUnmergedTree = true).assertIsDisplayed()
+                runOnIdle {
+                    state = state.copy(
+                        sessions = state.sessions.map {
+                            if (it.id == "s-facade") {
+                                it.copy(scheduledWait = null, isAwaitingChecklist = true)
+                            } else {
+                                it
+                            }
+                        }.toImmutableList(),
+                    )
+                }
+                onNodeWithContentDescription(checklistLabel, useUnmergedTree = true).assertIsDisplayed()
+            }
+        }
     }
 
     @Test
