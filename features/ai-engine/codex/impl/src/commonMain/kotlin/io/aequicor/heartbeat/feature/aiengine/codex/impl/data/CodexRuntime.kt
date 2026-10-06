@@ -35,7 +35,6 @@ import io.aequicor.heartbeat.feature.questionnaire.api.QuestionnaireEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DisposableHandle
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
@@ -60,7 +59,8 @@ internal class CodexRuntime(
      * Search availability captured at app-server creation. A later toggle change never restarts it;
      * turning the toggle off stops search declarations and calls. Hosted tools always use the experimental API.
      */
-    val isSearchToolsEnabled: Boolean = false,
+    val isSearchToolsEnabled: Boolean,
+    private val launch: PreparedCodexLaunch,
 ) : EngineRuntime,
     CreatesSessions,
     AttachesSessions {
@@ -99,8 +99,7 @@ internal class CodexRuntime(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     private val sessions = mutableMapOf<String, CodexSession>()
-    private val early = mutableListOf<JsonObject>()
-    private var isOpening = false
+    private val connections = mutableSetOf<CodexConnection>()
     private val commands = Mutex()
     private var account: List<String?>? = null
     private var isUsageAccountTrusted = false
@@ -138,9 +137,9 @@ internal class CodexRuntime(
     suspend fun usageEnabled(): Boolean = toggles.get(EngineUsageEnabled)
     suspend fun questionsEnabled(): Boolean = toggles.get(QuestionnaireEnabled)
 
-    suspend fun checkAccount() {
+    suspend fun checkAccount(connection: CodexRpc = rpc) {
         ensureOpen()
-        val current = rpc.request(
+        val current = connection.request(
             "account/read",
             json("refreshToken" to JsonPrimitive(false)),
         )["account"] as? JsonObject
@@ -265,13 +264,7 @@ internal class CodexRuntime(
                 ensureOpen()
                 existing.lease().also { existing.recheck() }
             } else {
-                isOpening = true
-                try {
-                    openNative(nativeId, target, route, areDetachedToolsEnabled)
-                } finally {
-                    isOpening = false
-                    withContext(NonCancellable) { dropEarly() }
-                }
+                openNative(nativeId, target, route, areDetachedToolsEnabled)
             }
         }
     }
@@ -282,13 +275,43 @@ internal class CodexRuntime(
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
     ): ActiveSession {
+        val connection = openConnection()
+        var attached: CodexSession? = null
+        var isTransferred = false
+        try {
+            val session = attachNative(nativeId, target, route, areDetachedToolsEnabled, connection)
+            attached = session
+            ensureOpen()
+            sessions[session.ref.nativeId] = session
+            connection.bind(session)
+            val lease = session.lease()
+            isTransferred = true
+            log.i { "Codex session attached" }
+            return lease
+        } finally {
+            if (!isTransferred) {
+                attached?.shutdown(EngineFailure.Session(SessionFailureReason.NotResumable))
+                connections.remove(connection)
+                connection.close()
+            }
+        }
+    }
+
+    private suspend fun attachNative(
+        nativeId: String?,
+        target: EngineTarget,
+        route: ExecutionRoute,
+        areDetachedToolsEnabled: Boolean,
+        connection: CodexConnection,
+    ): CodexSession {
+        val rpc = connection.rpc
         val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
         val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
             detachedOpening(nativeId, target)
         } else {
             hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
         }
-        val params = threadParams(
+        val params = rpc.threadParams(
             nativeId,
             target,
             route.workspace,
@@ -305,9 +328,10 @@ internal class CodexRuntime(
             route,
             target,
             this,
-            rpc,
+            connection,
             hosted.isServed,
         )
+        var isLoaded = false
         try {
             val isUnpaged = listOf("turnsBackwardsCursor", "itemsBackwardsCursor").all { field ->
                 val cursor = response[field]
@@ -318,16 +342,11 @@ internal class CodexRuntime(
                 isNew = nativeId == null,
                 isCanonical = thread.text("historyMode") == "paginated" && isUnpaged,
             )
-        } catch (e: EngineException) {
-            session.shutdown(e.failure)
-            throw e
+            isLoaded = true
+        } finally {
+            if (!isLoaded) session.shutdown(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        sessions[id] = session
-        val queued = early.filter { it.obj("params").text("threadId") == id }
-        early.removeAll(queued.toSet())
-        queued.forEach { session.event(it) }
-        log.i { "Codex session attached" }
-        return session.lease()
+        return session
     }
 
     /** Hosted tools of a thread being opened; a thread [isEligible] for them fails to open when they fail. */
@@ -429,7 +448,7 @@ internal class CodexRuntime(
         }
     }
 
-    private suspend fun threadParams(
+    private suspend fun CodexRpc.threadParams(
         nativeId: String?,
         target: EngineTarget,
         workspace: WorkspaceRef?,
@@ -451,7 +470,7 @@ internal class CodexRuntime(
         val declarations = hosted?.first.orEmpty() + search
         val instructions = hosted?.second.orEmpty()
         val isolation = codexIsolationConfig(
-            rpc,
+            this,
             path,
             search = tools.isSearchEnabled,
             questions = questionsEnabled(),
@@ -505,13 +524,15 @@ internal class CodexRuntime(
 
     private fun sessionRef(nativeId: String): SessionRef = SessionRef(identity.engine, config.historySource, nativeId)
 
+    /** Shared metadata observations never route execution frames into a session. */
     private suspend fun event(message: JsonObject) {
+        observeMetadata(message)
+        message["id"]?.let { rpc.reject(it) }
+    }
+
+    private suspend fun observeMetadata(message: JsonObject) {
         if (message.isTreeChange()) treeChanges.tryEmit(Unit)
-        val params = message["params"] as? JsonObject
-        if (params == null) {
-            message["id"]?.let { rpc.reject(it) }
-            return
-        }
+        val params = message["params"] as? JsonObject ?: return
         if (message.text("method") == "account/rateLimits/updated" && isUsageAccountTrusted && usageEnabled()) {
             providerUsage.receive(params)
         }
@@ -519,32 +540,84 @@ internal class CodexRuntime(
             providerUsage.clear()
             isUsageAccountTrusted = false
             usageAccountEpoch++
-            // The next operation revalidates account/read; an active turn remains observable.
             log.i { "Codex account observation changed" }
-        }
-        val id = params.text("threadId")
-        val session = sessions[id]
-        if (session != null) {
-            session.event(message)
-        } else if (id != null && isOpening) {
-            if (early.size >= EARLY_LIMIT) protocolFailure()
-            early += message
-        } else if (message["id"] != null) {
-            rpc.reject(checkNotNull(message["id"]))
         }
     }
 
-    /** Events of threads nobody is opening are never replayed; unanswered server requests would block Codex. */
-    private suspend fun dropEarly() {
-        val dropped = early.toList()
-        early.clear()
-        if (dropped.isNotEmpty()) log.w { "Codex dropped ${dropped.size} events of unopened threads" }
+    /** A separate process prevents a policy reload from interrupting another session's active turn. */
+    private suspend fun openConnection(): CodexConnection {
+        ensureOpen()
+        val peer = CodexRpc(launch.open(), profile.coroutineScope)
+        val connection = CodexConnection(peer, profile.coroutineScope, ::observeMetadata, ::connectionFailed)
+        connections += connection
+        var isTransferred = false
         try {
-            dropped.mapNotNull { it["id"] }.forEach { rpc.reject(it) }
-        } catch (e: EngineException) {
-            // Runs in finally: a broken wire must not replace the open result; the reader retires the runtime.
-            log.w(e) { "Codex could not reject dropped requests" }
+            ensureOpen()
+            peer.initialize(experimentalApi = true)
+            if (peer.home != rpc.home) {
+                fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            }
+            checkAccount(peer)
+            ensureOpen()
+            isTransferred = true
+            return connection
+        } finally {
+            if (!isTransferred) {
+                connections.remove(connection)
+                connection.close()
+            }
         }
+    }
+
+    /** Last-handle release keeps active native work alive, then retires only that idle execution process. */
+    fun release(session: CodexSession) {
+        if (isClosed || !session.isUnused) return
+        profile.coroutineScope.launch { commands.withLock { retireUnused(session) } }
+    }
+
+    private suspend fun retireUnused(session: CodexSession) {
+        if (sessions[session.ref.nativeId] !== session || !session.isUnused) return
+        try {
+            materialize(session)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: EngineException) {
+            log.w(e) { "Empty Codex thread could not be persisted before closing its process" }
+        } finally {
+            if (sessions[session.ref.nativeId] === session && session.isUnused) {
+                sessions.remove(session.ref.nativeId)
+                connections.remove(session.connection)
+                session.shutdown(EngineFailure.Session(SessionFailureReason.NotResumable))
+                log.i { "Unused Codex execution process closed" }
+            }
+        }
+    }
+
+    /** Empty legacy threads need a persisted name before cold resume can find their unchanged id. */
+    private suspend fun materialize(session: CodexSession) {
+        if (!session.isMaterializationRequired) return
+        val peer = session.connection.rpc
+        val thread = peer.request(
+            "thread/read",
+            json("threadId" to session.ref.nativeId.json(), "includeTurns" to JsonPrimitive(false)),
+        ).obj("thread")
+        if (thread.text("id") != session.ref.nativeId) protocolFailure()
+        peer.request(
+            "thread/name/set",
+            json("threadId" to session.ref.nativeId.json(), "name" to (thread.text("name") ?: "Heartbeat").json()),
+        )
+    }
+
+    private fun connectionFailed(connection: CodexConnection, failure: EngineFailure) {
+        val affected = sessions.values.filter { it.connection === connection }
+        affected.forEach { session ->
+            sessions.remove(session.ref.nativeId)
+            session.shutdown(failure)
+        }
+        connections.remove(connection)
+        connection.close()
+        treeChanges.tryEmit(Unit)
+        log.v { "Codex readers invalidated by execution failure" }
     }
 
     private fun shutdown(failure: EngineFailure) {
@@ -557,6 +630,8 @@ internal class CodexRuntime(
         usageObserver.cancel()
         sessions.values.forEach { it.shutdown(failure) }
         sessions.clear()
+        connections.toList().forEach { it.close() }
+        connections.clear()
         rpc.close()
         cleanup?.dispose()
         cleanup = null
@@ -575,8 +650,6 @@ internal class CodexRuntime(
     }
 
     private companion object {
-        const val EARLY_LIMIT = 512
-
         // app-server v2 wire spellings (AskForApproval, SandboxMode), not the Rust variant names.
         const val APPROVAL_POLICY = "never"
         const val SANDBOX_MODE = "read-only"

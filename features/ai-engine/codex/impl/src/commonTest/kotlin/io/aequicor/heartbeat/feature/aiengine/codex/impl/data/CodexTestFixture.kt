@@ -62,30 +62,51 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
-internal class FakeWire : CodexWire {
-    val incoming = Channel<JsonObject>(Channel.UNLIMITED)
-    val written = mutableListOf<JsonObject>()
-    var handler: suspend (JsonObject) -> Unit = { message ->
-        if (message["id"] != null && message["method"] != null) reply(message, JsonObject(emptyMap()))
+/** Shared journal keeps existing assertions readable while each execution process has an independent channel. */
+internal class FakeWire private constructor(private val journal: WireJournal) : CodexWire {
+    constructor() : this(WireJournal()) {
+        journal.root = this
+        journal.handler = { message ->
+            if (message["id"] != null && message["method"] != null) reply(message, JsonObject(emptyMap()))
+        }
     }
+    val incoming = Channel<JsonObject>(Channel.UNLIMITED)
+    val written get() = journal.written
+    val peers get() = journal.peers.toList()
+    var handler: suspend (JsonObject) -> Unit
+        get() = journal.handler
+        set(value) {
+            journal.handler = value
+        }
     var isClosed = false
     override val messages = incoming.receiveAsFlow()
+    fun fork(): FakeWire = FakeWire(journal).also { journal.peers += it }
+    fun origin(request: JsonObject): FakeWire = journal.origins.lastOrNull { it.first === request }?.second ?: this
     override suspend fun write(message: JsonObject) {
         written += message
+        journal.origins += message to this
         handler(message)
     }
     suspend fun reply(request: JsonObject, result: JsonObject) {
-        incoming.send(
-            json("id" to checkNotNull(request["id"]), "result" to result),
-        )
+        val source = origin(request)
+        if (request.text("method") in setOf("thread/start", "thread/resume")) {
+            (result["thread"] as? JsonObject)?.text("id")?.let { journal.threads[it] = source }
+        }
+        source.incoming.send(json("id" to checkNotNull(request["id"]), "result" to result))
     }
     suspend fun error(request: JsonObject) {
-        incoming.send(
+        origin(request).incoming.send(
             json("id" to checkNotNull(request["id"]), "error" to json("code" to JsonPrimitive(INVALID_PARAMS))),
         )
     }
     suspend fun event(method: String, params: JsonObject, id: JsonElement? = null) {
-        incoming.send(
+        val thread = params.text("threadId")
+        val target = if (this === journal.root && thread != null) {
+            journal.threads[thread] ?: journal.peers.lastOrNull() ?: this
+        } else {
+            this
+        }
+        target.incoming.send(
             JsonObject(
                 mapOf("method" to method.json(), "params" to params) +
                     if (id == null) emptyMap() else mapOf("id" to id),
@@ -97,6 +118,14 @@ internal class FakeWire : CodexWire {
         incoming.close()
     }
 
+    private class WireJournal {
+        var root: FakeWire? = null
+        val peers = mutableListOf<FakeWire>()
+        val written = mutableListOf<JsonObject>()
+        val origins = mutableListOf<Pair<JsonObject, FakeWire>>()
+        val threads = mutableMapOf<String, FakeWire>()
+        var handler: suspend (JsonObject) -> Unit = {}
+    }
     private companion object {
         const val INVALID_PARAMS = -32602
     }
@@ -114,6 +143,7 @@ internal class Fixture(
     tools: io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools =
         AllowedSearchTools,
     manifests: CodexToolManifests = MemoryCodexToolManifests(),
+    launch: PreparedCodexLaunch? = null,
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -185,6 +215,9 @@ internal class Fixture(
         rpc,
         environment,
         searchTools,
+        launch ?: object : PreparedCodexLaunch {
+            override suspend fun open(): CodexWire = wire.fork()
+        },
     )
     init {
         wire.handler = { message ->
@@ -220,7 +253,7 @@ internal class Fixture(
 
                 "turn/start" -> onTurn(message)
 
-                "turn/interrupt" -> wire.reply(message, JsonObject(emptyMap()))
+                "turn/interrupt", "thread/name/set" -> wire.reply(message, JsonObject(emptyMap()))
 
                 "initialize" -> wire.reply(message, JsonObject(emptyMap()))
             }
