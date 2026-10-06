@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aiengine.connections.api.EngineConnectionsS
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethodId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -40,6 +41,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
+import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -185,6 +187,7 @@ class StudioEngineIntegrationTest {
     @Test
     fun `parentless helper opens its explicit workspace and retains marker after native reopen`() = runStudioTest {
         TestAdapter.isLocalWorkspaceSupported = true
+        TestAdapter.isTrustSupported = true
         try {
             val services = configured()
             val directory = File(persisted.storageRoot, "helper-workspace").apply { mkdirs() }
@@ -194,10 +197,17 @@ class StudioEngineIntegrationTest {
             val helper = helpers.createHelper(
                 HelperCreateRequest(ActionId("workflow"), null, workspace, target, "Helper", TrustLevel.Ask),
             )
+            seedHelperFullApproval(services, helper)
             val run = startAcceptedRun(services.studioRuntime, helper.value, "Hello", services.studioRuntime.defaults())
             val engine = TestAdapter.runtimes.single()
             val native = engine.natives.single()
             assertEquals(workspace, engine.createdRequests.single().workspace)
+            assertEquals(TrustLevel.Ask, native.sent.single().trust)
+            assertTrue(
+                native.sent.single().parts.filterIsInstance<ContentPart.Text>().any {
+                    it.text.contains("Do not call scheduler_sleep")
+                },
+            )
             assertTrue(helpers.isHelper(native.ref))
             native.finish()
             assertEquals(RunOutcome.Completed, run.await())
@@ -229,7 +239,38 @@ class StudioEngineIntegrationTest {
             assertEquals(before, services.studioRepository.observeWorkspace().first().sessions.size)
         } finally {
             TestAdapter.isLocalWorkspaceSupported = false
+            TestAdapter.isTrustSupported = false
         }
+    }
+
+    private suspend fun seedHelperFullApproval(services: AiEngineTestAccessors, helper: HelperId) {
+        val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
+        val key = jsonKey("chats", JsonArray.serializer())
+        val full = StudioSessionSettings(services.studioRuntime.defaults().modelId, approval = ApprovalMode.AutoApprove)
+        val configuration = Json.encodeToJsonElement(StudioSessionSettings.serializer(), full)
+        val records = requireNotNull(store.get(key)).map { record ->
+            if (record.jsonObject["id"] == JsonPrimitive(helper.value)) {
+                JsonObject(record.jsonObject + ("configuration" to configuration))
+            } else {
+                record
+            }
+        }
+        store.set(key, JsonArray(records))
+        services.studioRuntime.state.first { it.configurations[helper.value]?.applied == full }
+    }
+
+    @Test
+    fun `helper refuses native default when engine cannot enforce its trust cap`() = runStudioTest {
+        val services = configured()
+        val target = requireNotNull(services.modelSelections.observe().first().defaultTarget)
+        val helper = services.scheduledSessionHosts.maxBy { it.priority }.createHelper(
+            HelperCreateRequest(ActionId("workflow"), null, null, target, "Helper", TrustLevel.Ask),
+        )
+        assertEquals(
+            RunOutcome.Failed,
+            services.studioRuntime.run(helper.value, "Must not send", services.studioRuntime.defaults()),
+        )
+        assertTrue(TestAdapter.runtimes.single().natives.single().sent.isEmpty())
     }
 
     @Test
