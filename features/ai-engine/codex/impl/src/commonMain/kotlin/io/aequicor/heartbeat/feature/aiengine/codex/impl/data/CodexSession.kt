@@ -41,6 +41,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -53,9 +54,13 @@ internal class CodexSession(
     val route: ExecutionRoute,
     val target: EngineTarget,
     val runtime: CodexRuntime,
-    val connection: CodexConnection,
-    private val areHostedToolsEnabled: Boolean = true,
+    connection: CodexConnection,
+    val areHostedToolsEnabled: Boolean = true,
+    opening: CodexPreparedThread? = null,
 ) {
+    val connectionMutex = Mutex()
+    private val execution = CodexExecution(this, connection, opening, ::connectionChanged, ::auditReopened)
+    val connection get() = execution.connection
     private val rpc get() = connection.rpc
     val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
@@ -65,14 +70,15 @@ internal class CodexSession(
     private val nativeTurns = mutableMapOf<String, TurnId>()
     private val nativeHistory = CodexNativeHistory(ref, history, runtime.host)
     private var isCreatedHere = false
-    val isMaterializationRequired get() = isCreatedHere && nativeTurns.isEmpty()
+    var isMaterialized = false
+    val isMaterializationRequired get() = isCreatedHere && !isMaterialized && nativeTurns.isEmpty()
     val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
     private val hostedRequests = mutableMapOf<PermissionRequestId, PermissionRequest>()
     private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<PermissionDecision?>>()
-    private val questions = CodexUserInput(scope.coroutineScope, connection::respondQuietly, ::awaitDecision)
+    private var questions = CodexUserInput(scope.coroutineScope, connection::respondQuietly, ::awaitDecision)
     private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
@@ -101,27 +107,48 @@ internal class CodexSession(
     suspend fun send(request: PromptRequest): TurnId {
         if (!submitLock.tryLock()) fail(EngineFailure.Session(SessionFailureReason.Busy))
         try {
-            runtime.gate()
-            if (request.parts.any { it !is ContentPart.Text }) runtime.models(target.binding)
-            val prepared = codexPromptInputs(request, runtime.inputSupport(target.model), runtime.host.resources)
-            if (machine.state.value !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
-            validateReasoningEffort(request)
-            val turn = Turn(TurnId(Uuid.random().toString()), request.id, target)
-            runtime.host.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
-            history.rememberOriginals(turn.id, request.parts)
-            inputs[turn.id] = prepared
-            val accepted = CompletableDeferred<TurnId>()
-            submissions[turn.id] = accepted
-            nativeTurn = null
-            val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
-            if (result != SendResult.Accepted) {
-                submissions.remove(turn.id)
-                fail(EngineFailure.Session(SessionFailureReason.Busy))
+            return connectionMutex.withLock {
+                runtime.gate()
+                if (request.parts.any { it !is ContentPart.Text }) runtime.models(target.binding)
+                val prepared = codexPromptInputs(request, runtime.inputSupport(target.model), runtime.host.resources)
+                if (machine.state.value !is ActiveSessionState.Ready) {
+                    fail(
+                        EngineFailure.Session(SessionFailureReason.Busy),
+                    )
+                }
+                validateReasoningEffort(request)
+                execution.prepare()
+                val turn = Turn(TurnId(Uuid.random().toString()), request.id, target)
+                runtime.host.resourceHistory.remember(ref, "request:" + request.id.value, request.parts)
+                history.rememberOriginals(turn.id, request.parts)
+                inputs[turn.id] = prepared
+                val accepted = CompletableDeferred<TurnId>()
+                submissions[turn.id] = accepted
+                nativeTurn = null
+                val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
+                if (result != SendResult.Accepted) {
+                    submissions.remove(turn.id)
+                    fail(EngineFailure.Session(SessionFailureReason.Busy))
+                }
+                accepted.await()
             }
-            return accepted.await()
         } finally {
             submitLock.unlock()
         }
+    }
+
+    fun ensureReadyForPolicy() {
+        runtime.ensureOpen()
+        if (scope.isClosed) fail(EngineFailure.Session(SessionFailureReason.NotResumable))
+        if (machine.state.value !is ActiveSessionState.Ready) fail(EngineFailure.Session(SessionFailureReason.Busy))
+    }
+
+    private fun connectionChanged(source: CodexConnection) {
+        questions = CodexUserInput(scope.coroutineScope, source::respondQuietly, ::awaitDecision)
+    }
+
+    private fun auditReopened(thread: JsonObject) {
+        nativeHistory.audit(thread, nativeTurns.keys)
     }
 
     private suspend fun validateReasoningEffort(request: PromptRequest) {
@@ -267,6 +294,7 @@ internal class CodexSession(
         trust = effect.request.trust ?: TrustLevel.Ask
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
+        confirmSubmission(effect)
         val response = rpc.request(
             "turn/start",
             codexTurnParams(ref.nativeId, target.model.value, input, effect.request.reasoningEffort),
@@ -278,6 +306,21 @@ internal class CodexSession(
         accept(effect.turn)
     }
 
+    // This proven pre-send rejection must settle profile-owned work before propagating provider cancellation.
+    @Suppress("SuspendFunSwallowedCancellation")
+    private suspend fun confirmSubmission(effect: ActiveSessionEffect.Submit) {
+        try {
+            execution.confirm(effect.request.id)
+        } catch (e: CancellationException) {
+            log.i { "Codex policy confirmation cancelled before native submission" }
+            withContext(NonCancellable) {
+                submissions.remove(effect.turn.id)?.completeExceptionally(e)
+                recover(effect, EngineFailure.Request(RequestFailureReason.Invalid, effect.request.id))
+            }
+            throw e
+        }
+    }
+
     /** Reads the native thread; only an idle thread or our own in-progress turn leaves Unavailable. */
     private suspend fun reconcile() {
         val before = machine.state.value
@@ -285,7 +328,8 @@ internal class CodexSession(
             log.i { "Codex recheck skipped: session already available" }
             return
         }
-        val turns = readNativeHistory().orEmpty()
+        val snapshot = readNativeHistory() ?: return
+        val turns = snapshot.turns.orEmpty()
         // A completion or a parallel recheck may have moved the session while the read was in flight.
         // A failure-only update (a concurrent Busy probe) is not a move and must not strand this result.
         val now = machine.state.value
@@ -315,18 +359,30 @@ internal class CodexSession(
     }
 
     /** Audits identity and content without replacing live items with a potentially thinner rollout projection. */
-    private suspend fun readNativeHistory(): List<JsonObject>? {
-        try {
-            val thread = rpc.request(
+    private suspend fun readNativeHistory(): NativeRead? {
+        val origin = connection
+        return try {
+            val thread = origin.rpc.request(
                 "thread/read",
                 json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
             ).obj("thread")
-            return nativeHistory.audit(thread, nativeTurns.keys)
+            if (origin !== connection || origin.isClosed) {
+                null
+            } else {
+                NativeRead(
+                    nativeHistory.audit(thread, nativeTurns.keys),
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: EngineException) {
-            history.seeded(isComplete = false)
-            throw e
+            if (origin !== connection || origin.isClosed) {
+                log.w(e) { "Retired Codex history read discarded" }
+                null
+            } else {
+                history.seeded(isComplete = false)
+                throw e
+            }
         }
     }
 
@@ -691,3 +747,6 @@ internal class CodexSession(
 }
 
 private const val MAX_CLOSED_TOOL_TURNS = 32
+
+/** Null wrapper means a stale read; null turns inside a current wrapper mean missing native history. */
+private data class NativeRead(val turns: List<JsonObject>?)

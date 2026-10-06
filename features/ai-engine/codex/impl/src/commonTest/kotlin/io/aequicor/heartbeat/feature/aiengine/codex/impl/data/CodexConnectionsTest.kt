@@ -4,8 +4,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
@@ -300,6 +304,36 @@ class CodexConnectionsTest {
         assertIs<ActiveSessionState.Unavailable>(first.state.value)
         assertTrue(fixture.wire.peers.all { it.isClosed })
         assertEquals(1, fixture.wire.written.count { it.text("method") == "thread/start" })
+    }
+
+    @Test
+    fun `policy rotation on one session leaves another active process and turn untouched`() = runTest {
+        var restricted: String? = null
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy =
+                if (scope.session != null && scope.session?.nativeId == restricted) {
+                    ResolvedToolPolicy(nativeOff = setOf("shell"), generation = 2)
+                } else {
+                    ResolvedToolPolicy(generation = 1)
+                }
+        }
+        val fixture = Fixture(this, tools = tools).multipleThreads()
+        val first = fixture.open()
+        val second = fixture.open()
+        val otherTurn = second.feature(SendsPrompts).send(Prompt)
+        val activePeer = fixture.wire.peers.last()
+        restricted = first.ref.nativeId
+        first.feature(SendsPrompts).send(Prompt)
+        assertEquals(3, fixture.wire.peers.size)
+        assertTrue(fixture.wire.peers.first().isClosed)
+        assertFalse(activePeer.isClosed)
+        assertIs<ActiveSessionState.Running>(second.state.value)
+        second.feature(CancelsTurns).cancel(otherTurn)
+        runCurrent()
+        val interrupt = fixture.wire.written.single { it.text("method") == "turn/interrupt" }
+        assertSame(activePeer, fixture.wire.origin(interrupt))
+        assertIs<ActiveSessionState.Running>(first.state.value)
+        fixture.runtime.close()
     }
 
     private fun Fixture.multipleThreads(): Fixture = apply {

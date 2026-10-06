@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
@@ -32,39 +33,73 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     private val isSearchToolsEnabled get() = runtime.isSearchToolsEnabled
     private val log = Log.tag("CodexThreadSetup")
 
-    suspend fun attach(
+    suspend fun request(
         nativeId: String?,
         target: EngineTarget,
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
-        connection: CodexConnection,
-    ): CodexSession {
-        val rpc = connection.rpc
-        val areToolsEnabled = isSearchToolsEnabled && toggles.get(SearchEngineTools)
+    ): CodexThreadRequest = CodexThreadRequest(
+        nativeId,
+        target,
+        route,
+        areDetachedToolsEnabled,
+        policy(ToolPolicyScope(identity.engine, route.workspace, nativeId?.let(::sessionRef), target)),
+    )
+
+    suspend fun policy(scope: ToolPolicyScope): ResolvedToolPolicy = try {
+        host.tools.nativeToolsForExecution(scope)
+            ?: fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: EngineException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(IllegalStateException("Native policy unavailable (${e::class.simpleName.orEmpty()})")) {
+            "Codex execution policy could not be established"
+        }
+        fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+    }
+
+    suspend fun prepare(request: CodexThreadRequest, connection: CodexConnection): CodexPreparedThread {
+        val nativeId = request.nativeId
+        val target = request.target
+        val route = request.route
+        val areDetachedToolsEnabled = request.areDetachedToolsEnabled
         val hosted = if (route.workspace == null && areDetachedToolsEnabled) {
             detachedOpening(nativeId, target)
         } else {
             hostedOpening(nativeId, target, route.workspace, isEligible = route.workspace != null)
         }
-        val params = rpc.threadParams(
-            nativeId,
-            target,
-            route.workspace,
-            NativeTools(areToolsEnabled, route.workspace != null || areDetachedToolsEnabled),
-            hosted.parameters,
+        val params = connection.rpc.threadParams(request, hosted.parameters)
+        return CodexPreparedThread(request, params, hosted)
+    }
+
+    suspend fun start(prepared: CodexPreparedThread, connection: CodexConnection): JsonObject {
+        val nativeId = prepared.request.nativeId
+        val response = connection.rpc.request(
+            if (nativeId == null) "thread/start" else "thread/resume",
+            prepared.params,
         )
-        val response = rpc.request(if (nativeId == null) "thread/start" else "thread/resume", params)
         val thread = validateNativeThread(nativeId, response)
-        val id = checkNotNull(thread.text("id"))
+        val manifest = prepared.hosted.manifest
+        if (nativeId == null && manifest != null) host.manifests.save(checkNotNull(thread.text("id")), manifest)
+        return response
+    }
+
+    suspend fun attach(request: CodexThreadRequest, connection: CodexConnection): CodexSession {
+        val prepared = prepare(request, connection)
+        val response = start(prepared, connection)
+        val thread = response.obj("thread")
         val turns = thread["turns"]?.let { it as? JsonArray ?: protocolFailure() }
-        if (nativeId == null && hosted.manifest != null) host.manifests.save(id, hosted.manifest)
+        val nativeId = request.nativeId
         val session = CodexSession(
-            SessionRef(identity.engine, config.historySource, id),
-            route,
-            target,
+            sessionRef(checkNotNull(thread.text("id"))),
+            request.route,
+            request.target,
             runtime,
             connection,
-            hosted.isServed,
+            prepared.hosted.isServed,
+            prepared,
         )
         var isLoaded = false
         try {
@@ -184,33 +219,31 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     private suspend fun CodexRpc.threadParams(
-        nativeId: String?,
-        target: EngineTarget,
-        workspace: WorkspaceRef?,
-        tools: NativeTools,
+        request: CodexThreadRequest,
         hosted: Pair<List<JsonObject>, String>?,
     ): JsonObject {
-        val path = workspace?.let {
-            host.workspaces.resolve(it) ?: config.workspaces[it]
-                ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
-        }
-        val policy = host.tools.nativeTools(
-            ToolPolicyScope(identity.engine, workspace, nativeId?.let(::sessionRef), target),
+        val nativeId = request.nativeId
+        val target = request.target
+        val route = request.route
+        val areDetachedToolsEnabled = request.areDetachedToolsEnabled
+        val policy = request.policy
+        val path = workspacePath(route.workspace)
+        val tools = NativeTools(
+            isSearchToolsEnabled && toggles.get(SearchEngineTools),
+            route.workspace != null || areDetachedToolsEnabled,
         )
-        val search = if (tools.isSearchEnabled) {
-            searchToolSpecs().filter { (it as JsonObject).text("name") !in policy.hostedDenied }
-        } else {
-            emptyList()
-        }
-        val declarations = hosted?.first.orEmpty() + search
+        val declarations = hosted?.first.orEmpty() + searchDeclarations(tools.isSearchEnabled, policy)
         val instructions = hosted?.second.orEmpty()
         val isolation = codexIsolationConfig(
             this,
             path,
-            search = tools.isSearchEnabled,
-            questions = runtime.questionsEnabled(),
-            subagents = tools.areSubagentsAllowed && toggles.get(
-                io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
+            CodexIsolationSettings(
+                isSearchEnabled = tools.isSearchEnabled,
+                areQuestionsEnabled = runtime.questionsEnabled(),
+                areSubagentsEnabled = tools.areSubagentsAllowed && toggles.get(
+                    io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled,
+                ),
+                off = request.off,
             ),
         )
         return buildJsonObject {
@@ -226,6 +259,16 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
             put("config", isolation)
             if (nativeId != null) put("threadId", nativeId)
         }
+    }
+
+    private fun searchDeclarations(isEnabled: Boolean, policy: ResolvedToolPolicy): List<JsonElement> {
+        if (!isEnabled) return emptyList()
+        return searchToolSpecs().filter { (it as JsonObject).text("name") !in policy.hostedDenied }
+    }
+
+    private suspend fun workspacePath(workspace: WorkspaceRef?): String? = workspace?.let {
+        host.workspaces.resolve(it) ?: config.workspaces[it]
+            ?: fail(EngineFailure.Request(RequestFailureReason.Invalid))
     }
 
     /**

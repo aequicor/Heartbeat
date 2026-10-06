@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.test.runTest
@@ -126,6 +127,41 @@ class CodexHostedInstructionsTest {
         fixture.runtime.close()
     }
 
+    @Test
+    fun `session specific instructions force cold resume even when native policy content is unchanged`() = runTest {
+        val tools = ScopedInstructionTools().apply {
+            guidance = { if (it.session == null) "Initial guidance" else "Session guidance" }
+        }
+        val fixture = Fixture(this, tools = tools)
+        fixture.workspacePaths[workspace] = "/project"
+        val session = fixture.open(workspace)
+        session.feature(SendsPrompts).send(Prompt)
+        assertEquals(2, fixture.wire.peers.size)
+        val resume = fixture.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
+        assertTrue(checkNotNull(resume.text("developerInstructions")).contains("Session guidance"))
+        assertFalse(checkNotNull(resume.text("developerInstructions")).contains("Initial guidance"))
+        assertFalse("dynamicTools" in resume)
+        assertEquals(setOf("read_file"), tools.instructionScopes.last().declared)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `policy reload clears stale guidance without advertising newly added tools outside the manifest`() = runTest {
+        val tools = ScopedInstructionTools().apply { guidance = { "Old guidance" } }
+        val fixture = Fixture(this, tools = tools)
+        fixture.workspacePaths[workspace] = "/project"
+        val session = fixture.open(workspace)
+        tools.specs = listOf(AgentToolSpec("new_edit", "Edit", JsonObject(emptyMap()), AgentToolAction.Edit))
+        tools.guidance = { "" }
+        tools.policy = ResolvedToolPolicy(hostedDenied = setOf("read_file"), generation = 2)
+        session.feature(SendsPrompts).send(Prompt)
+        val resume = fixture.wire.written.single { it.text("method") == "thread/resume" }.obj("params")
+        assertEquals("", resume.text("developerInstructions"))
+        assertFalse("dynamicTools" in resume)
+        assertEquals(emptySet(), tools.instructionScopes.last().declared)
+        fixture.runtime.close()
+    }
+
     private fun assertHostedAccess(params: JsonObject) {
         val instructions = checkNotNull(params.text("developerInstructions"))
         assertTrue(instructions.contains("read-only sandbox applies only to Codex's built-in tools"))
@@ -150,6 +186,7 @@ private class InstructionTools(private val guidance: String = "Project-specific 
 private class ScopedInstructionTools : ProfileAgentTools by NoAgentTools {
     var specs = listOf(AgentToolSpec("read_file", "Read", JsonObject(emptyMap()), AgentToolAction.Read))
     var policy = ResolvedToolPolicy()
+    var guidance: (AgentToolScope) -> String = { "" }
     val specScopes = mutableListOf<AgentToolScope>()
     val instructionScopes = mutableListOf<AgentToolScope>()
     val policyScopes = mutableListOf<ToolPolicyScope>()
@@ -159,9 +196,9 @@ private class ScopedInstructionTools : ProfileAgentTools by NoAgentTools {
     }
     override suspend fun instructions(scope: AgentToolScope): String {
         instructionScopes += scope
-        return ""
+        return guidance(scope)
     }
-    override suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy {
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy {
         policyScopes += scope
         return policy
     }
