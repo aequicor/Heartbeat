@@ -57,7 +57,7 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
-        return open(native, resolved.route, target.model) {
+        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
             val now = context.clock.now()
             record(
@@ -80,7 +80,7 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
-        return open(native, resolved.route, target.model) {
+        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))
@@ -99,12 +99,13 @@ class SessionLauncher(
         native: ActiveSession,
         route: ExecutionRoute,
         model: ModelId,
+        areSessionHooksEnabled: Boolean,
         prepare: suspend () -> Unit,
     ): ActiveSession {
         var isOpened = false
         try {
             prepare()
-            return host.open(native, route, model).also { isOpened = true }
+            return host.open(native, route, model, areSessionHooksEnabled).also { isOpened = true }
         } finally {
             if (!isOpened) {
                 log.w { "handle not opened, releasing native handle engine=${route.engine.value}" }

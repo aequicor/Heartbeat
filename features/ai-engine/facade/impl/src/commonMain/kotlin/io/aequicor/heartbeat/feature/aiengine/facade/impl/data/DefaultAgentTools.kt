@@ -15,12 +15,16 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -51,7 +55,10 @@ public interface AgentToolBindings {
 @Inject
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
-internal class DefaultAgentTools(private val contributions: Set<AgentToolContribution>) : ProfileAgentTools {
+internal class DefaultAgentTools(
+    private val contributions: Set<AgentToolContribution>,
+    private val hooks: SessionHooks = NoSessionHooks,
+) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
@@ -140,6 +147,7 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
                 log.w(e) { "Hosted tool cleanup failed for the finished turn" }
             }
         }
+        hooks.releaseTurn(session, turn)
     }
 
     private suspend fun executeAuthorized(
@@ -152,14 +160,31 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
         val (owner, spec) = declaration
         log.i { "Hosted tool requested name=${spec.name} action=${spec.action}" }
         return try {
+            val call = hooks.context(context.session, context.request, context.turn)?.let {
+                HookedToolCall(it, name, spec.action, arguments)
+            }
+            val verdict = call?.let { hooks.beforeTool(it) } ?: ToolHookVerdict.Continue
+            if (verdict is ToolHookVerdict.Deny) {
+                return AgentToolResult(
+                    "Blocked by a session hook: ${verdict.reason.take(HOOK_NOTE_CHARS)}",
+                    isError = true,
+                )
+            }
             val approval = owner.approval(context, spec, arguments)
-            val refusal = authorizationRefusal(context, owner, spec, arguments, approval)
+            val refusal = authorizationRefusal(context, owner, spec, arguments, approval, verdict)
             if (refusal != null) {
                 refusal
             } else {
                 currentCoroutineContext().ensureActive()
-                owner.execute(context.copy(authorization = approval), name, arguments).also {
-                    log.i { "Hosted tool finished name=${spec.name} failed=${it.isError}" }
+                val result = owner.execute(context.copy(authorization = approval), name, arguments)
+                log.i { "Hosted tool finished name=${spec.name} failed=${result.isError}" }
+                val note = call?.let { hooks.afterTool(it, result) }
+                if (note.isNullOrBlank()) {
+                    result
+                } else {
+                    result.copy(
+                        text = note.take(HOOK_NOTE_CHARS) + "\n\n" + result.text,
+                    )
                 }
             }
         } catch (e: CancellationException) {
@@ -179,6 +204,7 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
         spec: AgentToolSpec,
         arguments: JsonObject,
         approval: AgentToolApproval,
+        verdict: ToolHookVerdict,
     ): AgentToolResult? {
         val isRequiredByTrust = when (spec.action) {
             AgentToolAction.Read -> false
@@ -186,8 +212,17 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
             AgentToolAction.Command -> context.trust != TrustLevel.Full
         }
         // The owner may add a decision (its own approval policy); it can never remove one the table demands.
-        val isDecisionRequired = isRequiredByTrust || owner.requiresDecision(context, spec, arguments)
-        return if (isDecisionRequired && !context.permissions.request(approval)) {
+        val isDecisionRequired = verdict is ToolHookVerdict.Ask ||
+            isRequiredByTrust || owner.requiresDecision(context, spec, arguments)
+        val shown = if (verdict is ToolHookVerdict.Ask) {
+            approval.copy(
+                description = "A session hook requires confirmation: ${verdict.reason.take(HOOK_NOTE_CHARS)}\n\n" +
+                    approval.description.orEmpty(),
+            )
+        } else {
+            approval
+        }
+        return if (isDecisionRequired && !context.permissions.request(shown)) {
             log.i { "Hosted tool declined name=${spec.name}" }
             AgentToolResult("The user declined this action", isError = true)
         } else if (declarations(context.workspace).none { it.first === owner && it.second == spec }) {
@@ -212,3 +247,5 @@ internal class DefaultAgentTools(private val contributions: Set<AgentToolContrib
 
     private data class BoundTurn(val turn: TurnId, val target: EngineTarget?)
 }
+
+private const val HOOK_NOTE_CHARS = 2_000
