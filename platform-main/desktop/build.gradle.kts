@@ -59,6 +59,28 @@ val piArch = when (piArchName.lowercase()) {
     else -> null
 }
 val piTarget = if (piOs != null && piArch != null) "$piOs-$piArch" else null
+
+// One bundled native archive per host distribution; the browser never downloads a runtime at launch.
+val jcefNative = when (piTarget) {
+    "darwin-x64" -> libs.jcef.macos.x64
+    "darwin-arm64" -> libs.jcef.macos.arm64
+    "windows-x64" -> libs.jcef.windows.x64
+    "windows-arm64" -> libs.jcef.windows.arm64
+    else -> null
+}
+jcefNative?.let { dependencies { runtimeOnly(it) } }
+// JBR SDKs may bundle an older jcef module. Limit roots to the app's standard JDK modules so the
+// pinned classpath API/native pair wins consistently in development and packaged distributions.
+val jcefJdkModules = listOf("java.se", "jdk.unsupported", "jdk.httpserver", "jdk.crypto.ec", "jdk.zipfs", "jdk.attach")
+val jcefJvmArgs = listOf("--limit-modules=${jcefJdkModules.joinToString(",")}") + if (piOs == "darwin") {
+    listOf(
+        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
+        "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
+        "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED",
+    )
+} else {
+    emptyList()
+}
 val verifyWindowRuntime = tasks.register<JavaExec>("verifyWindowRuntime") {
     group = "verification"
     description = "Checks the JBR native caption service before packaging desktop distributions."
@@ -91,6 +113,7 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        jvmArgs += jcefJvmArgs
         jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         buildTypes.release.proguard {
             configurationFiles.from(
@@ -105,6 +128,7 @@ compose.desktop {
             // jdk.unsupported: DataStore's protobuf accesses sun.misc.Unsafe; jdk.httpserver: the loopback search bridge;
             // java.prefs and java.scripting: the PlantUML engine of the diagram worker process. Its launcher passes
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
+            modules(*jcefJdkModules.toTypedArray())
             modules(
                 "java.instrument",
                 "java.compiler",
@@ -137,6 +161,7 @@ compose.desktop {
 // Compose bundles Hot Reload; keep its launchers on the same development-only entry point as run.
 tasks.withType<ComposeHotRun>().configureEach {
     mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
+    jvmArgs.addAll(jcefJvmArgs)
     // Hot Reload does not pass Compose app resources; attach the bundled Pi runtime the same way run does.
     preparePiRuntime?.let { task ->
         dependsOn(task)
@@ -181,6 +206,7 @@ afterEvaluate {
     }
     tasks.withType<JavaExec>().configureEach {
         javaLauncher.set(desktopRuntime)
+        jvmArgs(jcefJvmArgs)
         // Compose initializes an explicit executable. Gradle's non-null setter requires resolving the launcher here.
         setExecutable(desktopRuntime.get().executablePath.asFile.absolutePath)
         if (name == "run") mainClass.set("io.aequicor.heartbeat.platform.desktop.DevelopmentMainKt")
