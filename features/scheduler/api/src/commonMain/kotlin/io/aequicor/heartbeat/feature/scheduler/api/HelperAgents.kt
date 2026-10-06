@@ -43,6 +43,13 @@ public enum class HelperOutcome {
 
     /** Cancellation of this specific turn is confirmed. */
     Cancelled,
+
+    /**
+     * Authoritative reconciliation proves this exact turn is no longer active, but its result is unavailable.
+     * This permits releasing its slot or sending a distinct, journaled recovery request. It never means success
+     * or failure, and never authorizes resubmitting the original immutable request.
+     */
+    Unknown,
 }
 
 /** Result of precisely [request]; the answer is bounded for durable workflow journals and never logged. */

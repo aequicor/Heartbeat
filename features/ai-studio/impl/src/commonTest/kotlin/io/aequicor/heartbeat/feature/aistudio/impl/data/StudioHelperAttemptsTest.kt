@@ -182,6 +182,29 @@ class StudioHelperAttemptsTest {
     }
 
     @Test
+    fun `unknown terminal survives restart and admits a distinct recovery request`() = runTest {
+        val stores = ChecklistTestStores()
+        val journal = StudioHelperAttempts(stores)
+        journal.prepare(helper, prompt)
+        journal.begin(helper, prompt.request)
+        journal.accepted(helper, prompt.request, session, terminal.turn)
+        journal.terminal(
+            helper,
+            prompt.request,
+            terminal.copy(outcome = StudioHelperTerminalOutcome.Unknown, answer = ""),
+        )
+        val restored = StudioHelperAttempts(stores)
+        val result = requireNotNull(restored.receipt(helper, prompt.request)?.terminal).result(prompt.request)
+        assertEquals(HelperOutcome.Unknown, result.outcome)
+        assertEquals(terminal.turn, result.turn)
+        assertEquals(prompt.request, result.request)
+        assertNull(restored.unresolved(helper))
+        assertFalse(restored.prepare(helper, prompt).isNew)
+        assertFalse(restored.begin(helper, prompt.request))
+        assertTrue(restored.prepare(helper, prompt.copy(request = RequestId("recovery"), isRecovery = true)).isNew)
+    }
+
+    @Test
     fun `unreadable receipts fail closed without exposing stored text`() = runTest {
         val stores = ChecklistTestStores()
         val journal = StudioHelperAttempts(stores)
