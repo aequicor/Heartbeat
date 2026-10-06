@@ -40,6 +40,34 @@ internal class CodexTurnJournal(
         }
     }
 
+    /**
+     * A revoked, finished preflight proves this request cannot execute later. Absence of a native id alone is
+     * never sufficient. A failed write preserves the caller's admission marker; another active turn is untouched.
+     */
+    suspend fun cancelBeforeSubmission(submission: CodexSubmission, trust: TrustLevel): CodexTurnRecord = guarded {
+        check(submission.isStopRequested && submission.boundary.await() == CodexSubmissionBoundary.NotSent)
+        checkNotNull(ownership) { "Native store ownership unavailable" }
+        val turn = submission.turn
+        val snapshot = records.update(ref) { previous ->
+            val before = previous?.also(::validate) ?: CodexTurnSnapshot(ref, route, ownership)
+            check(before.stopping == null) { "A process stop is still pending" }
+            val active = before.active
+            check(active == null || (active.turn == turn && active.nativeId == null)) {
+                "Another native submission is unresolved"
+            }
+            if (before.last?.turn?.id == turn.id) {
+                check(before.last.turn.request == turn.request && before.last.turn.target == turn.target)
+                before
+            } else {
+                before.copy(
+                    active = null,
+                    last = CodexTurnRecord(turn.copy(outcome = TurnOutcome.Cancelled), null, trust),
+                )
+            }
+        }
+        checkNotNull(snapshot.last)
+    }
+
     suspend fun bind(turn: TurnId, native: String) = guarded {
         records.update(ref) { previous ->
             val before = checkNotNull(previous).also(::validate)
