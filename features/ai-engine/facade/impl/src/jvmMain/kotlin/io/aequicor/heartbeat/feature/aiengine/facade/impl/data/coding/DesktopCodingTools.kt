@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -23,6 +24,18 @@ internal class DesktopCodingTools(
     private val workspaces: LocalWorkspaces,
     private val dispatchers: DispatcherProvider,
 ) : AgentToolContribution {
+    override val group: String = "coding"
+    override val title: String = "Работа с проектом"
+    override val catalog: List<ToolCatalogEntry> = listOf(
+        ToolCatalogEntry("read_file", AgentToolAction.Read),
+        ToolCatalogEntry("list_dir", AgentToolAction.Read),
+        ToolCatalogEntry("glob", AgentToolAction.Read),
+        ToolCatalogEntry("grep", AgentToolAction.Read),
+        ToolCatalogEntry("write_file", AgentToolAction.Edit),
+        ToolCatalogEntry("edit_file", AgentToolAction.Edit),
+        ToolCatalogEntry("run_command", AgentToolAction.Command),
+    )
+
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = tools(workspace).map {
         val action = when {
             it is CodingShellTool -> AgentToolAction.Command

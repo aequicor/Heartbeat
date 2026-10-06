@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
@@ -68,6 +70,10 @@ internal class SchedulerActionTools(
     private val toggles: FeatureToggles,
     private val clock: Clock,
 ) : AgentToolContribution {
+    override val group: String = "scheduler"
+    override val title: String = "Планировщик"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(START_ACTION_SPEC).toolCatalog()
+
     private val log = Log.tag("SchedulerActionTools")
     private val actions: BackgroundActions get() = backgroundActions.value
 

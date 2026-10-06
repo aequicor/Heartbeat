@@ -38,8 +38,11 @@ public data class EngineDescriptor(
     val connectionMethods: List<ConnectionMethod> = emptyList(),
     /** The adapter resolves [LocalWorkspaces] and uses the project directory for native sessions. */
     val isLocalWorkspaceSupported: Boolean = false,
+    /** Native tool metadata, including tools disabled by default; platform-specific in the registration. */
+    val nativeTools: List<NativeToolSpec> = emptyList(),
 ) {
     init {
+        require(nativeTools.map { it.name }.distinct().size == nativeTools.size) { "Duplicate native tool name" }
         require(connectionMethods.map { it.id }.distinct().size == connectionMethods.size) { "Duplicate method id" }
     }
 }

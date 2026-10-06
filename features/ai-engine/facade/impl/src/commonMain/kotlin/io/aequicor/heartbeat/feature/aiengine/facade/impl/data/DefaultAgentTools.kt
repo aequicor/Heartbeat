@@ -18,13 +18,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.NoToolPolicyResolver
+import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -58,6 +63,7 @@ public interface AgentToolBindings {
 internal class DefaultAgentTools(
     private val contributions: Set<AgentToolContribution>,
     private val hooks: SessionHooks = NoSessionHooks,
+    private val policies: ToolPolicyResolver = NoToolPolicyResolver,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
     private val callsLock = Mutex()
@@ -76,6 +82,19 @@ internal class DefaultAgentTools(
             boundTurns[key] = BoundTurn(turn, target ?: previous?.target)
         }
     }
+
+    override fun catalog(): List<ToolGroup> {
+        val entries = contributions.flatMap { it.catalog }
+        check(entries.map { it.name }.distinct().size == entries.size) { "Duplicate hosted catalog name" }
+        return contributions.groupBy { it.group }.asSequence().map { (group, owners) ->
+            check(owners.map { it.title }.distinct().size == 1) { "Conflicting tool group titles" }
+            ToolGroup(group, owners.first().title, owners.flatMap { it.catalog }.sortedBy { it.name })
+        }.filter { it.tools.isNotEmpty() }.sortedBy { it.id }.toList()
+    }
+
+    override suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy = checkNotNull(
+        policies.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = false),
+    )
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         declarations(workspace).map { it.second }

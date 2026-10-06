@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.data.DefaultAgentTools
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -48,6 +49,7 @@ class DesktopCodingToolsTest {
             override suspend fun resolve(ref: WorkspaceRef): String? = directory.toString().takeIf { ref == workspace }
         }
         val contribution = DesktopCodingTools(projects, dispatchers)
+        assertEquals(contribution.specifications(workspace).toolCatalog().toSet(), contribution.catalog.toSet())
         val tools = DefaultAgentTools(setOf(contribution))
         val suffix = if (System.getProperty("os.name").startsWith("Windows")) {
             "; Set-Content hidden-action.txt changed"

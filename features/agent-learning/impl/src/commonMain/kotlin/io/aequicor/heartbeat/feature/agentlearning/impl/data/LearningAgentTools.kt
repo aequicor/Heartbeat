@@ -34,8 +34,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.singleLine
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
@@ -69,6 +71,10 @@ internal class LearningAgentTools(
     private val workspaces: LocalWorkspaces,
     private val platform: PlatformInfo,
 ) : AgentToolContribution {
+    override val group: String = "learning"
+    override val title: String = "Обучение"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(REMEMBER_SPEC, LOAD_SKILL_SPEC).toolCatalog()
+
     private val log = Log.tag("LearningAgentTools")
 
     override val isDetachedSupported: Boolean get() = true

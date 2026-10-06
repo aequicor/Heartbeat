@@ -12,8 +12,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
@@ -54,6 +56,15 @@ internal class SchedulerAgentTools(
     private val clock: Clock,
     private val network: NetworkStatus,
 ) : AgentToolContribution {
+    override val group: String = "scheduler"
+    override val title: String = "Планировщик"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(
+        SLEEP_SPEC,
+        SIGNAL_SPEC,
+        CANCEL_SPEC,
+        LIST_SPEC,
+    ).toolCatalog()
+
     private val log = Log.tag("SchedulerAgentTools")
 
     override val isDetachedSupported: Boolean get() = true

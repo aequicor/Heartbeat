@@ -73,6 +73,9 @@ public data class AgentToolScope(
     val workspace: WorkspaceRef?,
     val target: EngineTarget? = null,
     val declared: Set<String>? = null,
+    val session: SessionRef? = null,
+    /** Whether the adapter rebuilds declarations at every turn instead of freezing them at session creation. */
+    val isRefreshedPerTurn: Boolean = false,
 )
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */
@@ -85,6 +88,15 @@ public data class AgentToolResult(val text: String, val isError: Boolean = false
  * A session without a project (workspace null) consults only contributions with [isDetachedSupported].
  */
 public interface AgentToolContribution {
+    /** Stable settings group key, independent of feature availability. */
+    public val group: String get() = "other"
+
+    /** User-facing group title. Contributions sharing a group must use the same title. */
+    public val title: String get() = "Другие"
+
+    /** All owned tool names, including disabled ones. Reading it performs no IO. */
+    public val catalog: List<ToolCatalogEntry> get() = emptyList()
+
     /**
      * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
      * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
@@ -95,6 +107,9 @@ public interface AgentToolContribution {
 
     /** Currently available declarations; duplicate names across contributions are an error. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
+
+    /** Session-aware declarations; the compatibility default delegates to the workspace form. */
+    public suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = specifications(scope.workspace)
 
     /** Additional workflow instructions, without execution tokens. */
     public suspend fun instructions(workspace: WorkspaceRef?): String = ""
@@ -152,6 +167,15 @@ public interface ProfileAgentTools {
 
     /** Available tool declarations for a session's immutable execution workspace. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
+
+    /** Session-aware declarations. Adapters with a session identity must use this form. */
+    public suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = specifications(scope.workspace)
+
+    /** Static hosted metadata, independent of workspace and toggle availability. */
+    public fun catalog(): List<ToolGroup> = emptyList()
+
+    /** Effective native tool policy. Declaration failures fall back to adapter defaults. */
+    public suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
 
     /** Workflow instructions for the same workspace. */
     public suspend fun instructions(workspace: WorkspaceRef?): String
