@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
@@ -66,6 +68,9 @@ internal class DefaultAgentTools(
     private val policies: ToolPolicyResolver = NoToolPolicyResolver,
 ) : ProfileAgentTools {
     private val log = Log.tag("AgentTools")
+    private val nativeGate = NativeToolGate(policies, hooks) {
+        catalog().flatMap { it.tools }.map { it.name }.toSet()
+    }
     private val callsLock = Mutex()
     private val calls = mutableMapOf<Pair<SessionRef, TurnId>, MutableSet<Job>>()
     private val finishedTurns = mutableSetOf<Pair<SessionRef, TurnId>>()
@@ -112,40 +117,51 @@ internal class DefaultAgentTools(
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
-        coroutineScope {
-            val invocation = checkNotNull(currentCoroutineContext()[Job])
-            val turnEnded = context.lifetime?.invokeOnCompletion {
-                invocation.cancel(CancellationException("Native turn ended"))
+        withInvocation(context, AgentToolResult("Native turn has ended", isError = true)) {
+            executeAuthorized(it, name, arguments)
+        }
+
+    override suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
+        withInvocation(context, NativeVerdict.Deny("Native turn has ended")) { nativeGate.authorize(it, call) }
+
+    private suspend fun <T> withInvocation(
+        context: AgentToolContext,
+        ended: T,
+        block: suspend (AgentToolContext) -> T,
+    ): T = coroutineScope {
+        val invocation = checkNotNull(currentCoroutineContext()[Job])
+        val turnEnded = context.lifetime?.invokeOnCompletion {
+            invocation.cancel(CancellationException("Native turn ended"))
+        }
+        var trusted = context
+        try {
+            currentCoroutineContext().ensureActive()
+            val isRegistered = callsLock.withLock {
+                val bound = context.request?.let { boundTurns[context.session to it] }
+                trusted = context.copy(
+                    turn = bound?.turn ?: context.turn,
+                    historyTurn = context.turn,
+                    target = bound?.target ?: context.target,
+                    authorization = null,
+                )
+                val key = trusted.session to trusted.turn
+                if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
             }
-            var trusted = context
-            try {
-                currentCoroutineContext().ensureActive()
-                val isRegistered = callsLock.withLock {
-                    val bound = context.request?.let { boundTurns[context.session to it] }
-                    trusted = context.copy(
-                        turn = bound?.turn ?: context.turn,
-                        historyTurn = context.turn,
-                        target = bound?.target ?: context.target,
-                        authorization = null,
-                    )
+            if (!isRegistered) return@coroutineScope ended
+            block(trusted)
+        } finally {
+            turnEnded?.dispose()
+            withContext(NonCancellable) {
+                callsLock.withLock {
                     val key = trusted.session to trusted.turn
-                    if (key in finishedTurns) false else calls.getOrPut(key) { mutableSetOf() }.add(invocation)
-                }
-                if (!isRegistered) return@coroutineScope AgentToolResult("Native turn has ended", isError = true)
-                executeAuthorized(trusted, name, arguments)
-            } finally {
-                turnEnded?.dispose()
-                withContext(NonCancellable) {
-                    callsLock.withLock {
-                        val key = trusted.session to trusted.turn
-                        calls[key]?.let { pending ->
-                            pending.remove(invocation)
-                            if (pending.isEmpty()) calls.remove(key)
-                        }
+                    calls[key]?.let { pending ->
+                        pending.remove(invocation)
+                        if (pending.isEmpty()) calls.remove(key)
                     }
                 }
             }
         }
+    }
 
     override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
         log.i { "Revoke hosted tools and await outstanding calls" }
