@@ -103,6 +103,9 @@ internal class DefaultAgentTools(
         policies.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = false),
     )
 
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy? =
+        policies.resolve(scope, catalog().flatMap { it.tools }.map { it.name }.toSet(), isExecuting = true)
+
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         specifications(AgentToolScope(workspace))
 
