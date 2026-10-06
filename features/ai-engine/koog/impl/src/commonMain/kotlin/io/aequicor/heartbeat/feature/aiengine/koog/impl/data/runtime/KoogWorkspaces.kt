@@ -32,9 +32,10 @@ internal fun interface KoogWorkspaces {
 /** Hosted tools that serve sessions without a project; available on every platform with the common dispatcher. */
 internal suspend fun detachedKoogWorkspace(tools: ProfileAgentTools, context: AgentToolContext): KoogWorkspace? {
     require(context.workspace == null)
-    val specs = tools.specifications(null)
+    val scope = context.koogToolScope()
+    val specs = tools.specifications(scope)
     if (specs.isEmpty()) return null
-    val instructions = tools.instructions(AgentToolScope(null, context.target))
+    val instructions = tools.instructions(scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name }))
     return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
 }
 
@@ -45,3 +46,7 @@ internal fun KoogWorkspace.withCodingTools(isEnabled: Boolean): KoogWorkspace? {
 }
 
 private val CODING_TOOL_NAMES = setOf("read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "run_command")
+
+/** Koog rebuilds declarations and system instructions for every accepted turn. */
+internal fun AgentToolContext.koogToolScope(): AgentToolScope =
+    AgentToolScope(workspace, target, session = session, isRefreshedPerTurn = true)

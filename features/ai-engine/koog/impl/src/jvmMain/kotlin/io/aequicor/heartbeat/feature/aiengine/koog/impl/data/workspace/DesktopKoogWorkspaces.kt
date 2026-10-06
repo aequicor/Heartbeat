@@ -4,13 +4,13 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
-import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.KoogWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.detachedKoogWorkspace
 import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.koogHostedTools
+import io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime.koogToolScope
 
 /** Desktop Koog uses the same project tools and trust gate as native adapters. */
 @Inject
@@ -23,9 +23,10 @@ internal class DesktopKoogWorkspaces(private val tools: ProfileAgentTools) : Koo
 
     override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
         require(context.workspace == ref)
-        val specs = tools.specifications(ref)
+        val scope = context.koogToolScope()
+        val specs = tools.specifications(scope)
         if (specs.isEmpty()) return null
-        val instructions = tools.instructions(AgentToolScope(ref, context.target))
+        val instructions = tools.instructions(scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name }))
         return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
     }
 

@@ -347,7 +347,7 @@ internal class KoogNativeSession(
                     client = reopenClient(selectedModel, client)
                     clientModel = selectedModel
                 }
-                val tools = turnTools(client, provider, selectedModel, workspace)
+                val tools = turnTools(client, provider, selectedModel, workspace, context)
                 val textModel = provider.textModel(
                     selectedModel,
                     tools = !tools.isEmpty(),
@@ -416,9 +416,10 @@ internal class KoogNativeSession(
         provider: KoogProvider,
         model: String,
         workspace: KoogWorkspace?,
+        context: AgentToolContext,
     ): KoogToolbox {
         val offered = buildList {
-            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search))
+            if (access.searchToolsEnabled()) addAll(koogSearchToolset(search, access.tools, context))
             workspace?.let { addAll(it.tools) }
         }
         if (offered.isEmpty() || !acceptsTools(client, provider, model)) return KoogToolbox(emptyList())
