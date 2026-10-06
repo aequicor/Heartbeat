@@ -39,7 +39,6 @@ import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
@@ -54,9 +53,10 @@ internal class CodexSession(
     val route: ExecutionRoute,
     val target: EngineTarget,
     val runtime: CodexRuntime,
-    private val rpc: CodexRpc,
+    val connection: CodexConnection,
     private val areHostedToolsEnabled: Boolean = true,
 ) {
+    private val rpc get() = connection.rpc
     val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
@@ -64,12 +64,15 @@ internal class CodexSession(
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
     private val loadedTurns = mutableSetOf<String>()
+    private var isCreatedHere = false
+    val isMaterializationRequired get() = isCreatedHere && nativeTurns.isEmpty()
+    val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null
     private var nativeTurn: String? = null
     private val submitLock = Mutex()
     private val submissions = mutableMapOf<TurnId, CompletableDeferred<TurnId>>()
     private val hostedRequests = mutableMapOf<PermissionRequestId, PermissionRequest>()
     private val hostedPermissions = mutableMapOf<PermissionRequestId, CompletableDeferred<PermissionDecision?>>()
-    private val questions = CodexUserInput(scope.coroutineScope, ::respondQuietly, ::awaitDecision)
+    private val questions = CodexUserInput(scope.coroutineScope, connection::respondQuietly, ::awaitDecision)
     private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
@@ -92,6 +95,7 @@ internal class CodexSession(
     fun release(lease: CodexLease) {
         leases -= lease
         if (leases.isEmpty()) hostedPermissions.values.forEach { it.complete(null) }
+        runtime.release(this)
     }
 
     suspend fun send(request: PromptRequest): TurnId {
@@ -201,6 +205,7 @@ internal class CodexSession(
         } else if (effect !is ActiveSessionEffect.Recheck) {
             recheck()
         }
+        runtime.release(this)
     }
 
     /** Starts native reconciliation of an Unavailable session; a failed probe keeps it Unavailable. */
@@ -360,6 +365,7 @@ internal class CodexSession(
         active?.let { cancelTools(it.id) }
         machine.send(ActiveSessionIntent.Internal.Synchronized(active = null, completed = completed))
         completed?.let { done -> history.publish { SessionEvent.TurnFinished(it, done.turn, done.outcome) } }
+        runtime.release(this)
     }
 
     private suspend fun accept(turn: Turn) {
@@ -383,6 +389,7 @@ internal class CodexSession(
      * their saved history.
      */
     suspend fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
+        isCreatedHere = isNew
         val snapshots = turns.orEmpty().map { value ->
             val turn = value as? JsonObject ?: protocolFailure()
             if (turn.text("id") == null) protocolFailure()
@@ -409,7 +416,15 @@ internal class CodexSession(
         }
     }
 
-    suspend fun event(message: JsonObject) {
+    suspend fun event(message: JsonObject, source: CodexConnection = connection) {
+        if (source !== connection || source.isClosed) {
+            message["id"]?.let { source.rpc.reject(it) }
+            return
+        }
+        receive(message, source)
+    }
+
+    private suspend fun receive(message: JsonObject, source: CodexConnection) {
         val params = message.obj("params")
         val method = message.text("method")
         if (usageEvent(method, params)) return
@@ -430,15 +445,15 @@ internal class CodexSession(
 
             "item/reasoning/summaryTextDelta" -> history.reasoningDelta(params, turnId)
 
-            "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message)
+            "item/commandExecution/requestApproval", "item/fileChange/requestApproval" -> approval(message, source)
 
-            "item/tool/call" -> dynamicTool(message, turn)
+            "item/tool/call" -> dynamicTool(message, turn, source)
 
             "item/tool/requestUserInput" -> userInput(message, turn)
 
             "serverRequest/resolved" -> resolved(params, turn)
 
-            else -> if (message["id"] != null) rpc.reject(checkNotNull(message["id"]))
+            else -> if (message["id"] != null) source.rpc.reject(checkNotNull(message["id"]))
         }
     }
 
@@ -487,20 +502,20 @@ internal class CodexSession(
      * Answers a dynamic tool call without blocking the server-message loop: the search runs in a child job of the
      * turn, so deltas and approvals keep flowing and interrupting the turn cancels the search.
      */
-    private suspend fun dynamicTool(message: JsonObject, turn: Turn?) {
+    private suspend fun dynamicTool(message: JsonObject, turn: Turn?, source: CodexConnection) {
         val id = message["id"] ?: protocolFailure()
         val params = message.obj("params")
         val isClosed = turn == null || turn.id in finished || turn.id in toolsClosed
         if (isClosed || params.text("turnId") != nativeTurn) {
             log.i { "Codex tool call refused: turn unavailable" }
-            rpc.respond(id, toolFailureResult("TurnUnavailable"))
+            source.rpc.respond(id, toolFailureResult("TurnUnavailable"))
             return
         }
         val tool = params.text("tool").orEmpty()
         val isSearch = tool == "web_search" || tool == "web_fetch"
         if (isSearch && !runtime.host.toggles.get(SearchEngineTools)) {
             log.i { "Codex tool call refused: search tools disabled" }
-            rpc.respond(id, toolFailureResult("Disabled"))
+            source.rpc.respond(id, toolFailureResult("Disabled"))
             return
         }
         accept(turn)
@@ -515,11 +530,13 @@ internal class CodexSession(
             }
             // Once delivery starts, cancellation must not send another response for the same request.
             isResponseStarted = true
-            respondQuietly(id, result)
+            source.respondQuietly(id, result)
         }.invokeOnCompletion { cause ->
             // Register outside the body: cancellation can happen before the tool's first dispatch.
             // Provider cancellation is answered too; fatal errors still propagate unanswered.
-            if (cause is CancellationException && !isResponseStarted) answerCancelled(id)
+            if (cause is CancellationException && !isResponseStarted) {
+                source.answerLater(id, toolFailureResult("Cancelled"))
+            }
         }
     }
 
@@ -604,26 +621,6 @@ internal class CodexSession(
         }
     }
 
-    private fun answerCancelled(id: JsonElement) {
-        if (!scope.coroutineScope.isActive) {
-            log.i { "Codex tool call dropped unanswered: session closed" }
-            return
-        }
-        log.i { "Codex tool call cancelled, answering Cancelled" }
-        scope.coroutineScope.launch { respondQuietly(id, toolFailureResult("Cancelled")) }
-    }
-
-    private suspend fun respondQuietly(id: JsonElement, result: JsonObject) {
-        try {
-            rpc.respond(id, result)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // The connection is gone; the turn itself reports the failure.
-            log.w(e) { "Codex tool response not delivered" }
-        }
-    }
-
     private fun closeTools(turn: TurnId) {
         toolsClosed += turn
         // Only recent turns can still receive late calls; older entries are dropped to keep the set bounded.
@@ -663,12 +660,13 @@ internal class CodexSession(
         hostedRequests.clear()
         // Finished keeps Unavailable; only Synchronized leaves it.
         recheck()
+        runtime.release(this)
     }
 
-    private suspend fun approval(message: JsonObject) {
+    private suspend fun approval(message: JsonObject, source: CodexConnection) {
         val id = message["id"] ?: protocolFailure()
         // All mutations go through the hosted trust gate. Never escalate the native read-only sandbox.
-        rpc.respond(id, json("decision" to "decline".json()))
+        source.rpc.respond(id, json("decision" to "decline".json()))
     }
 
     private suspend fun resolved(params: JsonObject, turn: Turn?) {
@@ -696,6 +694,7 @@ internal class CodexSession(
     }
 
     fun shutdown(failure: EngineFailure) {
+        connection.close()
         contextUsage.clear()
         failPending(failure)
         history.invalidate()

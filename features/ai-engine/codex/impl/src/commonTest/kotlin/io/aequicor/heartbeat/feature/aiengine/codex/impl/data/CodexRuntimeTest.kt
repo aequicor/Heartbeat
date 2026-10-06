@@ -467,9 +467,7 @@ class CodexRuntimeTest {
         first.await()
         val second = async { session.feature(SendsPrompts).send(Prompt.copy(id = RequestId("second"))) }
         runCurrent()
-        fixture.wire.incoming.send(
-            json("id" to checkNotNull(pending[0]["id"]), "error" to json("code" to JsonPrimitive(-1))),
-        )
+        fixture.wire.error(pending[0])
         runCurrent()
         assertIs<ActiveSessionState.Submitting>(session.state.value)
         assertFalse(second.isCompleted)

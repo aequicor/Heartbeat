@@ -83,7 +83,7 @@ class CodexToolCancellationTest {
         ),
         target = target,
         runtime = runtime,
-        rpc = rpc,
+        connection = CodexConnection(rpc, test.backgroundScope, {}, { _, _ -> }),
     )
 
     private fun Fixture.toolResponse(): JsonObject = wire.written.single { it["id"] == TOOL_REQUEST_ID }.obj("result")

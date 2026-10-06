@@ -23,6 +23,8 @@ import kotlinx.serialization.json.buildJsonObject
 /** Confined to the injected main dispatcher; readers never block waiting for event consumers. */
 internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : AutoCloseable {
     private val log = Log.tag("CodexRpc")
+    var home: String? = null
+        private set
     private var nextId = 0L
     private val pending = mutableMapOf<String, CompletableDeferred<JsonObject>>()
     private val events = Channel<JsonObject>(EVENT_CAPACITY)
@@ -42,13 +44,16 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
 
     /** [experimentalApi] opts into dynamic tools; without it the handshake is the stable one. */
     suspend fun initialize(experimentalApi: Boolean = false) {
-        request(
+        val response = request(
             "initialize",
             buildJsonObject {
                 put("clientInfo", json("name" to "heartbeat".json(), "version" to "0.1.0".json()))
                 if (experimentalApi) put("capabilities", json("experimentalApi" to JsonPrimitive(true)))
             },
         )
+        home = response["codexHome"]?.let { value ->
+            (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: protocolFailure()
+        }
         wire.write(json("method" to "initialized".json()))
     }
 
