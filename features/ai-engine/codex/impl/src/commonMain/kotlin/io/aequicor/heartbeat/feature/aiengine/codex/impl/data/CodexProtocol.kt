@@ -29,6 +29,12 @@ internal interface PreparedCodexLaunch {
     /** Starts the captured executable with the captured home, arguments and environment. */
     suspend fun open(): CodexWire
 
+    /** Applies only the typed restrictions after validating the captured executable's protocol version. */
+    suspend fun open(off: CodexNativeOff): CodexWire {
+        if (off.isRestricted) unsupported()
+        return open()
+    }
+
     /** Reads the version of that same executable; an unknown version cannot authorize native policy support. */
     suspend fun version(): String? = null
 }

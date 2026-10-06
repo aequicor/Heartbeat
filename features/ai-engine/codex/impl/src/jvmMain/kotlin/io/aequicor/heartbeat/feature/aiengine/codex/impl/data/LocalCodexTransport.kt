@@ -69,6 +69,11 @@ internal class LocalCodexTransport(
             val environment = capturedCodexEnvironment(resolved)
             object : PreparedCodexLaunch {
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
+                override suspend fun open(off: CodexNativeOff): CodexWire {
+                    if (off.isRestricted) off.requireVersion(version())
+                    return openResolved(resolved, environment, off)
+                }
+
                 override suspend fun version(): String? = withContext(dispatchers.io) {
                     if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
                         version(resolved, environment)
@@ -88,12 +93,16 @@ internal class LocalCodexTransport(
     }
 
     /** Cancellation during dispatcher handoff still closes the newly started process. */
-    private suspend fun openResolved(resolved: CodexLaunch, environment: Map<String, String>): CodexWire {
+    private suspend fun openResolved(
+        resolved: CodexLaunch,
+        environment: Map<String, String>,
+        off: CodexNativeOff = CodexNativeOff(),
+    ): CodexWire {
         var owned: CodexWire? = null
         var isTransferred = false
         return try {
             val wire = withContext(dispatchers.io) {
-                startResolved(resolved, environment).also { owned = it }
+                startResolved(resolved, environment, off).also { owned = it }
             }
             isTransferred = true
             wire
@@ -103,14 +112,14 @@ internal class LocalCodexTransport(
     }
 
     /** Blocking process creation; callers dispatch it to IO before entering. */
-    private fun startResolved(resolved: CodexLaunch, environment: Map<String, String>): CodexWire {
+    private fun startResolved(resolved: CodexLaunch, environment: Map<String, String>, off: CodexNativeOff): CodexWire {
         log.i { "Starting local Codex app-server source=${resolved.source}" }
         return try {
             require(resolved.isRunnable && resolved.source != InstallSource.Missing) {
                 "Codex executable cannot be started safely"
             }
             resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
-            val builder = ProcessBuilder(codexProcessArguments(codexCommand(resolved)))
+            val builder = ProcessBuilder(codexProcessArguments(codexCommand(resolved, off)))
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
             builder.environment().clear()
             builder.environment().putAll(environment)
