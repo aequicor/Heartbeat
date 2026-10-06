@@ -106,6 +106,13 @@ MCP-capability хранит `AgentToolScope`, использует его для
 Поколение эффективно
 равной политики стабильно, любое изменение (включая возврат к прежней политике) меняет поколение.
 
+`ProfileAgentTools.authorizeNative` принимает классифицированный адаптером `NativeToolCall` и использует
+ту же регистрацию вызова и native lifetime, что hosted execute. Порядок: Off/доступность → hook → coverage
+доверия адаптера → permission → повторная policy-проверка. Native-хук получает null turn, но коррелируется
+по доверенному request. После Allow адаптер обязан снова проверить захваченный native turn перед ответом
+процессу. `NativeCallClassifier` в SPI разделяет bounded-эвристику завершения хоста и IO-проверку pinned
+абсолютного пути; неоднозначные пути, выход через symlink и реальная Git metadata не покрываются AutoEdits.
+
 `features/ai-engine/acp-interface/api` — сервисный контракт ACP v1: клиент, транспорт,
 DTO и callbacks без реализации IO. Допускает kotlinx.serialization JSON для расширяемых полей
 протокола. Собственной бизнес-машины и регистрации движка нет; конкретные ACP-адаптеры используют

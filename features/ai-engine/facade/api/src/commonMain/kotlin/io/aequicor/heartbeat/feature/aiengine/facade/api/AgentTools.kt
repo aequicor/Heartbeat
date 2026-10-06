@@ -196,6 +196,14 @@ public interface ProfileAgentTools {
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
     /**
+     * Authorizes an adapter-classified native call under the same turn barrier as hosted calls. Checks policy,
+     * then hooks, then adapter trust coverage and permission; rechecks policy after the decision. Cancellation
+     * revokes the decision. Adapters must recheck their captured turn before answering the native process.
+     */
+    public suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
+        NativeVerdict.Deny("Native authorization is unavailable")
+
+    /**
      * Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources.
      * [turn] is the facade id registered by [bindTurn], or the native id of an unbound external turn.
      */
