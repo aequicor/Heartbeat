@@ -20,6 +20,10 @@ import kotlinx.serialization.json.contentOrNull
 /** Internal wire boundary. Implementations serialize writes and sanitize failures before crossing it. */
 internal interface CodexWire : AutoCloseable {
     val messages: Flow<JsonObject>
+
+    /** Read-only ownership snapshot; unsupported transports cannot supply evidence for a stored stop. */
+    suspend fun processOwner(): CodexExecutionOwner? = null
+
     suspend fun write(message: JsonObject)
     override fun close()
 }

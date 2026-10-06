@@ -33,16 +33,19 @@ class CodexTurnRecordsTest {
         val records = StoredCodexTurnRecords(stores)
         val journal = CodexTurnJournal(records, session.ref, session.route, "owner")
         val turn = Turn(TurnId("logical"), Prompt.id, fixture.target)
-        journal.begin(turn, TrustLevel.Ask)
+        val process = CodexExecutionOwner("launch", CodexProcessIdentity(123, "2026-10-06T00:00:00.123456789Z"))
+        journal.begin(turn, TrustLevel.Ask, process)
         journal.bind(turn.id, "native")
         val reopened = StoredCodexTurnRecords(stores)
         assertEquals(turn, reopened.get(session.ref)?.active?.turn)
         assertEquals("native", reopened.get(session.ref)?.active?.nativeId)
+        assertEquals(process, reopened.get(session.ref)?.active?.processOwner)
         assertNull(reopened.get(session.ref.copy(source = SessionSourceId("another"))))
         journal.finish(turn.id, TurnOutcome.Completed)
         journal.bind(turn.id, "native")
         assertNull(reopened.get(session.ref)?.active)
         assertEquals(TurnOutcome.Completed, reopened.get(session.ref)?.last?.turn?.outcome)
+        assertEquals(process, reopened.get(session.ref)?.last?.processOwner)
         assertFailsWith<EngineException> { journal.bind(turn.id, "different") }
     }
 

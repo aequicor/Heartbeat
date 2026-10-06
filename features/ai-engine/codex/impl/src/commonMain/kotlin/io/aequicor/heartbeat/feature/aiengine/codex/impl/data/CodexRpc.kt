@@ -42,6 +42,9 @@ internal class CodexRpc(private val wire: CodexWire, scope: CoroutineScope) : Au
         }
     }
 
+    /** Captures this wire only; execution callers must never substitute the runtime metadata connection. */
+    suspend fun processOwner(): CodexExecutionOwner? = wire.processOwner()
+
     /** [experimentalApi] opts into dynamic tools; without it the handshake is the stable one. */
     suspend fun initialize(experimentalApi: Boolean = false) {
         val response = request(

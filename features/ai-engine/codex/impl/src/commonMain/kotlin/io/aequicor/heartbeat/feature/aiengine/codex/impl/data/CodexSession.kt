@@ -301,7 +301,7 @@ internal class CodexSession(
         trust = effect.request.trust ?: TrustLevel.Ask
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
-        journal.begin(effect.turn, trust)
+        journal.begin(effect.turn, trust, rpc.processOwner())
         confirmSubmission(effect)
         isActiveExecutionOwned = true
         val response = rpc.request(
