@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
@@ -73,6 +74,16 @@ class SchedulerIntegrationTest {
     }
 
     @Test
+    fun `helper service resolves without a capable host or a scheduler toggle`() = runTest {
+        val profile = app.profileSessions.open(ProfileId("helpers-default"))
+        val helpers = (profile.graph as TestSchedulerAccessors).helperAgents
+        assertFalse(helpers.canHost(null))
+        assertFalse(helpers.canHost(session))
+        assertFalse(helpers.isHelper(session))
+        app.profileSessions.close()
+    }
+
+    @Test
     fun `a wake scheduled by an agent survives reopening the profile`() = runTest {
         toggles.toggleControl.setOverride(SchedulerEnabled, true)
         val first = app.profileSessions.open(ProfileId("scheduler"))
@@ -115,6 +126,7 @@ class SchedulerIntegrationTest {
 
 @ContributesTo(ProfileScope::class)
 interface TestSchedulerAccessors {
+    val helperAgents: HelperAgents
     val schedulerTools: ProfileAgentTools
     val schedulerMachines: MachineRegistry
 }
