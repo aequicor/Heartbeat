@@ -1,18 +1,26 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.searchengine.api.ResourceContent
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchResult
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CodexToolCancellationTest {
@@ -69,6 +77,103 @@ class CodexToolCancellationTest {
         runCurrent()
 
         assertEquals(JsonPrimitive(true), fixture.toolResponse()["success"])
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `native completion retains hosted cleanup until the explicit stop barrier drains it`() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        val search = object : SearchEngine {
+            override suspend fun search(query: String, count: Int, native: EngineFeatures?): List<SearchResult> {
+                try {
+                    awaitCancellation()
+                } finally {
+                    withContext(NonCancellable) { cleanup.await() }
+                }
+            }
+            override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("Unused")
+        }
+        val fixture = Fixture(this, search)
+        val session = fixture.directSession()
+        val turn = session.send(Prompt)
+        session.event(toolCall())
+        runCurrent()
+        session.event(
+            json(
+                "method" to "turn/completed".json(),
+                "params" to json("turn" to json("id" to "native-turn".json(), "status" to "completed".json())),
+            ),
+        )
+        val stopped = async { session.hostedJobs.drain(turn) }
+        runCurrent()
+        assertFalse(stopped.isCompleted)
+        cleanup.complete(Unit)
+        assertTrue(stopped.await())
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `tool admission suspended at toggle lookup cannot reopen a completed turn`() = runTest {
+        val search = RecordingSearch()
+        val fixture = Fixture(this, search)
+        val session = fixture.directSession()
+        session.send(Prompt)
+        val lookup = CompletableDeferred<Unit>()
+        fixture.beforeSearchLookup = { lookup.await() }
+        val event = async { session.event(toolCall()) }
+        runCurrent()
+        session.event(
+            json(
+                "method" to "turn/completed".json(),
+                "params" to json("turn" to json("id" to "native-turn".json(), "status" to "completed".json())),
+            ),
+        )
+        lookup.complete(Unit)
+        event.await()
+        runCurrent()
+        assertEquals(0, search.calls)
+        assertEquals(toolFailureResult("TurnUnavailable"), fixture.toolResponse())
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `drain cleans permission admission cancelled while waiting for the machine`() = runTest {
+        val tools = HostedFixture()
+        val fixture = Fixture(this, tools = tools)
+        val session = fixture.directSession()
+        session.lease()
+        val turn = session.send(Prompt)
+        var needed: ActiveSessionIntent.Internal.PermissionNeeded? = null
+        var resolved: ActiveSessionIntent.Internal.PermissionResolved? = null
+        fixture.launcher.beforeSend = { intent ->
+            when (intent) {
+                is ActiveSessionIntent.Internal.PermissionNeeded -> {
+                    needed = intent
+                    awaitCancellation()
+                }
+
+                is ActiveSessionIntent.Internal.PermissionResolved -> resolved = intent
+
+                else -> Unit
+            }
+        }
+        session.event(
+            json(
+                "id" to TOOL_REQUEST_ID,
+                "method" to "item/tool/call".json(),
+                "params" to json(
+                    "threadId" to "thread".json(),
+                    "turnId" to "native-turn".json(),
+                    "tool" to "run_command".json(),
+                    "arguments" to JsonObject(emptyMap()),
+                ),
+            ),
+        )
+        runCurrent()
+        val pending = assertNotNull(needed)
+        assertTrue(session.hostedJobs.drain(turn))
+        assertEquals(pending.request.id, assertNotNull(resolved).request)
+        assertEquals(0, tools.executions)
         fixture.runtime.close()
     }
 

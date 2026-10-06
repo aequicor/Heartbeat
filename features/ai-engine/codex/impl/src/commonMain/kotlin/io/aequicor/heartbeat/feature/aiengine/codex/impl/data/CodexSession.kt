@@ -35,10 +35,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.activeSessionMachineSpe
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -85,11 +83,8 @@ internal class CodexSession(
     private var trust = TrustLevel.Ask
     private val finished = mutableSetOf<TurnId>()
 
-    /** Running dynamic tool calls per turn; cancelled when the turn is interrupted or finishes. */
-    private val toolJobs = mutableMapOf<TurnId, CompletableJob>()
-
-    /** Turns whose tool jobs were closed; late tool calls for them are refused, never restarted. */
-    private val toolsClosed = mutableSetOf<TurnId>()
+    /** Retains revoked hosted work for the explicit stop coordinator to await outside session locks. */
+    val hostedJobs = CodexHostedJobs(scope.coroutineScope)
     val machine = runtime.host.launcher.launch(
         activeSessionMachineSpec(
             ActiveSessionMachineKey(Uuid.random().toString()),
@@ -513,7 +508,7 @@ internal class CodexSession(
     private suspend fun dynamicTool(message: JsonObject, turn: Turn?, source: CodexConnection) {
         val id = message["id"] ?: protocolFailure()
         val params = message.obj("params")
-        val isClosed = !isActiveExecutionOwned || turn == null || turn.id in finished || turn.id in toolsClosed
+        val isClosed = !isActiveExecutionOwned || turn == null || turn.id in finished || hostedJobs.isClosed(turn.id)
         if (isClosed || params.text("turnId") != nativeTurn) {
             log.i { "Codex tool call refused: turn unavailable" }
             source.rpc.respond(id, toolFailureResult("TurnUnavailable"))
@@ -521,14 +516,24 @@ internal class CodexSession(
         }
         val tool = params.text("tool").orEmpty()
         val isSearch = tool == "web_search" || tool == "web_fetch"
-        if (isSearch && !runtime.host.toggles.get(SearchEngineTools)) {
-            log.i { "Codex tool call refused: search tools disabled" }
-            source.rpc.respond(id, toolFailureResult("Disabled"))
+        val isEnabled = !isSearch || runtime.host.toggles.get(SearchEngineTools)
+        if (isEnabled) accept(turn)
+        // Both the toggle lookup and acceptance can suspend while completion revokes this turn.
+        val parent = if (isEnabled && currentTurn()?.id == turn.id) hostedJobs.parent(turn.id) else null
+        if (parent == null) {
+            log.i { "Codex tool call refused after admission check" }
+            source.rpc.respond(id, toolFailureResult(if (isEnabled) "TurnUnavailable" else "Disabled"))
             return
         }
-        accept(turn)
+        dispatchTool(message, turn, source, parent)
+    }
+
+    private fun dispatchTool(message: JsonObject, turn: Turn, source: CodexConnection, parent: Job) {
+        val id = checkNotNull(message["id"])
+        val params = message.obj("params")
+        val tool = params.text("tool").orEmpty()
+        val isSearch = tool == "web_search" || tool == "web_fetch"
         val arguments = params["arguments"] ?: JsonObject(emptyMap())
-        val parent = toolJobs.getOrPut(turn.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
         var isResponseStarted = false
         scope.coroutineScope.launch(parent) {
             val result = if (isSearch) {
@@ -576,23 +581,23 @@ internal class CodexSession(
         trust,
         AgentToolPermissions { hostedApproval(turn, it) },
         params.text("callId")?.let(::ToolCallId),
-        lifetime = toolJobs[turn.id],
+        lifetime = hostedJobs.lifetime(turn.id),
         target = turn.target,
     )
 
     private suspend fun userInput(message: JsonObject, turn: Turn?) {
         val active = turn?.takeIf { runtime.questionsEnabled() }?.takeIf {
-            it.id !in toolsClosed && message.obj("params").text("turnId") == nativeTurn && leases.isNotEmpty()
+            !hostedJobs.isClosed(it.id) && message.obj("params").text("turnId") == nativeTurn && leases.isNotEmpty()
         }
         val parent = active?.let {
             accept(it)
-            toolJobs.getOrPut(it.id) { SupervisorJob(scope.coroutineScope.coroutineContext[Job]) }
+            if (currentTurn()?.id == it.id) hostedJobs.parent(it.id) else null
         }
         questions.request(message, active?.id, parent)
     }
 
     private suspend fun hostedApproval(turn: Turn, approval: AgentToolApproval): Boolean {
-        if (currentTurn()?.id != turn.id || turn.id in toolsClosed || leases.isEmpty()) return false
+        if (currentTurn()?.id != turn.id || hostedJobs.isClosed(turn.id) || leases.isEmpty()) return false
         val request = PermissionRequest(
             PermissionRequestId(Uuid.random().toString()),
             turn.id,
@@ -608,18 +613,17 @@ internal class CodexSession(
      * withdrawn: the turn changed or closed, the machine refused it, or the last lease was released.
      */
     private suspend fun awaitDecision(request: PermissionRequest): PermissionDecision? {
-        if (currentTurn()?.id != request.turn || request.turn in toolsClosed || leases.isEmpty()) return null
+        if (currentTurn()?.id != request.turn || hostedJobs.isClosed(request.turn) || leases.isEmpty()) return null
         val answer = CompletableDeferred<PermissionDecision?>()
         hostedPermissions[request.id] = answer
         hostedRequests[request.id] = request
-        if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
-            hostedPermissions.remove(request.id)
-            hostedRequests.remove(request.id)
-            return null
-        }
-        history.publish { SessionEvent.PermissionRequested(it, request) }
         return try {
-            answer.await()
+            if (machine.send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted) {
+                history.publish { SessionEvent.PermissionRequested(it, request) }
+                answer.await()
+            } else {
+                null
+            }
         } finally {
             hostedPermissions.remove(request.id)
             hostedRequests.remove(request.id)
@@ -629,23 +633,10 @@ internal class CodexSession(
         }
     }
 
-    private fun closeTools(turn: TurnId) {
-        toolsClosed += turn
-        // Only recent turns can still receive late calls; older entries are dropped to keep the set bounded.
-        if (toolsClosed.size > MAX_CLOSED_TOOL_TURNS) toolsClosed.remove(toolsClosed.first())
-    }
+    private fun cancelTools(turn: TurnId) = hostedJobs.revoke(turn)
 
-    private fun cancelTools(turn: TurnId) {
-        closeTools(turn)
-        toolJobs.remove(turn)?.cancel()
-    }
-
-    /** Normal completion revokes calls and approvals together with the accepted turn's execution identity. */
-    private fun completeTools(turn: TurnId) {
-        closeTools(turn)
-        // Ending the turn revokes execution identity, including pending hosted commands and approvals.
-        toolJobs.remove(turn)?.cancel()
-    }
+    /** Normal completion revokes calls immediately but keeps their jobs available for a later stop barrier. */
+    private fun completeTools(turn: TurnId) = hostedJobs.revoke(turn)
 
     private suspend fun correlate(params: JsonObject, turn: Turn?): TurnId? {
         val native = params.text("turnId") ?: (params["turn"] as? JsonObject)?.text("id") ?: return null
@@ -729,8 +720,6 @@ internal class CodexSession(
         val HOSTED_DENY = PermissionOptionId("hosted.deny")
     }
 }
-
-private const val MAX_CLOSED_TOOL_TURNS = 32
 
 /** Null wrapper means a stale read; null turns inside a current wrapper mean missing native history. */
 private data class NativeRead(val turns: List<JsonObject>?)

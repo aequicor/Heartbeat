@@ -178,6 +178,8 @@ internal class Fixture(
             json("turn" to json("id" to "native-turn".json())),
         )
     }
+    var beforeSearchLookup: suspend () -> Unit = {}
+    val launcher = FakeLauncher()
     var isSearchEnabled = true
     var isQuestionnaireEnabled = true
     var isUsageEnabled = true
@@ -190,9 +192,15 @@ internal class Fixture(
             @Suppress("UNCHECKED_CAST")
             override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = when (toggle) {
                 is FeatureToggle.Flag -> when (toggle) {
-                    SearchEngineTools -> isSearchEnabled
+                    SearchEngineTools -> {
+                        beforeSearchLookup()
+                        isSearchEnabled
+                    }
+
                     QuestionnaireEnabled -> isQuestionnaireEnabled
+
                     EngineUsageEnabled -> isUsageEnabled
+
                     else -> true
                 }
 
@@ -200,7 +208,7 @@ internal class Fixture(
             } as T
         },
         dispatchers,
-        FakeLauncher(),
+        launcher,
         object : ScopeFactory {
             override fun child(parent: ScopeHandle, name: String, restored: SavedBundle?): OwnedScope = FakeScope(
                 test.backgroundScope,
@@ -323,6 +331,7 @@ internal class FakeScope(override val coroutineScope: CoroutineScope) : OwnedSco
 }
 
 internal class FakeLauncher : MachineLauncher {
+    var beforeSend: suspend (MachineIntent) -> Unit = {}
     override fun <S : MachineState, I : MachineIntent, E : MachineEffect, O : MachineOutput> launch(
         spec: MachineSpec<S, I, E, O>,
         scope: ScopeHandle,
@@ -332,6 +341,7 @@ internal class FakeLauncher : MachineLauncher {
         override val state = MutableStateFlow(spec.initial)
         override val outputs = MutableSharedFlow<O>(extraBufferCapacity = 16)
         override suspend fun send(intent: I): SendResult {
+            beforeSend(intent)
             val resolution = spec.resolve(state.value, intent) ?: return SendResult.Ignored
             state.value = resolution.to
             resolution.outputs.forEach { outputs.emit(it) }
