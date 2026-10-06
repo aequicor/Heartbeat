@@ -7,10 +7,12 @@ kotlin {
     sourceSets {
         commonMain.dependencies {
             api(projects.features.aiEngine.facade.api)
+            api(projects.features.scheduler.api)
             api(projects.core.stateMachine.api)
             api(projects.core.navigation.api)
             api(projects.core.featureToggles.api)
-            implementation(libs.kotlinx.serialization.json)
+            api(libs.kotlinx.coroutines.core)
+            api(libs.kotlinx.serialization.json)
         }
     }
 }
