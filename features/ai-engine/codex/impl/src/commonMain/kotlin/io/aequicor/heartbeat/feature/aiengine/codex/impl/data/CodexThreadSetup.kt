@@ -87,6 +87,9 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     suspend fun attach(request: CodexThreadRequest, connection: CodexConnection): CodexSession {
+        val restored = request.nativeId?.let {
+            CodexTurnJournal(host.turns, sessionRef(it), request.route, runtime.turnOwnership).restore()
+        }
         val prepared = prepare(request, connection)
         val response = start(prepared, connection)
         val thread = response.obj("thread")
@@ -100,6 +103,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
             connection,
             prepared.hosted.isServed,
             prepared,
+            restored,
         )
         var isLoaded = false
         try {
@@ -111,6 +115,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
                 turns,
                 isNew = nativeId == null,
                 isCanonical = thread.text("historyMode") == "paginated" && isUnpaged,
+                restored = restored,
             )
             isLoaded = true
         } finally {

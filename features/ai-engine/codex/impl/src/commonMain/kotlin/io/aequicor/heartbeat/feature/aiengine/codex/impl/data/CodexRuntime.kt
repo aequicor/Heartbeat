@@ -130,6 +130,14 @@ internal class CodexRuntime(
     suspend fun usageEnabled(): Boolean = toggles.get(EngineUsageEnabled)
     suspend fun questionsEnabled(): Boolean = toggles.get(QuestionnaireEnabled)
 
+    /** Identifying fields only; no plaintext account or home identity is persisted in the turn journal. */
+    val turnOwnership: String?
+        get() {
+            val home = rpc.home ?: config.homeDirectory ?: return null
+            val login = account?.takeIf { !it.getOrNull(1).isNullOrBlank() } ?: return null
+            return codexOwnership(home, login)
+        }
+
     suspend fun checkAccount(connection: CodexRpc = rpc) {
         ensureOpen()
         val current = connection.request(

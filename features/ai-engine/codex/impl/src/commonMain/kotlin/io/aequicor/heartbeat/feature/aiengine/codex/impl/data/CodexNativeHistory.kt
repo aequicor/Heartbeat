@@ -50,7 +50,12 @@ internal class CodexNativeHistory(
      * Such replay, and any non-full canonical snapshot, is omitted entirely: empty Partial lets consumers keep
      * their saved history.
      */
-    suspend fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
+    suspend fun load(
+        turns: List<JsonElement>?,
+        isNew: Boolean,
+        isCanonical: Boolean,
+        logicalTurns: Map<String, TurnId> = emptyMap(),
+    ) {
         val snapshots = turns.orEmpty().map { value ->
             val turn = value as? JsonObject ?: protocolFailure()
             if (turn.text("id") == null) protocolFailure()
@@ -62,11 +67,16 @@ internal class CodexNativeHistory(
         log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
         if (!isNew && !isLoaded) return
         for ((turn, items) in snapshots) {
-            val id = TurnId(turn.text("id") ?: protocolFailure())
-            loadedTurns += id.value
-            host.resourceHistory.parts(ref, id.value)?.let { history.rememberOriginals(id, it) }
-            items.orEmpty().forEach { history.nativeItem(it, id) }
+            loadTurn(turn, items.orEmpty(), logicalTurns)
         }
+    }
+
+    private suspend fun loadTurn(turn: JsonObject, items: List<JsonObject>, logicalTurns: Map<String, TurnId>) {
+        val native = turn.text("id") ?: protocolFailure()
+        val id = logicalTurns[native] ?: TurnId(native)
+        loadedTurns += native
+        host.resourceHistory.parts(ref, native)?.let { history.rememberOriginals(id, it) }
+        items.forEach { history.nativeItem(it, id) }
     }
 
     private fun nativeItems(turn: JsonObject): List<JsonObject>? = turn["items"]?.let { value ->
