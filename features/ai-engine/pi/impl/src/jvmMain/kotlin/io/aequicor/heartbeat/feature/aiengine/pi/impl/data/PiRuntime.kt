@@ -97,7 +97,8 @@ internal class PiRuntime(
      * Pi transcripts and [SessionRef] carry no credential binding. The caller explicitly chooses the target:
      * its binding must resolve to this runtime's exact source, revision and current credential fingerprint
      * through [prepare] and [validate]. Another binding of that same source is allowed; no fallback binding
-     * or credentials are selected from the transcript. Foreign sources must use their own validated runtime.
+     * or credentials are selected from the transcript. Owned turns additionally require their persisted route
+     * and credential fingerprint. Foreign sources must use their own validated runtime.
      */
     override suspend fun attach(ref: SessionRef, request: ResumeSessionRequest): PiActiveSession {
         if (ref.engine != identity.engine || ref.source != PiSessionSource ||
@@ -122,7 +123,7 @@ internal class PiRuntime(
     }
 
     private suspend fun launch(request: CreateSessionRequest, transcript: PiTranscript?): PiActiveSession {
-        val session = prepare(request)
+        val session = prepare(request, transcript)
         var isRegistered = false
         try {
             // Startup stays outside the lock so close() and unrelated creations can proceed.
@@ -153,27 +154,32 @@ internal class PiRuntime(
         piFailure(EngineFailure.Session(SessionFailureReason.Busy))
     }
 
-    private suspend fun prepare(request: CreateSessionRequest): Pair<PiSession, String?> = mutex.withLock {
-        validate()
-        val configuration = settings.snapshot()
-        validateTarget(request.target, configuration)
-        val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
-        withContext(dispatchers.main) {
-            PiSession(
-                request,
-                ExecutionRoute(
-                    identity.engine,
-                    request.target.binding,
-                    identity.source,
-                    identity.revision,
-                    request.workspace,
-                ),
-                environment,
-                ::validate,
-                { sessions.remove(it) },
+    private suspend fun prepare(request: CreateSessionRequest, transcript: PiTranscript?): Pair<PiSession, String?> =
+        mutex.withLock {
+            validate()
+            val configuration = settings.snapshot()
+            validateTarget(request.target, configuration)
+            val directory = resolvePiWorkspace(request.workspace, workspaces, configuration.workspaces)
+            val route = ExecutionRoute(
+                identity.engine,
+                request.target.binding,
+                identity.source,
+                identity.revision,
+                request.workspace,
             )
-        } to directory
-    }
+            val restored = transcript?.let { PiTurnJournal(environment.turns, it.ref, route, credential).restore() }
+            withContext(dispatchers.main) {
+                PiSession(
+                    request,
+                    route,
+                    environment,
+                    credential,
+                    ::validate,
+                    { sessions.remove(it) },
+                    restored,
+                )
+            } to directory
+        }
 
     private fun validateTarget(target: EngineTarget, configuration: PiConfiguration) {
         if (target.engine != identity.engine || configuration.bindings[target.binding.value] != source) {

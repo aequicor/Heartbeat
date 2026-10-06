@@ -29,4 +29,5 @@ internal data class PiSessionEnvironment(
     val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
     val tools: ProfileAgentTools = NoAgentTools,
     val bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    val turns: PiTurnRecords = MemoryPiTurnRecords(),
 )
