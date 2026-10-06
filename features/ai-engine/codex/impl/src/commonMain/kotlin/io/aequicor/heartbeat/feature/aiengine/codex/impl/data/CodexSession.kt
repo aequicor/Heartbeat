@@ -509,7 +509,7 @@ internal class CodexSession(
         var isResponseStarted = false
         scope.coroutineScope.launch(parent) {
             val result = if (isSearch) {
-                executeSearchTool(runtime.host.search, tool, arguments)
+                executeHostedSearch(runtime.host.search, runtime.host.tools, toolContext(turn, params), tool, arguments)
             } else {
                 executeHostedTool(turn, params, tool, arguments)
             }
@@ -531,17 +531,7 @@ internal class CodexSession(
     ): JsonObject {
         val args = arguments as? JsonObject ?: return toolFailureResult("InvalidInput")
         if (!areHostedToolsEnabled) return toolFailureResult("Unavailable")
-        val context = AgentToolContext(
-            ref,
-            route.workspace,
-            turn.id,
-            turn.request,
-            trust,
-            AgentToolPermissions { hostedApproval(turn, it) },
-            params.text("callId")?.let(::ToolCallId),
-            lifetime = toolJobs[turn.id],
-            target = turn.target,
-        )
+        val context = toolContext(turn, params)
         return try {
             val result = runtime.host.tools.execute(context, name, args)
             toolResult(!result.isError, result.text)
@@ -552,6 +542,18 @@ internal class CodexSession(
             toolFailureResult("Unavailable")
         }
     }
+
+    private fun toolContext(turn: Turn, params: JsonObject): AgentToolContext = AgentToolContext(
+        ref,
+        route.workspace,
+        turn.id,
+        turn.request,
+        trust,
+        AgentToolPermissions { hostedApproval(turn, it) },
+        params.text("callId")?.let(::ToolCallId),
+        lifetime = toolJobs[turn.id],
+        target = turn.target,
+    )
 
     private suspend fun userInput(message: JsonObject, turn: Turn?) {
         val active = turn?.takeIf { runtime.questionsEnabled() }?.takeIf {
