@@ -86,7 +86,7 @@ internal suspend fun fixture(
             test,
             isUsageEnabled,
             acceptIntent = acceptIntent,
-            tools = tools,
+            tools = if (tools === NoAgentTools) TestNativeTools else tools,
             bridge = bridge,
             resources = resources,
         ),
@@ -134,6 +134,7 @@ internal fun piTestEnvironment(
         FakeScope(test.backgroundScope),
         dispatchers,
         DefaultPiTestToggles(isUsageEnabled, areEnginesEnabled),
+        TestNativeClassifier,
         tools = tools,
         bridge = bridge,
         resources = resources,
@@ -241,6 +242,7 @@ internal class FakeConnection : PiConnection {
         {"type":"compaction","id":"summary","parentId":"reply","summary":"Earlier"},
         {"type":"message","id":"later","parentId":"summary","message":{"role":"user","content":"Later"}}]}"""
     var sendFailure: EngineException? = null
+    var beforeSend: suspend () -> Unit = {}
     override var isOpen = true
     override val workingDirectory: Path = TestWorkspace
     override suspend fun command(type: String, fields: JsonObject): JsonObject {
@@ -258,6 +260,7 @@ internal class FakeConnection : PiConnection {
         }
     }
     override suspend fun send(record: JsonObject) {
+        beforeSend()
         sendFailure?.let {
             sendFailure = null
             throw it

@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.di
 
+import io.aequicor.heartbeat.core.common.HostPlatform
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnvironmentEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.InstallSupport
@@ -14,6 +16,9 @@ class PiRegistrationBindingsTest {
     private val registration = PiRegistrationBindings.registration(
         lazy<PiAdapter> { error("Must stay lazy") },
         lazy<PiEngineManager> { error("Must stay lazy") },
+        object : PlatformInfo {
+            override val host = HostPlatform.MacOs
+        },
     )
 
     /**

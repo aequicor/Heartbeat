@@ -129,6 +129,7 @@ internal class PiSession(
     // Pending tool approvals keyed by the Pi extension UI request id; confined to dispatchers.main.
     private val permissions = mutableMapOf<PermissionRequestId, PermissionRequest>()
     private val decisions = mutableSetOf<PermissionRequestId>()
+    private val nativeApprovals = mutableSetOf<Pair<Int, String>>()
 
     // Non-approval dialogs among [permissions] and how to answer them; confined to dispatchers.main.
     private val dialogs = mutableMapOf<PermissionRequestId, PiDialog>()
@@ -555,13 +556,28 @@ internal class PiSession(
     }
 
     private suspend fun approval(id: String, message: String?) {
-        val call = approvalCall(message)
-        val level = trust
-        if (call != null && isTrusted(call, level) && canAnswerAlone()) {
-            allow(id, call.tool, level)
-        } else {
-            val active = turn
-            await(id, if (call != null && active != null) approvalRequest(id, active.id, call) else null, null)
+        val call = approvalCall(message) ?: return dismiss(id)
+        val active = turn ?: return dismiss(id)
+        val context = hostedTools.context() ?: return dismiss(id)
+        val process = connection
+        if (process == null || isHandleClosed) {
+            dismiss(id)
+            return
+        }
+        val capturedGeneration = generation
+        val key = capturedGeneration to id
+        if (!nativeApprovals.add(key)) return
+        val approval = PiNativeApproval(environment, hostedTools, process, isCurrent = {
+            val isSameProcess = generation == capturedGeneration && connection === process && process.isOpen
+            val isActiveTurn = turn?.id == active.id && context.lifetime?.isActive == true
+            val isAnswerable = !isHandleClosed && state.value !is ActiveSessionState.Interrupting
+            isSameProcess && isActiveTurn && isAnswerable
+        }, failed = ::failed)
+        profile.coroutineScope.launch(dispatchers.main + requireNotNull(context.lifetime)) {
+            approval.answer(id, call, active, context)
+        }.invokeOnCompletion {
+            // Completion also runs when the lifetime was revoked before the coroutine first started.
+            profile.coroutineScope.launch(dispatchers.main) { nativeApprovals.remove(key) }
         }
     }
 
@@ -579,27 +595,6 @@ internal class PiSession(
             permissions.remove(request.id)
             dialogs.remove(request.id)
             dismiss(id)
-        }
-    }
-
-    /** Whether the trust of the running turn covers [call]; nothing is trusted while the turn is interrupted. */
-    private suspend fun isTrusted(call: PiApprovalCall, level: TrustLevel): Boolean {
-        if (!canAnswerAlone()) return false
-        val workspace = connection?.workingDirectory
-        return withContext(dispatchers.io) { level.answers(call, workspace) }
-    }
-
-    private fun canAnswerAlone(): Boolean =
-        turn != null && !isHandleClosed && machine.state.value !is ActiveSessionState.Interrupting
-
-    /** Answers an approval the turn's trust covers; Pi runs the tool as if the user allowed it. */
-    private suspend fun allow(id: String, tool: String, level: TrustLevel) {
-        try {
-            rpc().respondToUi(id, "confirmed" to JsonPrimitive(true))
-            log.i { "Pi tool call allowed by trust level $level: $tool" }
-        } catch (e: EngineException) {
-            log.w(e) { "Pi trusted approval was not delivered" }
-            if (turn != null) failed(e.failure)
         }
     }
 
@@ -639,7 +634,8 @@ internal class PiSession(
     }
 
     private suspend fun dismissApprovals() {
-        val pending = permissions.keys.filter { !hostedTools.contains(it) }
+        val pending = permissions.keys.filter { !hostedTools.contains(it) }.toSet() +
+            nativeApprovals.filter { it.first == generation }.map { PermissionRequestId(it.second) }
         hostedTools.dismiss()
         permissions.clear()
         dialogs.clear()
