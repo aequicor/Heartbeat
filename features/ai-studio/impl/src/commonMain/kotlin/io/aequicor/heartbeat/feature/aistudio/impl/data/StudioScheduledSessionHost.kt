@@ -9,7 +9,10 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
@@ -65,12 +68,21 @@ internal class StudioScheduledSessionHost(
     // Lazy: the studio runtime depends on the hosted tools, whose background actions depend on these hosts.
     private val scheduledChats: Lazy<StudioScheduledChats>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val helperRecords: Lazy<StudioHelperChatRecords>,
 ) : ScheduledSessionHost {
     private val log = Log.tag("StudioScheduledSessionHost")
     private val chats: StudioScheduledChats get() = scheduledChats.value
 
     override val priority: Int = STUDIO_HOST_PRIORITY
     override val isWakeAdmissionSupported: Boolean = true
+
+    // Capability stays false until the request-correlated submission and cancellation protocol is implemented.
+    override suspend fun createHelper(request: HelperCreateRequest): HelperId =
+        helperRecords.value.createHelper(request)
+
+    override suspend fun helperMetadata(helper: HelperId): HelperMetadata? = helperRecords.value.helperMetadata(helper)
+
+    override suspend fun isHelper(session: SessionRef): Boolean = helperRecords.value.isHelper(session)
 
     override suspend fun owns(session: SessionRef): Boolean = chats.chatOf(session) != null
 

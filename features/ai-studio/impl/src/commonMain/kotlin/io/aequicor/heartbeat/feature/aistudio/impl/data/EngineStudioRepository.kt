@@ -133,6 +133,8 @@ internal data class StudioChatRecord(
     val configuration: StudioSessionSettings? = null,
     /** Set for a conversation run as the organic AI organism of the same id. */
     val organismId: String? = null,
+    /** Durable helper marker, also present for helpers with no caller. */
+    val helper: StudioHelperIdentity? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
@@ -142,6 +144,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
 @Inject
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
@@ -168,7 +171,8 @@ internal class EngineStudioRepository(
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess,
-    StudioChatResolver {
+    StudioChatResolver,
+    StudioHelperChatWriter {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(configurations, learning)
     private val store = stores.keyValue(ChatSpec)
@@ -323,6 +327,12 @@ internal class EngineStudioRepository(
         val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
+    }
+
+    override suspend fun saveHelper(record: StudioChatRecord) {
+        check(record.helper != null && record.ref == null && record.lastRunRequest == null)
+        log.v { "Persist empty helper identity" }
+        saveConversation(record)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
@@ -594,7 +604,7 @@ internal class EngineStudioRepository(
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
         }
-        val workspace = record.projectId?.let { projectId ->
+        val workspace = record.resolvedExecutionWorkspace()?.let { ref ->
             check(
                 facade.engines.state.value.any {
                     it.descriptor.id == target.engine &&
@@ -603,7 +613,6 @@ internal class EngineStudioRepository(
             ) {
                 "Choose a model with local project access"
             }
-            val ref = record.executionWorkspace ?: WorkspaceRef(projectId)
             checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
             ref
         }

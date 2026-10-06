@@ -83,7 +83,11 @@ class StudioScheduledSessionHostTest {
     @Test
     fun `a wake runs in the session's chat and returns on acceptance`() = runTest {
         val chats = Chats().apply { owned[session] = StudioScheduledChat("chat", "project") }
-        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+        )
         assertTrue(host.owns(session))
         assertFalse(host.owns(helper))
         host.wake(request, prompt)
@@ -96,7 +100,11 @@ class StudioScheduledSessionHostTest {
             owned[session] = StudioScheduledChat("chat", null)
             finish.complete(Unit)
         }
-        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+        )
         assertFailsWith<IllegalStateException> { host.wake(request, prompt) }
     }
 
@@ -106,7 +114,11 @@ class StudioScheduledSessionHostTest {
             owned[session] = StudioScheduledChat("chat", "project")
             sessions["helper"] = helper
         }
-        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+        )
         val spawned = host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt))
         assertEquals(helper, spawned)
         assertEquals(listOf<Pair<String?, String>>("project" to "Helper"), chats.created)
@@ -116,7 +128,11 @@ class StudioScheduledSessionHostTest {
     @Test
     fun `a helper cannot start without an owning parent chat`() = runTest {
         val chats = Chats()
-        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+        )
         assertNull(host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
         assertTrue(chats.created.isEmpty())
         assertTrue(chats.runs.isEmpty())
@@ -128,7 +144,11 @@ class StudioScheduledSessionHostTest {
             owned[session] = StudioScheduledChat("chat", null)
             sessions["helper"] = helper
         }
-        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+        )
         assertEquals(helper, host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
         assertEquals(listOf<Pair<String?, String>>(null to "Helper"), chats.created)
         assertEquals(ScheduledRunRoute(target, approvalFrom = "chat"), chats.runs.single()[2])
