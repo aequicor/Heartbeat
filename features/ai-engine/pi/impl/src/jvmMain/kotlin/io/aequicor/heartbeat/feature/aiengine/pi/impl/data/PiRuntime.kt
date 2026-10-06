@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsImages
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AcceptsResources
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AccessFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AiEngines
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
@@ -20,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
@@ -31,6 +33,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEnabled
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiSessions
 import io.aequicor.heartbeat.feature.searchengine.api.NativeWebFetch
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -71,6 +74,11 @@ internal class PiRuntime(
     // Reserved before transcript lookup and process startup; only accessed under mutex.
     private val attaching = mutableSetOf<SessionRef>()
 
+    // Live handles per served session and sessions whose last handle is detaching; the callback reads them
+    // without the mutex, so both are concurrent.
+    private val consumers = ConcurrentHashMap<PiSession, Int>()
+    private val draining: MutableSet<PiSession> = ConcurrentHashMap.newKeySet()
+
     @Volatile override var isClosed: Boolean = false
         private set
     override val features: EngineFeatures =
@@ -94,6 +102,10 @@ internal class PiRuntime(
      * Restarts Pi on the stored transcript of [ref] in this profile, e.g. after an application restart.
      * Reserves the ref before any transcript IO, so concurrent attachments cannot start a second process.
      *
+     * A transcript is served by at most one live Pi process; a detached one keeps it until its turn settles.
+     * A live session is never started twice: once it is served, every attach hands out a borrowing handle over
+     * the same process, and the close of the last one closes the session — an owner has no special rights.
+     *
      * Pi transcripts and [SessionRef] carry no credential binding. The caller explicitly chooses the target:
      * its binding must resolve to this runtime's exact source, revision and current credential fingerprint
      * through [prepare] and [validate]. Another binding of that same source is allowed; no fallback binding
@@ -105,10 +117,26 @@ internal class PiRuntime(
         ) {
             piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        mutex.withLock {
+        val shared = mutex.withLock {
             validate()
             validateTarget(request.target, settings.snapshot())
-            if (isServed(ref) || !attaching.add(ref)) busy()
+            val served = sessions.firstOrNull { it.attachedRef == ref }
+            when {
+                served != null && served !in draining -> {
+                    consumers[served] = (consumers[served] ?: 0) + 1
+                    served
+                }
+
+                served != null -> busy()
+
+                !attaching.add(ref) -> busy()
+
+                else -> null
+            }
+        }
+        if (shared != null) {
+            log.i { "Sharing the live Pi session of a stored transcript" }
+            return PiSessionView(shared) { releaseBorrow(shared) }
         }
         try {
             val file = processes.transcript(ref.nativeId)
@@ -136,17 +164,31 @@ internal class PiRuntime(
                 mutex.withLock {
                     if (isClosed) piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed))
                     sessions += session.first
+                    consumers[session.first] = 1
                     isRegistered = true
                 }
             }
-            return session.first
+            // Every handle is a borrowing one, so the caller's close only ends its own use of the process.
+            return PiSessionView(session.first) { releaseBorrow(session.first) }
         } finally {
             if (!isRegistered) withContext(NonCancellable) { session.first.shutdown() }
         }
     }
 
-    /** A transcript is served by at most one live Pi process; a detached one keeps it until its turn settles. */
-    private fun isServed(ref: SessionRef): Boolean = sessions.any { it.attachedRef == ref }
+    /** Ends one borrowed handle; the process is closed when its last consumer is gone. */
+    private suspend fun releaseBorrow(session: PiSession) {
+        val isLast = mutex.withLock {
+            val left = (consumers[session] ?: 0) - 1
+            if (left <= 0) {
+                consumers.remove(session)
+                draining += session
+            } else {
+                consumers[session] = left
+            }
+            left <= 0
+        }
+        if (isLast) session.close()
+    }
 
     private fun busy(): Nothing {
         log.w { "Stored Pi session is still served by a running process" }
@@ -170,9 +212,15 @@ internal class PiRuntime(
                 ),
                 environment,
                 ::validate,
-                { sessions.remove(it) },
+                ::forgotten,
             )
         } to directory
+    }
+
+    private fun forgotten(session: PiSession) {
+        sessions.remove(session)
+        draining.remove(session)
+        consumers.remove(session)
     }
 
     private fun validateTarget(target: EngineTarget, configuration: PiConfiguration) {
@@ -188,6 +236,8 @@ internal class PiRuntime(
         isClosed = true
         sessions.toList().forEach { it.shutdown() }
         sessions.clear()
+        consumers.clear()
+        draining.clear()
     }
 }
 
@@ -215,4 +265,19 @@ private fun EngineFeature.hasNoSupportedInput(): Boolean = when (this) {
     is AcceptsImages -> mediaTypes.isEmpty()
     is AcceptsResources -> mediaTypes.isEmpty()
     else -> false
+}
+
+/**
+ * A borrowing handle over a live [PiSession] that another consumer attached first: it observes and drives the
+ * same native process, while its close only ends the borrow. The process is closed when its last consumer is
+ * gone, so a borrower never cuts short a session it does not own.
+ */
+private class PiSessionView(private val origin: PiSession, private val release: suspend () -> Unit) : PiActiveSession {
+    override val ref: SessionRef get() = origin.ref
+    override val route: ExecutionRoute get() = origin.route
+    override val state: StateFlow<ActiveSessionState> get() = origin.state
+    override val contextUsage: SessionContextUsage get() = origin.contextUsage
+    override val features: EngineFeatures get() = origin.features
+
+    override suspend fun close() = release()
 }
