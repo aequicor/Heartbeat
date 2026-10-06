@@ -112,6 +112,7 @@ private fun StudioWorkspace(
     chatArea: ComposableComponent?,
 ) {
     val focus = remember { StudioFocusState() }
+    val timelineState = remember { StudioTimelineState() }
     val dispatch: (AiStudioScreenIntent) -> Unit = { intent ->
         focus.beforeIntent(intent, state)
         onIntent(intent)
@@ -141,6 +142,7 @@ private fun StudioWorkspace(
                     focus,
                     drawerWidth = minOf(dimensions.drawerMaxWidth, availableWidth),
                     chatArea = chatArea,
+                    timelineState = timelineState,
                 )
             } else {
                 val panesWidth = availableWidth - sidebarWidth - studio.outerInset * 2
@@ -152,6 +154,7 @@ private fun StudioWorkspace(
                     sidebarWidth,
                     isSplitAllowed = panesWidth >= dimensions.paneMinWidth * 2 + studio.panelGap,
                     chatArea = chatArea,
+                    timelineState = timelineState,
                 )
             }
         }
@@ -167,6 +170,7 @@ private fun WideWorkspace(
     sidebarWidth: Dp,
     isSplitAllowed: Boolean,
     chatArea: ComposableComponent?,
+    timelineState: StudioTimelineState,
 ) {
     HbRow(
         Modifier.fillMaxSize().padding(
@@ -209,6 +213,7 @@ private fun WideWorkspace(
                     PaneFrame(pane != shown.first(), Modifier.weight(1f).fillMaxHeight()) {
                         StudioPaneView(
                             content = state.paneContent(pane),
+                            timelineState = timelineState,
                             onOpenResearch = exits.onOpenResearch,
                             questions = exits.questions,
                             checklists = exits.checklists,
@@ -245,6 +250,7 @@ private fun CompactWorkspace(
     focus: StudioFocusState,
     drawerWidth: Dp,
     chatArea: ComposableComponent?,
+    timelineState: StudioTimelineState,
 ) {
     Box(Modifier.fillMaxSize()) {
         if (chatArea != null) {
@@ -258,6 +264,7 @@ private fun CompactWorkspace(
         state.panes.takeIf { chatArea == null }?.firstOrNull { it.id == state.focusedPaneId }?.let { pane ->
             StudioPaneView(
                 content = state.paneContent(pane),
+                timelineState = timelineState,
                 onOpenResearch = exits.onOpenResearch,
                 questions = exits.questions,
                 checklists = exits.checklists,

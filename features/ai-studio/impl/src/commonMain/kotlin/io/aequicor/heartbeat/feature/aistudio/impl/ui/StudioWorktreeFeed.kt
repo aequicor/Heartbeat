@@ -215,12 +215,16 @@ internal fun PaneContent.worktreeFeed(): WorktreeFeed? {
 /**
  * Cards of [feed] for the transcript: the journal notice, one card for the task (`worktree:<key>`) and one per
  * recent build (`build:<id>`). Stable ids keep disclosure state while the transcript streams; the recent-build
- * window refreshes the last [MAX_BUILDS], while every build ever invoked stays [WorktreeTimeline.retained].
+ * window offers the last [MAX_BUILDS] and refreshes [shownCards], while every invoked build stays retained.
  * Until the journal is restored the task card hides its phase and decisions, which may be stale.
  */
-internal fun worktreeTimeline(feed: WorktreeFeed?, labels: WorktreeLabels): WorktreeTimeline {
+internal fun worktreeTimeline(
+    feed: WorktreeFeed?,
+    labels: WorktreeLabels,
+    shownCards: Set<String> = emptySet(),
+): WorktreeTimeline {
     if (feed == null) return WorktreeTimeline()
-    val builds = feed.buildCards(labels.builds)
+    val builds = feed.buildCards(labels.builds, shownCards)
     val cards = listOfNotNull(feed.journalCard(labels), feed.taskCard(labels)) + builds
     if (cards.isEmpty()) return WorktreeTimeline()
     return WorktreeTimeline(
@@ -421,11 +425,14 @@ private fun decisions(session: String, task: WorktreeUi, labels: WorktreeLabels)
         )
     }
 
-private fun WorktreeFeed.buildCards(labels: BuildLabels): List<WorktreeCard> {
+private fun WorktreeFeed.buildCards(labels: BuildLabels, shownCards: Set<String>): List<WorktreeCard> {
     val task = task ?: return emptyList()
     val session = sessionId ?: return emptyList()
     val isOperational = journal == WorktreeJournalUi.Ready
-    return task.builds.takeLast(MAX_BUILDS).map { build ->
+    val recentStart = task.builds.size - MAX_BUILDS
+    return task.builds.filterIndexed { index, build ->
+        index >= recentStart || "build:${build.id}" in shownCards
+    }.map { build ->
         val output = build.outputTail().takeIf { build.phase in DiagnosedPhases }.orEmpty()
         worktreeCard(
             id = "build:${build.id}",

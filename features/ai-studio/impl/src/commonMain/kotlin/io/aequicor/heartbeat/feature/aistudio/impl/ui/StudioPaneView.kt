@@ -118,6 +118,7 @@ internal fun StudioPaneView(
     isAtWindowLeadingEdge: Boolean = false,
     questions: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
     checklists: ImmutableMap<String, ComposableComponent> = persistentMapOf(),
+    timelineState: StudioTimelineState = remember { StudioTimelineState() },
 ) {
     val pane = content.pane
     var headerHeight by remember { mutableIntStateOf(0) }
@@ -132,13 +133,14 @@ internal fun StudioPaneView(
             .background(HbTheme.surfaces.assistant).testTag("pane-${pane.id}"),
     ) {
         val worktreeFeed = content.worktreeFeed()
+        val feedId = content.feedId() ?: worktreeFeed?.key
         val worktree = if (worktreeFeed == null) {
             NoWorktree
         } else {
             val labels = worktreeLabels()
-            remember(worktreeFeed, labels) { worktreeTimeline(worktreeFeed, labels) }
+            val shownCards = timelineState.session(feedId ?: worktreeFeed.key).cards.keys
+            remember(worktreeFeed, labels, shownCards) { worktreeTimeline(worktreeFeed, labels, shownCards) }
         }
-        val feedId = content.feedId() ?: worktreeFeed?.key
         val transcript = content.transcript ?: persistentListOf<MessageUi>().takeIf { worktree.messages.isNotEmpty() }
         val isCenteredComposer = feedId == null && HbTheme.dimensions.isDesktop
         if (feedId == null && !isCenteredComposer) {
@@ -156,6 +158,7 @@ internal fun StudioPaneView(
             key(feedId) {
                 SessionTranscript(
                     feedId = feedId,
+                    timelineState = timelineState,
                     messages = transcript,
                     checklists = checklists,
                     worktree = worktree,
@@ -550,6 +553,7 @@ private fun NewSessionStarters(onDraft: (String) -> Unit) {
 @Composable
 private fun SessionTranscript(
     feedId: String,
+    timelineState: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     worktree: WorktreeTimeline,
     checklists: ImmutableMap<String, ComposableComponent>,
@@ -563,6 +567,7 @@ private fun SessionTranscript(
 ) {
     val timeline = rememberStudioTimeline(
         feedId,
+        timelineState,
         messages,
         timelineLabels(section, calendar),
         worktree.messages,

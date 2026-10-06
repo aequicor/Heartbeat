@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeActionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
@@ -73,6 +74,39 @@ import kotlin.time.Instant
 /** Worktree lifecycle renders as cards in the transcript; the composer region keeps only the composer. */
 @OptIn(ExperimentalTestApi::class)
 class StudioWorktreeUiTest {
+    @Test
+    fun `worktree card keeps its position when the session leaves the pane and returns in another pane`() =
+        runSkikoComposeUiTest(size = Size(520f, 900f)) {
+            val pane = PaneUi(0, sessionId = "chat")
+            val initial = savedWorkspace(pane, task(WorktreePhaseUi.Working)).copy(phase = StudioPhase.Ready)
+            val messages = initial.transcripts.getValue("chat")
+            var state by mutableStateOf(
+                initial.copy(transcripts = persistentMapOf("chat" to persistentListOf(messages.first()))),
+            )
+            setContent {
+                HbTheme(darkTheme = false) {
+                    AiStudioContent(state, {}, StudioExits(onBack = {}, onOpenToggles = {}))
+                }
+            }
+            onNodeWithTag(card("worktree:chat")).assertIsDisplayed()
+            runOnIdle { state = state.copy(transcripts = initial.transcripts) }
+            waitForIdle()
+            val before = onNodeWithTag(card("worktree:chat")).fetchSemanticsNode().boundsInRoot.top
+            val answerBefore = onNodeWithText("Done.").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(before < answerBefore)
+
+            // Remove the pane as well as its keyed transcript, then open the session in a different pane.
+            runOnIdle { state = state.copy(panes = persistentListOf(PaneUi(0))) }
+            onNodeWithTag(card("worktree:chat")).assertDoesNotExist()
+            runOnIdle {
+                state = state.copy(panes = persistentListOf(PaneUi(1, sessionId = "chat")), focusedPaneId = 1)
+            }
+            onNodeWithTag(card("worktree:chat")).assertIsDisplayed()
+            val after = onNodeWithTag(card("worktree:chat")).fetchSemanticsNode().boundsInRoot.top
+            val answerAfter = onNodeWithText("Done.").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(after < answerAfter)
+        }
+
     @Test
     fun `recovery explains known failures in the feed without exposing raw codes`() =
         runSkikoComposeUiTest(size = Size(520f, 700f)) {

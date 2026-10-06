@@ -102,18 +102,26 @@ internal fun fill(template: String, vararg args: Any): String = args.foldIndexed
  * [update] is idempotent: repeating it with the same input returns the same timeline, so a discarded
  * composition that already advanced the cache cannot desynchronize it from the committed one.
  */
-internal class TimelineCache {
+internal class TimelineCache(private val placement: TimelineWeaves = TimelineWeaves()) {
     private var messages: List<MessageUi> = emptyList()
     private var labels: TimelineLabels? = null
     private var history: HbChatTimeline = HbChatTimeline.Empty
     private var cards: List<HbChatMessage> = emptyList()
     private var retained: Set<String> = emptySet()
+    private var observedCards = placement.cards
+    private var observedPositions = placement.positions
 
     /** Cards already woven, by id; their insertion points replay full rebuilds in weave order. */
-    private var woven: Map<String, HbChatMessage> = emptyMap()
-    private var weaves: List<Weave> = emptyList()
-
-    private data class Weave(val id: String, val afterIndex: Int)
+    private var woven: Map<String, HbChatMessage>
+        get() = placement.cards
+        set(value) {
+            placement.cards = value
+        }
+    private var weaves: List<TimelineWeave>
+        get() = placement.positions
+        set(value) {
+            placement.positions = value
+        }
 
     fun update(
         next: List<MessageUi>,
@@ -121,14 +129,23 @@ internal class TimelineCache {
         nextCards: List<HbChatMessage> = emptyList(),
         nextRetained: Set<String> = emptySet(),
     ): HbChatTimeline {
-        if (next == messages && nextCards == cards) {
+        // A replacement pane may have advanced placement before its composition was discarded.
+        val isPlacementChanged = observedCards !== woven || observedPositions !== weaves
+        if (!isPlacementChanged && next == messages && nextCards == cards) {
             if (nextLabels == labels && nextRetained == retained) return history
         }
         val sections = sectionsFor(next, nextLabels)
-        history = syncMessages(next, nextLabels, sections)
+        history = if (isPlacementChanged) {
+            rebuild(next, sections, nextLabels)
+        } else {
+            syncMessages(next, nextLabels, sections)
+        }
         messages = next
         labels = nextLabels
-        return weave(next, nextCards, nextRetained, sections, nextLabels)
+        val updated = weave(next, nextCards, nextRetained, sections, nextLabels)
+        observedCards = woven
+        observedPositions = weaves
+        return updated
     }
 
     /** Streams into the latest message and appends the arrived ones; another source rebuilds the timeline. */
@@ -173,7 +190,7 @@ internal class TimelineCache {
             when (woven[card.id]) {
                 null -> {
                     woven = woven + (card.id to card)
-                    weaves = weaves + Weave(card.id, next.lastIndex)
+                    weaves = weaves + TimelineWeave(card.id, next.lastIndex)
                     updated = updated.append(cardSection(sections, nextLabels), card)
                 }
 
@@ -264,13 +281,14 @@ internal class TimelineCache {
 @Composable
 internal fun rememberStudioTimeline(
     sessionId: String,
+    state: StudioTimelineState,
     messages: ImmutableList<MessageUi>,
     labels: TimelineLabels,
     cards: ImmutableList<HbChatMessage> = persistentListOf(),
     retained: ImmutableSet<String> = persistentSetOf(),
 ): HbChatTimeline {
-    val cache = remember(sessionId) { TimelineCache() }
-    return remember(cache, messages, labels, cards, retained) { cache.update(messages, labels, cards, retained) }
+    val cache = remember(sessionId, state) { TimelineCache(state.session(sessionId)) }
+    return cache.update(messages, labels, cards, retained)
 }
 
 internal fun MessageUi.toHb(labels: TimelineLabels): HbChatMessage = when (this) {
