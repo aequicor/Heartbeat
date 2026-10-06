@@ -83,7 +83,7 @@ internal class CellDriver(private val cells: CellSessions, private val journal: 
     private fun CellPhase.Working.kind(): String = when {
         isRecovery -> "recovery"
         work == Work.Genesis -> "genesis"
-        else -> "letters"
+        else -> "inbox reminder"
     }
 
     private fun Settlement.kind(): String = when (this) {

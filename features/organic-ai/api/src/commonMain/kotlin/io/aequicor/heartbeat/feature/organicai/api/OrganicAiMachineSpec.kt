@@ -10,8 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 /**
  * Organic AI: sessions organized as organisms. A zygote grows from the goal; working cells divide, complain about
  * cancerous cells and ask for binding answers through their hosted tools; each case goes to a fresh immune session.
- * Results travel as letters: a resting cell wakes when an awaited result arrives, other letters wait for the next
- * turn. A step wakes one cell, a kill up to two (the killed cell's parent and the plaintiff). Every change of an
+ * Results stay in durable inboxes and are read by a hosted tool. Only an explicitly requested wait wakes a resting
+ * cell, with a host-only reminder to read its inbox. A dispute can wake all its waiting parties. Every change of an
  * organism inside [OrganicAiState.Living] is a data update, so turns and judgements of other cells keep running.
  *
  * | From | Intent | Guard | To / update | Effects | Output |
@@ -24,23 +24,26 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Hibernating | Hibernated | — | Dormant | — | — |
  * | Living | Conceive | new id | + organism, zygote Working(Genesis) | Persist; Drive, or Resolve without a model | — |
  * | Living | Targeted / Unresolved | developing, no model yet | model / zygote Stalled(NoModel) | Persist; Drive | — |
- * | Living | Resume | zygote Stalled | zygote recovery turn | Persist; Drive or Resolve | — |
+ * | Living | Resume | stalled / unarmed resting | recovery / reminder | Persist; DriveCells / Drive / Resolve | — |
  * | Living | Abort | developing | living cells Dead(Aborted), Aborted | Persist; Release(Lyse) | Finished |
  * | Living | Divide | parent working, limits, next cell id | + child Working(Genesis) | Persist; Drive(child) | — |
  * | Living | Complain / Dispute | filer working, no refusal, next case id | + case, + trial | Persist; Judge | — |
  * | Living | JudgeConvened | trial without ruling | trial judge session | Persist | — |
  * | Living | SessionBound | turn of request, no session yet | session | Persist | — |
  * | Living | TurnAccepted / PermissionsChanged | turn of request | observed turn / awaiting | — | — |
+ * | Living | ReceiveLetters | current request, valid cursor | advance read cursor, disarm wait | Persist | — |
+ * | Living | AwaitResults | current request, unread or outstanding work | arm result wait | Persist | — |
  * | Living | Decide | an awaited request accepts the decision | — | Respond | — |
  * | Living | TurnSettled(Answered) | turn of request | see below | Persist; Drive?; Release(Retire)? | Finished? |
  * | Living | TurnSettled(Broke) | turn of request | see below | Persist; Drive?; Release(Lyse)? | — |
  * | Living | Ruled | open case, developing | see below | Persist; Drive?; Drive(plaintiff)?; Release(Lyse)? | — |
  *
- * An answer starts the next turn on letters that came meanwhile; a cell that still awaits children or a case it
- * filed rests; otherwise the cell completes and its parent is told (the zygote completes the organism). A broken
+ * An answer starts a reminder turn only when the cell explicitly requested a wait and has unread results. A cell
+ * with outstanding work or unread results rests; otherwise it completes (the zygote completes the organism). A broken
  * zygote stalls; any other broken cell dies with its descendants and its parent is told. A kill lyses the accused
- * subtree and wakes its parent and the plaintiff; any other ruling wakes the cell that filed the case, and the
- * parties of a dispute read the answer with their next letters.
+ * subtree and may wake its waiting parent and plaintiff. All result text is returned through the receive tool,
+ * never through a prompt. A result arriving during a turn never interrupts it. Explicit waits and read cursors
+ * survive restart; legacy saved letters turns are moved back into inboxes before recovery.
  *
  * Anything else is ignored: stale feedback of an ended cell or a replaced request, unknown organisms, refused tool
  * requests and every organism intent outside Living. Effect failures map to: Restore → RestoreFailed, Resolve →
@@ -73,6 +76,10 @@ public val OrganicAiMachineSpec: MachineSpec<OrganicAiState, OrganicAiIntent, Or
                 effect { step()?.takeIf { it.isResolving }?.let { OrganicAiEffect.Resolve(it.organism.id) } }
                 effect { step()?.let { it.driveEffect(it.drive) } }
                 effect { step()?.let { it.driveEffect(it.rouse) } }
+                effect {
+                    step()?.takeIf { it.driveCells.isNotEmpty() }
+                        ?.let { OrganicAiEffect.DriveCells(it.organism, it.driveCells) }
+                }
                 effect { step()?.let { step -> step.judge?.let { OrganicAiEffect.Judge(step.organism, it) } } }
                 effect {
                     step()?.takeIf { it.release.isNotEmpty() }
@@ -142,6 +149,7 @@ private fun OrganicAiEffect.failure(error: Throwable): OrganicAiIntent? = when (
 
     is OrganicAiEffect.Hibernate -> OrganicAiIntent.Internal.Hibernated
 
-    is OrganicAiEffect.Revive, is OrganicAiEffect.Persist, is OrganicAiEffect.Respond, is OrganicAiEffect.Release ->
-        null
+    is OrganicAiEffect.Revive, is OrganicAiEffect.DriveCells,
+    is OrganicAiEffect.Persist, is OrganicAiEffect.Respond, is OrganicAiEffect.Release,
+    -> null
 }

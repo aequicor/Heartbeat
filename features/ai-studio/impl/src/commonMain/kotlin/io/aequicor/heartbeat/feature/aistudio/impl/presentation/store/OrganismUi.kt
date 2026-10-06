@@ -110,8 +110,14 @@ enum class OrganismActionUi { Abort, Resume }
 internal fun Organism.toUi(): OrganismUi = OrganismUi(
     status = when {
         status is OrganismStatus.Completed -> OrganismStatusUi.Completed
+
         status == OrganismStatus.Aborted -> OrganismStatusUi.Aborted
+
         zygote.phase is CellPhase.Stalled -> OrganismStatusUi.Stalled
+
+        zygote.phase == CellPhase.Resting && cells.any { it.phase == CellPhase.Resting && !it.isAwaitingResults } ->
+            OrganismStatusUi.Stalled
+
         else -> OrganismStatusUi.Developing
     },
     subSessions = (

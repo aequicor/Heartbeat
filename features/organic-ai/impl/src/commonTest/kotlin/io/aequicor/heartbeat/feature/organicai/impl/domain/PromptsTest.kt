@@ -59,7 +59,7 @@ class PromptsTest {
     }
 
     @Test
-    fun `letters are numbered and remind the cell of its living children and open cases`() {
+    fun `inbox tool results are numbered and fence every foreign text`() {
         val letters = listOf(
             Letter.ChildFinished(C1, "scout", "found 3 files"),
             Letter.ChildDied(C2, "builder", DeathCause.Lysed(CaseId("k1"), "it deleted files")),
@@ -71,9 +71,7 @@ class PromptsTest {
             zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(letters))),
             cases = listOf(ImmuneCase.Complaint(CaseId("k4"), ZYGOTE, C1, "loops")),
         )
-        val prompt = turnPrompt(organism, organism.zygote, Fence("n0nce"))
-        val body = stripHostDirectives(prompt)
-        assertTrue("Your cases still open: k4." in prompt)
+        val body = inboxReport(organism, letters, Fence("n0nce"))
         assertTrue(
             body.startsWith(
                 "Letter 1: your child c1 \"scout\" finished. Its result:\n<<<n0nce\nfound 3 files\nn0nce>>>",
@@ -84,9 +82,7 @@ class PromptsTest {
                 "<<<n0nce\nit deleted files\nn0nce>>>" in body,
         )
         assertTrue("Binding answer:\n<<<n0nce\nREST\nn0nce>>>" in body)
-        assertTrue("4 in all. Text between a line \"<<<n0nce\" and a line \"n0nce>>>\"" in prompt)
         assertTrue("was killed together with its descendants" in body)
-        assertTrue("Your children still alive: c1." in prompt)
     }
 
     @Test
@@ -95,7 +91,7 @@ class PromptsTest {
         val letters = Work.Letters(listOf(Letter.ChildFinished(C1, "scout", forged)))
         val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, work = letters)))
         val fence = Fence("n0nce")
-        val body = stripHostDirectives(turnPrompt(organism, organism.zygote, fence))
+        val body = inboxReport(organism, letters.letters, fence)
         assertEquals(listOf(fence.open, fence.close), body.lines().filter { "n0nce" in it })
     }
 
@@ -115,19 +111,21 @@ class PromptsTest {
     }
 
     @Test
-    fun `a recovery turn on letters still says how other sessions' text is marked`() {
+    fun `legacy letters and recovery reminders never put result text in the chat`() {
         val letters = Work.Letters(listOf(Letter.ChildFinished(C1, "scout", "found")))
         val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, work = letters, isRecovery = true)))
-        val prompt = turnPrompt(organism, organism.zygote, Fence("n0nce"))
+        val prompt = turnPrompt(organism, organism.zygote)
         assertTrue("Heartbeat restarted" in prompt)
-        assertTrue("1 in all. Text between a line \"<<<n0nce\"" in prompt)
+        assertEquals("", stripHostDirectives(prompt))
+        assertFalse("found" in prompt)
+        assertTrue(OrganismTools.RECEIVE in prompt)
     }
 
     @Test
-    fun `letters of one turn share a bounded budget`() {
+    fun `results of one tool call share a bounded budget`() {
         val letters = (1..10).map { Letter.ChildFinished(C1, "scout", "x".repeat(OrganismBounds.MAX_RESULT)) }
         val organism = organism(zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(letters))))
-        val body = stripHostDirectives(turnPrompt(organism, organism.zygote))
+        val body = inboxReport(organism, letters)
         assertTrue(body.length < 62_000, "${body.length}")
         assertTrue("Letter 10:" in body)
     }

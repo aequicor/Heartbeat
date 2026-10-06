@@ -57,7 +57,7 @@ public sealed interface OrganicAiIntent : MachineIntent {
             Public,
             OrganismIntent
 
-        /** Restarts a stalled zygote: a recovery turn, after resolving the model again when it had none. */
+        /** Restarts a stalled zygote, or resumes resting cells that ended without requesting a result wait. */
         public data class Resume(override val organism: OrganismId) :
             Public,
             OrganismIntent
@@ -157,6 +157,23 @@ public sealed interface OrganicAiIntent : MachineIntent {
         ) : Internal,
             TurnIntent
 
+        /** Marks the inbox prefix returned by the receive tool; concurrent appended letters stay unread. */
+        public data class ReceiveLetters(
+            override val organism: OrganismId,
+            override val cell: CellId,
+            override val request: RequestId,
+            val until: Int,
+        ) : Internal,
+            TurnIntent
+
+        /** Arms a durable result wait. A ready inbox wakes only after the current turn has settled. */
+        public data class AwaitResults(
+            override val organism: OrganismId,
+            override val cell: CellId,
+            override val request: RequestId,
+        ) : Internal,
+            TurnIntent
+
         /** A fresh judge session for [case] exists; observers can read it. */
         public data class JudgeConvened(override val organism: OrganismId, val case: CaseId, val session: SessionRef) :
             Internal,
@@ -205,6 +222,9 @@ public sealed interface OrganicAiEffect : MachineEffect {
 
     /** Saves the awakened [organisms] first, then drives their working cells and judges their open cases. */
     public data class Revive(val organisms: List<Organism>) : OrganicAiEffect
+
+    /** Drives the [cells] made Working by one transition, leaving every other turn and judge alone. */
+    public data class DriveCells(val organism: Organism, val cells: List<CellId>) : OrganicAiEffect
 
     /** Saves [organisms] (versions already written are skipped), cancels turns, releases handles, then Hibernated. */
     public data class Hibernate(val organisms: List<Organism>) : OrganicAiEffect
