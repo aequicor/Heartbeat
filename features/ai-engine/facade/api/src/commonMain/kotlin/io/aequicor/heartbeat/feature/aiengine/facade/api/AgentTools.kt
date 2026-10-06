@@ -77,7 +77,21 @@ public data class AgentToolScope(
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */
 @Serializable
-public data class AgentToolResult(val text: String, val isError: Boolean = false)
+public data class AgentToolResult(
+    val text: String,
+    val isError: Boolean = false,
+    /** Inline images delivered with the text in this same tool response; never paths for the model to open. */
+    val images: List<AgentToolImage> = emptyList(),
+)
+
+/** Encoded image owned by a tool response, independent of temporary capture files and their lifetime. */
+@Serializable
+public data class AgentToolImage(val mimeType: String, val data: String) {
+    /** Data URL used by adapters whose image input expects a URL. */
+    public val dataUrl: String get() = "data:$mimeType;base64,$data"
+
+    override fun toString(): String = "AgentToolImage(mimeType=$mimeType)"
+}
 
 /**
  * A profile contribution of hosted tools. Features implement this outside the adapter SPI.

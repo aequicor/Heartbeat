@@ -544,7 +544,7 @@ internal class CodexSession(
         )
         return try {
             val result = runtime.host.tools.execute(context, name, args)
-            toolResult(!result.isError, result.text)
+            toolResult(!result.isError, result.text, result.images)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
