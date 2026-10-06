@@ -71,7 +71,18 @@ private fun HarnessState.Ready.removed(receipt: HarnessReceipt): LibraryTransiti
 
 private fun HarnessState.Ready.failedRemove(receipt: HarnessReceipt): LibraryTransition? {
     val mutation = pending[receipt.id] as? HarnessMutation.Remove ?: return null
-    return if (mutation.receipt == receipt) storageFailure(receipt) else null
+    if (mutation.receipt != receipt) return null
+    val next = copy(pending = pending - receipt.id, activationGeneration = activationGeneration + 1)
+    val entry = next.project(mutation.harness, next.activationGeneration)
+    val restored = next.copy(harnesses = next.harnesses.map { if (it.harness.id == receipt.id) entry else it })
+    return LibraryTransition(
+        restored,
+        listOfNotNull(
+            restored.activations().filter { it.harness.id == receipt.id }.takeIf { it.isNotEmpty() }
+                ?.let(HarnessEffect::Activate),
+        ),
+        HarnessOutput.StorageFailed(receipt.requestId),
+    )
 }
 
 private fun HarnessState.Ready.storageFailure(receipt: HarnessReceipt) = LibraryTransition(

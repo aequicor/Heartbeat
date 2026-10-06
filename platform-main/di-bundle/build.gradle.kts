@@ -43,6 +43,8 @@ kotlin {
             implementation(projects.features.feedback.impl)
             implementation(projects.features.attachments.api)
             implementation(projects.features.attachments.impl)
+            implementation(projects.features.harness.api)
+            implementation(projects.features.harness.impl)
             implementation(projects.features.agentLearning.api)
             implementation(projects.features.agentLearning.impl)
             implementation(projects.features.organicAi.api)

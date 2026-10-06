@@ -82,7 +82,34 @@ class HarnessMachineActivationTest {
         )
         HarnessMachineSpec.assertIgnored(disabled, error)
         HarnessMachineSpec.assertIgnored(active, error.copy(generation = 2))
-        HarnessMachineSpec.assertIgnored(pending, error)
+        HarnessMachineSpec.assertIgnored(pending, error.copy(generation = 2))
+    }
+
+    @Test
+    fun `published runtime failure precedes activation receipt without allowing a late active status`() {
+        for (isDisabled in listOf(false, true)) {
+            val error = HarnessIntent.Internal.ItemRuntimeFailed(harness.id, code.id, 0, 1, isDisabled)
+            val failed = pending.copy(
+                harnesses = listOf(HarnessEntry(harness, mapOf(code.id to ItemStatus.Failed(1, isDisabled)))),
+            )
+            val effects = if (isDisabled) {
+                listOf(
+                    HarnessEffect.Deactivate(listOf(HarnessActivationRequest(harness, code, 1)), false, generation = 1),
+                )
+            } else {
+                emptyList()
+            }
+            HarnessMachineSpec.assertTransition(
+                pending,
+                error,
+                failed,
+                effects = effects,
+                outputs = listOf(HarnessOutput.ItemFailed(harness.id, code.id, 0)),
+            )
+            HarnessMachineSpec.assertIgnored(failed, HarnessIntent.Internal.ItemActivated(harness.id, code.id, 0, 1))
+            HarnessMachineSpec.assertIgnored(pending, error.copy(generation = 2))
+            HarnessMachineSpec.assertIgnored(pending, error.copy(revision = 2))
+        }
     }
 
     @Test

@@ -136,7 +136,7 @@ public sealed interface HarnessIntent : MachineIntent {
             val generation: Long,
         ) : Runtime
 
-        /** An exact live instance failed; the runtime indicates whether its failure limit disabled it. */
+        /** An exact published instance failed, possibly before its activation receipt reaches the machine. */
         public data class ItemRuntimeFailed(
             val id: HarnessId,
             val item: ItemId,

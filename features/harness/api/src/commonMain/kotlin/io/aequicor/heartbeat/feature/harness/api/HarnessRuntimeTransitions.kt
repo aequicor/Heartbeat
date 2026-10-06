@@ -80,7 +80,7 @@ internal fun HarnessState.Ready.runtimeFailed(intent: HarnessIntent.Internal.Ite
     val status = entry.itemStatus[intent.item]
     val isMatching = status == ItemStatus.Active(
         intent.generation,
-    ) || status == ItemStatus.Failed(intent.generation, false)
+    ) || status == ItemStatus.Pending(intent.generation) || status == ItemStatus.Failed(intent.generation, false)
     if (!isMatching || isSuspended) return null
     val next = replaceStatus(intent.id, intent.item, ItemStatus.Failed(intent.generation, intent.isDisabled))
     val item = entry.harness.items.first { it.id == intent.item }

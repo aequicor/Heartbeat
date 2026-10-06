@@ -22,7 +22,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | mutation stale revision / busy / missing / invalid / limits | stay | Rejected |
  * | Ready | Saved, exact pending receipt | stay, commit model | Activate/Deactivate, Created/Updated |
  * | Ready | Removed, exact pending receipt | stay, remove model and attachments | Deleted |
- * | Ready | SaveFailed/RemoveFailed, exact receipt | stay, preserve committed model | StorageFailed |
+ * | Ready | SaveFailed, exact receipt | stay, preserve committed model | StorageFailed |
+ * | Ready | RemoveFailed, exact receipt | stay, restore statuses at a new generation | Activate, StorageFailed |
  * | Ready | Attach/Detach, known id and domain free, within bounds | stay, pending attachment | SaveAttachments |
  * | Ready | AttachmentsSaved/Failed, exact | stay, commit/preserve map | Attached/Detached/StorageFailed |
  * | Ready | SetApproval, current approval revision and domain free | stay, pending approval | SaveApproval |
@@ -33,11 +34,12 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | invalid Loaded/LoadFailed, exact reload | stay, clear reload | StorageFailed |
  * | Ready | ItemActivated/ItemActivationFailed, exact pending generation+revision | stay | ItemActivated/ItemFailed |
  * | Ready | ActivationBatchFailed, matching pending items | stay | RuntimeFailed |
- * | Ready | ItemRuntimeFailed, exact live generation+revision | stay | ItemFailed, optionally Deactivate |
+ * | Ready | ItemRuntimeFailed, exact live or pending generation+revision | stay | ItemFailed, optionally Deactivate |
  * | any | Suspended/Resumed, flag differs | stay, preserve data and pending writes | Ready: Deactivate/Activate |
  * | any | stale Internal, duplicate lifecycle flag, other unsupported Internal | ignored | none |
  *
  * Activation generation also fences late replies across suspend/resume of the same harness revision.
+ * Runtime failures can precede the activation receipt; the later receipt cannot overwrite their Failed status.
  * Agent permission decisions happen before Public commands; the machine never treats author metadata as approval.
  */
 public val HarnessMachineSpec: MachineSpec<HarnessState, HarnessIntent, HarnessEffect, HarnessOutput> =

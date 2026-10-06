@@ -95,7 +95,12 @@ class HarnessMachineWritesTest {
         HarnessMachineSpec.assertTransition(
             pending,
             HarnessIntent.Internal.RemoveFailed(receipt),
-            initial.copy(writeGeneration = 1),
+            initial.copy(
+                harnesses = listOf(HarnessEntry(harness, mapOf(code.id to ItemStatus.Pending(1)))),
+                writeGeneration = 1,
+                activationGeneration = 1,
+            ),
+            effects = listOf(HarnessEffect.Activate(listOf(HarnessActivationRequest(harness, code, 1)))),
             outputs = listOf(HarnessOutput.StorageFailed(request)),
         )
         HarnessMachineSpec.assertTransition(
