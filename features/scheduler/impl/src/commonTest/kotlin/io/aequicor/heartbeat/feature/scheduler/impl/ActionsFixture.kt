@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionResults
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActions
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandRunner
@@ -101,19 +102,17 @@ internal class ActionsFixture(
     val persistence = SchedulerPersistence(wakeStorage)
     val capacityMachine = CapacitySpecMachine()
     val capacity = ProfileBackgroundCapacity(capacityMachine, profile)
+    val results = ActionResults(profile, bus, machine, persistence, journal, toggles, clock)
     val actions = BackgroundActions(
         profile,
         TestDispatchers(StandardTestDispatcher(scope.testScheduler)),
         bus,
-        machine,
-        persistence,
-        journal,
         commands,
         workspaces,
         lazyOf(hosts),
-        toggles,
         clock,
         capacity,
+        results,
     )
 
     init {
