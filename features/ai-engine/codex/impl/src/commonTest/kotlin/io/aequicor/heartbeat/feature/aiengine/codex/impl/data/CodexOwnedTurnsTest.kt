@@ -31,6 +31,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +43,43 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CodexOwnedTurnsTest {
+    @Test
+    fun `cold interrupted projection needs owned stop to settle the active request`() = runTest {
+        val records = MemoryCodexTurnRecords()
+        val (first, _) = fixture(records)
+        val original = first.open()
+        val turn = original.feature(SendsPrompts).send(Prompt)
+        // Real CLI 0.160.1 projects interrupted in a second app-server while the first still runs this turn.
+        val interrupted = json("id" to "native-turn".json(), "status" to "interrupted".json())
+        val (second, launch) = fixture(records)
+        second.resumedTurns = JsonArray(listOf(interrupted))
+        second.threadTurns = listOf(interrupted)
+        val restored = second.runtime.attach(original.ref, ResumeSessionRequest(second.target))
+        assertEquals(turn, assertIs<ActiveSessionState.Unavailable>(restored.state.value).activeTurn?.id)
+        second.event("turn/completed", "turn" to json("id" to "foreign".json(), "status" to "completed".json()))
+        runCurrent()
+        assertEquals(turn, assertIs<ActiveSessionState.Unavailable>(restored.state.value).activeTurn?.id)
+        for (status in listOf("interrupted", "unknown")) {
+            second.event("turn/completed", "turn" to json("id" to "native-turn".json(), "status" to status.json()))
+            runCurrent()
+            assertEquals(turn, assertIs<ActiveSessionState.Unavailable>(restored.state.value).activeTurn?.id)
+        }
+        assertEquals(turn, records.get(original.ref)?.active?.turn?.id)
+        assertFailsWith<EngineException> {
+            restored.feature(SendsPrompts).send(Prompt.copy(id = RequestId("too-early")))
+        }
+        val stopped = assertIs<OwnedTurnStop.Confirmed>(second.stop(restored))
+        assertEquals(turn, stopped.turn.id)
+        assertEquals(TurnOutcome.Unknown, stopped.turn.outcome)
+        assertEquals(1, launch.stops)
+        assertIs<ActiveSessionState.Ready>(restored.state.value)
+        // A proven exit permits a new turn even though the historical native projection remains interrupted.
+        val next = restored.feature(SendsPrompts).send(Prompt.copy(id = RequestId("next")))
+        assertEquals(next, assertIs<ActiveSessionState.Running>(restored.state.value).turn.id)
+        first.runtime.close()
+        second.runtime.close()
+    }
+
     @Test
     fun `native completion during an owned stop preserves its known outcome in the live lease`() = runTest {
         val (fixture, launch) = fixture()

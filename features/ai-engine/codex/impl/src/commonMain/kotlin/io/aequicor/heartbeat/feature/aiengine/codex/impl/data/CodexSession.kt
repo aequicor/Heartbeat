@@ -412,6 +412,8 @@ internal class CodexSession(
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
         // Rollout projections may omit turns or their status. Unknown means proven stopped, not missing data.
         if (active != null && remembered?.text("status") !in TERMINAL_STATUSES) return
+        // Codex 0.160.1 projects interrupted from a different app-server even while the owner is still active.
+        if (active != null && remembered?.text("status") == "interrupted" && !isActiveExecutionOwned) return
         val completed = if (active != null && remembered != null && active.id !in finished) {
             val result = codexTurnOutcome(remembered, route.binding)
             cancelTools(active.id)
@@ -646,6 +648,8 @@ internal class CodexSession(
 
     private suspend fun complete(id: TurnId, native: JsonObject) {
         if (id in finished || currentTurn()?.id != id) return
+        // A resumed process cannot attest that the original execution ended merely by projecting interruption.
+        if (!isActiveExecutionOwned && native.text("status") !in RESTORED_TERMINAL_STATUSES) return
         val outcome = codexTurnOutcome(native, route.binding)
         completeTools(id)
         journal.finish(id, outcome)
@@ -712,6 +716,7 @@ internal class CodexSession(
     private companion object {
         const val IN_PROGRESS = "inProgress"
         val TERMINAL_STATUSES = setOf("completed", "interrupted", "failed")
+        val RESTORED_TERMINAL_STATUSES = setOf("completed", "failed")
         val HOSTED_ALLOW = PermissionOptionId("hosted.allow")
         val HOSTED_DENY = PermissionOptionId("hosted.deny")
     }
