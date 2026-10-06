@@ -55,8 +55,9 @@ private const val MAX_TIMEOUT_SECONDS = 21_600L
 /**
  * `scheduler_start_action`: a background command in the project (Desktop) or a helper agent in a new chat, whose
  * result is published as `action.<id>.finished`. With a wake note the caller sleeps until then; the wake is scheduled
- * before the action starts, so a quick action cannot finish unobserved. Every start needs the user's decision; a
- * helper agent cannot start helpers. Commands and prompts are shown in the approval, never logged.
+ * before the action starts, so a quick action cannot finish unobserved. Commands follow the session's command trust
+ * policy; helper starts always need the user's decision, and helpers cannot start helpers. Commands and prompts are
+ * shown in the approval, never logged.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -76,15 +77,12 @@ internal class SchedulerActionTools(
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (isEnabled()) listOf(START_ACTION_SPEC) else emptyList()
 
-    /**
-     * Every start is put to the user, whatever the trust level: the work outlives the turn and the user's attention,
-     * and a command could stop the host itself.
-     */
+    /** Commands use the common trust gate; starting a helper still requires an explicit user decision. */
     override suspend fun requiresDecision(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean = spec.name == SchedulerTools.START_ACTION
+    ): Boolean = spec.name == SchedulerTools.START_ACTION && arguments.text(Arguments.KIND) != Kinds.COMMAND
 
     override suspend fun approval(
         context: AgentToolContext,
