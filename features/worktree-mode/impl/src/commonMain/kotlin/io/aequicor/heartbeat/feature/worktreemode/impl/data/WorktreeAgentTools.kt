@@ -15,7 +15,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPlan
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
@@ -51,6 +53,10 @@ internal class WorktreeAgentTools(
     private val toggles: FeatureToggles,
     private val workspaces: LocalWorkspaces,
 ) : AgentToolContribution {
+    override val group: String = "worktree"
+    override val title: String = "Рабочие копии и сборки"
+    override val catalog: List<ToolCatalogEntry> get() = toolSpecs.toolCatalog()
+
     private val log = Log.tag("WorktreeAgentTools")
 
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> {
