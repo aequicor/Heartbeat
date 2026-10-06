@@ -73,6 +73,7 @@ internal suspend fun fixture(
     targetModel: ModelId = ModelId("anthropic/test"),
     project: WorkspaceRef? = WorkspaceRef("hosted-workspace"),
     areDetachedToolsEnabled: Boolean = false,
+    turns: PiTurnRecords = MemoryPiTurnRecords(),
     configure: (Int, FakeConnection) -> Unit = { _, _ -> },
 ): Fixture {
     val target = EngineTarget(PiEngineId, EngineBindingId("binding"), targetModel)
@@ -89,9 +90,12 @@ internal suspend fun fixture(
             tools = if (tools === NoAgentTools) TestNativeTools else tools,
             bridge = bridge,
             resources = resources,
+            turns = turns,
         ),
+        "test-ownership",
         validate,
         { released += it },
+        transcript?.let { PiTurnJournal(turns, it.ref, route, "test-ownership").restore() },
     )
     val connections = mutableListOf<FakeConnection>()
     session.start(
@@ -118,6 +122,7 @@ internal fun piTestEnvironment(
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
     resources: ResourceResolver = ResourceResolver { null },
+    turns: PiTurnRecords = MemoryPiTurnRecords(),
 ): PiSessionEnvironment {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
     val dispatchers = object : DispatcherProvider {
@@ -139,6 +144,7 @@ internal fun piTestEnvironment(
         tools = tools,
         bridge = bridge,
         resources = resources,
+        turns = turns,
     )
 }
 

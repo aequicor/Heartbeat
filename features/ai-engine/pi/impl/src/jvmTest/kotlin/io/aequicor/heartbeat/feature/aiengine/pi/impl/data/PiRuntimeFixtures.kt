@@ -35,7 +35,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.serialization.json.JsonObject
 
-internal suspend fun runtimeFixture(test: TestScope): RuntimeFixture {
+internal suspend fun runtimeFixture(test: TestScope, turns: PiTurnRecords = MemoryPiTurnRecords()): RuntimeFixture {
     val settings = PiSettings(RuntimeStores())
     settings.bind(RuntimeTarget.binding, RuntimeSource)
     val processes = RuntimeProcesses()
@@ -46,7 +46,7 @@ internal suspend fun runtimeFixture(test: TestScope): RuntimeFixture {
             RuntimeSource,
             "fingerprint",
         ),
-        piTestEnvironment(test, areEnginesEnabled = true),
+        piTestEnvironment(test, areEnginesEnabled = true, turns = turns),
         services,
     )
     return RuntimeFixture(runtime, settings, processes)
