@@ -38,6 +38,8 @@ import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationIntent
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationMachineKey
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
@@ -325,7 +327,12 @@ class AiStudioModel(
     }
 
     private suspend fun observeWorkspace(pipeline: StudioPipeline) = with(pipeline) {
-        backend.repository().observeWorkspace().collect { workspace -> updateState { withWorkspace(workspace) } }
+        val scheduler = machines.observe(SchedulerMachineKey).flatMapLatest { ref ->
+            ref?.state ?: flowOf(SchedulerState.Loading)
+        }
+        combine(backend.repository().observeWorkspace(), scheduler) { workspace, schedule ->
+            workspace to schedule
+        }.collect { (workspace, schedule) -> updateState { withWorkspace(workspace, schedule) } }
     }
 
     private suspend fun observeTranscripts(pipeline: StudioPipeline) = with(pipeline) {

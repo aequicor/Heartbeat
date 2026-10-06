@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.AiStudioState
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioProject
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -49,9 +50,24 @@ internal fun AiStudioScreenState.reflectMachine(machine: AiStudioState): AiStudi
     )
 }
 
-internal fun AiStudioScreenState.withWorkspace(workspace: StudioWorkspace): AiStudioScreenState = copy(
+/** Pending wakes remain visible until delivery settles, including while the next turn is being admitted. */
+internal fun AiStudioScreenState.withWorkspace(
+    workspace: StudioWorkspace,
+    scheduler: SchedulerState = SchedulerState.Loading,
+): AiStudioScreenState = copy(
     projects = workspace.projects.map { it.toUi() }.toImmutableList(),
-    sessions = workspace.sessions.map { it.toUi() }.toImmutableList(),
+    sessions = workspace.sessions.map { session ->
+        val wakes = (scheduler as? SchedulerState.Ready)?.wakes.orEmpty().filter {
+            it.session == session.nativeSession
+        }
+        session.toUi().copy(
+            scheduledWait = when {
+                wakes.isEmpty() -> null
+                wakes.any { it.request.condition.events.isNotEmpty() } -> SessionWaitUi.WaitingForEvent
+                else -> SessionWaitUi.Sleeping
+            },
+        )
+    }.toImmutableList(),
 )
 
 /** An empty draft is forgotten; editing clears a previous send failure. */
