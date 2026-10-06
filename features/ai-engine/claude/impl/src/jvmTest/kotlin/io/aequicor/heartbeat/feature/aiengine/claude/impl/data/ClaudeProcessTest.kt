@@ -388,6 +388,25 @@ class ClaudeProcessTest {
     }
 
     @Test
+    fun `native gate version probe uses the pinned executable after settings change`() = runTest {
+        if (File.separatorChar == '\\') return@runTest
+        val directory = Files.createTempDirectory("claude-pinned-version")
+        try {
+            val claude = directory.resolve("claude")
+            Files.writeString(claude, "#!/bin/sh\necho '2.1.285 (Claude Code)'\n")
+            claude.toFile().setExecutable(true)
+            var launch = LaunchContext(LaunchSettings(executable = claude.toString()))
+            val transport = transport(launches = EngineLaunchConfig { launch })
+            val pinned = transport.pinned()
+            launch = LaunchContext(LaunchSettings(executable = "/heartbeat/missing/claude"))
+            assertEquals("2.1.285", withContext(nativeDispatcher) { pinned.version() })
+            assertEquals(null, withContext(nativeDispatcher) { transport.version() })
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `locating reads the version of the executable the launch names`() = runTest {
         if (File.separatorChar == '\\') return@runTest
         val directory = Files.createTempDirectory("claude-locate")

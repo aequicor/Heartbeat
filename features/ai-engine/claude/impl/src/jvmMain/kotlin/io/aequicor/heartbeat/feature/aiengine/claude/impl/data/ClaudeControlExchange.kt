@@ -27,6 +27,9 @@ internal class ClaudeControlExchange(
     private val duplex: ClaudeDuplex,
     private val handle: suspend (JsonObject) -> JsonObject,
     private val observe: suspend (JsonObject) -> Unit,
+    private val validate: (JsonObject) -> Unit = {},
+    private val revoked: () -> Unit = {},
+    private val initialized: (JsonObject) -> Unit = {},
 ) {
     private val log = Log.tag("ClaudeControlExchange")
     private val lock = Any()
@@ -35,13 +38,17 @@ internal class ClaudeControlExchange(
     private val seen = mutableSetOf<String>()
     private val events = Channel<JsonObject>(MAX_CONTROL_EVENTS)
     private var isEnded = false
+    private var isSubmitted = false
 
     suspend fun run(initialization: JsonObject, user: JsonObject) = coroutineScope {
         val observer = launch { for (frame in events) observe(frame) }
         val reader = launch { read(this) }
         try {
-            request(initialization)
-            synchronized(lock) { if (isEnded) protocolFailure() }
+            initialized(request(initialization))
+            synchronized(lock) {
+                if (isEnded) protocolFailure()
+                isSubmitted = true
+            }
             duplex.send(user)
             reader.join()
             observer.join()
@@ -79,6 +86,7 @@ internal class ClaudeControlExchange(
         try {
             while (true) {
                 val frame = duplex.receive() ?: break
+                validate(frame)
                 when (frame.text("type")) {
                     "control_response" -> response(frame)
 
@@ -125,7 +133,8 @@ internal class ClaudeControlExchange(
         }
         synchronized(lock) {
             val isFull = handlers.size >= MAX_HANDLERS || seen.size >= MAX_REQUESTS
-            if (isEnded || isFull || !seen.add(id)) {
+            val isUnavailable = !isSubmitted || isEnded
+            if (isUnavailable || isFull || !seen.add(id)) {
                 job.cancel()
                 protocolFailure()
             }
@@ -174,6 +183,7 @@ internal class ClaudeControlExchange(
             handlers.values.toList().also { handlers.clear() }
         }
         jobs.forEach { it.cancel() }
+        revoked()
     }
 }
 

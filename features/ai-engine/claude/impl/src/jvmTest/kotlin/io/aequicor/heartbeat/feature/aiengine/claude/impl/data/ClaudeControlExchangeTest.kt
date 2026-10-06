@@ -65,6 +65,7 @@ internal class ClaudeControlExchangeTest {
         }
         runCurrent()
         pipe.initialized(pipe.sent.single())
+        runCurrent()
         pipe.frames.send(control("permission", "can_use_tool"))
         entered.await()
         pipe.frames.send(frame("""{"type":"assistant"}"""))
@@ -97,6 +98,7 @@ internal class ClaudeControlExchangeTest {
         }
         runCurrent()
         pipe.initialized(pipe.sent.single())
+        runCurrent()
         pipe.frames.send(control("permission", "can_use_tool"))
         runCurrent()
         pipe.frames.send(RESULT)
@@ -130,6 +132,7 @@ internal class ClaudeControlExchangeTest {
             }
             runCurrent()
             pipe.initialized(pipe.sent.single())
+            runCurrent()
             pipe.frames.send(control("permission", "can_use_tool"))
             runCurrent()
             pipe.frames.send(if (isResult) RESULT else frame("""{"type":"assistant"}"""))
@@ -178,6 +181,7 @@ internal class ClaudeControlExchangeTest {
             }
             runCurrent()
             pipe.initialized(pipe.sent.single())
+            runCurrent()
             pipe.frames.send(control("same", "can_use_tool"))
             pipe.frames.send(control("same", "can_use_tool"))
             assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
@@ -200,11 +204,60 @@ internal class ClaudeControlExchangeTest {
         }
         runCurrent()
         pipe.initialized(pipe.sent.single())
+        runCurrent()
         pipe.frames.send(control("permission", "can_use_tool"))
         runCurrent()
         work.cancelAndJoin()
         withdrawn.await()
         assertTrue(pipe.sent.none { it.text("type") == "control_response" })
+    }
+
+    @Test
+    fun `control requests before user submission fail without entering a handler`() = runTest {
+        supervisorScope {
+            val pipe = Pipe()
+            var handled = false
+            val work = async {
+                ClaudeControlExchange(pipe, {
+                    handled = true
+                    it
+                }, {}).run(INIT, USER)
+            }
+            runCurrent()
+            pipe.frames.send(control("early", "can_use_tool"))
+            assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
+            assertFalse(handled)
+            assertEquals(1, pipe.sent.size)
+        }
+    }
+
+    @Test
+    fun `identity mismatch is validated while the history observer is blocked`() = runTest {
+        supervisorScope {
+            val pipe = Pipe()
+            val entered = CompletableDeferred<Unit>()
+            var handled = false
+            val work = async {
+                ClaudeControlExchange(pipe, {
+                    handled = true
+                    it
+                }, {
+                    entered.complete(Unit)
+                    awaitCancellation()
+                }, { message ->
+                    if (message.text("session_id") == "foreign") protocolFailure()
+                }).run(INIT, USER)
+            }
+            runCurrent()
+            pipe.initialized(pipe.sent.single())
+            runCurrent()
+            pipe.frames.send(frame("""{"type":"assistant"}"""))
+            entered.await()
+            pipe.frames.send(frame("""{"type":"system","session_id":"foreign"}"""))
+            pipe.frames.send(control("later", "can_use_tool"))
+            assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
+            assertFalse(handled)
+        }
     }
 
     private class Pipe : ClaudeDuplex {

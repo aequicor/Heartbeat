@@ -59,6 +59,7 @@ internal class ClaudeRuntime(
     private val catalog: ClaudeCatalog,
     tools: ProfileAgentTools = NoAgentTools,
     bridge: AgentToolBridge = UnavailableAgentToolBridge,
+    native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     resources: ResourceResolver = ResourceResolver { null },
     resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
     inputSupport: (ModelId) -> PromptInputSupport = { model ->
@@ -95,6 +96,7 @@ internal class ClaudeRuntime(
         catalog = catalog,
         tools = tools,
         bridge = bridge,
+        native = native,
         onReleased = ::released,
         onUsage = providerUsage::receive,
         resources = resources,
