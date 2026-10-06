@@ -1,3 +1,8 @@
+# JCEF binds Java entry points from JNI by their exact names; jcefmaven reads build metadata with Gson.
+# Keep the native tar.gz and build_meta.json resources in the runtime dependency jars.
+-keep class org.cef.** { *; }
+-keep class me.friwi.jcefmaven.** { *; }
+
 # JBR binds its services by API names, nested interfaces and runtime annotations.
 # These entry points are invisible to the shrinker's static reachability analysis.
 -keep class com.jetbrains.** { *; }

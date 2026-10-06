@@ -19,6 +19,7 @@ kotlin {
             implementation(projects.features.effortConfiguration.api)
             implementation(projects.features.feedback.api)
             implementation(projects.features.researchChat.api)
+            implementation(projects.features.browser.api)
             implementation(projects.features.questionnaire.api)
             implementation(projects.features.checklist.api)
             implementation(projects.features.aiEngine.koog.api)

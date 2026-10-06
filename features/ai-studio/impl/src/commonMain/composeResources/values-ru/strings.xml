@@ -257,4 +257,5 @@
     <string name="session_sleeping">Спит</string>
     <string name="session_waiting_event">Ожидание события</string>
     <string name="session_checklist_ready">Готово</string>
+    <string name="browser_mode">Браузер</string>
 </resources>

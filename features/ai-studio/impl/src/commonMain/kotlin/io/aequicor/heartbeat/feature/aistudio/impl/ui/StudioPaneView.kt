@@ -77,7 +77,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.pane_split
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.permission_more
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_model_hint
-import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sessions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_actions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_child_view
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_read_only
@@ -414,9 +414,14 @@ private fun PaneHeader(
     }
 }
 
-/** Header of the chat area while another feature (research) fills it: sidebar toggle, window inset and title. */
+/** Header shared by workspace features: sidebar toggle, window inset, title and return to chats. */
 @Composable
-internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: Boolean) {
+internal fun ChatAreaHeader(
+    onToggleSidebar: () -> Unit,
+    isAtWindowLeadingEdge: Boolean,
+    title: String,
+    onClose: (() -> Unit)?,
+) {
     val studio = HbTheme.dimensions
     HbWindowDragArea(Modifier.fillMaxWidth().background(HbTheme.surfaces.header)) {
         HbRow(
@@ -441,11 +446,19 @@ internal fun ChatAreaHeader(onToggleSidebar: () -> Unit, isAtWindowLeadingEdge: 
                 )
             }
             HbText(
-                text = stringResource(Res.string.research_mode),
+                text = title,
                 modifier = Modifier.weight(1f),
                 style = HbTheme.typography.title,
                 maxLines = 1,
             )
+            onClose?.let { close ->
+                HbIconButton(
+                    icon = HbIcons.Chats,
+                    contentDescription = stringResource(Res.string.rail_sessions),
+                    onClick = close,
+                    modifier = Modifier.testTag("chat-area-close"),
+                )
+            }
         }
     }
 }

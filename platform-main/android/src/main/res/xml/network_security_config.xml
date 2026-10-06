@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- The embedded browser accepts explicit HTTP addresses, including local development servers.
+         API integrations retain their own HTTPS validation; platform certificate validation is unchanged. -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

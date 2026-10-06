@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.browser.api.BrowserEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngineTools
@@ -36,6 +37,11 @@ internal class ToggleStudioEntries(
     checklists: Lazy<StudioChecklists>,
 ) : StudioEntries {
     override val showsAttachments: Flow<Boolean> = toggles.observe(AttachmentsEnabled)
+
+    override val showsBrowser: Flow<Boolean> =
+        combine(toggles.observe(BrowserEnabled), sessions.active) { isEnabled, session ->
+            isEnabled && session != null
+        }
 
     override val showsResearch: Flow<Boolean> = combine(
         toggles.observe(ResearchChatEnabled),
