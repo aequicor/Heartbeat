@@ -27,7 +27,6 @@ import io.aequicor.heartbeat.feature.agentlearning.impl.domain.applicable
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.isRatedSafe
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.learningPrompt
 import io.aequicor.heartbeat.feature.agentlearning.impl.domain.parseRemember
-import io.aequicor.heartbeat.feature.agentlearning.impl.domain.singleLine
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
@@ -36,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.singleLine
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import kotlinx.coroutines.CoroutineStart

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Fence
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
@@ -9,6 +10,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallStatus
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
+import io.aequicor.heartbeat.feature.aiengine.facade.api.brief
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostDirective
 import io.aequicor.heartbeat.feature.aiengine.facade.api.stripHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.CaseId
@@ -187,26 +190,32 @@ class PromptsTest {
             message(MessageRole.Assistant, "final", turn = "t1", position = 2),
             message(MessageRole.User, "next", turn = "t2", position = 3),
         )
-        assertEquals("final", answerOf(items, TurnId("t1")))
-        assertNull(answerOf(items, TurnId("t2")))
+        assertEquals("final", answerOf(items, TurnId("t1"), maxChars = OrganismBounds.MAX_RESULT))
+        assertNull(answerOf(items, TurnId("t2"), maxChars = OrganismBounds.MAX_RESULT))
         val trailing = items.take(3) + message(MessageRole.Assistant, "  ", turn = "t1", position = 3)
-        assertEquals("final", answerOf(trailing, TurnId("t1")))
+        assertEquals("final", answerOf(trailing, TurnId("t1"), maxChars = OrganismBounds.MAX_RESULT))
         // History carries the engine's turn ids, not the ids a handle gives its submissions.
         val native = listOf(
             message(MessageRole.User, "go", turn = "native-1", position = 0),
             message(MessageRole.Assistant, "done", turn = "native-1", position = 1),
         )
-        assertEquals("done", answerOf(native, TurnId("turn_local")))
-        assertNull(answerOf(native, TurnId("turn_local"), isMarkedOnly = true))
-        assertEquals("done", answerOf(native, TurnId("native-1"), isMarkedOnly = true))
+        assertEquals("done", answerOf(native, TurnId("turn_local"), maxChars = OrganismBounds.MAX_RESULT))
+        assertNull(answerOf(native, TurnId("turn_local"), maxChars = OrganismBounds.MAX_RESULT, isMarkedOnly = true))
+        assertEquals(
+            "done",
+            answerOf(native, TurnId("native-1"), maxChars = OrganismBounds.MAX_RESULT, isMarkedOnly = true),
+        )
         val unmarked = listOf(
             message(MessageRole.Assistant, "old", position = 0),
             message(MessageRole.User, "go", position = 1),
             message(MessageRole.Assistant, "  new  ", position = 2),
         )
-        assertEquals("new", answerOf(unmarked, TurnId("t9")))
+        assertEquals("new", answerOf(unmarked, TurnId("t9"), maxChars = OrganismBounds.MAX_RESULT))
         val long = listOf(message(MessageRole.Assistant, "x".repeat(OrganismBounds.MAX_RESULT + 10), turn = "t"))
-        assertEquals(OrganismBounds.MAX_RESULT, answerOf(long, TurnId("t"))?.length)
+        assertEquals(
+            OrganismBounds.MAX_RESULT,
+            answerOf(long, TurnId("t"), maxChars = OrganismBounds.MAX_RESULT)?.length,
+        )
     }
 
     @Test

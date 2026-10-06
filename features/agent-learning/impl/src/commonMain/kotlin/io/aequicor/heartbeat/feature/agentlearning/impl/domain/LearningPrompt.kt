@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
 import io.aequicor.heartbeat.feature.agentlearning.api.LearningTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptBudget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 
 /** Upper bound of learned text in one prompt; Pi passes instructions through a size-limited environment variable. */
@@ -26,7 +27,7 @@ private fun LearnedInstruction.appliesTo(target: EngineTarget?): Boolean {
  * Model instructions come before general ones, skills are listed by name and description only.
  */
 internal fun learningPrompt(host: HostPlatform, applicable: List<LearnedInstruction>): String {
-    val budget = Budget(LEARNED_PROMPT_BUDGET)
+    val budget = PromptBudget(LEARNED_PROMPT_BUDGET)
     val sections = listOfNotNull(
         section("Model-specific instructions learned earlier", applicable, InstructionKind.Model, budget) {
             "- ${it.title}: ${it.content}"
@@ -53,7 +54,7 @@ private fun section(
     heading: String,
     applicable: List<LearnedInstruction>,
     kind: InstructionKind,
-    budget: Budget,
+    budget: PromptBudget,
     line: (LearnedInstruction) -> String,
 ): String? {
     val lines = applicable.asSequence()
@@ -62,19 +63,6 @@ private fun section(
         .mapNotNull { budget.take(line(it)) }
         .toList()
     return if (lines.isEmpty()) null else "$heading:\n" + lines.joinToString("\n")
-}
-
-private class Budget(private var remaining: Int) {
-    var omitted = 0
-        private set
-
-    fun take(line: String): String? = if (line.length + 1 <= remaining) {
-        remaining -= line.length + 1
-        line
-    } else {
-        omitted++
-        null
-    }
 }
 
 private fun protocol(host: HostPlatform): String = """
