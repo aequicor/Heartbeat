@@ -32,16 +32,17 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
  * | Living | SessionBound | turn of request, no session yet | session | Persist | — |
  * | Living | TurnAccepted / PermissionsChanged | turn of request | observed turn / awaiting | — | — |
  * | Living | ReceiveLetters | current request, valid cursor | advance read cursor, disarm wait | Persist | — |
- * | Living | AwaitResults | current request, unread or outstanding work | arm result wait | Persist | — |
+ * | Living | AwaitResults | current request, unread or [Organism.isWaiting] | arm wait | Persist | — |
  * | Living | Decide | an awaited request accepts the decision | — | Respond | — |
  * | Living | TurnSettled(Answered) | turn of request | see below | Persist; Drive?; Release(Retire)? | Finished? |
  * | Living | TurnSettled(Broke) | turn of request | see below | Persist; Drive?; Release(Lyse)? | — |
  * | Living | Ruled | open case, developing | see below | Persist; Drive?; Drive(plaintiff)?; Release(Lyse)? | — |
  *
  * An answer starts a reminder turn only when the cell explicitly requested a wait and has unread results. A cell
- * with outstanding work or unread results rests; otherwise it completes (the zygote completes the organism). A broken
- * zygote stalls; any other broken cell dies with its descendants and its parent is told. A kill lyses the accused
- * subtree and may wake its waiting parent and plaintiff. All result text is returned through the receive tool,
+ * with living children, a filed case, a dispute it participates in or unread results rests; otherwise it completes
+ * (the zygote completes the organism). A broken zygote stalls; any other broken cell dies with its descendants and
+ * its parent is told. A kill lyses the accused subtree and may wake its waiting parent and plaintiff.
+ * All result text is returned through the receive tool,
  * never through a prompt. A result arriving during a turn never interrupts it. Explicit waits and read cursors
  * survive restart; legacy saved letters turns are moved back into inboxes before recovery.
  *

@@ -104,6 +104,22 @@ class InboxDeliveryTest {
     }
 
     @Test
+    fun `a dispute party can register a wait without children or a case it filed`() {
+        val dispute = ImmuneCase.Dispute(CaseId("k1"), ZYGOTE, "Which?", listOf(C1))
+        val before = organism(cell(C1), cell(C2), cases = listOf(dispute))
+        val wait = OrganicAiIntent.Internal.AwaitResults(ORGANISM, C1, request(C1))
+        val after = before.copy(
+            cells = before.cells.map { if (it.id == C1) it.copy(isAwaitingResults = true) else it },
+            version = before.version + 1,
+        )
+        spec.assertTransition(living(before), wait, living(after), effects = listOf(OrganicAiEffect.Persist(after)))
+        spec.assertIgnored(living(before), wait.copy(cell = C2, request = request(C2)))
+        val settled = spec.resolve(living(after), settle(C1))!!.to.organism()
+        assertEquals(CellPhase.Resting, settled.cell(C1)?.phase)
+        assertTrue(settled.zygote.inbox.isEmpty())
+    }
+
+    @Test
     fun `dispute results wake every waiting party whether delivered before or after their turn ends`() {
         val dispute = ImmuneCase.Dispute(CaseId("k1"), C1, "Which?", listOf(ZYGOTE, C2))
         val letter = Letter.DisputeResolved(dispute.id, "Which?", "A", "reason")

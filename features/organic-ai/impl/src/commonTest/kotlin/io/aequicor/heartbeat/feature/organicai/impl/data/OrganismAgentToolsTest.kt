@@ -23,6 +23,10 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
+import io.aequicor.heartbeat.feature.organicai.api.Ruling
+import io.aequicor.heartbeat.feature.organicai.api.Settlement
+import io.aequicor.heartbeat.feature.organicai.api.Work
+import io.aequicor.heartbeat.feature.organicai.api.cell
 import io.aequicor.heartbeat.feature.organicai.api.zygote
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.C2
@@ -31,6 +35,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.organism
+import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
 import io.aequicor.heartbeat.feature.organicai.impl.working
 import io.aequicor.heartbeat.feature.organicai.impl.zygoteCell
@@ -234,6 +239,45 @@ class OrganismAgentToolsTest {
         assertFalse("End your turn" in result.text)
         val finished = tools(organism()).first.execute(context(), OrganismTools.RECEIVE, args("wait" to true))
         assertTrue("No children or cases are pending" in finished.text)
+    }
+
+    @Test
+    fun `a dispute party can wait for and read a ruling arriving before or after its turn ends`() = runTest {
+        for (isRuledBeforeSettlement in listOf(false, true)) {
+            val dispute = ImmuneCase.Dispute(CaseId("k1"), ZYGOTE, "Which?", listOf(C1))
+            val (tools, machine) = tools(organism(cell(C1), cell(C2), cases = listOf(dispute)))
+            val unrelated = tools.execute(context(session("c2")), OrganismTools.RECEIVE, args("wait" to true))
+            assertTrue("No children or cases are pending" in unrelated.text)
+            val wait = tools.execute(context(session("c1")), OrganismTools.RECEIVE, args("wait" to true))
+            assertTrue("Result wait registered" in wait.text, wait.text)
+            assertEquals(true, machine.organism().cell(C1)?.isAwaitingResults)
+            val ruling = OrganicAiIntent.Internal.Ruled(ORGANISM, dispute.id, Ruling.Answer("REST", "simpler"))
+            if (isRuledBeforeSettlement) assertEquals(SendResult.Accepted, machine.send(ruling))
+            assertEquals(
+                SendResult.Accepted,
+                machine.send(
+                    OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, request(C1), Settlement.Answered("wait")),
+                ),
+            )
+            if (!isRuledBeforeSettlement) {
+                assertEquals(CellPhase.Resting, machine.organism().cell(C1)?.phase)
+                assertEquals(SendResult.Accepted, machine.send(ruling))
+            }
+            val phase = machine.organism().cell(C1)?.phase as CellPhase.Working
+            assertEquals(Work.CheckInbox, phase.work)
+            assertEquals(request(C1, 2), phase.request)
+            val result = tools.execute(context(session("c1")), OrganismTools.RECEIVE, args())
+            assertFalse(result.isError, result.text)
+            assertTrue("REST" in result.text && "simpler" in result.text, result.text)
+            assertEquals(1, machine.organism().cell(C1)?.receivedLetters)
+            assertEquals(
+                SendResult.Accepted,
+                machine.send(
+                    OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, phase.request, Settlement.Answered("done")),
+                ),
+            )
+            assertEquals(CellPhase.Completed("done"), machine.organism().cell(C1)?.phase)
+        }
     }
 
     @Test
