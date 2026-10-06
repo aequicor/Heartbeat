@@ -222,6 +222,8 @@ internal class FakeConnection : PiConnection {
     val fields = mutableListOf<JsonObject>()
     val sent = mutableListOf<JsonObject>()
     var isClosed = false
+    var stopProof: suspend () -> Boolean = { true }
+    var stopRequests = 0
     var sessionId = "native"
     var isTranscriptPersisted = true
     var sessionFile: String? = "native.jsonl"
@@ -274,6 +276,12 @@ internal class FakeConnection : PiConnection {
     override fun close() {
         isClosed = true
         isOpen = false
+    }
+
+    override suspend fun stopAndAwait(): Boolean {
+        stopRequests++
+        close()
+        return stopProof()
     }
 
     private fun state(): JsonObject {

@@ -21,6 +21,8 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.stream.Stream
 import kotlin.test.Test
@@ -99,6 +101,32 @@ class PiRpcTest {
         assertTrue(process.isDestroyed)
     }
 
+    @Test
+    fun `a blocked input close cannot prevent an unconfirmed stop deadline`() = runRpcTest { dispatchers ->
+        val release = CountDownLatch(1)
+        val closeStarted = CompletableDeferred<Unit>()
+        val input = object : OutputStream() {
+            override fun write(value: Int) = Unit
+            override fun close() {
+                closeStarted.complete(Unit)
+                release.await()
+            }
+        }
+        val process = FakeProcess(isStopDeferred = true, customInput = input)
+        val rpc = PiRpc(process, backgroundScope, dispatchers, {}, {})
+        try {
+            val stopped = withContext(dispatchers.default) {
+                withTimeout(10_000L) { rpc.stopAndAwait() }
+            }
+            assertFalse(stopped)
+            assertTrue(process.isAlive)
+            assertFalse(closeStarted.isCompleted)
+        } finally {
+            release.countDown()
+            process.exit()
+        }
+    }
+
     private fun runRpcTest(block: suspend TestScope.(DispatcherProvider) -> Unit) = runTest {
         RpcTestDispatchers().use { block(it) }
     }
@@ -126,11 +154,14 @@ private class RpcTestDispatchers :
     override fun close() = dispatcher.close()
 }
 
-private class FakeProcess : Process() {
+private class FakeProcess(private val isStopDeferred: Boolean = false, private val customInput: OutputStream? = null) :
+    Process() {
     private val stdout = PipedInputStream(PIPE_SIZE)
     private val feed = PipedOutputStream(stdout)
     private val stdin = ByteArrayOutputStream()
     private val stderr = ByteArrayInputStream(ByteArray(0))
+
+    private val exited = CompletableFuture<Process>()
 
     @Volatile var isDestroyed = false
 
@@ -143,7 +174,9 @@ private class FakeProcess : Process() {
 
     fun written(): String = synchronized(stdin) { stdin.toString(Charsets.UTF_8) }
 
-    override fun getOutputStream(): OutputStream = stdin
+    override fun toHandle(): ProcessHandle = PiTestProcessHandle({ isAlive }, { destroy() }, exited)
+    override fun getOutputStream(): OutputStream = customInput ?: stdin
+    override fun onExit(): CompletableFuture<Process> = exited.thenApply { this }
     override fun getInputStream(): InputStream = stdout
     override fun getErrorStream(): InputStream = stderr
     override fun waitFor(): Int = 0
@@ -151,8 +184,12 @@ private class FakeProcess : Process() {
     override fun isAlive(): Boolean = !isDestroyed
     override fun descendants(): Stream<ProcessHandle> = Stream.empty()
     override fun destroy() {
+        if (!isStopDeferred) exit()
+    }
+    fun exit() {
         isDestroyed = true
         feed.close()
+        exited.complete(this)
     }
 
     private companion object {

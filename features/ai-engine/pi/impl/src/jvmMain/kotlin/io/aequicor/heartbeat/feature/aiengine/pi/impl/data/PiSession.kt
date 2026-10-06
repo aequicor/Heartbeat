@@ -105,6 +105,7 @@ internal class PiSession(
     private var sessionFile: String? = null
     private var isHandleClosed = false
     private var isReleased = false
+    private var isShuttingDown = false
 
     // Callbacks of a replaced or failed process are ignored once a newer connection generation exists.
     private var generation = 0
@@ -335,7 +336,7 @@ internal class PiSession(
             if (machine.send(ActiveSessionIntent.Public.Recheck) != SendResult.Accepted) {
                 piFailure(EngineFailure.Request(RequestFailureReason.Invalid))
             }
-            val snapshot = withContext(NonCancellable) { connected() }.command("get_state")
+            val snapshot = connected().command("get_state")
             reconcile(snapshot)
         }
     }
@@ -361,9 +362,12 @@ internal class PiSession(
     }
 
     suspend fun shutdown() = withContext(NonCancellable + dispatchers.main) {
+        isShuttingDown = true
         usage.close()
         val active = turn
-        if (active != null && isTurnStarted) {
+        hostedTools.revoke()
+        val isStopped = connection?.stopAndAwait() == true
+        if (active != null && isTurnStarted && isStopped) {
             finish(TurnOutcome.Unknown)
         } else if (active != null) {
             acceptance?.completeExceptionally(
@@ -396,11 +400,14 @@ internal class PiSession(
 
     private suspend fun open(factory: PiConnector): PiConnection {
         val plan = toolPlans.launch()
+        ensureOpen()
         val current = ++generation
         val fresh = factory(
             plan,
-            { record -> withContext(dispatchers.main) { if (current == generation) event(record) } },
-            { failure -> withContext(dispatchers.main) { if (current == generation) failed(failure) } },
+            { record -> withContext(dispatchers.main) { if (!isShuttingDown && current == generation) event(record) } },
+            { failure ->
+                withContext(dispatchers.main) { if (!isShuttingDown && current == generation) failed(failure) }
+            },
         )
         launchedTools = plan.requestedNames
         return fresh
@@ -422,37 +429,33 @@ internal class PiSession(
     /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
     private suspend fun connected(): PiConnection {
         connection?.takeIf { it.isOpen }?.let { return it }
-        connection?.close()
-        connection = null
-        usage.clear()
-        // Approvals belonged to the lost process; its extension can no longer receive an answer.
-        permissions.clear()
-        dialogs.clear()
-        decisions.clear()
-        val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
-        val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
-        log.i { "Restarting Pi process for session recovery" }
-        val fresh = open(factory)
-        val snapshot = try {
-            fresh.reattach(file)
-            // Pi can acknowledge switch_session by creating a new session when the file was never persisted.
-            // Verify identity before publishing the connection, otherwise this handle could keep that process.
-            val snapshot = fresh.command("get_state")
-            if (snapshot.string("sessionId") != nativeRef?.nativeId) {
-                piFailure(EngineFailure.Session(SessionFailureReason.Changed))
-            }
-            sessionConfiguration.restore(fresh)
-        } catch (e: EngineException) {
-            // Never keep a process that sits on a different transcript than this handle.
-            log.w(e) { "Pi session recovery could not reattach the transcript" }
-            generation++
-            fresh.close()
-            throw e
+        val previous = connection
+        if (previous != null && !previous.stopAndAwait()) {
+            piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
         }
-        connection = fresh
-        val model = snapshot["model"] as? JsonObject
-        usage.model(model, fresh.contextCapacity(model))
-        return fresh
+        ensureOpen()
+        return withContext(NonCancellable) {
+            connection = null
+            usage.clear()
+            // Approvals belonged to the lost process; its extension can no longer receive an answer.
+            permissions.clear()
+            dialogs.clear()
+            decisions.clear()
+            val file = sessionFile ?: piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
+            val factory = connector ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
+            log.i { "Restarting Pi process for session recovery" }
+            val (fresh, snapshot) = sessionConfiguration.reconnect(
+                file,
+                nativeRef?.nativeId,
+                open = { open(factory) },
+                ensureOpen = ::ensureOpen,
+                discarded = { generation++ },
+            )
+            connection = fresh
+            val model = snapshot["model"] as? JsonObject
+            usage.model(model, fresh.contextCapacity(model))
+            fresh
+        }
     }
 
     private fun prepare(effect: ActiveSessionEffect) {
@@ -658,14 +661,7 @@ internal class PiSession(
         pending.forEach { dismiss(it.value) }
     }
 
-    /** Declines a dialog nobody can answer; for an approval this blocks the tool call. */
-    private suspend fun dismiss(id: String) {
-        try {
-            connection?.takeIf { it.isOpen }?.respondToUi(id, "cancelled" to JsonPrimitive(true))
-        } catch (e: EngineException) {
-            log.w(e) { "Pi dialog dismissal was not delivered" }
-        }
-    }
+    private suspend fun dismiss(id: String) = connection?.dismissUi(id) ?: Unit
 
     private fun started(accepted: Turn) {
         if (!isTurnStarted) {
@@ -741,21 +737,13 @@ internal class PiSession(
         Exception(failure.code, cause)
 
     private fun ensureOpen() {
-        if (state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed) {
+        if (isShuttingDown || state.value is ActiveSessionState.Closing || state.value == ActiveSessionState.Closed) {
             piFailure(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
         }
     }
 
     private fun rpc(): PiConnection = connection
         ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable))
-}
-
-/** Switches this connection to the native transcript [file]; Pi reports a refused switch as `cancelled`. */
-private suspend fun PiConnection.reattach(file: String): PiConnection = apply {
-    val switched = command("switch_session", JsonObject(mapOf("sessionPath" to JsonPrimitive(file))))
-    if ((switched["cancelled"] as? JsonPrimitive)?.booleanOrNull == true) {
-        piFailure(EngineFailure.Session(SessionFailureReason.Changed))
-    }
 }
 
 /** Live native settings are available between requests of the current turn, including a pending approval. */
