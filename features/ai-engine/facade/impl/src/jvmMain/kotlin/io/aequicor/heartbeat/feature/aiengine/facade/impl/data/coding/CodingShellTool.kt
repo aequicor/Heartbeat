@@ -35,12 +35,15 @@ internal class CodingShellTool(
         "Run a ${if (isWindows) "PowerShell" else "POSIX shell"} command in the project root and return its exit " +
             "code and combined output. Use for git and other CLI tools; use run_build for builds and tests when " +
             "available. Commands are limited to $MAX_CODING_COMMAND_CHARS characters. " +
+            "Synchronous: waits for exit; on timeout the command process tree is terminated. " +
+            "Returns a final result, never a running job or a scheduler completion event. " +
             "Interactive programs are unsupported.",
         listOf(ToolParameterDescriptor("command", "Command line to run", ToolParameterType.String)),
         listOf(
             ToolParameterDescriptor(
                 "timeout_seconds",
-                "Time limit, default $DEFAULT_TIMEOUT_SECONDS, at most $MAX_TIMEOUT_SECONDS",
+                "Time limit, default $DEFAULT_TIMEOUT_SECONDS, at most $MAX_TIMEOUT_SECONDS; " +
+                    "expiry terminates the command, it does not continue in the background",
                 ToolParameterType.Integer,
             ),
         ),
@@ -100,7 +103,11 @@ internal class CodingShellTool(
             AgentToolResult("Exit code: $code\n${output.text()}", code != 0)
         } else {
             log.w { "Command timed out after ${timeout}s" }
-            AgentToolResult("Timed out after ${timeout}s\n${output.text()}", true)
+            AgentToolResult(
+                "Timed out after ${timeout}s. The command process tree was terminated; " +
+                    "there is no running job to wait for.\n${output.text()}",
+                true,
+            )
         }
     }
 

@@ -38,6 +38,8 @@ internal class DesktopCodingTools(
         "Use the hosted project tools to read and edit the current workspace. " +
             "Read AGENTS.md and CLAUDE.md when present before changes. " +
             "Use run_command for foreground Git and other non-interactive commands. " +
+            "It returns only after exit or termination on timeout; a returned result leaves no managed job to " +
+            "wait for with scheduler_sleep. Handle the result and continue the task. " +
             "When configure_build/run_build are available, builds and tests MUST use run_build, not run_command. " +
             "File paths are confined to this workspace; direct .git edits are unavailable."
     }

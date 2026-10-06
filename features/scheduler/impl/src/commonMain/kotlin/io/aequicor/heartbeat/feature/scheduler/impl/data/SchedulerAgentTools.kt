@@ -173,9 +173,18 @@ internal class SchedulerAgentTools(
         val PUBLISH_TIMEOUT = 1.seconds
 
         val INSTRUCTIONS = """
-            Scheduler: instead of waiting inside a turn (polling, sleep commands), call ${SchedulerTools.SLEEP} and end
-            your turn. The session resumes with a new message when one of the events arrives or the deadline passes;
-            the message repeats your note. Event keys: system.network.available / system.network.lost,
+            Scheduler: use ${SchedulerTools.SLEEP} only for a concrete future event with a known producer or an
+            explicitly requested delayed task. Before sleeping, verify that the awaited work is still pending.
+            If no work remains running or queued and no external event or requested delay is pending, continue
+            the task now or give the final report. A note saying that a command is running is not evidence.
+            run_command is synchronous: an exit code is final, and a timeout terminates the command rather than
+            leaving a background job. Neither result is a reason to sleep. For run_build, use build_status with
+            the returned operation id and waitMs=10000 until a terminal result; these builds do not publish
+            scheduler events. Do not invent action or custom event keys for commands or builds. Background actions
+            started by ${SchedulerTools.START_ACTION} return their actual completion key.
+            After a successful ${SchedulerTools.SLEEP}, end your turn. The session resumes with a new message when
+            one of the events arrives or the deadline passes; the message repeats your note.
+            Event keys: system.network.available / system.network.lost,
             session.<id>.turn_finished of another session (it prints its key with ${SchedulerTools.LIST}),
             custom.<name> signals published with ${SchedulerTools.SIGNAL}.
         """.trimIndent()
@@ -184,7 +193,9 @@ internal class SchedulerAgentTools(
             SchedulerTools.SLEEP,
             "Put this session to sleep until an event or a deadline, then end the turn. Give at least one of " +
                 "${Arguments.EVENTS}, ${Arguments.AT}, ${Arguments.AFTER_SECONDS}; a wait for events only ends " +
-                "after ${SchedulerLimits.EVENT_WAIT} at the latest.",
+                "after ${SchedulerLimits.EVENT_WAIT} at the latest. Requires a known future event or an explicitly " +
+                "requested delay. Do not use after a completed or timed-out run_command; use build_status to wait " +
+                "for run_build. Verify pending work before sleeping.",
             buildJsonObject {
                 put("type", "object")
                 putJsonObject("properties") {
