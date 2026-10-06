@@ -192,7 +192,7 @@ internal class StoreRegistry(
                     file
                 },
             )
-            PreferencesFile(dataStore, job)
+            PreferencesFile(SnapshotDataStore(dataStore), job)
         }.dataStore
 
     private inline fun update(transform: (List<OwnerStores>) -> List<OwnerStores>) {

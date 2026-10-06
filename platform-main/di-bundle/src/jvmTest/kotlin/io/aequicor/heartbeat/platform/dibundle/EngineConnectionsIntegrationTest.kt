@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -57,8 +58,10 @@ class EngineConnectionsIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        // Cancellation may resume IO continuations on Main; wait before replacing the dispatcher.
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
