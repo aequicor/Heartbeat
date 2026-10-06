@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -24,11 +25,18 @@ internal class PiTurnJournal(
 
     suspend fun restore(): PiTurnSnapshot? = guarded { records.get(ref)?.also(::validate) }
 
-    suspend fun begin(turn: Turn, trust: TrustLevel) = guarded {
+    /** An unresolved stop forbids even opening a replacement native process. */
+    suspend fun restoreForOpening(): PiTurnSnapshot? = restore()?.also {
+        if (it.stopping != null) piFailure(EngineFailure.Session(SessionFailureReason.Busy))
+    }
+
+    suspend fun begin(turn: Turn, trust: TrustLevel, processOwner: PiExecutionOwner? = null) = guarded {
         records.update(ref) { previous ->
             val before = previous?.also(::validate) ?: PiTurnSnapshot(ref, route, ownership)
-            check(before.active == null && before.last?.turn?.id != turn.id) { "Previous turn is unresolved" }
-            before.copy(active = PiTurnRecord(turn, trust))
+            check(
+                before.active == null && before.stopping == null && before.last?.turn?.id != turn.id,
+            ) { "Previous turn is unresolved" }
+            before.copy(active = PiTurnRecord(turn, trust, processOwner))
         }
     }
 
@@ -41,6 +49,70 @@ internal class PiTurnJournal(
             before.copy(active = null, last = active.copy(turn = active.turn.copy(outcome = outcome)))
         }
         snapshot.last?.takeIf { it.turn.id == turn }
+    }
+
+    /** Claims only this active request. No native IO can begin until this fence is durable. */
+    suspend fun fenceStop(request: RequestId, turn: TurnId?): PiTurnRecord? = guarded {
+        if (records.get(ref) == null) return@guarded null
+        val snapshot = records.update(ref) { previous ->
+            val before = checkNotNull(previous).also(::validate)
+            if (before.stopping != null) return@update before
+            val active = before.active?.takeIf {
+                it.matches(request, turn) && it.processOwner != null
+            } ?: return@update before
+            before.copy(stopping = active)
+        }
+        snapshot.stopping?.takeIf { it.matches(request, turn) }
+    }
+
+    /** A pending inspection survives cancellation/crash and fails closed rather than forgetting unknown children. */
+    suspend fun inspectStop(stop: PiTurnRecord, inspection: String): Boolean = guarded {
+        val snapshot = records.update(ref) { previous ->
+            val before = checkNotNull(previous).also(::validate)
+            if (before.stopping?.sameStop(stop) != true || before.stopInspection != null) return@update before
+            before.copy(stopInspection = inspection)
+        }
+        snapshot.stopInspection == inspection
+    }
+
+    /** Newly discovered descendants must be retained before any signal can orphan them. */
+    suspend fun observeStop(stop: PiTurnRecord, inspection: String, owner: PiExecutionOwner): PiExecutionOwner? =
+        guarded {
+            val snapshot = records.update(ref) { previous ->
+                val before = checkNotNull(previous).also(::validate)
+                val stopping = before.stopping?.takeIf { it.sameStop(stop) } ?: return@update before
+                if (before.stopInspection != inspection) return@update before
+                val current = checkNotNull(stopping.processOwner)
+                check(current.launchId == owner.launchId && current.root == owner.root)
+                val merged = current.copy(
+                    observedChildren = (current.observedChildren + owner.observedChildren).distinct(),
+                )
+                before.copy(stopping = stopping.copy(processOwner = merged), stopInspection = null)
+            }
+            snapshot.stopping?.takeIf { snapshot.stopInspection == null && it.sameStop(stop) }?.processOwner
+        }
+
+    /** A stale waiter cannot clear a newer fence or omit descendants discovered by another waiter. */
+    suspend fun stopped(stop: PiTurnRecord, observed: PiExecutionOwner): PiTurnRecord? = guarded {
+        val snapshot = records.update(ref) { previous ->
+            val before = checkNotNull(previous).also(::validate)
+            val stopping = before.stopping?.takeIf { it.sameStop(stop) } ?: return@update before
+            if (before.stopInspection != null) return@update before
+            val owner = checkNotNull(stopping.processOwner)
+            check(owner.launchId == observed.launchId && owner.root == observed.root)
+            if (!observed.observedChildren.containsAll(owner.observedChildren)) return@update before
+            val record = listOfNotNull(before.active, before.last).single { it.sameStop(stop) }
+            before.copy(
+                active = null,
+                last = record.copy(
+                    turn = record.turn.copy(outcome = record.turn.outcome ?: TurnOutcome.Unknown),
+                    processOwner = owner,
+                    isProcessStopped = true,
+                ),
+                stopping = null,
+            )
+        }
+        snapshot.last?.takeIf { snapshot.stopping == null && it.sameStop(stop) && it.isProcessStopped }
     }
 
     private fun validate(snapshot: PiTurnSnapshot) {
@@ -67,3 +139,10 @@ internal class PiTurnJournal(
 internal fun PiTurnSnapshot?.piInitialState(): ActiveSessionState = this?.active?.let {
     ActiveSessionState.Unavailable(EngineFailure.Session(SessionFailureReason.NotResumable), it.turn, last?.turn)
 } ?: ActiveSessionState.Ready(this?.last?.turn)
+
+internal fun PiTurnRecord.matches(request: RequestId, turn: TurnId?): Boolean =
+    this.turn.request == request && (turn == null || this.turn.id == turn)
+
+private fun PiTurnRecord.sameStop(other: PiTurnRecord): Boolean =
+    turn.id == other.turn.id && turn.request == other.turn.request &&
+        processOwner?.launchId == other.processOwner?.launchId && processOwner?.root == other.processOwner?.root

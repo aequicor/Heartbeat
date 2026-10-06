@@ -48,7 +48,8 @@ class PiTurnRecordsTest {
         val records = MemoryPiTurnRecords()
         val journal = PiTurnJournal(records, session.ref, session.route, "owner")
         val turn = Turn(TurnId("logical"), prompt("request").id, RuntimeTarget)
-        journal.begin(turn, TrustLevel.Ask)
+        val owner = PiExecutionOwner("execution", PiProcessIdentity(123, "2026-10-06T00:00:00.123456789Z"))
+        journal.begin(turn, TrustLevel.Ask, owner)
         val changed = PiTurnJournal(records, session.ref, session.route, "different-owner")
         assertFailsWith<EngineException> { changed.restore() }
         assertFailsWith<EngineException> { changed.finish(turn.id, TurnOutcome.Unknown) }
@@ -63,9 +64,11 @@ class PiTurnRecordsTest {
         val records = StoredPiTurnRecords(stores)
         val journal = PiTurnJournal(records, session.ref, session.route, "owner")
         val turn = Turn(TurnId("logical"), prompt("request").id, RuntimeTarget)
-        journal.begin(turn, TrustLevel.Ask)
+        val owner = PiExecutionOwner("execution", PiProcessIdentity(123, "2026-10-06T00:00:00.123456789Z"))
+        journal.begin(turn, TrustLevel.Ask, owner)
         val reopened = StoredPiTurnRecords(stores)
         assertEquals(turn, reopened.get(session.ref)?.active?.turn)
+        assertEquals(owner, reopened.get(session.ref)?.active?.processOwner)
         assertNull(reopened.get(session.ref.copy(source = SessionSourceId("another"))))
         journal.finish(turn.id, TurnOutcome.Completed)
         assertNull(reopened.get(session.ref)?.active)

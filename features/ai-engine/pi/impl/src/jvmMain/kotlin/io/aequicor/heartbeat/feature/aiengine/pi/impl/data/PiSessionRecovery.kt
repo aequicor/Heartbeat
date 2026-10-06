@@ -18,7 +18,7 @@ internal suspend fun PiSessionConfiguration.reconnect(
     file: String,
     nativeId: String?,
     open: suspend () -> PiConnection,
-    ensureOpen: () -> Unit,
+    ensureOpen: suspend () -> Unit,
     discarded: () -> Unit,
 ): Pair<PiConnection, JsonObject> {
     ensureOpen()

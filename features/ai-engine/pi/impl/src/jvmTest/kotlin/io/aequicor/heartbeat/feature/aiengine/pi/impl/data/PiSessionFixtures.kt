@@ -230,6 +230,9 @@ internal class FakeConnection : PiConnection {
     var isClosed = false
     var stopProof: suspend () -> Boolean = { true }
     var stopRequests = 0
+    var owner: PiExecutionOwner? = null
+    var captureOwner: suspend () -> PiExecutionOwner? = { owner }
+    override suspend fun processOwner(): PiExecutionOwner? = captureOwner()
     var sessionId = "native"
     var isTranscriptPersisted = true
     var sessionFile: String? = "native.jsonl"
