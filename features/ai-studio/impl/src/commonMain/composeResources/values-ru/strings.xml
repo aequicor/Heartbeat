@@ -37,6 +37,7 @@
     <string name="sidebar_collapsed">Свёрнуто</string>
     <string name="sidebar_project_empty">Сессий пока нет</string>
 
+    <string name="session_awaiting_permission">Ожидает разрешения</string>
     <string name="session_running">Агент работает</string>
     <string name="session_unread">Непрочитано</string>
     <string name="session_branch">Ветка %1$s</string>

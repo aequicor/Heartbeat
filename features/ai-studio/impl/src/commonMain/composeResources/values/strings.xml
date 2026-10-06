@@ -37,6 +37,7 @@
     <string name="sidebar_collapsed">Collapsed</string>
     <string name="sidebar_project_empty">No sessions yet</string>
 
+    <string name="session_awaiting_permission">Waiting for permission</string>
     <string name="session_running">Agent is working</string>
     <string name="session_unread">Unread</string>
     <string name="session_branch">Branch %1$s</string>

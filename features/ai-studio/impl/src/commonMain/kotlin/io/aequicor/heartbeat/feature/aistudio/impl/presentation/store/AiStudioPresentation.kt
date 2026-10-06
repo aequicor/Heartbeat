@@ -160,7 +160,7 @@ data class ProjectGroupUi(val project: ProjectUi, val sessions: ImmutableList<Se
 
 /**
  * Sidebar lists, newest first within each group. Without a query, each active session is rendered once:
- * pinned sessions take priority over expanded project groups, then remaining sessions go to [recent].
+ * Root chats select their section: pinned, expanded project, then [recent]. Helper descendants follow their root.
  * Collapsing a project or the projects section returns its unpinned sessions to [recent].
  * The renderer controls visibility of the recent section without changing its contents.
  * With a query: [results] only. Archived sessions are listed separately.
@@ -175,8 +175,13 @@ data class SidebarContent(
 )
 
 /** Groups the sessions of [state] for the sidebar. */
-internal fun sidebarContent(state: AiStudioScreenState): SidebarContent =
-    sidebarContent(state.projects, state.sessions, state.running, state.sidebar)
+internal fun sidebarContent(state: AiStudioScreenState): SidebarContent = sidebarContent(
+    state.projects,
+    state.sessions,
+    state.running,
+    state.sidebar,
+    state.permissions.map { it.sessionId }.toSet(),
+)
 
 /** Groups [sessions] using running flags from [running] and visible list precedence from [sidebar]. */
 fun sidebarContent(
@@ -184,35 +189,39 @@ fun sidebarContent(
     sessions: List<SessionUi>,
     running: Set<String>,
     sidebar: SidebarUi,
+    awaitingPermission: Set<String> = emptySet(),
 ): SidebarContent {
     val ordered = sessions
-        .map { it.copy(isRunning = it.id in running) }
+        .map { it.copy(isRunning = it.id in running, isAwaitingPermission = it.id in awaitingPermission) }
         .sortedByDescending { it.updatedAt }
-    val active = ordered.filterNot { it.isArchived }
-    val archived = ordered.filter { it.isArchived }.toImmutableList()
+    val active = SidebarSessionTree(ordered.filterNot { it.isArchived }).all()
+    val archived = SidebarSessionTree(ordered.filter { it.isArchived }).all().toImmutableList()
     val query = sidebar.query.trim()
     if (query.isNotEmpty()) {
         val source = if (sidebar.mode == SidebarMode.Archive) archived else active
         return SidebarContent(
-            results = source.filter { it.title.contains(query, ignoreCase = true) }.toImmutableList(),
+            results = SidebarSessionTree(
+                source.filter { it.title.contains(query, ignoreCase = true) }.sortedByDescending { it.updatedAt },
+            ).all().toImmutableList(),
             archived = archived,
         )
     }
-    val unpinned = active.filterNot { it.isPinned }
+    val tree = SidebarSessionTree(active)
+    val unpinned = tree.roots.filterNot { it.isPinned }
     val expandedProjectIds = projects
         .filter { sidebar.isProjectsExpanded && it.id !in sidebar.collapsedProjects }
         .map { it.id }
         .toSet()
     return SidebarContent(
-        pinned = active.filter { it.isPinned }.toImmutableList(),
+        pinned = tree.rows(tree.roots.filter { it.isPinned }).toImmutableList(),
         projects = projects.map { project ->
             ProjectGroupUi(
                 project = project,
-                sessions = unpinned.filter { it.projectId == project.id }.toImmutableList(),
+                sessions = tree.rows(unpinned.filter { it.projectId == project.id }).toImmutableList(),
                 isExpanded = project.id !in sidebar.collapsedProjects,
             )
         }.toImmutableList(),
-        recent = unpinned.filter { it.projectId !in expandedProjectIds }.toImmutableList(),
+        recent = tree.rows(unpinned.filter { it.projectId !in expandedProjectIds }).toImmutableList(),
         archived = archived,
     )
 }
@@ -227,4 +236,5 @@ internal fun StudioSession.toUi(): SessionUi = SessionUi(
     isOrganism = isOrganism,
     isAwaitingChecklist = isAwaitingChecklist,
     isReady = isReady,
+    parentChatId = parentChatId,
 )
