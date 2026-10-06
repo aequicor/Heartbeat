@@ -27,6 +27,7 @@ kotlin {
             implementation(projects.features.aiEngine.connections.api)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.datetime)
+            implementation(libs.okio)
             implementation(projects.core.datastore.api)
             implementation(projects.features.aiEngine.facade.api)
             implementation(projects.features.aiEngine.authenticator.api)

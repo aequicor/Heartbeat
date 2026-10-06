@@ -61,7 +61,10 @@ internal class StudioRunCoordinator(
         admission: Flow<ScheduledWakeAdmission>? = null,
     ): RunOutcome {
         log.i { "Reserve profile-owned execution" }
-        val submission = if (cancelBeforeSubmission || admission != null) {
+        require(request.submission == null || admission == null) {
+            "A supplied submission gate must own its admission policy"
+        }
+        val submission = request.submission ?: if (cancelBeforeSubmission || admission != null) {
             StudioRunSubmission(admission)
         } else {
             null
@@ -88,9 +91,13 @@ internal class StudioRunCoordinator(
                         host.executeRun(reserved)
                     } finally {
                         // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
-                        submission?.cancel()
+                        // Only the short journal barrier and reservation cleanup survive caller cancellation.
                         withContext(NonCancellable) {
-                            finishRun(host, request.id, submission, onCancelledBeforeSubmission)
+                            try {
+                                submission?.cancel()
+                            } finally {
+                                finishRun(host, request.id, submission, onCancelledBeforeSubmission)
+                            }
                         }
                     }
                 }
@@ -112,7 +119,7 @@ internal class StudioRunCoordinator(
     private suspend fun finishRun(
         host: StudioRunHost,
         id: String,
-        submission: StudioRunSubmission?,
+        submission: StudioSubmissionGate?,
         onCancelledBeforeSubmission: suspend () -> Unit,
     ) {
         try {
@@ -131,7 +138,7 @@ internal class StudioRunCoordinator(
         }
     }
 
-    private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioRunSubmission?): RunOutcome =
+    private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioSubmissionGate?): RunOutcome =
         coroutineScope {
             val caller = currentCoroutineContext()
             val gate = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -150,9 +157,13 @@ internal class StudioRunCoordinator(
                 throw ScheduledWakeDeferredException().also { it.addSuppressed(e) }
             } finally {
                 gate.cancel()
-                if (!caller.isActive && submission?.cancel() == true) {
-                    log.i { "Cancel scheduled preparation before native submission" }
-                    job.cancel()
+                if (!caller.isActive) {
+                    withContext(NonCancellable) {
+                        if (submission?.cancel() == true) {
+                            log.i { "Cancel scheduled preparation before native submission" }
+                            job.cancel()
+                        }
+                    }
                 }
             }
         }
@@ -164,13 +175,14 @@ internal class StudioRunCoordinator(
  * The owning feature may defer or drop Preparing, but cannot revoke Submitted. Begin checks admission again
  * after preparation.
  */
-internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) {
+internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) :
+    StudioSubmissionGate {
     private val log = Log.tag("StudioRunSubmission")
     private val phase = MutableStateFlow(Phase.Preparing)
 
-    val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
+    override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
 
-    suspend fun begin() {
+    override suspend fun begin() {
         admission?.first()?.let(::revoke)
         if (!phase.compareAndSet(Phase.Preparing, Phase.Submitted)) {
             throw revocation() ?: CancellationException("Scheduled preparation was cancelled before native submission")
@@ -178,13 +190,13 @@ internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmi
         log.v { "Native submission took ownership of the scheduled run" }
     }
 
-    fun cancel(): Boolean {
+    override suspend fun cancel(): Boolean {
         val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
         log.v { "Scheduled preparation cancellation accepted=$isCancelled" }
         return isCancelled
     }
 
-    suspend fun awaitRevocation(): CancellationException? {
+    override suspend fun awaitRevocation(): CancellationException? {
         val decisions = admission ?: return null
         val decision = combine(phase, decisions) { current, next -> current to next }
             .first { (current, next) -> current != Phase.Preparing || next != ScheduledWakeAdmission.Allow }.second
