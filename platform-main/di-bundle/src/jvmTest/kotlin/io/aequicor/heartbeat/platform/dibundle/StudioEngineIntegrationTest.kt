@@ -57,6 +57,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -550,7 +551,12 @@ class StudioEngineIntegrationTest {
         val result = async {
             runtime.run(sessionId, prompt, settings, emptyList()) { accepted.complete(Unit) }
         }
-        accepted.await()
+        select {
+            accepted.onAwait { }
+            result.onAwait { outcome ->
+                error("Run completed before native acceptance: $outcome")
+            }
+        }
         return result
     }
 }

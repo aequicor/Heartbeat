@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferId
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferRequest
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -54,8 +55,10 @@ class SessionTransferIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        // Close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

@@ -91,6 +91,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferenc
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -411,8 +412,10 @@ class AiEngineFacadeIntegrationTest {
     }
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        // Close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
