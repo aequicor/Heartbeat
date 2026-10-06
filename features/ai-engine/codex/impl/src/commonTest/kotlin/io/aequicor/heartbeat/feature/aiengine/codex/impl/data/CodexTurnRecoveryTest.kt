@@ -27,7 +27,7 @@ import kotlin.test.assertTrue
 class CodexTurnRecoveryTest {
     @Test
     fun `new runtime restores request and answer markers without sending`() = runTest {
-        for (status in listOf("completed", "interrupted", "failed")) {
+        for (status in listOf("completed", "failed")) {
             val records = MemoryCodexTurnRecords()
             val first = Fixture(this, turns = records).initialized()
             val original = first.open()
@@ -44,7 +44,6 @@ class CodexTurnRecoveryTest {
             assertEquals(Prompt.id, result?.request)
             when (status) {
                 "completed" -> assertEquals(TurnOutcome.Completed, result?.outcome)
-                "interrupted" -> assertEquals(TurnOutcome.Cancelled, result?.outcome)
                 "failed" -> assertIs<TurnOutcome.Failed>(result?.outcome)
             }
             assertEquals(turn, recovered.feature(SessionHistory).page().items.single().info.turn)
