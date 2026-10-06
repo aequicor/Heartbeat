@@ -63,7 +63,10 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Shared journal keeps existing assertions readable while each execution process has an independent channel. */
-internal class FakeWire private constructor(private val journal: WireJournal) : CodexWire {
+internal class FakeWire private constructor(
+    private val journal: WireJournal,
+    val off: CodexNativeOff = CodexNativeOff(),
+) : CodexWire {
     constructor() : this(WireJournal()) {
         journal.root = this
         journal.handler = { message ->
@@ -80,7 +83,7 @@ internal class FakeWire private constructor(private val journal: WireJournal) : 
         }
     var isClosed = false
     override val messages = incoming.receiveAsFlow()
-    fun fork(): FakeWire = FakeWire(journal).also { journal.peers += it }
+    fun fork(off: CodexNativeOff = CodexNativeOff()): FakeWire = FakeWire(journal, off).also { journal.peers += it }
     fun origin(request: JsonObject): FakeWire = journal.origins.lastOrNull { it.first === request }?.second ?: this
     override suspend fun write(message: JsonObject) {
         written += message
@@ -217,6 +220,8 @@ internal class Fixture(
         searchTools,
         launch ?: object : PreparedCodexLaunch {
             override suspend fun open(): CodexWire = wire.fork()
+            override suspend fun open(off: CodexNativeOff): CodexWire = wire.fork(off)
+            override suspend fun version(): String = "0.160.0"
         },
     )
     init {
@@ -226,7 +231,23 @@ internal class Fixture(
 
                 "model/list" -> wire.reply(message, json("data" to JsonArray(modelList)))
 
-                "config/read" -> wire.reply(message, json("config" to nativeConfig))
+                "config/read" -> {
+                    val off = wire.origin(message).off
+                    wire.reply(
+                        message,
+                        json(
+                            "config" to off.applyTo(nativeConfig),
+                            "layers" to JsonArray(
+                                listOf(
+                                    json(
+                                        "name" to json("type" to "sessionFlags".json()),
+                                        "config" to off.applyTo(JsonObject(emptyMap())),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    )
+                }
 
                 "thread/start" -> wire.reply(
                     message,

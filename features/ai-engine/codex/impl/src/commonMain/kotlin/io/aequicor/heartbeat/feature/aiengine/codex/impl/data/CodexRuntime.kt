@@ -90,7 +90,7 @@ internal class CodexRuntime(
         extraBufferCapacity = 1,
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
-    private val threads = CodexThreadSetup(this)
+    val threads = CodexThreadSetup(this)
     private val sessions = mutableMapOf<String, CodexSession>()
     private val connections = mutableSetOf<CodexConnection>()
     private val commands = Mutex()
@@ -268,11 +268,12 @@ internal class CodexRuntime(
         route: ExecutionRoute,
         areDetachedToolsEnabled: Boolean,
     ): ActiveSession {
-        val connection = openConnection()
+        val request = threads.request(nativeId, target, route, areDetachedToolsEnabled)
+        val connection = openConnection(request.off)
         var attached: CodexSession? = null
         var isTransferred = false
         try {
-            val session = threads.attach(nativeId, target, route, areDetachedToolsEnabled, connection)
+            val session = threads.attach(request, connection)
             attached = session
             ensureOpen()
             sessions[session.ref.nativeId] = session
@@ -311,9 +312,9 @@ internal class CodexRuntime(
     }
 
     /** A separate process prevents a policy reload from interrupting another session's active turn. */
-    private suspend fun openConnection(): CodexConnection {
+    suspend fun openConnection(off: CodexNativeOff): CodexConnection {
         ensureOpen()
-        val peer = CodexRpc(launch.open(), profile.coroutineScope)
+        val peer = CodexRpc(launch.open(off), profile.coroutineScope)
         val connection = CodexConnection(peer, profile.coroutineScope, ::observeMetadata, ::connectionFailed)
         connections += connection
         var isTransferred = false
@@ -341,7 +342,11 @@ internal class CodexRuntime(
         profile.coroutineScope.launch { commands.withLock { retireUnused(session) } }
     }
 
-    private suspend fun retireUnused(session: CodexSession) {
+    private suspend fun retireUnused(session: CodexSession) = session.connectionMutex.withLock {
+        retireLocked(session)
+    }
+
+    private suspend fun retireLocked(session: CodexSession) {
         if (sessions[session.ref.nativeId] !== session || !session.isUnused) return
         try {
             materialize(session)
@@ -360,7 +365,7 @@ internal class CodexRuntime(
     }
 
     /** Empty legacy threads need a persisted name before cold resume can find their unchanged id. */
-    private suspend fun materialize(session: CodexSession) {
+    suspend fun materialize(session: CodexSession) {
         if (!session.isMaterializationRequired) return
         val peer = session.connection.rpc
         val thread = peer.request(
@@ -372,6 +377,12 @@ internal class CodexRuntime(
             "thread/name/set",
             json("threadId" to session.ref.nativeId.json(), "name" to (thread.text("name") ?: "Heartbeat").json()),
         )
+        session.isMaterialized = true
+    }
+
+    fun discard(connection: CodexConnection) {
+        connections.remove(connection)
+        connection.close()
     }
 
     private fun connectionFailed(connection: CodexConnection, failure: EngineFailure) {

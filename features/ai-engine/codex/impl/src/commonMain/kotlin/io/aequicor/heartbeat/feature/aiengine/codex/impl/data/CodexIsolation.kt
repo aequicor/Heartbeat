@@ -53,42 +53,48 @@ internal fun codexHostedInstructions(workflow: String, actions: Set<AgentToolAct
  * Empty MCP tables merge with disk configuration. Each configured server must be explicitly disabled instead.
  * Only names and effective feature booleans are consumed; credentials are never exposed or logged.
  */
-internal suspend fun codexIsolationConfig(
-    rpc: CodexRpc,
-    cwd: String?,
-    search: Boolean,
-    questions: Boolean,
-    subagents: Boolean = false,
-): JsonObject {
-    val effective = rpc.request(
+internal suspend fun codexIsolationConfig(rpc: CodexRpc, cwd: String?, settings: CodexIsolationSettings): JsonObject {
+    val response = rpc.request(
         "config/read",
         buildJsonObject {
-            put("includeLayers", false)
+            put("includeLayers", true)
             put("cwd", cwd?.json() ?: JsonNull)
         },
-    ).obj("config")
+    )
+    settings.off.validateConfig(response)
+    val effective = response.obj("config")
     val features = effective["features"] as? JsonObject
     // Config requirements can override CLI flags. A conflicting managed configuration fails closed.
     if (CodexDisabledCapabilities.any { features?.get(it) != JsonPrimitive(false) }) {
         fail(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
     }
     val servers = effective["mcp_servers"] as? JsonObject
-    return buildJsonObject {
-        put(
-            "mcp_servers",
-            buildJsonObject {
-                servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
-            },
-        )
-        put(
-            "features",
-            buildJsonObject {
-                CodexDisabledCapabilities.forEach { put(it, false) }
-                put("multi_agent", subagents)
-                // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
-                put("default_mode_request_user_input", questions)
-            },
-        )
-        if (search) put("web_search", "live")
-    }
+    return settings.off.applyTo(
+        buildJsonObject {
+            put(
+                "mcp_servers",
+                buildJsonObject {
+                    servers?.keys?.forEach { name -> put(name, buildJsonObject { put("enabled", false) }) }
+                },
+            )
+            put(
+                "features",
+                buildJsonObject {
+                    CodexDisabledCapabilities.forEach { put(it, false) }
+                    put("multi_agent", settings.areSubagentsEnabled)
+                    // Default-mode questions need an explicit opt-in and a host capable of collecting answers.
+                    put("default_mode_request_user_input", settings.areQuestionsEnabled)
+                },
+            )
+            if (settings.isSearchEnabled) put("web_search", "live")
+        },
+    )
 }
+
+/** Isolation settings captured for one native thread configuration. */
+internal data class CodexIsolationSettings(
+    val isSearchEnabled: Boolean,
+    val areQuestionsEnabled: Boolean,
+    val areSubagentsEnabled: Boolean = false,
+    val off: CodexNativeOff = CodexNativeOff(),
+)
