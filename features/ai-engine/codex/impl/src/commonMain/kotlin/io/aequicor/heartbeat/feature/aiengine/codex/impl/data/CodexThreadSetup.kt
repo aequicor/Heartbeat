@@ -44,7 +44,16 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
         route,
         areDetachedToolsEnabled,
         policy(ToolPolicyScope(identity.engine, route.workspace, nativeId?.let(::sessionRef), target)),
-    )
+    ).also { restoreForOpening(it) }
+
+    /** A persisted stop fence forbids both creating another execution process and resuming the native thread. */
+    private suspend fun restoreForOpening(request: CodexThreadRequest): CodexTurnSnapshot? {
+        val nativeId = request.nativeId ?: return null
+        val journal = CodexTurnJournal(host.turns, sessionRef(nativeId), request.route, runtime.turnOwnership)
+        val snapshot = journal.restore()
+        if (snapshot?.stopping != null) fail(EngineFailure.Session(SessionFailureReason.Busy))
+        return snapshot
+    }
 
     suspend fun policy(scope: ToolPolicyScope): ResolvedToolPolicy = try {
         host.tools.nativeToolsForExecution(scope)
@@ -75,6 +84,8 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     suspend fun start(prepared: CodexPreparedThread, connection: CodexConnection): JsonObject {
+        // Configuration and hosted instruction preparation can suspend after the initial opening check.
+        restoreForOpening(prepared.request)
         val nativeId = prepared.request.nativeId
         val response = connection.rpc.request(
             if (nativeId == null) "thread/start" else "thread/resume",
@@ -87,9 +98,7 @@ internal class CodexThreadSetup(private val runtime: CodexRuntime) {
     }
 
     suspend fun attach(request: CodexThreadRequest, connection: CodexConnection): CodexSession {
-        val restored = request.nativeId?.let {
-            CodexTurnJournal(host.turns, sessionRef(it), request.route, runtime.turnOwnership).restore()
-        }
+        val restored = restoreForOpening(request)
         val prepared = prepare(request, connection)
         val response = start(prepared, connection)
         val thread = response.obj("thread")
