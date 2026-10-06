@@ -21,7 +21,7 @@ internal fun koogHostedTools(
         override val descriptor = spec.koogDescriptor()
         override suspend fun run(args: JsonObject): KoogToolResult {
             val result = tools.execute(context, spec.name, args)
-            return KoogToolResult(result.text, result.isError)
+            return KoogToolResult(result.text, result.isError, images = result.images)
         }
     }
 }

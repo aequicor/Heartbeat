@@ -3,12 +3,14 @@ package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 import ai.koog.prompt.Prompt
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.message.Message
+import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionEvent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
@@ -94,7 +96,8 @@ internal class KoogToolExecution(
         val output = SessionItem.ToolResult(
             ItemInfo(ItemId(Uuid.random().toString()), history.items.size.toLong(), 0, turn.id),
             id,
-            listOf(ContentPart.Text(result.text)) + result.resources.map { ContentPart.Resource(it) },
+            listOf(ContentPart.Text(result.text)) + result.resources.map { ContentPart.Resource(it) } +
+                result.images.map { ContentPart.Image(ResourceRef(it.dataUrl, it.mimeType)) },
             if (result.isFailed) EngineFailure.Unknown() else null,
         )
         history.append { SessionEvent.ItemUpserted(it, output) }
@@ -119,6 +122,11 @@ internal class KoogToolExecution(
         if (text.isNotBlank()) assistant(text)
         calls.forEach { toolCall(tool = it.name, args = it.arguments, id = it.id) }
         calls.forEach { toolResult(tool = it.name, output = it.result.text, id = it.id, isError = it.result.isFailed) }
+        // OpenAI and Ollama SDK serializers discard image parts inside tool results.
+        // Send them after all results in this same request, explicitly attributed to their tool call.
+        calls.filter { it.result.images.isNotEmpty() }.forEach { call ->
+            user(listOf(MessagePart.Text(toolImageSource(call.id))) + call.result.images.map { it.koogPart() })
+        }
     }
 }
 

@@ -24,9 +24,12 @@ export default function (pi: any) {
           body: JSON.stringify({ name: spec.name, arguments: params }), signal,
         });
         if (!response.ok) throw new Error("Heartbeat tool bridge failed");
-        const result = await response.json() as { success: boolean; text: string };
+        const result = await response.json() as {
+          success: boolean; text: string;
+          images?: Array<{ type: "image"; mimeType: string; data: string }>;
+        };
         if (!result.success) throw new Error(result.text);
-        return { content: [{ type: "text", text: result.text }], details: { success: true } };
+        return { content: [{ type: "text", text: result.text }, ...(result.images ?? [])], details: { success: true } };
       },
     });
   }
