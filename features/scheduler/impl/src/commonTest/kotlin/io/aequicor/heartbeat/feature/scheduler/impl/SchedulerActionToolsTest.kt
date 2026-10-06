@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Arguments
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Kinds
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.SchedulerActionTools
 import io.aequicor.heartbeat.feature.scheduler.impl.data.WakeScheduler
 import kotlinx.coroutines.async
@@ -27,13 +28,32 @@ import kotlin.test.assertTrue
 class SchedulerActionToolsTest {
     private val inProject = AgentToolContext(SESSION, PROJECT, TurnId("t1"), target = TARGET)
 
-    private fun TestScope.tools(fixture: ActionsFixture, toggles: Toggles = Toggles()) = SchedulerActionTools(
+    private fun TestScope.tools(
+        fixture: ActionsFixture,
+        toggles: Toggles = Toggles(),
+        hosts: Set<ScheduledSessionHost> = setOf(FakeHost(priority = 1, owned = setOf(SESSION))),
+    ) = SchedulerActionTools(
         lazyOf(fixture.actions),
-        WakeScheduler(fixture.machine),
+        WakeScheduler(fixture.machine, lazyOf(hosts)),
         fixture.machine,
         toggles,
         fixture.clock,
     )
+
+    @Test
+    fun `an action with a wake note is not started without an owning host`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val result = tools(fixture, hosts = emptySet()).execute(
+            inProject,
+            SchedulerTools.START_ACTION,
+            args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "build", Arguments.WAKE_NOTE to "check it"),
+        )
+        runCurrent()
+        assertTrue(result.isError, result.text)
+        assertTrue("no wake was scheduled" in result.text, result.text)
+        assertTrue(fixture.machine.sent.isEmpty())
+        assertTrue(fixture.journal.records.isEmpty())
+    }
 
     private fun args(vararg pairs: Pair<String, String>) = JsonObject(
         pairs.associate { (k, v) -> k to JsonPrimitive(v) },

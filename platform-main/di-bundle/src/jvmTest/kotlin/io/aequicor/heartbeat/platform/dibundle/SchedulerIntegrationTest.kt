@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.platform.dibundle
 
+import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.ContributesTo
+import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
@@ -18,6 +20,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
@@ -44,7 +49,7 @@ class SchedulerIntegrationTest {
     private val persisted = PersistedProfile()
     private val app = createGraphFactory<TestAppGraph.Factory>().create(persisted)
     private val toggles = app as TestToggleAccessors
-    private val session = SessionRef(EngineId("koog"), SessionSourceId("local"), "native")
+    private val session = SCHEDULER_TEST_SESSION
 
     @BeforeTest
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -113,3 +118,16 @@ interface TestSchedulerAccessors {
     val schedulerTools: ProfileAgentTools
     val schedulerMachines: MachineRegistry
 }
+
+/** Only this fixture's session has a host; unrelated integration sessions retain their real ownership. */
+@ContributesIntoSet(ProfileScope::class)
+@Inject
+internal class TestScheduledSessionHost : ScheduledSessionHost {
+    override val priority: Int = 1
+
+    override suspend fun owns(session: SessionRef): Boolean = session == SCHEDULER_TEST_SESSION
+
+    override suspend fun wake(request: WakeRequest, prompt: WakePrompt): Unit = error("The test deadline is not due")
+}
+
+private val SCHEDULER_TEST_SESSION = SessionRef(EngineId("koog"), SessionSourceId("local"), "scheduler-owned")

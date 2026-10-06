@@ -166,6 +166,11 @@ private fun Organism.unresolved(): Step? {
 
 private fun Organism.resume(): Step? {
     val zygote = zygote
+    if (status is OrganismStatus.Completed && zygote.phase is CellPhase.Completed) {
+        val restarted = updated(zygote.id) { recover(it.copy(isAwaitingResults = false), Work.Genesis) }
+            .copy(status = OrganismStatus.Developing)
+        return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
+    }
     if (!isDeveloping) return null
     val resumed = cells.filter { it.phase == CellPhase.Resting && !it.isAwaitingResults }.map { it.id }
     if (zygote.phase == CellPhase.Resting && resumed.isNotEmpty()) {

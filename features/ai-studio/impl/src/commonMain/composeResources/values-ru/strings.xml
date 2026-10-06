@@ -228,7 +228,8 @@
     <string name="organism_complaint">Иммунитет %1$s · жалоба на %2$s</string>
     <string name="organism_dispute">Иммунитет %1$s · спор</string>
     <string name="organism_abort">Остановить организм</string>
-    <string name="organism_resume">Возобновить зиготу</string>
+    <string name="organism_resume">Продолжить</string>
+    <string name="organism_completed_hint">Организм завершил работу. Если задача ещё не закончена, нажмите «Продолжить»: цель и история сохранятся.</string>
     <string name="organism_permission_attention">Нужен ваш ответ</string>
     <string name="organism_permission">%1$s просит разрешение: %2$s</string>
     <string name="organism_state_germinating">запуск</string>

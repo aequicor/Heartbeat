@@ -57,7 +57,10 @@ public sealed interface OrganicAiIntent : MachineIntent {
             Public,
             OrganismIntent
 
-        /** Restarts a stalled zygote, or resumes resting cells that ended without requesting a result wait. */
+        /**
+         * Restarts a stalled or completed zygote in its existing session, or resumes unarmed resting cells.
+         * Completed descendants and their results are preserved; an aborted organism cannot be resumed.
+         */
         public data class Resume(override val organism: OrganismId) :
             Public,
             OrganismIntent

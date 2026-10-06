@@ -58,13 +58,15 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
     /** Open handles and lysed cells; guarded by [mutex]. */
     private val handles = mutableMapOf<CellKey, ActiveSession>()
     private val lysed = mutableSetOf<CellKey>()
+    private val generations = mutableMapOf<CellKey, Int>()
 
     /** Sleeps so far: a handle opened across a sleep is not kept; guarded by [mutex]. */
     private var sleeps = 0
 
-    override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?): CellHandle {
+    override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
         val awake = mutex.withLock {
-            if (key in lysed) throw closed()
+            if (key in lysed || generation < (generations[key] ?: 0)) throw closed()
+            generations[key] = generation
             handles[key]?.takeIf { it.isOpen() }?.let { return FacadeCellHandle(it) }
             sleeps
         }
@@ -72,28 +74,41 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         // neither step may be cancelled.
         return withContext(NonCancellable) {
             val opened = if (existing == null) create(route) else resume(existing, route)
-            var isLysed = false
-            val kept = mutex.withLock {
-                isLysed = key in lysed
-                when {
-                    isLysed || sleeps != awake -> null
-                    else -> handles[key]?.takeIf { it.isOpen() } ?: opened.also { handles[key] = it }
-                }
-            }
+            retainOpened(key, opened, isCreated = existing == null, generation, awake)
+        }
+    }
+
+    /** Claims an opened handle only if its cell, turn generation and profile lifetime still match. */
+    private suspend fun retainOpened(
+        key: CellKey,
+        opened: ActiveSession,
+        isCreated: Boolean,
+        generation: Int,
+        awake: Int,
+    ): CellHandle {
+        var isLysed = false
+        var isStale = false
+        val kept = mutex.withLock {
+            isLysed = key in lysed
+            isStale = generations[key] != generation
             when {
-                kept === opened -> FacadeCellHandle(opened)
+                isLysed || isStale || sleeps != awake -> null
+                else -> handles[key]?.takeIf { it.isOpen() } ?: opened.also { handles[key] = it }
+            }
+        }
+        return when {
+            kept === opened -> FacadeCellHandle(opened)
 
-                // Another opener of the cell won; a session created here is an unused duplicate.
-                kept != null -> FacadeCellHandle(kept).also {
-                    discard(opened, isStopped = false, isArchived = existing == null)
-                }
+            // Another opener of the cell won; a session created here is an unused duplicate.
+            kept != null -> FacadeCellHandle(kept).also {
+                discard(opened, isStopped = false, isArchived = isCreated)
+            }
 
-                // The cell was lysed or the cells slept meanwhile: a turn the session runs must stop, and neither a
-                // lysed cell's session nor a new one the organism never learnt of may stay listed.
-                else -> {
-                    discard(opened, isStopped = true, isArchived = isLysed || existing == null)
-                    throw closed()
-                }
+            // The cell was lysed or the cells slept meanwhile: a turn the session runs must stop, and neither a
+            // lysed cell's session nor a new one the organism never learnt of may stay listed.
+            else -> {
+                discard(opened, isStopped = !isStale || isLysed, isArchived = isLysed || isCreated)
+                throw closed()
             }
         }
     }
@@ -103,8 +118,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
         handle.features.resolve(RequestsPermissions).orThrow().respond(decision)
     }
 
-    override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode) {
+    override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
         val handle = mutex.withLock {
+            // A completed zygote may already have been resumed in the same native session.
+            if (mode == ReleaseMode.Retire && generation < (generations[key] ?: 0)) return
             if (mode == ReleaseMode.Lyse) lysed += key
             handles.remove(key)
         }

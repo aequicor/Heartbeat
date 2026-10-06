@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRejection
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -24,11 +25,16 @@ import kotlin.uuid.Uuid
 private val ANSWER_TIMEOUT = 10.seconds
 private const val ID_LENGTH = 12
 
-/** Schedules wakes for hosted tools and waits for the machine's answer to the exact request. */
+/** Verifies a session has a wake host before scheduling, then waits for the answer to the exact request. */
 @Inject
-internal class WakeScheduler(private val machine: SchedulerMachine) {
+internal class WakeScheduler(
+    private val machine: SchedulerMachine,
+    // Lazy: hosts depend on the runtime, which itself uses the hosted tools.
+    private val hosts: Lazy<Set<ScheduledSessionHost>>,
+) {
     /** Schedules [request] at [now]. */
     suspend fun schedule(request: WakeRequest, now: Instant): ScheduleOutcome = coroutineScope {
+        if (hosts.value.none { it.owns(request.session) }) return@coroutineScope ScheduleOutcome.NoHost
         val answer = async(start = CoroutineStart.UNDISPATCHED) {
             machine.outputs.mapNotNull { it.outcomeOf(request.id) }.first()
         }
@@ -57,6 +63,9 @@ internal sealed interface ScheduleOutcome {
     /** The machine refused it. */
     data class Rejected(val rejection: WakeRejection) : ScheduleOutcome
 
+    /** No host can submit a continuation while showing tools and servicing permissions. */
+    data object NoHost : ScheduleOutcome
+
     /** The machine did not take the request (still loading). */
     data object NotTaken : ScheduleOutcome
 
@@ -76,6 +85,12 @@ internal fun ScheduleOutcome.failureMessage(): String = when (this) {
     }
 
     ScheduleOutcome.NotTaken -> "the scheduler is still starting; try again in a moment"
+
+    ScheduleOutcome.NoHost ->
+        "this session does not support scheduled wake-ups; no wake was scheduled. " +
+            "Continue the task in this turn; do not end it expecting a wake-up. " +
+            "For run_build, wait with build_status and its operation id. " +
+            "In organic AI, use organism_receive with wait=true to wait for cell results"
 
     ScheduleOutcome.Unconfirmed -> "the wake is not confirmed yet; check it with the list tool"
 }

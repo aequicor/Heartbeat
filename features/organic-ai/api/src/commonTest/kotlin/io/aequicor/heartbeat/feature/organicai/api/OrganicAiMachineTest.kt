@@ -59,6 +59,45 @@ class OrganicAiMachineTest {
     }
 
     @Test
+    fun `a user resumes a completed zygote with its history and completed descendants intact`() {
+        val result = Letter.ChildFinished(C1, "tests", "passed")
+        val finished = organism(
+            cell(C1, phase = CellPhase.Completed("passed")),
+            zygote = zygoteCell(CellPhase.Completed("waiting for a build"), inbox = listOf(result))
+                .copy(receivedLetters = 1),
+            status = OrganismStatus.Completed("waiting for a build"),
+        )
+        val resumed = finished.copy(
+            status = OrganismStatus.Developing,
+            version = 2,
+            cells = finished.cells.map {
+                if (it.id == ZYGOTE) {
+                    it.copy(phase = working(ZYGOTE, turn = 2, isRecovery = true), turns = 2)
+                } else {
+                    it
+                }
+            },
+        )
+        spec.assertTransition(
+            living(finished),
+            OrganicAiIntent.Public.Resume(ORGANISM),
+            living(resumed),
+            effects = listOf(
+                OrganicAiEffect.Persist(resumed),
+                OrganicAiEffect.Drive(resumed, ZYGOTE, request(ZYGOTE, 2)),
+            ),
+        )
+        spec.assertIgnored(living(resumed), OrganicAiIntent.Public.Resume(ORGANISM))
+        spec.assertIgnored(living(resumed), settled(ZYGOTE))
+        // Opening the application alone must never restart completed work.
+        spec.assertTransition(
+            OrganicAiState.Awakening,
+            OrganicAiIntent.Internal.Restored(listOf(finished)),
+            living(finished),
+        )
+    }
+
+    @Test
     fun `an ended organism ignores every late request and feedback`() {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
         val aborted = spec.resolve(

@@ -323,7 +323,7 @@ class OrganicAiEffectsTest {
         val responses = mutableListOf<Pair<CellKey, PermissionDecision>>()
         var releasedAll = 0
 
-        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?): CellHandle {
+        override suspend fun open(key: CellKey, route: CellRoute, existing: SessionRef?, generation: Int): CellHandle {
             failOpen?.let { throw it }
             opened += key to existing
             return handle
@@ -333,7 +333,7 @@ class OrganicAiEffectsTest {
             responses += key to decision
         }
 
-        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode) {
+        override suspend fun release(key: CellKey, session: SessionRef?, mode: ReleaseMode, generation: Int) {
             released += Triple(key, session, mode)
         }
 

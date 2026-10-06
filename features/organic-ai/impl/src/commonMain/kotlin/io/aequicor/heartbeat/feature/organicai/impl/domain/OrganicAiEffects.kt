@@ -147,7 +147,8 @@ internal class OrganicAiEffects(
 
     private suspend fun release(effect: OrganicAiEffect.Release) {
         effect.cells.forEach { id ->
-            cells.release(CellKey(effect.organism.id, id), effect.organism.cell(id)?.session, effect.mode)
+            val cell = effect.organism.cell(id) ?: return@forEach
+            cells.release(CellKey(effect.organism.id, id), cell.session, effect.mode, cell.turns)
         }
         log.i { "organism ${effect.organism.id.value}: ${effect.cells.size} cells released (${effect.mode})" }
     }

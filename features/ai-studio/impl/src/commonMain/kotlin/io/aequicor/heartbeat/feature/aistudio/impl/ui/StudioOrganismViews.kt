@@ -47,6 +47,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.activeDesc
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_complaint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_completed_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_dispute
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission
@@ -184,7 +185,7 @@ private fun SessionActivityBadge(count: Int, known: Boolean) {
 @Composable
 private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotNull(
     HbMenuItem(RESUME_ACTION, stringResource(Res.string.organism_resume), isGroupStart = true)
-        .takeIf { organism.status == OrganismStatusUi.Stalled },
+        .takeIf { organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Completed },
     HbMenuItem(
         ABORT_ACTION,
         stringResource(Res.string.organism_abort),
@@ -227,6 +228,20 @@ internal fun OrganismNotices(
                 stringResource(organism.status.label()),
                 Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
                     .semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
+        if (organism.status == OrganismStatusUi.Completed) {
+            HbText(
+                stringResource(Res.string.organism_completed_hint),
+                Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth).fillMaxWidth()
+                    .padding(HbTheme.spacing.m).testTag("organism-completed-${content.pane.id}"),
+            )
+            HbButton(
+                stringResource(Res.string.organism_resume),
+                { onIntent(AiStudioScreenIntent.ControlOrganism(sessionId, OrganismActionUi.Resume)) },
+                Modifier.padding(HbTheme.spacing.m).testTag("organism-resume-${content.pane.id}"),
+                style = HbButtonStyle.Secondary,
+                size = HbButtonSize.Small,
             )
         }
         organism.permissions.forEach { request ->

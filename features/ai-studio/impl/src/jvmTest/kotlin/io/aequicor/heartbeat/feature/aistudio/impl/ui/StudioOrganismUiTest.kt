@@ -59,6 +59,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_abort
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_resume
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_zygote
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activity
 import kotlinx.collections.immutable.persistentListOf
@@ -156,6 +157,106 @@ class StudioOrganismUiTest {
                 assertTrue(zygote.isNotBlank())
             }
         }
+
+    @Test
+    fun `a completed organism offers continuation in its menu and beside the disabled composer`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            var resume = ""
+            val initial = organismState()
+            var status by mutableStateOf(OrganismStatusUi.Completed)
+            setContent {
+                resume = stringResource(Res.string.organism_resume)
+                val state = initial.copy(
+                    organisms = persistentMapOf(
+                        "chat" to initial.organisms.getValue("chat").copy(
+                            status = status,
+                            permissions = persistentListOf(),
+                        ),
+                    ),
+                )
+                HbTheme(darkTheme = false) {
+                    Column {
+                        OrganismSwitcher(state.paneContent(organismPane), events::add)
+                        OrganismNotices(
+                            state.paneContent(organismPane),
+                            HbTheme.dimensions.toolPayloadMaxHeight,
+                            events::add,
+                        )
+                    }
+                }
+            }
+            onNodeWithTag("organism-completed-0").assertIsDisplayed()
+            onNodeWithTag("organism-resume-0").assertIsEnabled().performClick()
+            onNodeWithTag("organism-switcher-0").performClick()
+            onAllNodesWithText(resume)[1].performClick()
+            runOnIdle {
+                assertEquals(
+                    List<AiStudioScreenIntent>(2) {
+                        AiStudioScreenIntent.ControlOrganism("chat", OrganismActionUi.Resume)
+                    },
+                    events,
+                )
+            }
+            status = OrganismStatusUi.Developing
+            waitForIdle()
+            onNodeWithTag("organism-resume-0").assertDoesNotExist()
+            status = OrganismStatusUi.Aborted
+            waitForIdle()
+            onNodeWithTag("organism-resume-0").assertDoesNotExist()
+            onNodeWithTag("organism-switcher-0").performClick()
+            onAllNodesWithText(resume).assertCountEquals(0)
+        }
+
+    @Test
+    fun `completed chat continuation stays visible at compact and desktop widths in both themes`() {
+        for (isDark in listOf(false, true)) {
+            for (width in listOf(420, 1280)) verifyCompletedChat(isDark, width)
+        }
+    }
+
+    private fun verifyCompletedChat(isDark: Boolean, width: Int) = runSkikoComposeUiTest(
+        size = Size(width.toFloat(), 700f),
+    ) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val initial = organismState()
+        val state = initial.copy(
+            organisms = persistentMapOf(
+                "chat" to initial.organisms.getValue("chat").copy(
+                    status = OrganismStatusUi.Completed,
+                    permissions = persistentListOf(),
+                ),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                HbTheme(darkTheme = isDark, dimensions = HbDimensions.Desktop) {
+                    StudioPaneView(
+                        state.paneContent(organismPane),
+                        events::add,
+                        PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = width < 600),
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        onNodeWithTag("organism-completed-0").assertIsDisplayed()
+        val resume = onNodeWithTag("organism-resume-0").assertIsDisplayed().assertIsEnabled()
+        val bounds = resume.fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds.left >= 0 && bounds.right <= width && bounds.top >= 0 && bounds.bottom <= 700)
+        val directory = File("build/previews")
+        check(directory.isDirectory || directory.mkdirs())
+        val screenshot = File(directory, "organism-completed-$isDark-$width.png")
+        check(ImageIO.write(captureToImage().toAwtImage(), "png", screenshot))
+        resume.performSemanticsAction(SemanticsActions.RequestFocus)
+        resume.assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+        runOnIdle {
+            assertEquals(
+                listOf<AiStudioScreenIntent>(AiStudioScreenIntent.ControlOrganism("chat", OrganismActionUi.Resume)),
+                events,
+            )
+        }
+    }
 
     @Test
     fun `a cell's permission request is answered from the pane`() = runSkikoComposeUiTest(size = Size(900f, 700f)) {
