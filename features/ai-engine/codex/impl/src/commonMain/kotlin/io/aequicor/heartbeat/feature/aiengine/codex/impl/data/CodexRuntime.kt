@@ -529,6 +529,9 @@ internal class CodexRuntime(
 
     private fun shutdown(failure: EngineFailure) {
         isClosed = true
+        // Wake idle tree/history readers so they observe closure and release the retired runtime.
+        treeChanges.tryEmit(Unit)
+        log.v { "Codex readers invalidated by runtime shutdown" }
         isUsageAccountTrusted = false
         providerUsage.clear()
         usageObserver.cancel()
