@@ -1,37 +1,21 @@
 package io.aequicor.heartbeat.feature.questionnaire.impl.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import io.aequicor.heartbeat.ds.components.HbButton
 import io.aequicor.heartbeat.ds.components.HbButtonStyle
 import io.aequicor.heartbeat.ds.components.HbChip
-import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIcons
+import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
 import io.aequicor.heartbeat.ds.layouts.HbColumn
 import io.aequicor.heartbeat.ds.layouts.HbFlowRow
-import io.aequicor.heartbeat.ds.layouts.HbRow
-import io.aequicor.heartbeat.ds.theme.HbQuestionnaireTheme
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.store.QuestionKindUi
 import io.aequicor.heartbeat.feature.questionnaire.impl.presentation.store.QuestionUi
@@ -45,8 +29,6 @@ import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_skip
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_submit
 import io.aequicor.heartbeat.feature.questionnaire.impl.resources.questionnaire_text_hint
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.stringResource
 
 /** Pending questions on dark oak attention surfaces; renders nothing when the source asks nothing. */
@@ -57,11 +39,9 @@ internal fun QuestionnaireScreen(
     modifier: Modifier = Modifier,
 ) {
     if (state.questions.isEmpty()) return
-    HbQuestionnaireTheme {
-        HbColumn(modifier.fillMaxWidth().testTag("questionnaire"), gap = HbTheme.spacing.m) {
-            state.questions.forEach { question ->
-                key(question.id) { QuestionCard(question, onIntent) }
-            }
+    HbColumn(modifier.fillMaxWidth().testTag("questionnaire"), gap = HbTheme.spacing.m) {
+        state.questions.forEach { question ->
+            key(question.id) { QuestionCard(question, onIntent) }
         }
     }
 }
@@ -72,72 +52,21 @@ private fun QuestionCard(
     onIntent: (QuestionnaireScreenIntent) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motion = HbTheme.motion
-    val entrance = remember { Animatable(if (motion.isReducedMotion) 1f else 0f) }
-    val attention = remember { Animatable(0f) }
-    LaunchedEffect(question.id, motion) {
-        if (motion.isReducedMotion) {
-            entrance.snapTo(1f)
-            attention.snapTo(0f)
-        } else {
-            coroutineScope {
-                launch { entrance.animateTo(1f, tween(motion.slowMillis)) }
-                repeat(motion.questionnairePulseCount) {
-                    attention.animateTo(1f, tween(motion.questionnairePulseMillis))
-                    attention.animateTo(0f, tween(motion.questionnairePulseMillis))
-                }
-            }
-        }
-    }
-    val colors = HbTheme.colors
-    val entryOffset = HbTheme.spacing.l
-    HbColumn(
-        modifier.fillMaxWidth().testTag("question-${question.id}")
-            .graphicsLayer { translationY = entryOffset.toPx() * (1f - entrance.value) }
-            .background(colors.surface, HbTheme.shapes.medium)
-            .border(
-                HbTheme.dimensions.borderWidth,
-                lerp(colors.outlineSubtle, colors.primary, attention.value),
-                HbTheme.shapes.medium,
-            )
-            .clip(HbTheme.shapes.medium),
-        gap = HbTheme.spacing.none,
+    HbQuestionnaireCard(
+        questionId = question.id,
+        title = question.title,
+        attentionLabel = stringResource(Res.string.questionnaire_attention),
+        modifier = modifier,
     ) {
-        HbRow(
-            Modifier.fillMaxWidth().height(HbTheme.dimensions.questionnaireAccentHeight)
-                .background(lerp(colors.primary, colors.textPrimary, attention.value))
-                .testTag("question-accent-${question.id}"),
-        ) {}
-        HbColumn(Modifier.padding(HbTheme.spacing.l), gap = HbTheme.spacing.m) {
-            HbRow(
-                Modifier.testTag("question-attention-${question.id}"),
-                gap = HbTheme.spacing.s,
-            ) {
-                HbIcon(HbIcons.Chat, contentDescription = null, tint = colors.primary)
-                HbText(
-                    stringResource(Res.string.questionnaire_attention),
-                    style = HbTheme.typography.caption,
-                    color = colors.primary,
-                )
-            }
-            HbText(
-                question.title,
-                modifier = Modifier.semantics {
-                    heading()
-                    liveRegion = LiveRegionMode.Polite
-                },
-                style = HbTheme.typography.label,
-            )
-            question.description?.let {
-                HbText(it, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
-            }
-            when (val kind = question.kind) {
-                is QuestionKindUi.Confirm -> ConfirmActions(question, kind, onIntent)
-                is QuestionKindUi.Choice -> ChoiceInput(question, kind, onIntent)
-                is QuestionKindUi.Text -> TextInput(question, kind, onIntent)
-            }
-            if (question.kind !is QuestionKindUi.Confirm) AnswerActions(question, onIntent)
+        question.description?.let {
+            HbText(it, style = HbTheme.typography.caption, color = HbTheme.colors.textSecondary)
         }
+        when (val kind = question.kind) {
+            is QuestionKindUi.Confirm -> ConfirmActions(question, kind, onIntent)
+            is QuestionKindUi.Choice -> ChoiceInput(question, kind, onIntent)
+            is QuestionKindUi.Text -> TextInput(question, kind, onIntent)
+        }
+        if (question.kind !is QuestionKindUi.Confirm) AnswerActions(question, onIntent)
     }
 }
 

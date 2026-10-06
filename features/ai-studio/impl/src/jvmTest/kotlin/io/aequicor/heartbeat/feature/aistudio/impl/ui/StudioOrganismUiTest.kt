@@ -3,15 +3,23 @@ package io.aequicor.heartbeat.feature.aistudio.impl.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.toAwtImage
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.onAllNodesWithText
@@ -19,8 +27,16 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
+import androidx.compose.ui.unit.Density
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.ds.tokens.HbColors
+import io.aequicor.heartbeat.ds.tokens.HbDimensions
+import io.aequicor.heartbeat.ds.tokens.HbMotion
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
@@ -48,6 +64,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.session_tree_activi
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import org.jetbrains.compose.resources.stringResource
+import java.io.File
+import javax.imageio.ImageIO
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -257,9 +275,146 @@ class StudioOrganismUiTest {
             onNodeWithContentDescription("$label: 2+").assertExists()
         }
 
+    @Test
+    fun `light organism permissions use questionnaire cards at compact and desktop widths`() {
+        verifyPermissionCard(isDark = false, width = 420)
+        verifyPermissionCard(isDark = false, width = 1280)
+    }
+
+    @Test
+    fun `dark organism permissions use questionnaire cards at compact and desktop widths`() {
+        verifyPermissionCard(isDark = true, width = 420)
+        verifyPermissionCard(isDark = true, width = 1280)
+    }
+
+    private fun verifyPermissionCard(isDark: Boolean, width: Int) = runSkikoComposeUiTest(
+        size = Size(width.toFloat(), 600f),
+    ) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val description = (1..80).joinToString("\n") { "Строка $it: полный текст новой инструкции для проекта." }
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                HbTheme(
+                    darkTheme = isDark,
+                    dimensions = HbDimensions.Desktop,
+                    motion = HbMotion(isReducedMotion = true),
+                ) {
+                    StudioPaneView(
+                        organismState(description).paneContent(organismPane),
+                        events::add,
+                        PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = width < 600),
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        val card = onNodeWithTag("organism-permission-c1-p1").assertIsDisplayed()
+            .fetchSemanticsNode().boundsInRoot
+        val accent = onNodeWithTag("question-accent-organism-c1-p1").assertIsDisplayed()
+            .fetchSemanticsNode().boundsInRoot
+        onNodeWithTag("question-attention-organism-c1-p1").assertIsDisplayed()
+        onNodeWithTag("permission-organism-c1-p1-description").assertTextEquals(description)
+        onNodeWithTag("permission-organism-c1-p1-more").assertIsDisplayed()
+        val allow = onNodeWithTag("organism-permission-c1-p1-allow").assertIsDisplayed()
+        val deny = onNodeWithTag("organism-permission-c1-p1-deny").assertIsDisplayed()
+        listOf(allow, deny).forEach { action ->
+            val bounds = action.fetchSemanticsNode().boundsInRoot
+            assertTrue(card.contains(bounds.topLeft) && card.contains(bounds.bottomRight))
+        }
+        assertEquals(allow.fetchSemanticsNode().boundsInRoot.top, deny.fetchSemanticsNode().boundsInRoot.top)
+        assertTrue(card.left >= 0 && card.right <= width && card.top >= 0 && card.bottom <= 600)
+        assertTrue(card.width <= HbDimensions.Desktop.messageMaxWidth.value)
+        assertEquals(width / 2f, card.center.x)
+        val image = captureToImage().toAwtImage()
+        val colors = HbColors.forHost(isDark = isDark, isDesktop = true).forQuestionnaire()
+        assertEquals(colors.surface.toArgb(), image.getRGB((accent.right - 4).toInt(), card.center.y.toInt()))
+        val directory = File("build/previews")
+        check(directory.isDirectory || directory.mkdirs())
+        check(ImageIO.write(image, "png", File(directory, "organism-permission-$isDark-$width.png")))
+
+        val text = onNodeWithTag("permission-organism-c1-p1-description")
+        val top = text.fetchSemanticsNode().positionInRoot.y
+        onNodeWithTag("permission-organism-c1-p1-scroll").performSemanticsAction(SemanticsActions.RequestFocus)
+        onNodeWithTag("permission-organism-c1-p1-scroll").performKeyInput { pressKey(Key.PageDown) }
+        waitForIdle()
+        assertTrue(text.fetchSemanticsNode().positionInRoot.y < top)
+        allow.performSemanticsAction(SemanticsActions.RequestFocus)
+        allow.performKeyInput { pressKey(Key.Tab) }
+        deny.assertIsFocused().performKeyInput { pressKey(Key.Enter) }
+        runOnIdle {
+            assertEquals(
+                listOf(AiStudioScreenIntent.DecideOrganism("chat", "c1", "t1", "p1", "deny")),
+                events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
+            )
+        }
+    }
+
+    @Test
+    fun `simultaneous organism permissions keep every answer reachable`() {
+        verifyMultiplePermissions(width = 420, height = 600, isDark = false)
+        verifyMultiplePermissions(width = 1280, height = 360, isDark = true)
+    }
+
+    private fun verifyMultiplePermissions(width: Int, height: Int, isDark: Boolean) = runSkikoComposeUiTest(
+        size = Size(width.toFloat(), height.toFloat()),
+    ) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val initial = organismState()
+        val organism = initial.organisms.getValue("chat")
+        val template = organism.permissions.single().copy(
+            description = (1..80).joinToString("\n") { "Строка $it: полный текст инструкции." },
+            options = persistentListOf(PermissionOptionUi("allow", "Разрешить")),
+        )
+        val state = initial.copy(
+            organisms = persistentMapOf(
+                "chat" to organism.copy(
+                    permissions = persistentListOf(
+                        template.copy(cell = "c1"),
+                        template.copy(cell = "c2"),
+                        template.copy(cell = "c3"),
+                    ),
+                ),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                HbTheme(
+                    darkTheme = isDark,
+                    dimensions = HbDimensions.Desktop,
+                    motion = HbMotion(isReducedMotion = true),
+                ) {
+                    StudioPaneView(
+                        state.paneContent(organismPane),
+                        events::add,
+                        PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = width < 600),
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        (1..3).forEach { index ->
+            val answer = onNodeWithTag("organism-permission-c$index-p1-allow").performScrollTo().assertIsDisplayed()
+            val bounds = answer.fetchSemanticsNode().boundsInRoot
+            assertTrue(bounds.top >= 0 && bounds.bottom <= height)
+            assertTrue(bounds.height >= HbDimensions.Desktop.controlHeight.value)
+            answer.performClick()
+        }
+        onNodeWithTag("composer-0").assertIsDisplayed()
+        val directory = File("build/previews")
+        check(directory.isDirectory || directory.mkdirs())
+        val screenshot = File(directory, "multiple-permissions-$width-$height.png")
+        check(ImageIO.write(captureToImage().toAwtImage(), "png", screenshot))
+        runOnIdle {
+            assertEquals(
+                (1..3).map { AiStudioScreenIntent.DecideOrganism("chat", "c$it", "t1", "p1", "allow") },
+                events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
+            )
+        }
+    }
+
     private val organismPane = PaneUi(0, sessionId = "chat")
 
-    private fun organismState() = AiStudioScreenState(
+    private fun organismState(description: String = COMMAND) = AiStudioScreenState(
         panes = persistentListOf(organismPane),
         models = StudioModelOptions,
         sessions = persistentListOf(
@@ -299,8 +454,11 @@ class StudioOrganismUiTest {
                         "t1",
                         "p1",
                         "Run gradle",
-                        persistentListOf(PermissionOptionUi("allow", "Allow")),
-                        description = COMMAND,
+                        persistentListOf(
+                            PermissionOptionUi("allow", "Разрешить"),
+                            PermissionOptionUi("deny", "Запретить"),
+                        ),
+                        description = description,
                     ),
                 ),
             ),

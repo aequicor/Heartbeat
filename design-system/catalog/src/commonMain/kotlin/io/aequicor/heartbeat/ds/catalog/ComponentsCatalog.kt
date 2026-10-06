@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.ds.components.HbMessageAppearance
 import io.aequicor.heartbeat.ds.components.HbMessageKind
 import io.aequicor.heartbeat.ds.components.HbMessageStatus
 import io.aequicor.heartbeat.ds.components.HbPanel
+import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbSearchField
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTextField
@@ -43,6 +44,7 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
         item { StudioExample() }
         item { PanelExample(modifier = Modifier.fillMaxWidth()) }
         item { SettingsExample() }
+        item { QuestionnaireExample(state::showActionFeedback) }
         item {
             var isChecked by remember { mutableStateOf(false) }
             HbColumn {
@@ -200,3 +202,19 @@ private fun MessageExamples(modifier: Modifier = Modifier) {
 
 /** A path the catalog copies to show [HbCopyButton]. */
 private const val CATALOG_COPY_SAMPLE = "/Users/me/Projects/heartbeat/README.md"
+
+@Composable
+private fun QuestionnaireExample(onAnswer: () -> Unit) {
+    HbQuestionnaireCard(
+        questionId = "catalog",
+        title = hbString(HbString.DialogTitle),
+        attentionLabel = hbString(HbString.NeedsAttention),
+    ) {
+        HbText(hbString(HbString.DialogBody))
+        HbFlowRow {
+            HbButton(hbString(HbString.Create), onAnswer)
+            HbButton(hbString(HbString.CancelAction), onAnswer, style = HbButtonStyle.Secondary)
+            HbButton(hbString(HbString.Disabled), {}, enabled = false)
+        }
+    }
+}

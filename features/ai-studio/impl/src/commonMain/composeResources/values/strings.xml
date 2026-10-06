@@ -229,6 +229,7 @@
     <string name="organism_dispute">Immunity %1$s · dispute</string>
     <string name="organism_abort">Stop the organism</string>
     <string name="organism_resume">Resume the zygote</string>
+    <string name="organism_permission_attention">Your answer is needed</string>
     <string name="organism_permission">%1$s asks for permission: %2$s</string>
     <string name="organism_state_germinating">starting</string>
     <string name="organism_state_working">working</string>
