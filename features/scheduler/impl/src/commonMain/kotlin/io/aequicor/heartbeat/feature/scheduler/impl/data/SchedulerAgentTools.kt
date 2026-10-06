@@ -72,8 +72,13 @@ internal class SchedulerAgentTools(
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
         if (toggles.get(SchedulerEnabled)) listOf(SLEEP_SPEC, SIGNAL_SPEC, CANCEL_SPEC, LIST_SPEC) else emptyList()
 
-    override suspend fun instructions(scope: AgentToolScope): String =
-        if (toggles.get(SchedulerEnabled)) INSTRUCTIONS else ""
+    override suspend fun instructions(scope: AgentToolScope): String = if (toggles.get(SchedulerEnabled) &&
+        (scope.declared == null || catalog.all { it.name in scope.declared.orEmpty() })
+    ) {
+        INSTRUCTIONS
+    } else {
+        ""
+    }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(SchedulerEnabled)) return failure("the scheduler is turned off")

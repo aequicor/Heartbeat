@@ -88,7 +88,7 @@ internal class LearningAgentTools(
         val project = projectOf(scope.workspace) as? Project.Known ?: return ""
         val applicable = registry()?.instructions.orEmpty().applicable(project.ref, scope.target)
         log.i { "learned instructions for the session: ${applicable.size}" }
-        return learningPrompt(platform.host, applicable)
+        return learningPrompt(platform.host, applicable, scope.declared)
     }
 
     override suspend fun requiresDecision(
