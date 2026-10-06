@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
@@ -87,12 +88,32 @@ class SchedulerActionToolsTest {
     }
 
     @Test
-    fun `every start asks the user, and helpers start no helpers`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+    fun `background commands use the session command trust policy without an extra decision`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
         val tools = tools(fixture)
         val spec = tools.specifications(PROJECT).single()
-        val full = inProject.copy(trust = io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel.Full)
-        assertTrue(tools.requiresDecision(full, spec, args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "ls")))
+        val command = args(Arguments.KIND to Kinds.COMMAND, Arguments.COMMAND to "ls")
+        assertEquals(AgentToolAction.Command, spec.action)
+        for (trust in TrustLevel.entries) {
+            assertFalse(tools.requiresDecision(inProject.copy(trust = trust), spec, command), "$trust")
+        }
+    }
+
+    @Test
+    fun `helper starts require a decision at every trust level`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine())
+        val tools = tools(fixture)
+        val spec = tools.specifications(PROJECT).single()
+        val agent = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "x")
+        for (trust in TrustLevel.entries) {
+            assertTrue(tools.requiresDecision(inProject.copy(trust = trust), spec, agent), "$trust")
+        }
+    }
+
+    @Test
+    fun `helpers start no helpers`() = runTest {
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(FakeHost(priority = 1)))
+        val tools = tools(fixture)
         val agent = args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "x")
         val started = tools.execute(inProject, SchedulerTools.START_ACTION, agent)
         assertFalse(started.isError, started.text)
