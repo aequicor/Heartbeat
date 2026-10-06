@@ -150,6 +150,50 @@ class PiRuntimeTest {
     }
 
     @Test
+    fun `a repeated close of a borrower does not release the shared process`() = runTest {
+        val fixture = runtimeFixture(this)
+        val owner = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val borrow = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        borrow.close()
+        borrow.close()
+        // The borrow ends once: the repeated close must not decrement the consumer count again.
+        val later = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        assertEquals(RuntimeRef, later.ref)
+        assertEquals(1, fixture.processes.connections.size)
+
+        owner.close()
+        later.close()
+        // The last real consumer is gone: the process closes and a later attach starts a fresh one.
+        assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
+        assertEquals(2, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `a borrower closed after the runtime is gone does not resurrect bookkeeping`() = runTest {
+        val fixture = runtimeFixture(this)
+        val view = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        fixture.runtime.close()
+        view.close()
+        // The stale release is a harmless no-op: no process or bookkeeping comes back, and the runtime stays closed.
+        val closed = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), closed.failure)
+        assertEquals(1, fixture.processes.connections.size)
+    }
+
+    @Test
+    fun `a shared live session refuses a request with another detached-tools setting`() = runTest {
+        val fixture = runtimeFixture(this)
+        fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val foreign = assertFailsWith<EngineException> {
+            fixture.runtime.attach(RuntimeRef, RuntimeRequest.copy(areDetachedToolsEnabled = true))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), foreign.failure)
+        assertEquals(1, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
     fun `failed switch closes the process and releases the reservation`() = runTest {
         val fixture = runtimeFixture(this)
         val failure = EngineFailure.Session(SessionFailureReason.Changed)

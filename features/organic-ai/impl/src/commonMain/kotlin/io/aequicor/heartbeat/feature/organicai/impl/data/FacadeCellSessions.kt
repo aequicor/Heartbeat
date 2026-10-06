@@ -204,23 +204,23 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
      * A stored session is served by at most one live process, and a cell is not its only reader: a transcript
      * view opened on the session or the previous turn's release can hold it right now. Such conflicts are
      * short and a cell owns its session, so `Busy` is waited out instead of breaking the turn; only a conflict
-     * lasting all [RESUME_BUSY_ATTEMPTS] attempts fails the resume and with it the cell.
+     * lasting all [RESUME_BUSY_ATTEMPTS] attempts fails the resume and with it the cell. Every waited-out
+     * attempt keeps its error in the log.
      */
     private suspend fun resumePatiently(
         existing: SessionRef,
         resumes: ResumesSessions,
         request: ResumeSessionRequest,
     ): ActiveSession {
-        var hasWaited = false
-        repeat(RESUME_BUSY_ATTEMPTS - 1) {
+        repeat(RESUME_BUSY_ATTEMPTS - 1) { attempt ->
             try {
                 return resumes.resume(request)
             } catch (e: EngineException) {
                 val isBusy = (e.failure as? EngineFailure.Session)?.reason == SessionFailureReason.Busy
                 if (!isBusy) throw e
-                if (!hasWaited) {
-                    hasWaited = true
-                    log.i { "cell session on ${existing.engine.value} is busy; waiting for its holder" }
+                log.w(e) {
+                    "cell session on ${existing.engine.value} is busy; waiting for its holder " +
+                        "(${attempt + 1}/${RESUME_BUSY_ATTEMPTS})"
                 }
             }
             delay(RESUME_BUSY_STEP)
@@ -255,8 +255,10 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
     internal companion object {
         val LYSIS_WAIT = 30.seconds
 
-        /** How often a `Busy` resumption is retried before the turn is allowed to break on it. */
+        /** How many times a `Busy` resumption is tried before the turn is allowed to break on it. */
         internal const val RESUME_BUSY_ATTEMPTS = 8
+
+        /** The pause between two `Busy` resumption attempts. */
         internal val RESUME_BUSY_STEP = 1.seconds
     }
 }

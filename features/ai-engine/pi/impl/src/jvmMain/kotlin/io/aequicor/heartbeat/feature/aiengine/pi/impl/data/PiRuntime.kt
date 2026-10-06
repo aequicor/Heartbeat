@@ -38,6 +38,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal data class PiRuntimeCredentials(
     val identity: RuntimeIdentity,
@@ -123,8 +124,14 @@ internal class PiRuntime(
             val served = sessions.firstOrNull { it.attachedRef == ref }
             when {
                 served != null && served !in draining -> {
-                    consumers[served] = (consumers[served] ?: 0) + 1
-                    served
+                    // A live process serves exactly one workspace and detached-tools setting: a request for
+                    // another one can never share it, so it fails instead of borrowing a foreign process.
+                    if (served.serves(request)) {
+                        consumers[served] = consumers.getValue(served) + 1
+                        served
+                    } else {
+                        foreignConfiguration()
+                    }
                 }
 
                 served != null -> busy()
@@ -177,15 +184,26 @@ internal class PiRuntime(
 
     /** Ends one borrowed handle; the process is closed when its last consumer is gone. */
     private suspend fun releaseBorrow(session: PiSession) {
-        val isLast = mutex.withLock {
-            val left = (consumers[session] ?: 0) - 1
-            if (left <= 0) {
-                consumers.remove(session)
-                draining += session
-            } else {
-                consumers[session] = left
+        // Counting must not be lost to a cancelled caller, or the consumer leaks and the process stays forever.
+        val isLast = withContext(NonCancellable) {
+            mutex.withLock {
+                val previous = consumers.remove(session)
+                when {
+                    // The process was already forgotten by its own release: nothing is left to drain or close.
+                    previous == null -> false
+
+                    // Borrowers remain: keep the count, the process stays with them.
+                    previous > 1 -> {
+                        consumers[session] = previous - 1
+                        false
+                    }
+
+                    else -> {
+                        draining += session
+                        true
+                    }
+                }
             }
-            left <= 0
         }
         if (isLast) session.close()
     }
@@ -193,6 +211,11 @@ internal class PiRuntime(
     private fun busy(): Nothing {
         log.w { "Stored Pi session is still served by a running process" }
         piFailure(EngineFailure.Session(SessionFailureReason.Busy))
+    }
+
+    private fun foreignConfiguration(): Nothing {
+        log.w { "Stored Pi session runs another workspace or detached-tools setting" }
+        piFailure(EngineFailure.Session(SessionFailureReason.NotResumable))
     }
 
     private suspend fun prepare(request: CreateSessionRequest): Pair<PiSession, String?> = mutex.withLock {
@@ -217,10 +240,14 @@ internal class PiRuntime(
         } to directory
     }
 
-    private fun forgotten(session: PiSession) {
-        sessions.remove(session)
-        draining.remove(session)
-        consumers.remove(session)
+    // Under the runtime mutex: it mutates the same bookkeeping as attach and releaseBorrow, and a racing
+    // removal could resurrect a consumer count of an already released process.
+    private suspend fun forgotten(session: PiSession) {
+        mutex.withLock {
+            sessions.remove(session)
+            draining.remove(session)
+            consumers.remove(session)
+        }
     }
 
     private fun validateTarget(target: EngineTarget, configuration: PiConfiguration) {
@@ -232,12 +259,18 @@ internal class PiRuntime(
         }
     }
 
-    override suspend fun close() = mutex.withLock {
-        isClosed = true
-        sessions.toList().forEach { it.shutdown() }
-        sessions.clear()
-        consumers.clear()
-        draining.clear()
+    override suspend fun close() {
+        // Shutdown happens outside the lock: each session release re-enters through [forgotten], and the
+        // lock is not reentrant.
+        val snapshot = mutex.withLock {
+            isClosed = true
+            sessions.toList().also {
+                sessions.clear()
+                consumers.clear()
+                draining.clear()
+            }
+        }
+        snapshot.forEach { it.shutdown() }
     }
 }
 
@@ -273,11 +306,28 @@ private fun EngineFeature.hasNoSupportedInput(): Boolean = when (this) {
  * gone, so a borrower never cuts short a session it does not own.
  */
 private class PiSessionView(private val origin: PiSession, private val release: suspend () -> Unit) : PiActiveSession {
+
+    // The borrow ends exactly once, and only the close that took the last borrow owns the origin close: a
+    // repeated close after a failure retries the idempotent origin close (the contract keeps `Closing`
+    // retryable) and never decrements the consumer count a second time.
+    private val isEnded = AtomicBoolean(false)
+    private val isOwnClosePending = AtomicBoolean(false)
+
     override val ref: SessionRef get() = origin.ref
     override val route: ExecutionRoute get() = origin.route
     override val state: StateFlow<ActiveSessionState> get() = origin.state
     override val contextUsage: SessionContextUsage get() = origin.contextUsage
     override val features: EngineFeatures get() = origin.features
 
-    override suspend fun close() = release()
+    override suspend fun close() {
+        if (isEnded.compareAndSet(false, true)) {
+            try {
+                release()
+            } finally {
+                isOwnClosePending.compareAndSet(false, origin.state.value is ActiveSessionState.Closing)
+            }
+            return
+        }
+        if (isOwnClosePending.get()) origin.close()
+    }
 }
