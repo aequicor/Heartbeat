@@ -60,19 +60,60 @@ internal class LocalCodexTransport(
         }
     }
 
-    override suspend fun open(): CodexWire = open(launches.context(CodexEngine.Id))
+    override suspend fun prepare(): PreparedCodexLaunch {
+        val context = launches.context(CodexEngine.Id)
+        return withContext(dispatchers.io) {
+            val resolved = resolveCodexLaunch(context, config).let {
+                it.copy(overrides = it.overrides.toList(), environment = it.environment.toList())
+            }
+            val environment = capturedCodexEnvironment(resolved)
+            object : PreparedCodexLaunch {
+                override suspend fun open(): CodexWire = openResolved(resolved, environment)
+                override suspend fun version(): String? = withContext(dispatchers.io) {
+                    if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
+                        version(resolved, environment)
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+    }
 
-    override suspend fun open(launch: LaunchContext): CodexWire = withContext(dispatchers.io) {
-        val resolved = resolveCodexLaunch(launch, config)
+    override suspend fun open(): CodexWire = prepare().open()
+
+    override suspend fun open(launch: LaunchContext): CodexWire {
+        val resolved = withContext(dispatchers.io) { resolveCodexLaunch(launch, config) }
+        return openResolved(resolved, capturedCodexEnvironment(resolved))
+    }
+
+    /** Cancellation during dispatcher handoff still closes the newly started process. */
+    private suspend fun openResolved(resolved: CodexLaunch, environment: Map<String, String>): CodexWire {
+        var owned: CodexWire? = null
+        var isTransferred = false
+        return try {
+            val wire = withContext(dispatchers.io) {
+                startResolved(resolved, environment).also { owned = it }
+            }
+            isTransferred = true
+            wire
+        } finally {
+            if (!isTransferred) owned?.close()
+        }
+    }
+
+    /** Blocking process creation; callers dispatch it to IO before entering. */
+    private fun startResolved(resolved: CodexLaunch, environment: Map<String, String>): CodexWire {
         log.i { "Starting local Codex app-server source=${resolved.source}" }
-        try {
+        return try {
             require(resolved.isRunnable && resolved.source != InstallSource.Missing) {
                 "Codex executable cannot be started safely"
             }
             resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
             val builder = ProcessBuilder(codexProcessArguments(codexCommand(resolved)))
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
-            applyCodexEnvironment(builder.environment(), resolved)
+            builder.environment().clear()
+            builder.environment().putAll(environment)
             val process = builder.start()
             var cleanup: (() -> Unit)? = null
             val wire = ProcessCodexWire(process, dispatchers) { cleanup?.invoke() }
@@ -80,7 +121,7 @@ internal class LocalCodexTransport(
             cleanup = { handle.dispose() }
             wire
         } catch (e: IOException) {
-            // Starting a local process failed (missing executable, permissions or format), not a network request.
+            // Installation failures are distinct from network failures.
             // Do not retain native diagnostics: they can contain the user's executable path.
             val failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
             log.w(e.sanitized()) { "Codex executable could not be started" }
@@ -109,9 +150,13 @@ internal class LocalCodexTransport(
     override fun releaseTarget(): CodexTarget? = codexReleaseTarget()
 
     /** `codex --version`, bounded and cancellable; an executable that does not answer has no known version. */
-    private suspend fun version(launch: CodexLaunch): String? = try {
+    private suspend fun version(
+        launch: CodexLaunch,
+        environment: Map<String, String> = capturedCodexEnvironment(launch),
+    ): String? = try {
         val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
-        applyCodexEnvironment(builder.environment(), launch)
+        builder.environment().clear()
+        builder.environment().putAll(environment)
         val process = builder.start()
         try {
             process.outputStream.close()
@@ -257,3 +302,7 @@ private fun Exception.sanitized(): EngineException = EngineException(
         },
     ),
 )
+
+/** Captures inherited entries as well as overrides; subsequent launches cannot drift with profile settings. */
+private fun capturedCodexEnvironment(launch: CodexLaunch): Map<String, String> =
+    System.getenv().toMutableMap().apply { applyCodexEnvironment(this, launch) }.toMap()
