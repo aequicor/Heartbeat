@@ -63,7 +63,7 @@ internal class CodexSession(
     private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
-    private val loadedTurns = mutableSetOf<String>()
+    private val nativeHistory = CodexNativeHistory(ref, history, runtime.host)
     private var isCreatedHere = false
     val isMaterializationRequired get() = isCreatedHere && nativeTurns.isEmpty()
     val isUnused get() = leases.isEmpty() && submissions.isEmpty() && currentTurn() == null
@@ -321,37 +321,13 @@ internal class CodexSession(
                 "thread/read",
                 json("threadId" to ref.nativeId.json(), "includeTurns" to JsonPrimitive(true)),
             ).obj("thread")
-            return auditNativeHistory(thread)
+            return nativeHistory.audit(thread, nativeTurns.keys)
         } catch (e: CancellationException) {
             throw e
         } catch (e: EngineException) {
             history.seeded(isComplete = false)
             throw e
         }
-    }
-
-    private fun auditNativeHistory(thread: JsonObject): List<JsonObject>? {
-        if (thread.text("id") != ref.nativeId) protocolFailure()
-        val turns = thread["turns"]?.let { value ->
-            (value as? JsonArray ?: protocolFailure()).map { it as? JsonObject ?: protocolFailure() }
-        }
-        var isCovered = turns != null
-        val missingTurns = (loadedTurns + nativeTurns.keys).toMutableSet()
-        for (turn in turns.orEmpty()) {
-            val id = turn.text("id") ?: protocolFailure()
-            missingTurns.remove(id)
-            val items = nativeItems(turn)
-            val view = turn.text("itemsView")
-            val isKnownTurn = id in loadedTurns || id in nativeTurns
-            val isFullView = view == null || view == "full"
-            val isMatching = items?.all { history.matches(it) } == true
-            if (!isKnownTurn || !isFullView || !isMatching) {
-                isCovered = false
-            }
-        }
-        if (!isCovered || missingTurns.isNotEmpty()) history.seeded(isComplete = false)
-        log.d { "Codex native history audited coverage=${history.coverage}" }
-        return turns
     }
 
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
@@ -378,42 +354,9 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
     }
 
-    /**
-     * Seeds the history with the native [turns]; null when the native response did not carry them.
-     * [isNew] marks a thread just created by `thread/start`, which has no earlier native history. A resumed
-     * thread is stored only after its first turn, so resumed empty [turns] mean the history was not loaded.
-     * [isCanonical] requires the native `paginated` history mode without pending turn/item cursors. Its persisted
-     * ItemCompleted records retain live IDs. Legacy replay synthesizes IDs and can omit tools even with
-     * `itemsView=full`; seeding it as Partial would still duplicate messages or truncate a richer saved transcript.
-     * Such replay, and any non-full canonical snapshot, is omitted entirely: empty Partial lets consumers keep
-     * their saved history.
-     */
     suspend fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
         isCreatedHere = isNew
-        val snapshots = turns.orEmpty().map { value ->
-            val turn = value as? JsonObject ?: protocolFailure()
-            if (turn.text("id") == null) protocolFailure()
-            turn to nativeItems(turn)
-        }
-        val isLoaded = isCanonical && snapshots.isNotEmpty() &&
-            snapshots.all { (turn, items) -> turn.text("itemsView") == "full" && items != null }
-        history.seeded(isComplete = isNew || isLoaded)
-        log.d { "Loading native thread history turns=${turns?.size ?: "absent"} coverage=${history.coverage}" }
-        if (!isNew && !isLoaded) return
-        for ((turn, items) in snapshots) {
-            val id = TurnId(turn.text("id") ?: protocolFailure())
-            loadedTurns += id.value
-            runtime.host.resourceHistory.parts(ref, id.value)?.let { history.rememberOriginals(id, it) }
-            items.orEmpty().forEach { history.nativeItem(it, id) }
-        }
-    }
-
-    private fun nativeItems(turn: JsonObject): List<JsonObject>? = turn["items"]?.let { value ->
-        (value as? JsonArray ?: protocolFailure()).map {
-            val item = it as? JsonObject ?: protocolFailure()
-            if (item.text("id") == null) protocolFailure()
-            item
-        }
+        nativeHistory.load(turns, isNew, isCanonical)
     }
 
     suspend fun event(message: JsonObject, source: CodexConnection = connection) {
