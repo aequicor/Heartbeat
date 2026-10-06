@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
@@ -74,7 +75,7 @@ internal class PiSession(
     override val route: ExecutionRoute,
     private val environment: PiSessionEnvironment,
     private val validate: suspend () -> Unit,
-    private val released: (PiSession) -> Unit = {},
+    private val released: suspend (PiSession) -> Unit = {},
 ) : PiActiveSession,
     SendsPrompts,
     CancelsTurns,
@@ -143,7 +144,13 @@ internal class PiSession(
 
     // Hosted tools are prepared once per process from the request that launched it.
     private val launchTarget = request.target
-    private val areDetachedToolsEnabled = request.areDetachedToolsEnabled
+
+    /** The process was launched for detached hosted tools; a sharing attach must ask for the same. */
+    val areDetachedToolsEnabled = request.areDetachedToolsEnabled
+
+    /** Whether this live process can serve [request]: one workspace and one detached-tools setting per process. */
+    fun serves(request: ResumeSessionRequest): Boolean =
+        route.workspace == request.workspace && areDetachedToolsEnabled == request.areDetachedToolsEnabled
     private val hostedTools = PiHostedSessionTools(
         environment,
         { state.value is ActiveSessionState.Interrupting },
@@ -373,7 +380,7 @@ internal class PiSession(
         release()
     }
 
-    private fun release() {
+    private suspend fun release() {
         if (isReleased) return
         isReleased = true
         hostedTools.close()
