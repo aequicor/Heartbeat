@@ -9,7 +9,6 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
-import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
@@ -22,6 +21,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
@@ -42,6 +42,7 @@ internal data class GraphChatAttempt(
     val chat: String,
     val result: GraphTaskResult? = null,
     val checkpoint: String? = null,
+    val recoveryRoot: String? = null,
 )
 
 /** Native graph submissions and results survive a crash between studio completion and scheduler acknowledgement. */
@@ -67,21 +68,28 @@ internal class StudioGraphExecutions(
         admission: kotlinx.coroutines.flow.Flow<Boolean>,
     ): GraphTaskResult {
         val known = lock.withLock { read() }
-        val previous = previousExecution?.let { known[it]?.result }
+        val recovered = known.recoveryAttempt(chatId, previousExecution)
+        val previous = recovered?.result
         if (previous != null && previous.phase !in setOf(GraphTaskPhase.RecoveryRequired, GraphTaskPhase.Cancelled)) {
             return previous
         }
         val records = chats.get(ChatsKey).orEmpty()
         val record = records.first { it.id == chatId }
+        check((record.executionWorkspace ?: record.projectId?.let(::WorkspaceRef)) == request.workspace) {
+            "The helper workspace differs from its approved graph"
+        }
         val settings = settings(chatId, request)
         val execution = request.prompt.request.value
         val recover = if (previousExecution != null && record.ref != null) {
-            (known.filterValues { it.chat == chatId }.keys + previousExecution).map(::RequestId)
+            (known.recoveryLineage(chatId, previousExecution).keys + previousExecution).map(::RequestId)
         } else {
             emptyList()
         }
-        val checkpoint = previousExecution?.let { known[it]?.checkpoint }
-        record(execution, GraphChatAttempt(chatId, checkpoint = checkpoint))
+        val checkpoint = recovered?.checkpoint
+        record(
+            execution,
+            GraphChatAttempt(chatId, checkpoint = checkpoint, recoveryRoot = previousExecution ?: execution),
+        )
         log.i { "run graph assignment in a studio chat recovery=${recover.isNotEmpty()}" }
         runs.run(
             host,
@@ -116,9 +124,8 @@ internal class StudioGraphExecutions(
             cancelBeforeSubmission = true,
             isExecutionEnabled = admission,
         )
-        val result = lock.withLock { read()[execution]?.result }
+        return lock.withLock { read()[execution]?.result }
             ?: GraphTaskResult(GraphTaskPhase.RecoveryRequired, "Native task outcome is not confirmed")
-        return result
     }
 
     private suspend fun settings(
@@ -190,17 +197,7 @@ internal class StudioGraphExecutions(
         chatId: String,
         active: io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession,
         known: Set<String>,
-    ): Boolean {
-        val turn =
-            active.state.value.activeTurn() ?: return active.state.value.lastCompletedTurn()?.request?.value in known
-        if (turn.request?.value !in known) return false
-        runtime.cancel(chatId)
-        active.features.requireFeature(CancelsTurns).cancel(turn.id)
-        return withTimeoutOrNull(30.seconds) {
-            active.state.first { it.isTerminalFor(turn.id) }
-            true
-        } == true
-    }
+    ): Boolean = stopGraphTurn(active, known) { turn -> turns.requestStop(chatId, active, turn) }
 
     private suspend fun update(execution: String, change: (GraphChatAttempt) -> GraphChatAttempt) = lock.withLock {
         val records = read()
@@ -263,3 +260,24 @@ internal fun TurnOutcome.graphResult(output: String): GraphTaskResult = GraphTas
 
 /** Parser diagnostics can contain private result text; retain only the failure type. */
 private class GraphJournalException(type: String) : IllegalStateException("Unreadable graph chat attempts ($type)")
+
+/**
+ * Reconcile only the current recovery lineage. The scheduler retains its root across observer restarts; a new
+ * explicit retry has a new root even if it crashes before journaling. A missing observer record cannot discard
+ * a prior receipt, and an older retry's result cannot satisfy the new assignment. Map order is journal order.
+ */
+internal fun Map<String, GraphChatAttempt>.recoveryAttempt(
+    chatId: String,
+    previousExecution: String?,
+): GraphChatAttempt? {
+    if (previousExecution == null) return null
+    return recoveryLineage(chatId, previousExecution).values.lastOrNull()
+}
+
+/** Only submissions of the same retry lineage may be adopted from native or cached session state. */
+internal fun Map<String, GraphChatAttempt>.recoveryLineage(
+    chatId: String,
+    root: String,
+): Map<String, GraphChatAttempt> = filter { (execution, attempt) ->
+    attempt.chat == chatId && (attempt.recoveryRoot ?: execution) == root
+}

@@ -129,7 +129,12 @@ internal class StudioTurnExecutor(private val worktrees: StudioWorktrees, privat
                 request.onOutcome(recovered.outcome)
                 return@supervisorScope host.outcome(request.id, recovered.outcome)
             }
-            val turn = (recovered as? GraphRecovery.Adopt)?.turn ?: host.submitTurn(active, request)
+            val turn = if (recovered is GraphRecovery.Adopt) {
+                request.submission?.adopt()
+                recovered.turn
+            } else {
+                host.submitTurn(active, request)
+            }
             progress.active = active
             progress.turn = turn
             request.onTurnAccepted(active)

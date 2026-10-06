@@ -151,6 +151,39 @@ class TaskGraphMachineTest {
     }
 
     @Test
+    fun `repeated crashes before host journaling retain the native recovery lineage`() {
+        val def = TaskGraphDefinition(listOf(GraphTask("A", GraphAction.Agent("helper", "assignment"))))
+        var state = TaskGraphState.Ready().step(TaskGraphIntent.Public.Create(graph(def)))
+        state = state.step(TaskGraphIntent.Internal.Claim("g1", "A", "native"))
+        state = state.step(TaskGraphIntent.Internal.Starting("g1", "A", "native"))
+        repeat(3) { index ->
+            state = TaskGraphState.Loading.step(TaskGraphIntent.Internal.Loaded(state.graphs))
+            state = state.step(TaskGraphIntent.Internal.Claim("g1", "A", "observer-$index"))
+            state = state.step(TaskGraphIntent.Internal.Starting("g1", "A", "observer-$index"))
+            assertEquals("native", state.graphs.single().runs.getValue("A").previousExecution)
+        }
+        val current = state.graphs.single().runs.getValue("A").execution!!
+        state = state.step(
+            TaskGraphIntent.Internal.Finished(
+                "g1",
+                "A",
+                current,
+                GraphTaskResult(GraphTaskPhase.RecoveryRequired, "unknown"),
+            ),
+        )
+        state = state.step(TaskGraphIntent.Internal.RecoveryChecked("g1", "A", current))
+        state = state.step(
+            TaskGraphIntent.Public.Resolve("g1", "A", current, owner, TaskRecoveryDecision.Retry, "verified stopped"),
+        )
+        state = state.step(TaskGraphIntent.Internal.Claim("g1", "A", "retry"))
+        assertNull(state.graphs.single().runs.getValue("A").previousExecution)
+        state = state.step(TaskGraphIntent.Internal.Starting("g1", "A", "retry"))
+        state = TaskGraphState.Loading.step(TaskGraphIntent.Internal.Loaded(state.graphs))
+        state = state.step(TaskGraphIntent.Internal.Claim("g1", "A", "retry-observer"))
+        assertEquals("retry", state.graphs.single().runs.getValue("A").previousExecution)
+    }
+
+    @Test
     fun `cancel prevents launches and waits for running tasks to stop`() {
         var state = TaskGraphState.Ready().step(TaskGraphIntent.Public.Create(graph()))
         state = state.step(TaskGraphIntent.Internal.Claim("g1", "A", "A"))

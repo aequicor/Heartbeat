@@ -1,20 +1,26 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
+import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import io.aequicor.heartbeat.feature.scheduler.impl.data.DesktopCommandRunner
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardWatchEventKinds
+import java.nio.file.WatchService
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
@@ -74,6 +80,84 @@ class DesktopCommandRunnerTest {
     }
 
     @Test
+    fun `an observed child which changes group dies after its parent exits`() = runTest {
+        escapedDescendant { snapshot, child ->
+            assertTrue(snapshot.descendants.any { it.pid == child.pid() })
+            Files.writeString(Path.of(directory, "exit-parent"), "exit")
+        }
+    }
+
+    @Test
+    fun `recovery tracks escaped descendants even when their original group is gone`() = runTest {
+        escapedDescendant { snapshot, child ->
+            // Reproduce the persisted identity after the original group has exited, retaining the escaped child.
+            val recovered = Json.decodeFromString<TaskProcess>(Json.encodeToString(snapshot)).copy(
+                group = UNUSED_GROUP,
+                descendants = snapshot.descendants.filter { it.pid == child.pid() },
+            )
+            assertFalse(runner.isStopped(recovered))
+            assertFalse(runner.isStopped(snapshot.copy(startedAt = "reused leader")))
+            val reused = recovered.copy(descendants = recovered.descendants.map { it.copy(startedAt = "other") })
+            assertTrue(runner.isStopped(reused))
+            assertTrue(runner.stop(reused))
+            assertTrue(child.isAlive, "A different start time must not authorize killing a reused PID")
+            assertTrue(runner.stop(recovered))
+            assertFalse(child.isAlive)
+            Files.writeString(Path.of(directory, "exit-parent"), "exit")
+        }
+    }
+
+    @Test
+    fun `timeout kills a child which left its original group`() = runTest {
+        escapedDescendant(Completion.TimedOut) { _, _ -> }
+    }
+
+    @Test
+    fun `cancellation kills a child which left its original group`() = runTest {
+        escapedDescendant(Completion.Cancelled) { _, _ -> }
+    }
+
+    private suspend fun escapedDescendant(
+        completion: Completion = Completion.Succeeded,
+        observed: suspend (TaskProcess, ProcessHandle) -> Unit,
+    ) {
+        if (isWindows) return
+        withContext(Dispatchers.Default) {
+            val command = PosixDescendantTestProcess.arguments("parent", directory)
+                .joinToString(" ") { "'${it.replace("'", "'\"'\"'")}'" }
+            val path = Path.of(directory)
+            val marker = path.resolve("escaped-pid")
+            path.fileSystem.newWatchService().use { watcher ->
+                path.register(watcher, StandardWatchEventKinds.ENTRY_CREATE)
+                val observation = EscapedObservation(marker, watcher, observed)
+                val running = async {
+                    runner.runTracked(directory, command, 5.seconds, observation::accept)
+                }
+                try {
+                    if (completion == Completion.Cancelled) {
+                        withTimeout(15.seconds) { observation.retained.await() }
+                        running.cancelAndJoin()
+                    } else {
+                        val outcome = running.await()
+                        assertTrue(
+                            observation.retained.isCompleted,
+                            "The escaped child was not retained: ${outcome.output}",
+                        )
+                        assertEquals(if (completion == Completion.TimedOut) null else 0, outcome.exitCode)
+                    }
+                    assertFalse(observation.child?.isAlive == true, "The escaped child survived its command")
+                } finally {
+                    running.cancelAndJoin()
+                    if (Files.exists(marker)) {
+                        ProcessHandle.of(Files.readString(marker).trim().toLong()).orElse(null)
+                            ?.takeIf { it.isAlive }?.destroyForcibly()
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `cancelling a command with continuous output kills its process`() = runTest {
         if (isWindows) return@runTest
         withContext(Dispatchers.Default) {
@@ -102,5 +186,31 @@ class DesktopCommandRunnerTest {
                 }
             }
         }
+    }
+
+    private companion object {
+        const val UNUSED_GROUP = 999_999_999L
+    }
+
+    private enum class Completion { Succeeded, TimedOut, Cancelled }
+}
+
+private class EscapedObservation(
+    private val marker: Path,
+    private val watcher: WatchService,
+    private val observed: suspend (TaskProcess, ProcessHandle) -> Unit,
+) {
+    val retained = CompletableDeferred<Unit>()
+    var child: ProcessHandle? = null
+        private set
+
+    suspend fun accept(snapshot: TaskProcess) {
+        if (retained.isCompleted || snapshot.descendants.isEmpty()) return
+        while (!Files.exists(marker)) runInterruptible(Dispatchers.IO) { watcher.take().reset() }
+        val pid = Files.readString(marker).trim().toLong()
+        if (snapshot.descendants.none { it.pid == pid }) return
+        child = ProcessHandle.of(pid).orElseThrow()
+        observed(snapshot, assertNotNull(child))
+        retained.complete(Unit)
     }
 }

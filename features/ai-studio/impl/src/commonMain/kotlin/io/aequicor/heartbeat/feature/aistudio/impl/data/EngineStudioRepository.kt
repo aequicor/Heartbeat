@@ -306,7 +306,12 @@ internal class EngineStudioRepository(
         title: String,
         isWorktree: Boolean,
         organism: OrganismRequest?,
+        executionWorkspace: WorkspaceRef?,
     ): StudioSession {
+        require(executionWorkspace == null || (projectId != null && !isWorktree && organism == null))
+        if (executionWorkspace != null) {
+            requireNotNull(workspaces.resolve(executionWorkspace)) { "The execution folder is unavailable" }
+        }
         log.i { "Create studio conversation worktree=$isWorktree organism=${organism != null}" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
@@ -319,6 +324,7 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
+            executionWorkspace = executionWorkspace,
             organismId = organism?.let { organisms.admit(id, it, isWorktree) },
         )
         val record = conversations.create(pending, ::saveConversation)

@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.core.statemachine.MachineEffect
 import io.aequicor.heartbeat.core.statemachine.MachineIntent
 import io.aequicor.heartbeat.core.statemachine.MachineKey
@@ -59,6 +61,8 @@ import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -75,9 +79,86 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Clock
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
+    @Test
+    fun `adopted native turn keeps its reservation and permission observation when admission closes`() = runTest {
+        val f = TurnFixture()
+        f.host.isIsolated = false
+        val running = f.turn.copy(outcome = null)
+        f.active.state.value = ActiveSessionState.Running(running)
+        f.active.inspection = TurnInspection.Observed(f.request.request, null)
+        val enabled = MutableStateFlow(true)
+        val coordinator = StudioRunCoordinator(ExecutorProfile(backgroundScope), Clock.System)
+        var finished = false
+        val host = object : StudioRunHost {
+            override suspend fun startedRun(id: String, at: kotlin.time.Instant) = Unit
+            override suspend fun executeRun(request: StudioTurnRequest) = f.executor.execute(f.host, request)
+            override suspend fun finishedRun(id: String) {
+                finished = true
+            }
+        }
+        val result = async {
+            coordinator.run(
+                host,
+                f.request.copy(request = RequestId("recovery"), recoveryRequests = listOf(f.request.request)),
+                cancelBeforeSubmission = true,
+                isExecutionEnabled = enabled,
+            )
+        }
+        runCurrent()
+        assertNull(f.host.submitted)
+        enabled.value = false
+        runCurrent()
+        assertFalse(result.isCompleted)
+        assertFalse(finished)
+        val changed = ActiveSessionState.Interrupting(running)
+        f.active.state.value = changed
+        runCurrent()
+        assertEquals(changed, f.host.permissionStates.last())
+        assertFailsWith<IllegalStateException> { coordinator.run(host, f.request) }
+        f.active.state.value = ActiveSessionState.Ready(f.turn)
+        f.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Completed, result.await())
+        assertTrue(finished)
+    }
+
+    @Test
+    fun `graph stop sends one cancellation then waits for terminal confirmation`() = runTest {
+        val f = TurnFixture()
+        val running = f.turn.copy(outcome = null)
+        f.active.state.value = ActiveSessionState.Running(running)
+        var cancellations = 0
+        val stopped = async {
+            stopGraphTurn(f.active, setOf(f.request.request.value)) {
+                cancellations++
+                check(f.active.state.value is ActiveSessionState.Running)
+                f.active.state.value = ActiveSessionState.Interrupting(running)
+            }
+        }
+        runCurrent()
+        assertEquals(1, cancellations)
+        assertFalse(stopped.isCompleted)
+        f.active.state.value = ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Cancelled))
+        assertTrue(stopped.await())
+        assertEquals(1, cancellations)
+    }
+
+    @Test
+    fun `graph stop observes an already interrupting turn without cancelling again`() = runTest {
+        val f = TurnFixture()
+        f.active.state.value = ActiveSessionState.Interrupting(f.turn.copy(outcome = null))
+        val stopped = async {
+            stopGraphTurn(f.active, setOf(f.request.request.value)) { error("Duplicate cancellation") }
+        }
+        runCurrent()
+        assertFalse(stopped.isCompleted)
+        f.active.state.value = ActiveSessionState.Ready(f.turn.copy(outcome = TurnOutcome.Cancelled))
+        assertTrue(stopped.await())
+    }
+
     @Test
     fun `recreated ready handle submits recovery only after fresh idle inspection`() = runTest {
         val f = TurnFixture()
@@ -558,6 +639,7 @@ private class ExecutorHost(
     var submitted: StudioTurnRequest? = null
     var isIsolated = true
     var openCount = 0
+    val permissionStates = mutableListOf<ActiveSessionState>()
     var beforeSubmit: suspend () -> Unit = {}
     override suspend fun isWorktree(id: String) = isIsolated
     override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
@@ -593,7 +675,9 @@ private class ExecutorHost(
     override suspend fun refreshHistory(id: String, history: SessionHistory) {
         events += "refresh"
     }
-    override suspend fun updatePermissions(id: String, state: ActiveSessionState) = Unit
+    override suspend fun updatePermissions(id: String, state: ActiveSessionState) {
+        permissionStates += state
+    }
     override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
         events += "outcome"
         return RunOutcome.Completed
@@ -741,3 +825,10 @@ private val ExecutorAttachments = listOf(
     ResourceRef("attachment:image", "image/png"),
     ResourceRef("attachment:notes", "text/markdown"),
 )
+
+private class ExecutorProfile(override val coroutineScope: CoroutineScope) : ScopeHandle {
+    override val name = "profile"
+    override val savedState: ScopeSavedState get() = error("unused")
+    override val isClosed = false
+    override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
+}

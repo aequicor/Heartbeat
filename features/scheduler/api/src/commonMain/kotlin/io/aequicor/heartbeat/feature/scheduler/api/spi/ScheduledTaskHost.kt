@@ -5,7 +5,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 /**
  * Optional graph execution on a chat host. Preparation creates an empty chat; the scheduler persists its opaque
  * ID before calling [runTask]. Runs retain the normal transcript and permission UI. [previousExecution] on a run
- * means reconcile that submission first, adopting a live turn or its result before considering a continuation.
+ * identifies the original submission in the current recovery lineage. Reconcile its latest journaled continuation
+ * first, adopting a live turn or its result. The root stays stable across observer restarts;
+ * an explicit retry resets it.
  */
 public interface ScheduledTaskHost : ScheduledSessionHost {
     /** Creates an empty helper chat without submitting a turn. */

@@ -54,35 +54,34 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         var job: WindowsGraphJob? = null
         val output = HeadTail()
         val children = mutableMapOf<Long, ProcessHandle>()
+        val identities = mutableMapOf<Long, TaskProcess>()
         var hasExited = false
         try {
             if (isWindows) job = WindowsGraphJob.attach(process)
-            val startedAt = checkNotNull(process.info().startInstant().orElse(null)) {
+            val root = process.toHandle()
+            val startedAt = checkNotNull(root.info().startInstant().orElse(null)) {
                 "The command process has no verifiable start time"
             }
-            onStarted(
-                TaskProcess(
-                    process.pid(),
-                    startedAt.toString(),
-                    group = process.pid().takeIf { !isWindows },
-                    isJobContained = isWindows,
-                    job = job?.name,
-                ),
+            val identity = TaskProcess(
+                process.pid(),
+                startedAt.toString(),
+                group = process.pid().takeIf { !isWindows },
+                isJobContained = isWindows,
+                job = job?.name,
             )
+            onStarted(identity)
             process.outputStream.use {
                 it.write("heartbeat-run\n".toByteArray(Charsets.UTF_8))
                 it.flush()
             }
-            hasExited = drain(process, output, timeout) {
-                if (isWindows) {
-                    process.descendants().use { descendants ->
-                        descendants.forEach {
-                            children[it.pid()] =
-                                it
-                        }
+            hasExited = withTimeoutOrNull(timeout) {
+                drain(process, output, timeout) {
+                    val isChanged = observeChildren(root, children, identities)
+                    if (!isWindows && isChanged) {
+                        onStarted(identity.copy(descendants = identities.values.toList()))
                     }
                 }
-            }
+            } == true
         } finally {
             // A cancelled drain never reports an exit, so cancellation also kills the tree.
             val isKillRequired = !hasExited || process.isAlive || children.values.any { it.isAlive }
@@ -90,6 +89,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
                 try {
                     if (isKillRequired) kill(process, children.values.toList())
                     confirmStopped(process, job)
+                    check(children.values.none { it.isAlive }) { "Observed descendants may still be running" }
                 } finally {
                     job?.close()
                     close(process)
@@ -99,6 +99,22 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
         val exitCode = if (hasExited) process.exitValue() else null
         log.i { "background command ended exitCode=${exitCode ?: "timeout"}" }
         CommandOutcome(exitCode, output.text())
+    }
+
+    private fun observeChildren(
+        process: ProcessHandle,
+        children: MutableMap<Long, ProcessHandle>,
+        identities: MutableMap<Long, TaskProcess>,
+    ): Boolean {
+        var isChanged = false
+        val roots = listOf(process) + children.values.toList()
+        val descendants = roots.filter { it.isAlive }.flatMap { root -> root.descendants().use { it.toList() } }
+        for (child in descendants) {
+            children[child.pid()] = child
+            val identity = child.identity() ?: continue
+            if (identities.put(child.pid(), identity) != identity) isChanged = true
+        }
+        return isChanged
     }
 
     private fun startProcess(directory: String, command: String, environment: Map<String, String>): Process {
@@ -132,6 +148,7 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
     }
 
     override suspend fun isStopped(process: TaskProcess): Boolean = withContext(dispatchers.io) {
+        if (process.descendants.any { !isStopped(it) }) return@withContext false
         process.group?.let { group ->
             val leader = ProcessHandle.of(group).orElse(null)
             val startedAt = leader?.info()?.startInstant()?.orElse(null)?.toString()
@@ -146,12 +163,14 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
 
     override suspend fun stop(process: TaskProcess): Boolean = withContext(dispatchers.io) {
         if (isStopped(process)) return@withContext true
+        val areChildrenStopped = process.descendants.map { stop(it) }.all { it }
         val group = process.group
-        when {
-            group != null -> stopGroup(group)
+        val isRootStopped = when {
+            group != null -> if (isStopped(process.copy(descendants = emptyList()))) true else stopGroup(group)
             isWindows -> process.job?.let { stopJob(it) } == true
             else -> stopTree(process)
         }
+        areChildrenStopped && isRootStopped
     }
 
     private suspend fun stopGroup(group: Long): Boolean {
@@ -181,7 +200,12 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
     }
 
     /** Collects output until the process exits (and its pipe went quiet) or [timeout] passes. */
-    private suspend fun drain(process: Process, output: HeadTail, timeout: Duration, observe: () -> Unit): Boolean {
+    private suspend fun drain(
+        process: Process,
+        output: HeadTail,
+        timeout: Duration,
+        observe: suspend () -> Unit,
+    ): Boolean {
         val input = process.inputStream
         val buffer = ByteArray(BUFFER_BYTES)
         val started = TimeSource.Monotonic.markNow()
@@ -256,6 +280,12 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
             upper !in KEPT_NAMES && SECRET_PARTS.any { it in upper }
         }
     }
+}
+
+private fun ProcessHandle.identity(): TaskProcess? {
+    val startedAt = info().startInstant().orElse(null)
+    check(startedAt != null || !isAlive) { "Observed descendant has no verifiable start time" }
+    return startedAt?.let { TaskProcess(pid(), it.toString()) }
 }
 
 /** Keeps the head and the tail of a stream, where commands print what matters. */

@@ -50,12 +50,14 @@ class StudioScheduledSessionHostTest {
         val sessions = mutableMapOf<String, SessionRef>()
         val runs = mutableListOf<List<Any?>>()
         val created = mutableListOf<Pair<String?, String>>()
+        var helperWorkspace: WorkspaceRef? = null
         val finish = CompletableDeferred<Unit>()
 
         override suspend fun chatOf(session: SessionRef): StudioScheduledChat? = owned[session]
         override suspend fun sessionOf(chatId: String): SessionRef? = sessions[chatId]
 
-        override suspend fun createHelperChat(projectId: String?, title: String): String {
+        override suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef?): String {
+            helperWorkspace = workspace
             created += projectId to title
             return "helper"
         }
@@ -78,6 +80,17 @@ class StudioScheduledSessionHostTest {
         override val savedState: ScopeSavedState get() = error("unused")
         override val isClosed: Boolean = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
+    }
+
+    @Test
+    fun `graph helper keeps the approved checkout separately from its parent project`() = runTest {
+        val chats = Chats().apply { owned[session] = StudioScheduledChat("chat", "project") }
+        val host = StudioScheduledSessionHost(lazyOf(chats), Scope(backgroundScope))
+        val workspace = WorkspaceRef("approved-worktree")
+        assertEquals("helper", host.prepareTask(SpawnRequest(session, workspace, target, "Task", prompt)))
+        assertEquals(listOf<Pair<String?, String>>("project" to "Task"), chats.created)
+        assertEquals(workspace, chats.helperWorkspace)
+        assertTrue(chats.runs.isEmpty())
     }
 
     @Test

@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
@@ -54,7 +55,7 @@ internal interface StudioScheduledChats {
     suspend fun sessionOf(chatId: String): SessionRef?
 
     /** Creates an empty chat in [projectId] (null: without a project) and returns its id. */
-    suspend fun createHelperChat(projectId: String?, title: String): String
+    suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef? = null): String
 
     /**
      * Runs [prompt] as the next turn of chat [chatId], waiting while it is busy, on [route]. [onAccepted] runs once the
@@ -105,7 +106,7 @@ internal class StudioScheduledSessionHost(
 
     override suspend fun prepareTask(request: SpawnRequest): String? {
         val parent = chats.chatOf(request.parent) ?: return null
-        return chats.createHelperChat(parent.projectId, request.title)
+        return chats.createHelperChat(parent.projectId, request.title, request.workspace)
     }
 
     override suspend fun runTask(

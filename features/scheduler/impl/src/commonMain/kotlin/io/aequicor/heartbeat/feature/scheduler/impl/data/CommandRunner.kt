@@ -19,7 +19,10 @@ internal interface CommandRunner {
     /** Runs [command] in [directory] until it exits or [timeout] passes; the process tree dies with cancellation. */
     suspend fun run(directory: String, command: String, timeout: Duration): CommandOutcome
 
-    /** Records native identity before observing output. Graphs use this to reconcile interrupted processes. */
+    /**
+     * Records native identity before releasing the command, then updates it when POSIX descendants are observed.
+     * Graphs durably retain each snapshot to reconcile descendants which leave their original process group.
+     */
     suspend fun runTracked(
         directory: String,
         command: String,

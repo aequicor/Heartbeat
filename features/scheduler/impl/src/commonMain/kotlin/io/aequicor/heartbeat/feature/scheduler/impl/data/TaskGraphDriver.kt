@@ -306,9 +306,11 @@ internal class TaskGraphDriver(
         if (!durable(TaskGraphIntent.Internal.Starting(graph.id, task, execution))) {
             return GraphTaskResult(GraphTaskPhase.Cancelled, "Cancelled before command submission")
         }
+        var isReleased = false
         val outcome = commands.runTracked(directory, action.command, action.timeoutSeconds.seconds) { process ->
             check(durable(TaskGraphIntent.Internal.ProcessBound(graph.id, task, execution, process)))
-            if (!isEnabled() || current(graph.id).isCancelled) throw ScheduledWakeDeferredException()
+            if (!isReleased && (!isEnabled() || current(graph.id).isCancelled)) throw ScheduledWakeDeferredException()
+            isReleased = true
         }
         val phase = when (outcome.exitCode) {
             0 -> GraphTaskPhase.Succeeded

@@ -98,7 +98,10 @@ public val GraphTaskPhase.isTerminal: Boolean
         GraphTaskPhase.Blocked,
     )
 
-/** Persisted identity of a local process; start time prevents confusing a reused PID with the original process. */
+/**
+ * Persisted identity of a local process; start time prevents confusing a reused PID with the original process.
+ * [descendants] retains observed POSIX children even after they leave the original process group.
+ */
 @Serializable
 public data class TaskProcess(
     val pid: Long,
@@ -106,6 +109,7 @@ public data class TaskProcess(
     val group: Long? = null,
     val isJobContained: Boolean = false,
     val job: String? = null,
+    val descendants: List<TaskProcess> = emptyList(),
 )
 
 /** Bounded output and authoritative outcome; free text is never interpreted as a status. */

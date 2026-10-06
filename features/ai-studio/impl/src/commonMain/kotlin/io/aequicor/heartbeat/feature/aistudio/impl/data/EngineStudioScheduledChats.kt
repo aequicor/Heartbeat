@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -63,9 +64,9 @@ internal class EngineStudioScheduledChats(
         return store.get(ChatsKey).orEmpty().firstOrNull { it.id == chatId }?.ref
     }
 
-    override suspend fun createHelperChat(projectId: String?, title: String): String {
+    override suspend fun createHelperChat(projectId: String?, title: String, workspace: WorkspaceRef?): String {
         log.i { "create a helper conversation hasProject=${projectId != null}" }
-        return repository.createSession(projectId, title, isWorktree = false).id
+        return repository.createSession(projectId, title, isWorktree = false, executionWorkspace = workspace).id
     }
 
     override suspend fun runScheduled(

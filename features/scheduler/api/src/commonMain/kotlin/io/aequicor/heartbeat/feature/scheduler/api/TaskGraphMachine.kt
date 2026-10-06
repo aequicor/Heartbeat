@@ -148,6 +148,7 @@ public object TaskGraphMachineKey :
  * | Ready | Saved | acknowledge revision |
  * | Ready | SaveFailed / RetrySave | inhibit execution / retry Save |
  *
+ * Recovery claims retain the original submission lineage across repeated restarts; explicit retries start a new one.
  * Duplicate, stale, foreign-owner and invalid operations are ignored. Storage errors cannot start work.
  */
 public val TaskGraphMachineSpec: MachineSpec<TaskGraphState, TaskGraphIntent, TaskGraphEffect, TaskGraphOutput> =
@@ -349,7 +350,7 @@ private fun TaskGraphState.Ready.claim(intent: TaskGraphIntent.Internal.Claim): 
                         },
                     ),
                     previousExecution = if (run.phase == GraphTaskPhase.Recovering) {
-                        if (run.hasStarted) run.execution else run.previousExecution
+                        if (run.hasStarted) run.previousExecution ?: run.execution else run.previousExecution
                     } else {
                         null
                     },
