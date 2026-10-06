@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
@@ -9,6 +10,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -24,13 +26,16 @@ import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcons
 import io.aequicor.heartbeat.ds.components.HbMenu
 import io.aequicor.heartbeat.ds.components.HbMenuItem
+import io.aequicor.heartbeat.ds.components.HbQuestionnaireCard
 import io.aequicor.heartbeat.ds.components.HbText
 import io.aequicor.heartbeat.ds.components.HbTooltip
 import io.aequicor.heartbeat.ds.layouts.HbColumn
+import io.aequicor.heartbeat.ds.layouts.HbFlowRow
 import io.aequicor.heartbeat.ds.layouts.HbRow
 import io.aequicor.heartbeat.ds.theme.HbTheme
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismActionUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismPermissionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismStatusUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SubSessionKindUi
@@ -43,6 +48,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_complaint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_dispute
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_permission_attention
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_resume
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_answered
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_state_awaiting
@@ -185,7 +191,7 @@ private fun organismActions(organism: OrganismUi): List<HbMenuItem> = listOfNotN
 )
 
 /**
- * The organism's state and the permission requests of its cells, answered by the user. What a request approves is
+ * The organism's state and its cells' permission requests in shared questionnaire cards. What a request approves is
  * shown whole within [descriptionMaxHeight], as the pane's own requests are. A chat whose organism is out of view
  * (organic AI is off or asleep, or the organism is no longer kept) says so instead of showing nothing.
  */
@@ -199,52 +205,71 @@ internal fun OrganismNotices(
     val organism = content.organism
     // While its organism is being conceived the chat runs; only one out of view afterwards is explained.
     if (organism == null && content.session.isRunning) return
-    if (organism == null) {
-        HbText(
-            stringResource(Res.string.organism_unavailable),
-            Modifier.padding(HbTheme.spacing.m).testTag("organism-unavailable-${content.pane.id}"),
-        )
-        return
+    HbColumn(
+        Modifier.fillMaxWidth(),
+        gap = HbTheme.spacing.none,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (organism == null) {
+            HbText(
+                stringResource(Res.string.organism_unavailable),
+                Modifier.fillMaxWidth().padding(HbTheme.spacing.m)
+                    .testTag("organism-unavailable-${content.pane.id}"),
+            )
+            return@HbColumn
+        }
+        if (organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Aborted) {
+            HbText(
+                stringResource(organism.status.label()),
+                Modifier.fillMaxWidth().padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
+                    .semantics { liveRegion = LiveRegionMode.Polite },
+            )
+        }
+        organism.permissions.forEach { request ->
+            // Request ids come from each cell's engine, so only the cell makes them unique.
+            key(request.cell, request.requestId) {
+                OrganismPermissionCard(sessionId, request, descriptionMaxHeight, onIntent)
+            }
+        }
     }
-    if (organism.status == OrganismStatusUi.Stalled || organism.status == OrganismStatusUi.Aborted) {
-        HbText(
-            stringResource(organism.status.label()),
-            Modifier.padding(HbTheme.spacing.m).testTag("organism-status-${content.pane.id}")
-                .semantics { liveRegion = LiveRegionMode.Polite },
-        )
-    }
-    organism.permissions.forEach { request ->
-        // Request ids come from each cell's engine, so only the cell makes them unique.
-        val id = "${request.cell}-${request.requestId}"
-        key(request.cell, request.requestId) {
-            HbColumn(
-                Modifier.padding(HbTheme.spacing.m).testTag("organism-permission-$id"),
-                gap = HbTheme.spacing.s,
-            ) {
-                HbText(
-                    stringResource(Res.string.organism_permission, request.cellName, request.title),
-                    Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+}
+
+@Composable
+private fun OrganismPermissionCard(
+    sessionId: String,
+    request: OrganismPermissionUi,
+    descriptionMaxHeight: Dp,
+    onIntent: (AiStudioScreenIntent) -> Unit,
+) {
+    val id = "${request.cell}-${request.requestId}"
+    HbQuestionnaireCard(
+        questionId = "organism-$id",
+        title = stringResource(Res.string.organism_permission, request.cellName, request.title),
+        attentionLabel = stringResource(Res.string.organism_permission_attention),
+        modifier = Modifier.widthIn(max = HbTheme.dimensions.messageMaxWidth)
+            .padding(HbTheme.spacing.m).testTag("organism-permission-$id"),
+    ) {
+        request.description?.takeIf { it.isNotBlank() }?.let {
+            PermissionDescription(it, "organism-$id", descriptionMaxHeight)
+        }
+        HbFlowRow(gap = HbTheme.spacing.m) {
+            request.options.forEachIndexed { index, option ->
+                HbButton(
+                    text = option.title,
+                    onClick = {
+                        onIntent(
+                            AiStudioScreenIntent.DecideOrganism(
+                                sessionId,
+                                request.cell,
+                                request.turn,
+                                request.requestId,
+                                option.id,
+                            ),
+                        )
+                    },
+                    style = if (index == 0) HbButtonStyle.Primary else HbButtonStyle.Secondary,
+                    modifier = Modifier.testTag("organism-permission-$id-${option.id}"),
                 )
-                request.description?.takeIf { it.isNotBlank() }?.let {
-                    PermissionDescription(it, "organism-$id", descriptionMaxHeight)
-                }
-                request.options.forEach { option ->
-                    HbButton(
-                        text = option.title,
-                        onClick = {
-                            onIntent(
-                                AiStudioScreenIntent.DecideOrganism(
-                                    sessionId,
-                                    request.cell,
-                                    request.turn,
-                                    request.requestId,
-                                    option.id,
-                                ),
-                            )
-                        },
-                        modifier = Modifier.testTag("organism-permission-$id-${option.id}"),
-                    )
-                }
             }
         }
     }
