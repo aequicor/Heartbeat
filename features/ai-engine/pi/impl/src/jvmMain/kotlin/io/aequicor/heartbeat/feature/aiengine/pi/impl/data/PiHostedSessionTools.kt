@@ -22,10 +22,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -40,7 +38,9 @@ internal class PiHostedSessionTools(
     private val log = Log.tag("PiHostedSessionTools")
     private val pending = mutableMapOf<PermissionRequestId, Pair<CompletableDeferred<Boolean>, PermissionOptionId>>()
     private var attachment: AgentToolBridgeAttachment? = null
-    var lifetime: CompletableJob? = null
+    val jobs = PiHostedJobs(environment.profile.coroutineScope)
+    private var active: Turn? = null
+    var lifetime: Job? = null
         private set
 
     @Volatile
@@ -68,13 +68,15 @@ internal class PiHostedSessionTools(
         snapshot = snapshot?.copy(trust = trust)
     }
 
-    fun beginTurn() {
+    fun beginTurn(turn: Turn) {
         revoke()
-        lifetime = SupervisorJob(environment.profile.coroutineScope.coroutineContext[Job])
+        active = turn
+        lifetime = jobs.parent(turn.id)
     }
 
     fun revoke() {
-        lifetime?.cancel()
+        active?.let { jobs.revoke(it.id) }
+        active = null
         lifetime = null
         snapshot = null
     }
@@ -102,22 +104,19 @@ internal class PiHostedSessionTools(
 
     /** Waits outside the process reader; native approvals retain their original UI id and option labels. */
     suspend fun approval(turn: Turn, request: PermissionRequest, allow: PermissionOptionId): Boolean {
-        val waiting = withContext(environment.dispatchers.main) {
-            if (!canApprove(turn) || request.id in pending) return@withContext null
-            val answer = CompletableDeferred<Boolean>()
-            pending[request.id] = answer to allow
-            permissions[request.id] = request
-            if (send(ActiveSessionIntent.Internal.PermissionNeeded(request)) != SendResult.Accepted) {
-                pending.remove(request.id)
-                permissions.remove(request.id)
-                return@withContext null
-            }
-            request to answer
-        } ?: return false
+        var isRegistered = false
         return try {
-            waiting.second.await()
+            val answer = withContext(environment.dispatchers.main) {
+                if (!canApprove(turn) || request.id in pending || jobs.isClosed(turn.id)) return@withContext null
+                CompletableDeferred<Boolean>().also {
+                    pending[request.id] = it to allow
+                    permissions[request.id] = request
+                    isRegistered = true
+                }
+            } ?: return false
+            send(ActiveSessionIntent.Internal.PermissionNeeded(request)) == SendResult.Accepted && answer.await()
         } finally {
-            withContext(NonCancellable) { resolve(waiting.first) }
+            if (isRegistered) withContext(NonCancellable) { resolve(request) }
         }
     }
 

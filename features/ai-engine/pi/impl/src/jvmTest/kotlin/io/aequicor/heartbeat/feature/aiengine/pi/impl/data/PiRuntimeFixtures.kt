@@ -35,7 +35,11 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.serialization.json.JsonObject
 
-internal suspend fun runtimeFixture(test: TestScope, turns: PiTurnRecords = MemoryPiTurnRecords()): RuntimeFixture {
+internal suspend fun runtimeFixture(
+    test: TestScope,
+    turns: PiTurnRecords = MemoryPiTurnRecords(),
+    drains: PiHostedDrains = PiHostedDrains(),
+): RuntimeFixture {
     val settings = PiSettings(RuntimeStores())
     settings.bind(RuntimeTarget.binding, RuntimeSource)
     val processes = RuntimeProcesses()
@@ -46,7 +50,7 @@ internal suspend fun runtimeFixture(test: TestScope, turns: PiTurnRecords = Memo
             RuntimeSource,
             "fingerprint",
         ),
-        piTestEnvironment(test, areEnginesEnabled = true, turns = turns),
+        piTestEnvironment(test, areEnginesEnabled = true, turns = turns).copy(hostedDrains = drains),
         services,
     )
     return RuntimeFixture(runtime, settings, processes)
@@ -68,6 +72,19 @@ internal class RuntimeProcesses : PiProcesses {
     var transcript: suspend () -> String? = { "native.jsonl" }
     var beforeStart: suspend () -> Unit = {}
     var configure: (FakeConnection) -> Unit = {}
+    var stopResult = true
+    var stopCalls = 0
+    var beforeStop: suspend () -> Unit = {}
+    override suspend fun stop(
+        owner: PiExecutionOwner,
+        beginInspection: suspend () -> Boolean,
+        record: suspend (PiExecutionOwner) -> PiExecutionOwner?,
+    ): Boolean {
+        stopCalls++
+        beforeStop()
+        if (!stopResult) return false
+        return beginInspection() && record(owner) != null
+    }
     var transcriptReads = 0
     val connections = mutableListOf<FakeConnection>()
 

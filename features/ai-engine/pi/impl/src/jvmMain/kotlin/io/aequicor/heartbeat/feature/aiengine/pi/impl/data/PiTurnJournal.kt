@@ -40,6 +40,26 @@ internal class PiTurnJournal(
         }
     }
 
+    /** Only an irrevocably revoked submission whose preflight has exited can prove no prompt was sent. */
+    suspend fun cancelBeforeSubmission(submission: PiSubmission): PiTurnRecord = guarded {
+        check(submission.isStopRequested && submission.boundary.await() == PiSubmissionBoundary.NotSent)
+        val turn = submission.turn
+        val snapshot = records.update(ref) { previous ->
+            val before = previous?.also(::validate) ?: PiTurnSnapshot(ref, route, ownership)
+            check(before.stopping == null && (before.active == null || before.active.turn == turn))
+            if (before.last?.turn?.id == turn.id) {
+                check(before.last.turn.request == turn.request && before.last.turn.target == turn.target)
+                before
+            } else {
+                before.copy(
+                    active = null,
+                    last = PiTurnRecord(turn.copy(outcome = TurnOutcome.Cancelled), submission.trust),
+                )
+            }
+        }
+        checkNotNull(snapshot.last)
+    }
+
     suspend fun finish(turn: TurnId, outcome: TurnOutcome, answers: Map<String, TurnId?> = emptyMap()): PiTurnRecord? =
         guarded {
             val known = records.get(ref)?.also(::validate) ?: return@guarded null

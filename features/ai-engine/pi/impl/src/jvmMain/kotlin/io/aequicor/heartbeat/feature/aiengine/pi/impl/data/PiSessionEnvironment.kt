@@ -30,4 +30,5 @@ internal data class PiSessionEnvironment(
     val tools: ProfileAgentTools = NoAgentTools,
     val bridge: AgentToolBridge = UnavailableAgentToolBridge,
     val turns: PiTurnRecords = MemoryPiTurnRecords(),
+    val hostedDrains: PiHostedDrains = PiHostedDrains(),
 )

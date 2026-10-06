@@ -11,6 +11,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Pending extension dialogs and hosted approvals, confined to the session's main dispatcher. */
@@ -48,13 +50,14 @@ internal class PiSessionPermissions(
         val request = permissions.remove(decision.request) ?: return
         if (hostedTools.answer(decision)) return
         val dialog = dialogs.remove(decision.request)
+        val origin = connection()
+        var isRetryable = false
         try {
             val isAllowed = decision.option == PiApprovalAllow
             val reply = dialog?.reply(decision) ?: ("confirmed" to JsonPrimitive(isAllowed))
-            (connection() ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable)))
+            (origin ?: piFailure(EngineFailure.Engine(EngineFailureReason.Unavailable)))
                 .respondToUi(decision.request.value, reply)
             // Pi does not acknowledge dialog answers; handing the answer to the process resolves the request.
-            send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
             log.i {
                 when {
                     dialog != null -> "Pi dialog answered by user: ${reply.first}"
@@ -68,9 +71,18 @@ internal class PiSessionPermissions(
             log.w(e) { "Pi approval answer was not delivered" }
             decisions.remove(decision.request)
             // The request is still pending in Pi: keep it answerable so a retry can deliver the answer.
-            permissions[decision.request] = request
-            dialog?.let { dialogs[decision.request] = it }
-            if (isCurrent(decision.turn)) failed(e.failure)
+            if (isCurrent(decision.turn) && connection() === origin) {
+                isRetryable = true
+                permissions[decision.request] = request
+                dialog?.let { dialogs[decision.request] = it }
+                failed(e.failure)
+            }
+        } finally {
+            if (!isRetryable) {
+                withContext(NonCancellable) {
+                    send(ActiveSessionIntent.Internal.PermissionResolved(decision.turn, decision.request))
+                }
+            }
         }
     }
 
