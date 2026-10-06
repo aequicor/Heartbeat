@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.Fence
+import io.aequicor.heartbeat.feature.aiengine.facade.api.cut
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
