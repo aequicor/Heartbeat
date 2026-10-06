@@ -39,6 +39,19 @@ internal interface PreparedCodexLaunch {
         return open()
     }
 
+    /**
+     * Stops only identity-checked stored processes, without opening a thread. Newly observed descendants are
+     * recorded before signalling; the returned owner includes concurrent observations. Null aborts signalling.
+     * [beginInspection] durably marks discovery pending before enumerating new children; [record] clears it only
+     * after a complete snapshot. An interrupted inspection must never be retried as an empty complete snapshot.
+     * True proves exit of those observed processes only, not containment of unobserved descendants.
+     */
+    suspend fun stop(
+        owner: CodexExecutionOwner,
+        beginInspection: suspend () -> Boolean,
+        record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
+    ): Boolean = false
+
     /** Reads the version of that same executable; an unknown version cannot authorize native policy support. */
     suspend fun version(): String? = null
 }
