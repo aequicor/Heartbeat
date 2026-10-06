@@ -74,6 +74,12 @@ internal class LocalCodexTransport(
                     return openResolved(resolved, environment, off)
                 }
 
+                override suspend fun stop(
+                    owner: CodexExecutionOwner,
+                    beginInspection: suspend () -> Boolean,
+                    record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
+                ): Boolean = CodexProcessStop(dispatchers).stop(owner, beginInspection, record)
+
                 override suspend fun version(): String? = withContext(dispatchers.io) {
                     if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
                         version(resolved, environment)

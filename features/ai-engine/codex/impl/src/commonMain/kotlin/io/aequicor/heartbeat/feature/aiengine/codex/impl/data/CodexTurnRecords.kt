@@ -27,9 +27,11 @@ internal data class CodexTurnRecord(
     val trust: TrustLevel,
     /** Absent on legacy records or when the OS cannot establish exact process identity. */
     val processOwner: CodexExecutionOwner? = null,
+    val isProcessStopped: Boolean = false,
 ) {
     init {
         requireNotNull(turn.request)
+        require(!isProcessStopped || (processOwner != null && turn.outcome != null))
         require(nativeId == null || nativeId.isNotBlank())
     }
 }
@@ -42,12 +44,25 @@ internal data class CodexTurnSnapshot(
     val ownership: String?,
     val active: CodexTurnRecord? = null,
     val last: CodexTurnRecord? = null,
+    /** Persists across terminal events until all observed process exits are confirmed. Blocks a new submission. */
+    val stopping: CodexTurnRecord? = null,
+    /** An interrupted/incomplete descendant inspection cannot be repaired by a later empty OS snapshot. */
+    val stopInspection: String? = null,
 ) {
     init {
         require(active?.turn?.outcome == null)
         require(last == null || last.turn.outcome != null)
         require(active == null || active.turn.id != last?.turn?.id)
         require(ref.engine == route.engine)
+        require(stopInspection == null || (stopInspection.isNotBlank() && stopping != null))
+        require(stopping == null || (stopping.processOwner != null && stopping.turn.outcome == null))
+        require(
+            stopping == null || listOfNotNull(active, last).any {
+                it.turn.id == stopping.turn.id && it.turn.request == stopping.turn.request &&
+                    it.processOwner?.launchId == stopping.processOwner?.launchId &&
+                    it.processOwner?.root == stopping.processOwner?.root
+            },
+        )
     }
 
     override fun toString(): String = "CodexTurnSnapshot(***)"
