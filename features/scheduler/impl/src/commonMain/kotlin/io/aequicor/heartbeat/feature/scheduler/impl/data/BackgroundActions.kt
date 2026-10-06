@@ -18,6 +18,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityLimits
+import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityRejection
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
@@ -54,12 +56,6 @@ import kotlin.time.Duration.Companion.hours
 /** Longest wait for a helper agent's first turn. */
 private val MAX_HELPER_TIME: Duration = 6.hours
 
-/** Background actions running at once in a profile. */
-private const val MAX_RUNNING = 8
-
-/** Background actions running at once for one session. */
-private const val MAX_RUNNING_PER_SESSION = 3
-
 private const val KIND_COMMAND = "command"
 private const val KIND_AGENT = "agent"
 private const val HISTORY_WINDOW = 20
@@ -67,8 +63,9 @@ private const val HISTORY_WINDOW = 20
 /**
  * Background actions started by agents: a shell command in the project or a helper agent in a new session. Each runs
  * in the profile scope, outliving the turn that started it, and publishes `action.<id>.finished` with its result as
- * the payload. Running actions are journaled, so a restart reports the ones it interrupted. At most [MAX_RUNNING] run
- * at once, [MAX_RUNNING_PER_SESSION] per session. Commands, prompts and results are never logged.
+ * the payload. Running actions are journaled, so a restart reports the ones it interrupted. Admission shares
+ * [BackgroundCapacityLimits.PROFILE] slots with workflow helpers, retaining
+ * [BackgroundCapacityLimits.SCHEDULED_PER_SESSION] scheduled actions per session. Text is never logged.
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -84,6 +81,7 @@ internal class BackgroundActions(
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
     private val toggles: FeatureToggles,
     private val clock: Clock,
+    private val capacity: ProfileBackgroundCapacity,
     // Optional until an application bundle installs the AI engine facade.
     private val facade: EngineFacade = MissingEngineFacade,
 ) {
@@ -239,13 +237,16 @@ internal class BackgroundActions(
     private suspend fun reserve(id: ActionId, parent: SessionRef): String? {
         start()
         return lock.withLock {
-            when {
-                running.size >= MAX_RUNNING -> "the profile already runs $MAX_RUNNING background actions"
+            when (capacity.tryAcquireScheduled(id, parent)) {
+                BackgroundCapacityRejection.ProfileLimit ->
+                    "the profile already runs ${BackgroundCapacityLimits.PROFILE} background actions"
 
-                running.values.count { it == parent } >= MAX_RUNNING_PER_SESSION ->
-                    "this session already runs $MAX_RUNNING_PER_SESSION background actions"
+                BackgroundCapacityRejection.SessionLimit ->
+                    "this session already runs ${BackgroundCapacityLimits.SCHEDULED_PER_SESSION} background actions"
 
-                else -> {
+                BackgroundCapacityRejection.Duplicate -> "this action is already running"
+
+                null -> {
                     running[id] = parent
                     null
                 }
@@ -255,6 +256,7 @@ internal class BackgroundActions(
 
     private suspend fun release(id: ActionId) {
         lock.withLock { running.remove(id) }
+        capacity.release(id)
     }
 
     /** A failed start must not consume a slot or leave an interruption report for work that never began. */
