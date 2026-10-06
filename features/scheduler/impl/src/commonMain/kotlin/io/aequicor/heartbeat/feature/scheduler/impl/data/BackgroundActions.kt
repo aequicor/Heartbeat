@@ -6,7 +6,6 @@ import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ContentPart
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -20,30 +19,18 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityLimits
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityRejection
-import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
-import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
-import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
-import io.aequicor.heartbeat.feature.scheduler.api.isAwaited
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
-import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerMachine
-import io.aequicor.heartbeat.feature.scheduler.impl.domain.SchedulerPersistence
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -73,46 +60,21 @@ internal class BackgroundActions(
     @ForScope(ProfileScope::class) private val scope: ScopeHandle,
     private val dispatchers: DispatcherProvider,
     private val bus: SchedulerBus,
-    private val machine: SchedulerMachine,
-    private val persistence: SchedulerPersistence,
-    private val journal: ActionJournal,
     private val commands: CommandRunner,
     private val workspaces: LocalWorkspaces,
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
-    private val toggles: FeatureToggles,
     private val clock: Clock,
     private val capacity: ProfileBackgroundCapacity,
+    private val results: ActionResults,
     // Optional until an application bundle installs the AI engine facade.
     private val facade: EngineFacade = MissingEngineFacade,
 ) {
     private val log = Log.tag("BackgroundActions")
     private val lock = Mutex()
-    private val resultsLock = Mutex()
-    private val running = mutableMapOf<ActionId, SessionRef>()
     private val helpers = mutableSetOf<SessionRef>()
-    private var recovery: Job? = null
 
     /** Replays durable results when enabled and retires them only after their waits settle or are cancelled. */
-    suspend fun start() = lock.withLock {
-        if (recovery != null) return@withLock
-        recovery = scope.coroutineScope.launch {
-            combine(toggles.observe(SchedulerEnabled), machine.state, persistence.revision) { enabled, state, _ ->
-                enabled && state is SchedulerState.Ready
-            }.collect { ready ->
-                if (ready) recoverSafely()
-            }
-        }
-    }
-
-    private suspend fun recoverSafely() {
-        try {
-            recover()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e) { "action recovery failed" }
-        }
-    }
+    suspend fun start() = results.start()
 
     /** Whether command actions can run here. */
     val areCommandsAvailable: Boolean get() = commands.isAvailable && workspaces.isAvailable
@@ -132,7 +94,7 @@ internal class BackgroundActions(
         try {
             val directory = workspaces.resolve(workspace) ?: return@run "the project is not available"
             val record = ActionRecord(id, KIND_COMMAND, clock.now())
-            journal.add(record)
+            results.begin(record)
             log.i { "action $id: command started, timeout=$timeout" }
             scope.coroutineScope.launch(dispatchers.io) {
                 finish(record) { commands.run(directory, command, timeout).payload() }
@@ -153,7 +115,7 @@ internal class BackgroundActions(
         var isHandedOff = false
         try {
             val record = ActionRecord(id, KIND_AGENT, clock.now())
-            journal.add(record)
+            results.begin(record)
             val startup = scope.coroutineScope.async(start = CoroutineStart.LAZY) { spawnAndWatch(record, request) }
             startup.start()
             isHandedOff = true
@@ -197,41 +159,8 @@ internal class BackgroundActions(
         }
     }
 
-    /** Replays completed results and marks only actions no longer owned by this profile run as interrupted. */
-    suspend fun recover() {
-        // While disabled, keep both interrupted actions and completed results for the next enable.
-        if (!toggles.get(SchedulerEnabled)) return
-        machine.state.first { it is SchedulerState.Ready }
-        resultsLock.withLock {
-            journal.readAll().forEach { stored ->
-                if (stored.payload == null && lock.withLock { stored.id in running }) return@forEach
-                val record = if (stored.payload != null) {
-                    stored
-                } else {
-                    stored.copy(payload = "status: interrupted (the app closed before the ${stored.kind} finished)")
-                        .also { journal.add(it) }
-                }
-                deliverResult(record)
-            }
-        }
-    }
-
-    private suspend fun deliverResult(record: ActionRecord) {
-        val event = BusEvent(
-            EventKeys.actionFinished(record.id),
-            EventOrigin.Action(record.id),
-            clock.now(),
-            record.payload,
-        )
-        val ready = machine.state.value as? SchedulerState.Ready ?: return
-        if (ready.wakes.none { it.matches(event) }) {
-            // A memory-only settlement must not erase the result of a wake that can return after a crash.
-            if (persistence.revision.value >= ready.revision) journal.remove(record.id)
-        } else if (ready.isAwaited(event)) {
-            // The bus has no replay: recovery must also work before the driver has subscribed.
-            machine.send(SchedulerIntent.Internal.Observed(event))
-        }
-    }
+    /** Replays completed results and reports scheduler operations interrupted by a restart. */
+    suspend fun recover() = results.recover()
 
     /** Takes a running slot for [id] of [parent]; returns why there is none, or null. */
     private suspend fun reserve(id: ActionId, parent: SessionRef): String? {
@@ -246,32 +175,26 @@ internal class BackgroundActions(
 
                 BackgroundCapacityRejection.Duplicate -> "this action is already running"
 
-                null -> {
-                    running[id] = parent
-                    null
-                }
+                null -> null
             }
         }
     }
 
     private suspend fun release(id: ActionId) {
-        lock.withLock { running.remove(id) }
+        results.releaseOwnership(id)
         capacity.release(id)
     }
 
     /** A failed start must not consume a slot or leave an interruption report for work that never began. */
     private suspend fun rollback(id: ActionId) = withContext(NonCancellable) {
-        resultsLock.withLock {
-            try {
-                // A profile-owned startup interrupted by closing the profile must be reported on reopening.
-                if (!scope.isClosed) journal.remove(id)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.w(e) { "action $id: failed to remove an unstarted action" }
-            } finally {
-                withContext(NonCancellable) { release(id) }
-            }
+        try {
+            results.abandon(id)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(e) { "action $id: failed to remove an unstarted action" }
+        } finally {
+            withContext(NonCancellable) { release(id) }
         }
     }
 
@@ -297,11 +220,7 @@ internal class BackgroundActions(
                 log.w(e) { "action $id failed" }
                 "status: failed (${e::class.simpleName.orEmpty()})"
             }
-            val completed = record.copy(payload = payload.take(SchedulerLimits.MAX_PAYLOAD))
-            resultsLock.withLock { journal.add(completed) }
-            bus.publish(EventKeys.actionFinished(id), EventOrigin.Action(id), completed.payload)
-            recover()
-            log.i { "action $id finished" }
+            results.complete(record, payload)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
