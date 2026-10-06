@@ -73,18 +73,21 @@ class CodexToolCancellationTest {
     }
 
     /** Direct delivery keeps event handling synchronous while tool and interrupt jobs share the test scheduler. */
-    private fun Fixture.directSession(): CodexSession = CodexSession(
-        ref = SessionRef(runtime.identity.engine, environment.config.historySource, "thread"),
-        route = ExecutionRoute(
-            runtime.identity.engine,
-            target.binding,
-            runtime.identity.source,
-            runtime.identity.revision,
-        ),
-        target = target,
-        runtime = runtime,
-        connection = CodexConnection(rpc, test.backgroundScope, {}, { _, _ -> }),
-    )
+    private suspend fun Fixture.directSession(): CodexSession {
+        runtime.gate()
+        return CodexSession(
+            ref = SessionRef(runtime.identity.engine, environment.config.historySource, "thread"),
+            route = ExecutionRoute(
+                runtime.identity.engine,
+                target.binding,
+                runtime.identity.source,
+                runtime.identity.revision,
+            ),
+            target = target,
+            runtime = runtime,
+            connection = CodexConnection(rpc, test.backgroundScope, {}, { _, _ -> }),
+        )
+    }
 
     private fun Fixture.toolResponse(): JsonObject = wire.written.single { it["id"] == TOOL_REQUEST_ID }.obj("result")
 

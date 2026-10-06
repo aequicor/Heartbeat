@@ -57,6 +57,7 @@ internal class CodexSession(
     connection: CodexConnection,
     val areHostedToolsEnabled: Boolean = true,
     opening: CodexPreparedThread? = null,
+    restored: CodexTurnSnapshot? = null,
 ) {
     val connectionMutex = Mutex()
     private val execution = CodexExecution(this, connection, opening, ::connectionChanged, ::auditReopened)
@@ -65,6 +66,8 @@ internal class CodexSession(
     val contextUsage = CodexContextUsage()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
+    private val journal = CodexTurnJournal(runtime.host.turns, ref, route, runtime.turnOwnership)
+    private var isActiveExecutionOwned = restored?.active == null
     private val inputs = mutableMapOf<TurnId, CodexPromptInputs>()
     private val scope = runtime.host.scopes.child(runtime.profile, "codex-${Uuid.random()}")
     private val nativeTurns = mutableMapOf<String, TurnId>()
@@ -88,7 +91,10 @@ internal class CodexSession(
     /** Turns whose tool jobs were closed; late tool calls for them are refused, never restarted. */
     private val toolsClosed = mutableSetOf<TurnId>()
     val machine = runtime.host.launcher.launch(
-        activeSessionMachineSpec(ActiveSessionMachineKey(Uuid.random().toString()), ActiveSessionState.Ready()),
+        activeSessionMachineSpec(
+            ActiveSessionMachineKey(Uuid.random().toString()),
+            restored.codexInitialState(),
+        ),
         scope,
         EffectHandler { effect, _ ->
             // Handoff to the profile-owned scope. State changes must not cancel accepted native work.
@@ -181,7 +187,7 @@ internal class CodexSession(
 
     private suspend fun execute(effect: ActiveSessionEffect) {
         try {
-            val id = effect.turnId()
+            val id = effect.codexTurnId()
             // Recheck reconciles whatever is current; its remembered turn may already have finished.
             if (id != null && effect !is ActiveSessionEffect.Recheck && id != currentTurn()?.id) return
             executeCommand(effect)
@@ -217,11 +223,12 @@ internal class CodexSession(
             error
         }
         // A recheck reports against the turn that is current now; its remembered one may have finished.
-        val id = if (effect is ActiveSessionEffect.Recheck) currentTurn()?.id else effect.turnId()
+        val id = if (effect is ActiveSessionEffect.Recheck) currentTurn()?.id else effect.codexTurnId()
         if (id != null) submissions.remove(id)?.completeExceptionally(EngineException(failure))
         machine.send(ActiveSessionIntent.Internal.Failed(id, failure))
         val state = machine.state.value as? ActiveSessionState.Unavailable ?: return
         if (isRejected && id != null && state.activeTurn?.id == id) {
+            journal.finish(id, TurnOutcome.Failed(failure))
             finished += id
             machine.send(
                 ActiveSessionIntent.Internal.Synchronized(
@@ -294,12 +301,15 @@ internal class CodexSession(
         trust = effect.request.trust ?: TrustLevel.Ask
         val prepared = inputs.remove(effect.turn.id) ?: protocolFailure()
         val input = JsonArray(prepared.parts)
+        journal.begin(effect.turn, trust)
         confirmSubmission(effect)
+        isActiveExecutionOwned = true
         val response = rpc.request(
             "turn/start",
             codexTurnParams(ref.nativeId, target.model.value, input, effect.request.reasoningEffort),
         )
         val id = response.obj("turn").text("id") ?: protocolFailure()
+        journal.bind(effect.turn.id, id)
         nativeTurns[id] = effect.turn.id
         if (currentTurn()?.id == effect.turn.id) nativeTurn = id
         rememberNativeInput(id, effect.request.parts)
@@ -344,7 +354,7 @@ internal class CodexSession(
         val remembered = turns.firstOrNull { native != null && it.text("id") == native }
         log.i { "Codex session rechecked" }
         when {
-            remembered?.text("status") == IN_PROGRESS && active != null -> machine.send(
+            remembered?.text("status") == IN_PROGRESS && active != null && isActiveExecutionOwned -> machine.send(
                 ActiveSessionIntent.Internal.Synchronized(
                     active,
                     hostedRequests.values
@@ -389,8 +399,12 @@ internal class CodexSession(
     private suspend fun synchronizeIdle(active: Turn?, remembered: JsonObject?) {
         // Rollout projections may omit turns or their status. Unknown means proven stopped, not missing data.
         if (active != null && remembered?.text("status") !in TERMINAL_STATUSES) return
-        val completed = if (active != null && remembered != null && finished.add(active.id)) {
-            ActiveSessionIntent.Internal.Finished(active.id, outcome(remembered))
+        val completed = if (active != null && remembered != null && active.id !in finished) {
+            val result = codexTurnOutcome(remembered, route.binding)
+            cancelTools(active.id)
+            journal.finish(active.id, result)
+            if (currentTurn()?.id != active.id || !finished.add(active.id)) return
+            ActiveSessionIntent.Internal.Finished(active.id, result)
         } else {
             null
         }
@@ -412,9 +426,19 @@ internal class CodexSession(
         machine.send(ActiveSessionIntent.Internal.Accepted(turn.id))
     }
 
-    suspend fun load(turns: List<JsonElement>?, isNew: Boolean, isCanonical: Boolean) {
+    suspend fun load(
+        turns: List<JsonElement>?,
+        isNew: Boolean,
+        isCanonical: Boolean,
+        restored: CodexTurnSnapshot? = null,
+    ) {
         isCreatedHere = isNew
-        nativeHistory.load(turns, isNew, isCanonical)
+        nativeTurns.putAll(restored.codexNativeTurns())
+        restored?.last?.turn?.id?.let { finished += it }
+        nativeHistory.load(turns, isNew, isCanonical, nativeTurns)
+        val active = restored?.active ?: return
+        val native = turns.orEmpty().filterIsInstance<JsonObject>().firstOrNull { it.text("id") == active.nativeId }
+        if (native?.text("status") in TERMINAL_STATUSES) synchronizeIdle(active.turn, native)
     }
 
     suspend fun event(message: JsonObject, source: CodexConnection = connection) {
@@ -428,7 +452,7 @@ internal class CodexSession(
     private suspend fun receive(message: JsonObject, source: CodexConnection) {
         val params = message.obj("params")
         val method = message.text("method")
-        if (usageEvent(method, params)) return
+        if (contextUsage.event(method, params, runtime::usageEnabled)) return
         val turn = currentTurn()
         val turnId = correlate(params, turn)
         when (method) {
@@ -482,23 +506,6 @@ internal class CodexSession(
         }
     }
 
-    private suspend fun usageEvent(method: String?, params: JsonObject): Boolean {
-        when (method) {
-            "thread/tokenUsage/updated" -> if (runtime.usageEnabled()) contextUsage.receive(params)
-
-            "thread/compacted" -> contextUsage.clear()
-
-            else -> {
-                if (method == "item/started" || method == "item/completed") {
-                    val item = params["item"] as? JsonObject
-                    if (item?.text("type") == "contextCompaction") contextUsage.clear()
-                }
-                return false
-            }
-        }
-        return true
-    }
-
     /**
      * Answers a dynamic tool call without blocking the server-message loop: the search runs in a child job of the
      * turn, so deltas and approvals keep flowing and interrupting the turn cancels the search.
@@ -506,7 +513,7 @@ internal class CodexSession(
     private suspend fun dynamicTool(message: JsonObject, turn: Turn?, source: CodexConnection) {
         val id = message["id"] ?: protocolFailure()
         val params = message.obj("params")
-        val isClosed = turn == null || turn.id in finished || turn.id in toolsClosed
+        val isClosed = !isActiveExecutionOwned || turn == null || turn.id in finished || turn.id in toolsClosed
         if (isClosed || params.text("turnId") != nativeTurn) {
             log.i { "Codex tool call refused: turn unavailable" }
             source.rpc.respond(id, toolFailureResult("TurnUnavailable"))
@@ -640,25 +647,28 @@ internal class CodexSession(
         toolJobs.remove(turn)?.cancel()
     }
 
-    private fun correlate(params: JsonObject, turn: Turn?): TurnId? {
+    private suspend fun correlate(params: JsonObject, turn: Turn?): TurnId? {
         val native = params.text("turnId") ?: (params["turn"] as? JsonObject)?.text("id") ?: return null
         if (native in nativeTurns) return nativeTurns[native]
         if (turn == null || nativeTurn != null) return null
         if (machine.state.value !is ActiveSessionState.Submitting) return null
+        journal.bind(turn.id, native)
         nativeTurn = native
         nativeTurns[native] = turn.id
         return turn.id
     }
 
     private suspend fun complete(id: TurnId, native: JsonObject) {
-        if (!finished.add(id)) return
+        if (id in finished || currentTurn()?.id != id) return
+        val outcome = codexTurnOutcome(native, route.binding)
         completeTools(id)
-        val outcome = outcome(native)
+        journal.finish(id, outcome)
+        if (!finished.add(id)) return
         currentTurn()?.takeIf { it.id == id }?.let { accept(it) }
-        machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))
-        history.publish { SessionEvent.TurnFinished(it, id, outcome) }
         nativeTurn = null
         hostedRequests.clear()
+        machine.send(ActiveSessionIntent.Internal.Finished(id, outcome))
+        history.publish { SessionEvent.TurnFinished(it, id, outcome) }
         // Finished keeps Unavailable; only Synchronized leaves it.
         recheck()
         runtime.release(this)
@@ -710,36 +720,7 @@ internal class CodexSession(
         scope.close()
     }
 
-    private fun ActiveSessionEffect.turnId(): TurnId? = when (this) {
-        is ActiveSessionEffect.Submit -> turn.id
-        is ActiveSessionEffect.Cancel -> turn
-        is ActiveSessionEffect.Decide -> decision.turn
-        is ActiveSessionEffect.Recheck -> turn
-        ActiveSessionEffect.Release -> null
-    }
-
-    private fun currentTurn(): Turn? = when (val state = machine.state.value) {
-        is ActiveSessionState.Submitting -> state.turn
-        is ActiveSessionState.Running -> state.turn
-        is ActiveSessionState.AwaitingUserAction -> state.turn
-        is ActiveSessionState.Interrupting -> state.turn
-        is ActiveSessionState.Unavailable -> state.activeTurn
-        is ActiveSessionState.Ready, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
-    }
-
-    private fun outcome(native: JsonObject): TurnOutcome = when (native.text("status")) {
-        "completed" -> TurnOutcome.Completed
-
-        "interrupted" -> TurnOutcome.Cancelled
-
-        "failed" -> {
-            val failure = codexTurnFailure(native["error"] as? JsonObject, route.binding)
-            log.w { "Codex turn failed code=${failure.code}" }
-            TurnOutcome.Failed(failure)
-        }
-
-        else -> TurnOutcome.Unknown
-    }
+    private fun currentTurn(): Turn? = machine.state.value.codexCurrentTurn()
 
     private companion object {
         const val IN_PROGRESS = "inProgress"

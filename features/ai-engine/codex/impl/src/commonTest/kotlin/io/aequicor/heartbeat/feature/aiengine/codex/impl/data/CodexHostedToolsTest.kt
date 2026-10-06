@@ -187,7 +187,7 @@ class CodexHostedToolsTest {
     private fun Fixture.storedRef() = SessionRef(target.engine, environment.config.historySource, "thread")
 }
 
-private class HostedFixture(description: String = "Run command") : ProfileAgentTools {
+internal class HostedFixture(description: String = "Run command") : ProfileAgentTools {
     override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
 
     private val spec = AgentToolSpec("run_command", description, json("type" to "object".json()))

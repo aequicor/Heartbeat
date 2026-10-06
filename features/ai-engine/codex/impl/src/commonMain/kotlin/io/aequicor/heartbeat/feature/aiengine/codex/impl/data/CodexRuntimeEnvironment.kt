@@ -30,4 +30,5 @@ internal data class CodexRuntimeEnvironment(
     val resourceHistory: PromptResourceHistory = PromptResourceHistory.None,
     val tools: ProfileAgentTools = NoAgentTools,
     val manifests: CodexToolManifests = MemoryCodexToolManifests(),
+    val turns: CodexTurnRecords = MemoryCodexTurnRecords(),
 )

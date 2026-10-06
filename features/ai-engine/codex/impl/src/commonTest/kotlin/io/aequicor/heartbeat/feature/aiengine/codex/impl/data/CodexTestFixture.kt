@@ -142,10 +142,11 @@ internal class Fixture(
         override suspend fun fetch(url: String, native: EngineFeatures?): ResourceContent = error("unavailable")
     },
     searchTools: Boolean = true,
-    configuration: CodexLocalConfiguration = CodexLocalConfiguration(),
+    configuration: CodexLocalConfiguration = CodexLocalConfiguration(homeDirectory = "/test/codex"),
     tools: io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools =
         AllowedSearchTools,
     manifests: CodexToolManifests = MemoryCodexToolManifests(),
+    turns: CodexTurnRecords = MemoryCodexTurnRecords(),
     launch: PreparedCodexLaunch? = null,
 ) {
     val dispatcher = StandardTestDispatcher(test.testScheduler)
@@ -158,6 +159,7 @@ internal class Fixture(
     val wire = FakeWire()
     val rpc = CodexRpc(wire, test.backgroundScope)
     val target = EngineTarget(CodexEngine.Id, EngineBindingId("binding"), ModelId("model"))
+    var codexHome: String? = null
     var account = json("type" to "chatgpt".json(), "email" to "local@example.invalid".json())
     var threadTurns: List<JsonObject> = emptyList()
 
@@ -211,6 +213,7 @@ internal class Fixture(
         },
         tools = tools,
         manifests = manifests,
+        turns = turns,
         resources = ResourceResolver { resources.resolve(it) },
     )
     val runtime = CodexRuntime(
@@ -276,7 +279,10 @@ internal class Fixture(
 
                 "turn/interrupt", "thread/name/set" -> wire.reply(message, JsonObject(emptyMap()))
 
-                "initialize" -> wire.reply(message, JsonObject(emptyMap()))
+                "initialize" -> wire.reply(
+                    message,
+                    JsonObject(codexHome?.let { mapOf("codexHome" to it.json()) }.orEmpty()),
+                )
             }
         }
     }
