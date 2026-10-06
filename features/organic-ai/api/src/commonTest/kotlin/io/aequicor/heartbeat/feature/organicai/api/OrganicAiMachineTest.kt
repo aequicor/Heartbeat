@@ -366,9 +366,12 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `a cell with living children rests and wakes on its child's result`() {
-        val parent = organism(cell(C1))
-        val resting = parent.copy(cells = listOf(zygoteCell(CellPhase.Resting), cell(C1)), version = 2)
+    fun `a cell explicitly waiting for children rests and wakes with an inbox reminder`() {
+        val parent = organism(cell(C1), zygote = zygoteCell().copy(isAwaitingResults = true))
+        val resting = parent.copy(
+            cells = listOf(zygoteCell(CellPhase.Resting).copy(isAwaitingResults = true), cell(C1)),
+            version = 2,
+        )
         spec.assertTransition(
             living(parent),
             settled(ZYGOTE),
@@ -378,7 +381,7 @@ class OrganicAiMachineTest {
         val letter = Letter.ChildFinished(C1, "cell c1", "found it")
         val woken = organism(
             cell(C1, phase = CellPhase.Completed("found it")),
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(letter))), turns = 2),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.CheckInbox), turns = 2, inbox = listOf(letter)),
             version = 3,
         )
         spec.assertTransition(
@@ -394,11 +397,11 @@ class OrganicAiMachineTest {
     }
 
     @Test
-    fun `letters that came during a turn are worked on before the answer is final`() {
+    fun `an explicitly requested wait handles results that arrived before the turn ended`() {
         val letter = Letter.Verdict(CaseId("k1"), C2, "cell c2", VerdictOutcome.Spared, "fine")
-        val busy = organism(zygote = zygoteCell(inbox = listOf(letter)))
+        val busy = organism(zygote = zygoteCell(inbox = listOf(letter)).copy(isAwaitingResults = true))
         val next = organism(
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(letter))), turns = 2),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.CheckInbox), turns = 2, inbox = listOf(letter)),
             version = 2,
         )
         spec.assertTransition(
@@ -421,12 +424,16 @@ class OrganicAiMachineTest {
             effects = listOf(OrganicAiEffect.Persist(stalled)),
         )
 
-        val family = organism(cell(C1), cell(C2, parent = C1), zygote = zygoteCell(CellPhase.Resting))
+        val family = organism(
+            cell(C1),
+            cell(C2, parent = C1),
+            zygote = zygoteCell(CellPhase.Resting).copy(isAwaitingResults = true),
+        )
         val died = Letter.ChildDied(C1, "cell c1", DeathCause.Failed(failure))
         val after = organism(
             cell(C1, phase = CellPhase.Dead(DeathCause.Failed(failure))),
             cell(C2, parent = C1, phase = CellPhase.Dead(DeathCause.Orphaned(C1))),
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(died))), turns = 2),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.CheckInbox), turns = 2, inbox = listOf(died)),
             version = 2,
         )
         spec.assertTransition(
@@ -447,8 +454,8 @@ class OrganicAiMachineTest {
         val before = organism(
             cell(C1),
             cell(C2, parent = C1, phase = CellPhase.Resting),
-            cell(C3, phase = CellPhase.Resting),
-            zygote = zygoteCell(CellPhase.Resting),
+            cell(C3, phase = CellPhase.Resting).copy(isAwaitingResults = true),
+            zygote = zygoteCell(CellPhase.Resting).copy(isAwaitingResults = true),
             cases = listOf(complaint),
         )
         val cause = DeathCause.Lysed(complaint.id, "harmful")
@@ -457,8 +464,8 @@ class OrganicAiMachineTest {
         val after = organism(
             cell(C1, phase = CellPhase.Dead(cause)),
             cell(C2, parent = C1, phase = CellPhase.Dead(DeathCause.Orphaned(C1))),
-            cell(C3, phase = working(C3, turn = 2, work = Work.Letters(listOf(verdict))), turns = 2),
-            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(died))), turns = 2),
+            cell(C3, phase = working(C3, turn = 2, work = Work.CheckInbox), turns = 2, inbox = listOf(verdict)),
+            zygote = zygoteCell(working(ZYGOTE, turn = 2, work = Work.CheckInbox), turns = 2, inbox = listOf(died)),
             casesFiled = 1,
             version = 2,
         )
@@ -502,7 +509,11 @@ class OrganicAiMachineTest {
     @Test
     fun `a plaintiff rests until its verdict, which wakes it`() {
         val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "loops")
-        val filed = organism(cell(C1, phase = CellPhase.Completed("ok")), cases = listOf(complaint))
+        val filed = organism(
+            cell(C1, phase = CellPhase.Completed("ok")),
+            zygote = zygoteCell().copy(isAwaitingResults = true),
+            cases = listOf(complaint),
+        )
         val answered = spec.resolve(living(filed), settled(ZYGOTE))!!
         assertEquals(CellPhase.Resting, answered.to.organism().zygote.phase)
         assertEquals(OrganismStatus.Developing, answered.to.organism().status)
@@ -511,7 +522,8 @@ class OrganicAiMachineTest {
         val ruled = spec.resolve(answered.to, spare)!!
         val verdict = Letter.Verdict(complaint.id, C1, "cell c1", VerdictOutcome.Spared, "ok")
         val woken = ruled.to.organism()
-        assertEquals(working(ZYGOTE, turn = 2, work = Work.Letters(listOf(verdict))), woken.zygote.phase)
+        assertEquals(working(ZYGOTE, turn = 2, work = Work.CheckInbox), woken.zygote.phase)
+        assertEquals(listOf(verdict), woken.zygote.inbox)
         assertTrue(OrganicAiEffect.Drive(woken, ZYGOTE, request(ZYGOTE, 2)) in ruled.effects)
     }
 
@@ -519,7 +531,7 @@ class OrganicAiMachineTest {
     fun `a dispute answer wakes the asker and reaches the parties`() {
         val dispute = ImmuneCase.Dispute(CaseId("k1"), C1, "Which API?", listOf(C2))
         val before = organism(
-            cell(C1, phase = CellPhase.Resting),
+            cell(C1, phase = CellPhase.Resting).copy(isAwaitingResults = true),
             cell(C2),
             zygote = zygoteCell(CellPhase.Resting),
             cases = listOf(dispute),
@@ -530,7 +542,8 @@ class OrganicAiMachineTest {
         )!!
         val letter = Letter.DisputeResolved(dispute.id, "Which API?", "REST", "simpler")
         val after = ruled.to.organism()
-        assertEquals(working(C1, turn = 2, work = Work.Letters(listOf(letter))), after.cell(C1)?.phase)
+        assertEquals(working(C1, turn = 2, work = Work.CheckInbox), after.cell(C1)?.phase)
+        assertEquals(listOf(letter), after.cell(C1)?.inbox)
         assertEquals(listOf(letter), after.cell(C2)?.inbox)
         assertEquals(emptyList(), after.cases)
         assertTrue(OrganicAiEffect.Drive(after, C1, request(C1, 2)) in ruled.effects)

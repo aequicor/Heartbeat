@@ -50,7 +50,7 @@ class OrganismUiTest {
         trust = null,
         limits = GrowthLimits(),
         cells = listOf(
-            Cell(CellId.ZYGOTE, "zygote", null, "Build", CellPhase.Resting, ref("z")),
+            Cell(CellId.ZYGOTE, "zygote", null, "Build", CellPhase.Resting, ref("z"), isAwaitingResults = true),
             Cell(
                 CellId("c1"),
                 "tests",
@@ -112,6 +112,8 @@ class OrganismUiTest {
             cells = listOf(organism.cells[0].copy(phase = CellPhase.Stalled(Breakdown.NoModel, Work.Genesis))),
         )
         assertEquals(OrganismStatusUi.Stalled, stalled.toUi().status)
+        val unarmed = organism.copy(cells = organism.cells.map { it.copy(isAwaitingResults = false) })
+        assertEquals(OrganismStatusUi.Stalled, unarmed.toUi().status)
         assertEquals(OrganismStatusUi.Aborted, organism.copy(status = OrganismStatus.Aborted).toUi().status)
         assertEquals(OrganismStatusUi.Completed, organism.copy(status = OrganismStatus.Completed("ok")).toUi().status)
     }

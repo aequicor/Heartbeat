@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.organicai.api.CaseId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.GrowthLimits
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
+import io.aequicor.heartbeat.feature.organicai.api.Letter
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEffect
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiEnabled
 import io.aequicor.heartbeat.feature.organicai.api.OrganicAiIntent
@@ -22,6 +23,11 @@ import io.aequicor.heartbeat.feature.organicai.api.OrganicAiState
 import io.aequicor.heartbeat.feature.organicai.api.Organism
 import io.aequicor.heartbeat.feature.organicai.api.OrganismStatus
 import io.aequicor.heartbeat.feature.organicai.api.OrganismTools
+import io.aequicor.heartbeat.feature.organicai.api.Ruling
+import io.aequicor.heartbeat.feature.organicai.api.Settlement
+import io.aequicor.heartbeat.feature.organicai.api.Work
+import io.aequicor.heartbeat.feature.organicai.api.cell
+import io.aequicor.heartbeat.feature.organicai.api.zygote
 import io.aequicor.heartbeat.feature.organicai.impl.C1
 import io.aequicor.heartbeat.feature.organicai.impl.C2
 import io.aequicor.heartbeat.feature.organicai.impl.ORGANISM
@@ -29,7 +35,10 @@ import io.aequicor.heartbeat.feature.organicai.impl.ZYGOTE
 import io.aequicor.heartbeat.feature.organicai.impl.cell
 import io.aequicor.heartbeat.feature.organicai.impl.domain.OrganicAiMachine
 import io.aequicor.heartbeat.feature.organicai.impl.organism
+import io.aequicor.heartbeat.feature.organicai.impl.request
 import io.aequicor.heartbeat.feature.organicai.impl.session
+import io.aequicor.heartbeat.feature.organicai.impl.working
+import io.aequicor.heartbeat.feature.organicai.impl.zygoteCell
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +64,8 @@ class OrganismAgentToolsTest {
         pairs.associate { (key, value) ->
             key to when (value) {
                 is List<*> -> JsonArray(value.map { JsonPrimitive(it as String) })
+                is Boolean -> JsonPrimitive(value)
+                is Int -> JsonPrimitive(value)
                 else -> JsonPrimitive(value as String)
             }
         },
@@ -64,7 +75,13 @@ class OrganismAgentToolsTest {
     fun `cells see the tools only while an organism develops`() = runTest {
         val (developing, _) = tools(organism())
         assertEquals(
-            listOf(OrganismTools.DIVIDE, OrganismTools.COMPLAIN, OrganismTools.DISPUTE, OrganismTools.STATUS),
+            listOf(
+                OrganismTools.DIVIDE,
+                OrganismTools.COMPLAIN,
+                OrganismTools.DISPUTE,
+                OrganismTools.STATUS,
+                OrganismTools.RECEIVE,
+            ),
             developing.specifications(null).map { it.name },
         )
         assertTrue(developing.specifications(null).all { it.action == AgentToolAction.Read })
@@ -168,6 +185,121 @@ class OrganismAgentToolsTest {
         val (racing, _) = tools(organism(), machine = SpecMachine(organism(), result = SendResult.Ignored))
         val raced = racing.execute(context(), OrganismTools.DIVIDE, args(OrganismTools.Arguments.TASK to "x"))
         assertEquals(AgentToolResult("The organism changed meanwhile; retry", isError = true), raced)
+    }
+
+    @Test
+    fun `receive returns only the caller's results and supports replay after uncertain delivery`() = runTest {
+        val own = Letter.ChildFinished(C1, "child", "own result")
+        val foreign = Letter.ChildFinished(C2, "child", "other cell result")
+        val (tools, machine) = tools(
+            organism(cell(C1).copy(inbox = listOf(foreign)), zygote = zygoteCell(inbox = listOf(own))),
+        )
+        val result = tools.execute(context(), OrganismTools.RECEIVE, args())
+        assertFalse(result.isError, result.text)
+        assertTrue("own result" in result.text)
+        assertFalse("other cell result" in result.text)
+        assertTrue("next=1; more=false" in result.text)
+        assertEquals(1, machine.organism().zygote.receivedLetters)
+        assertFalse(tools.execute(context(), OrganismTools.RECEIVE, args()).text.contains("own result"))
+        val replay = tools.execute(context(), OrganismTools.RECEIVE, args("after" to 0))
+        assertTrue("own result" in replay.text)
+        assertEquals(1, machine.organism().zygote.receivedLetters)
+        assertFalse(machine.effects.any { it is OrganicAiEffect.Drive })
+    }
+
+    @Test
+    fun `receive paginates large inboxes and the compatibility status operation reads the next page`() = runTest {
+        val letters = (1..18).map { Letter.ChildFinished(C1, "child", "result $it") }
+        val (tools, machine) = tools(organism(zygote = zygoteCell(inbox = letters)))
+        val first = tools.execute(context(), OrganismTools.RECEIVE, args())
+        assertTrue("next=16; more=true" in first.text)
+        assertFalse("result 17" in first.text)
+        val last = tools.execute(context(), OrganismTools.STATUS, args("receive" to true))
+        assertTrue("next=18; more=false" in last.text)
+        assertTrue("result 17" in last.text && "result 18" in last.text)
+        assertEquals(18, machine.organism().zygote.receivedLetters)
+    }
+
+    @Test
+    fun `empty reads do not arm a wait unless requested and a ready read never asks the agent to stop`() = runTest {
+        val (tools, machine) = tools(organism(cell(C1)))
+        val empty = tools.execute(context(), OrganismTools.RECEIVE, args())
+        assertTrue("No results available" in empty.text)
+        assertEquals(emptyList(), machine.sent)
+        val wait = tools.execute(context(), OrganismTools.RECEIVE, args("wait" to true))
+        assertTrue("Result wait registered" in wait.text)
+        assertTrue(machine.organism().zygote.isAwaitingResults)
+        assertFalse(machine.effects.any { it is OrganicAiEffect.Drive })
+
+        val ready = tools(
+            organism(zygote = zygoteCell(inbox = listOf(Letter.ChildFinished(C1, "child", "ready")))),
+        ).first
+        val result = ready.execute(context(), OrganismTools.RECEIVE, args("wait" to true))
+        assertTrue("ready" in result.text)
+        assertFalse("End your turn" in result.text)
+        val finished = tools(organism()).first.execute(context(), OrganismTools.RECEIVE, args("wait" to true))
+        assertTrue("No children or cases are pending" in finished.text)
+    }
+
+    @Test
+    fun `a dispute party can wait for and read a ruling arriving before or after its turn ends`() = runTest {
+        for (isRuledBeforeSettlement in listOf(false, true)) {
+            val dispute = ImmuneCase.Dispute(CaseId("k1"), ZYGOTE, "Which?", listOf(C1))
+            val (tools, machine) = tools(organism(cell(C1), cell(C2), cases = listOf(dispute)))
+            val unrelated = tools.execute(context(session("c2")), OrganismTools.RECEIVE, args("wait" to true))
+            assertTrue("No children or cases are pending" in unrelated.text)
+            val wait = tools.execute(context(session("c1")), OrganismTools.RECEIVE, args("wait" to true))
+            assertTrue("Result wait registered" in wait.text, wait.text)
+            assertEquals(true, machine.organism().cell(C1)?.isAwaitingResults)
+            val ruling = OrganicAiIntent.Internal.Ruled(ORGANISM, dispute.id, Ruling.Answer("REST", "simpler"))
+            if (isRuledBeforeSettlement) assertEquals(SendResult.Accepted, machine.send(ruling))
+            assertEquals(
+                SendResult.Accepted,
+                machine.send(
+                    OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, request(C1), Settlement.Answered("wait")),
+                ),
+            )
+            if (!isRuledBeforeSettlement) {
+                assertEquals(CellPhase.Resting, machine.organism().cell(C1)?.phase)
+                assertEquals(SendResult.Accepted, machine.send(ruling))
+            }
+            val phase = machine.organism().cell(C1)?.phase as CellPhase.Working
+            assertEquals(Work.CheckInbox, phase.work)
+            assertEquals(request(C1, 2), phase.request)
+            val result = tools.execute(context(session("c1")), OrganismTools.RECEIVE, args())
+            assertFalse(result.isError, result.text)
+            assertTrue("REST" in result.text && "simpler" in result.text, result.text)
+            assertEquals(1, machine.organism().cell(C1)?.receivedLetters)
+            assertEquals(
+                SendResult.Accepted,
+                machine.send(
+                    OrganicAiIntent.Internal.TurnSettled(ORGANISM, C1, phase.request, Settlement.Answered("done")),
+                ),
+            )
+            assertEquals(CellPhase.Completed("done"), machine.organism().cell(C1)?.phase)
+        }
+    }
+
+    @Test
+    fun `receive validates its arguments and never exposes results to unrelated sessions`() = runTest {
+        val (tools, machine) = tools(organism())
+        listOf(args("after" to -1), args("after" to 1), args("after" to "0"), args("wait" to "true")).forEach {
+            assertTrue(tools.execute(context(), OrganismTools.RECEIVE, it).isError)
+        }
+        assertTrue(tools.execute(context(session("unrelated")), OrganismTools.RECEIVE, args()).isError)
+        assertEquals(emptyList(), machine.sent)
+    }
+
+    @Test
+    fun `a late receive from a previous native turn cannot consume a new turn's results`() = runTest {
+        val parent = zygoteCell(working(ZYGOTE).copy(turn = TurnId("new")))
+            .copy(inbox = listOf(Letter.ChildFinished(C1, "child", "private result")))
+        val (tools, machine) = tools(organism(zygote = parent))
+        val result = tools.execute(context(), OrganismTools.RECEIVE, args())
+        assertTrue(result.isError)
+        assertFalse("private result" in result.text)
+        assertEquals(emptyList(), machine.sent)
+        assertEquals(0, machine.organism().zygote.receivedLetters)
     }
 
     /** Runs the real spec without a runtime, recording intents and effects. */

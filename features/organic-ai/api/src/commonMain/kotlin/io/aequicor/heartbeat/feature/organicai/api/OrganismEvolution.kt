@@ -6,9 +6,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.accepts
 
 /**
- * One change of one organism and what the host must do for it. Only a cell a letter is addressed to as its awaited
- * result wakes ([drive]); other letters wait in inboxes. A kill is the one step that may wake a second cell
- * ([rouse]): the plaintiff learning its verdict besides the parent of the killed cell.
+ * One change of one organism and what the host must do for it. Only a cell that explicitly requested a result
+ * wait wakes ([drive]); other letters wait in inboxes. A kill may also wake its plaintiff ([rouse]);
+ * [driveCells] covers waiting parties of a dispute and cells explicitly resumed by the user.
  */
 internal data class Step(
     val organism: Organism,
@@ -21,6 +21,7 @@ internal data class Step(
     val releaseMode: ReleaseMode = ReleaseMode.Retire,
     val response: Response? = null,
     val isFinished: Boolean = false,
+    val driveCells: List<CellId> = emptyList(),
 )
 
 /** A user decision to deliver to [cell]. */
@@ -47,7 +48,8 @@ internal fun Organism.awakened(): Organism {
     if (!isDeveloping) return this
     val cells = cells.map { cell ->
         when (val phase = cell.phase) {
-            is CellPhase.Working -> begin(cell, phase.work, isRecovery = cell.session != null)
+            is CellPhase.Working -> recover(cell, phase.work)
+            CellPhase.Resting -> if (cell.isAwaitingResults && cell.unreadLetters().isNotEmpty()) wake(cell) else cell
             else -> cell
         }
     }
@@ -116,6 +118,22 @@ private fun Organism.follow(cell: Cell, intent: TurnIntent): Step? {
         is OrganicAiIntent.Internal.PermissionsChanged -> observe(cell, phase.copy(awaiting = intent.pending))
 
         is OrganicAiIntent.Internal.TurnSettled -> settle(cell, intent.settlement)
+
+        is OrganicAiIntent.Internal.ReceiveLetters -> if (intent.until in 0..cell.inbox.size) {
+            Step(
+                updated(cell.id) {
+                    it.copy(receivedLetters = maxOf(it.receivedLetters, intent.until), isAwaitingResults = false)
+                },
+            )
+        } else {
+            null
+        }
+
+        is OrganicAiIntent.Internal.AwaitResults -> if (cell.unreadLetters().isNotEmpty() || isWaiting(cell.id)) {
+            Step(updated(cell.id) { it.copy(isAwaitingResults = true) })
+        } else {
+            null
+        }
     }
 }
 
@@ -148,10 +166,17 @@ private fun Organism.unresolved(): Step? {
 
 private fun Organism.resume(): Step? {
     val zygote = zygote
-    val phase = zygote.phase as? CellPhase.Stalled ?: return null
     if (!isDeveloping) return null
-    val resumed = updated(zygote.id) { begin(it, phase.work, isRecovery = it.session != null) }
-    return if (target == null) Step(resumed, isResolving = true) else Step(resumed, drive = zygote.id)
+    val resumed = cells.filter { it.phase == CellPhase.Resting && !it.isAwaitingResults }.map { it.id }
+    if (zygote.phase == CellPhase.Resting && resumed.isNotEmpty()) {
+        return Step(
+            copy(cells = cells.map { if (it.id in resumed) begin(it, Work.CheckInbox) else it }),
+            driveCells = resumed,
+        )
+    }
+    val phase = zygote.phase as? CellPhase.Stalled ?: return null
+    val restarted = updated(zygote.id) { recover(it, phase.work) }
+    return if (target == null) Step(restarted, isResolving = true) else Step(restarted, drive = zygote.id)
 }
 
 private fun Organism.abort(): Step? {
@@ -181,11 +206,12 @@ private fun Organism.settle(cell: Cell, settlement: Settlement): Step = when (se
     is Settlement.Broke -> broke(cell, settlement.breakdown)
 }
 
-/** Letters that came meanwhile are worked on first; the answer is final once nothing is awaited. */
+/** Only an explicit wait starts another turn. Unread results must be requested before the answer is final. */
 private fun Organism.answered(cell: Cell, text: String): Step = when {
-    cell.inbox.isNotEmpty() -> Step(updated(cell.id) { wake(it) }, drive = cell.id)
+    cell.isAwaitingResults && cell.unreadLetters().isNotEmpty() -> Step(updated(cell.id) { wake(it) }, drive = cell.id)
 
-    isWaiting(cell.id) -> Step(updated(cell.id) { it.copy(phase = CellPhase.Resting) })
+    isWaiting(cell.id) || cell.unreadLetters().isNotEmpty() ->
+        Step(updated(cell.id) { it.copy(phase = CellPhase.Resting) })
 
     else -> {
         val completed = updated(cell.id) { it.copy(phase = CellPhase.Completed(text)) }
@@ -251,28 +277,34 @@ private fun Organism.sentence(case: ImmuneCase.Complaint, ruling: Ruling): Step 
 
 /** Wakes [id] when it still rests with letters, such as a plaintiff other than the parent of the killed cell. */
 private fun Organism.rouse(id: CellId): Pair<Organism, CellId?> {
-    cell(id)?.takeIf { it.phase == CellPhase.Resting && it.inbox.isNotEmpty() } ?: return this to null
+    cell(id)?.takeIf { it.phase == CellPhase.Resting && it.isAwaitingResults && it.unreadLetters().isNotEmpty() }
+        ?: return this to null
     return updated(id) { wake(it) } to id
 }
 
-/** The asker wakes with the answer; the parties read it with their next letters. */
+/** All recipients who explicitly requested a result wait may wake, including the other parties. */
 private fun Organism.answer(case: ImmuneCase.Dispute, ruling: Ruling): Step {
     val letter = Letter.DisputeResolved(case.id, case.question, (ruling as? Ruling.Answer)?.text, ruling.reason)
-    val told = case.parties.fold(this) { organism, party -> organism.post(party, letter, wakes = false).first }
+    val parties = mutableListOf<CellId>()
+    val told = case.parties.fold(this) { organism, party ->
+        val (posted, woken) = organism.post(party, letter, wakes = true)
+        woken?.let(parties::add)
+        posted
+    }
     val (posted, woken) = told.post(case.asker, letter, wakes = true)
-    return Step(posted, drive = woken)
+    return Step(posted, drive = woken, driveCells = parties)
 }
 
 /**
- * Posts [letter] to [to]: an ended cell drops it, a resting one is woken by a letter that [wakes] it (with its whole
- * inbox), any other cell keeps it for its next turn. Returns the organism and the woken cell.
+ * Appends [letter] without delivering its text. A resting cell wakes only when it explicitly requested a wait
+ * and the letter [wakes] it; a working cell always keeps its current turn. Returns the organism and the woken cell.
  */
 private fun Organism.post(to: CellId?, letter: Letter, wakes: Boolean): Pair<Organism, CellId?> {
     val target = to?.let(::cell) ?: return this to null
     return when (target.phase) {
         is CellPhase.Completed, is CellPhase.Dead -> this to null
 
-        CellPhase.Resting -> if (wakes) {
+        CellPhase.Resting -> if (wakes && target.isAwaitingResults) {
             updated(target.id) { wake(it.copy(inbox = it.inbox + letter)) } to target.id
         } else {
             updated(target.id) { it.copy(inbox = it.inbox + letter) } to null
@@ -297,8 +329,15 @@ private fun Organism.excise(root: CellId, cause: DeathCause): Pair<Organism, Lis
     return excised to ended
 }
 
-/** A turn of [cell] on its whole inbox. */
-private fun Organism.wake(cell: Cell): Cell = begin(cell.copy(inbox = emptyList()), Work.Letters(cell.inbox))
+/** A requested wake carries only a reminder; the tool reads the durable inbox separately. */
+private fun Organism.wake(cell: Cell): Cell = begin(cell.copy(isAwaitingResults = false), Work.CheckInbox)
+
+/** Migrates old persisted letters turns before recovery; their result text can only be read through the tool. */
+private fun Organism.recover(cell: Cell, work: Work): Cell {
+    val legacy = work as? Work.Letters
+    val restored = if (legacy == null) cell else cell.copy(inbox = legacy.letters + cell.inbox)
+    return begin(restored, if (legacy == null) work else Work.CheckInbox, isRecovery = cell.session != null)
+}
 
 /** [cell] starting its next turn on [work] with a fresh request id. */
 private fun Organism.begin(cell: Cell, work: Work, isRecovery: Boolean = false): Cell {

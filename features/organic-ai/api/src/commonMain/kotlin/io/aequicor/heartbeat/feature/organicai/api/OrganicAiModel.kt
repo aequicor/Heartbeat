@@ -194,8 +194,8 @@ public sealed interface OrganismStatus {
 
 /**
  * One engine session of an organism. [parent] is null only for the zygote. [session] is set once the native
- * session exists; [inbox] keeps letters for the next turn; [turns] counts the turns ever started and makes
- * request ids unique.
+ * session exists; [inbox] is an append-only result log read by the cell's tool. [receivedLetters] is its read
+ * cursor, so reads can be replayed after ambiguous tool delivery. [turns] makes request ids unique.
  */
 @Serializable
 public data class Cell(
@@ -207,7 +207,15 @@ public data class Cell(
     val session: SessionRef? = null,
     val inbox: List<Letter> = emptyList(),
     val turns: Int = 0,
+    /** Number of letters already returned by the receive tool. Older letters remain available by cursor. */
+    val receivedLetters: Int = 0,
+    /** The agent explicitly asked to sleep until its next unread result. Never interrupts a working turn. */
+    val isAwaitingResults: Boolean = false,
 ) {
+    init {
+        require(receivedLetters in 0..inbox.size) { "Invalid inbox cursor" }
+    }
+
     override fun toString(): String =
         "Cell(id=${id.value}, parent=${parent?.value ?: "-"}, phase=$phase, inbox=${inbox.size}, turns=$turns)"
 }
@@ -232,7 +240,7 @@ public sealed interface CellPhase {
             "Working(request=${request.value}, recovery=$isRecovery, awaiting=${awaiting.size})"
     }
 
-    /** The last turn ended while children are alive or a case the cell filed is open; a result wakes it. */
+    /** The last turn ended with outstanding work; only an explicitly requested result wait wakes it. */
     @Serializable
     public data object Resting : CellPhase
 
@@ -258,14 +266,18 @@ public sealed interface Work {
     @Serializable
     public data object Genesis : Work
 
-    /** Letters that woke the cell or arrived during its previous turn. */
+    /** Legacy saved work; restored into the inbox instead of being submitted as chat text. */
     @Serializable
     public data class Letters(val letters: List<Letter>) : Work {
         override fun toString(): String = "Letters(${letters.size})"
     }
+
+    /** A host-only reminder to request results using the receive tool; contains no result text. */
+    @Serializable
+    public data object CheckInbox : Work
 }
 
-/** A message the host delivers to a cell as its next prompt. */
+/** A result kept in a cell's inbox and returned only when the cell requests it. */
 @Serializable
 public sealed interface Letter {
     /** A child gave its final answer. */
@@ -514,8 +526,17 @@ public object OrganismTools {
     /** Shows the organism: cells, their state and open cases. */
     public const val STATUS: String = "organism_status"
 
+    /** Reads queued results, or explicitly sleeps until one is available. */
+    public const val RECEIVE: String = "organism_receive"
+
     /** Argument names of the organism tools. */
     public object Arguments {
+        /** Zero-based cursor returned by a previous receive; omitted to read unread results. */
+        public const val AFTER: String = "after"
+
+        /** When no result is available, arm a durable wait and then end the current turn. */
+        public const val WAIT: String = "wait"
+
         /** Task of a new cell. */
         public const val TASK: String = "task"
 

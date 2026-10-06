@@ -2,6 +2,9 @@ package io.aequicor.heartbeat.feature.organicai.api
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 
+/** Results not yet returned by the receive tool. Read results remain in [Cell.inbox] for explicit replay. */
+public fun Cell.unreadLetters(): List<Letter> = inbox.drop(receivedLetters)
+
 /** Id the next divided cell gets. Cells are never removed, so ids are never reused. */
 public fun Organism.nextCellId(): CellId = CellId("c${cells.size}")
 

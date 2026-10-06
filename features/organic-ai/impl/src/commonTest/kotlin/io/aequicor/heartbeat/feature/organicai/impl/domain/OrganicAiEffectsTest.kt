@@ -224,6 +224,17 @@ class OrganicAiEffectsTest {
     }
 
     @Test
+    fun `a batch drives only its listed cells without resubmitting running siblings or judges`() = runTest {
+        val complaint = ImmuneCase.Complaint(CaseId("k1"), ZYGOTE, C1, "it loops")
+        val organism = organism(cell(C1), cell(C2), cases = listOf(complaint))
+        effects.handle(OrganicAiEffect.DriveCells(organism, listOf(ZYGOTE, C1)), machine)
+        assertEquals(listOf(CellKey(ORGANISM, ZYGOTE), CellKey(ORGANISM, C1)), cells.opened.map { it.first })
+        assertEquals(2, cells.handle.submitted.size)
+        assertEquals(2, machine.sent.count { it is OrganicAiIntent.Internal.TurnSettled })
+        assertTrue(judges.prompts.isEmpty())
+    }
+
+    @Test
     fun `an organism without a model is resolved first`() = runTest {
         effects.handle(OrganicAiEffect.Revive(listOf(organism(target = null))), machine)
         assertEquals(listOf<OrganicAiIntent>(OrganicAiIntent.Internal.Targeted(ORGANISM, TARGET)), machine.sent)

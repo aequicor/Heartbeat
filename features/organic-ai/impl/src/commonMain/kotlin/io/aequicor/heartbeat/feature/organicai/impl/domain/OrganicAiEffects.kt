@@ -34,6 +34,14 @@ internal class OrganicAiEffects(
 
             is OrganicAiEffect.Revive -> revive(effect.organisms, machine)
 
+            is OrganicAiEffect.DriveCells -> runIsolated(
+                effect.cells.mapNotNull { id ->
+                    (effect.organism.cell(id)?.phase as? CellPhase.Working)
+                        ?.let { OrganicAiEffect.Drive(effect.organism, id, it.request) }
+                },
+                machine,
+            )
+
             is OrganicAiEffect.Hibernate -> hibernate(effect.organisms, machine)
 
             // An ending has no later change to carry it: its write must outlive a sleep that leaves Living.
@@ -82,6 +90,10 @@ internal class OrganicAiEffects(
         organisms.forEach { saveQuietly(it) }
         val work = organisms.flatMap(::revival)
         log.i { "reviving ${organisms.size} organisms: ${work.size} turns, models and cases" }
+        runIsolated(work, machine)
+    }
+
+    private suspend fun runIsolated(work: List<OrganicAiEffect>, machine: EffectScope<OrganicAiIntent>) {
         coroutineScope {
             work.forEach { effect ->
                 launch { isolated(effect, machine) }.invokeOnCompletion { cause ->
