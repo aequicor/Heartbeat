@@ -13,6 +13,7 @@ import java.nio.file.StandardWatchEventKinds
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -27,6 +28,19 @@ class DesktopCommandRunnerTest {
     @AfterTest
     fun cleanup() {
         Path.of(directory).toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `failed durable identity write never executes the command`() = runTest {
+        withContext(Dispatchers.Default) {
+            assertFailsWith<IllegalStateException> {
+                runner.runTracked(directory, "echo unsafe > launched", 10.seconds) { process ->
+                    assertTrue(process.group != null || process.isJobContained)
+                    error("storage write failed")
+                }
+            }
+            assertFalse(Files.exists(Path.of(directory, "launched")))
+        }
     }
 
     @Test

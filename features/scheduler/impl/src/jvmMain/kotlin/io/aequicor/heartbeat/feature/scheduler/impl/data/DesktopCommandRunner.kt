@@ -5,6 +5,7 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -15,6 +16,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.util.Base64
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
@@ -33,41 +35,150 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
     private val isWindows = System.getProperty("os.name").orEmpty().startsWith("Windows")
 
     override val isAvailable: Boolean = true
+    override val isStartTracked: Boolean = true
 
     override suspend fun run(directory: String, command: String, timeout: Duration): CommandOutcome =
-        withContext(dispatchers.io) {
-            val shell = if (isWindows) {
-                listOf("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command)
-            } else {
-                listOf("/bin/sh", "-c", command)
+        runTracked(directory, command, timeout) {}
+
+    override suspend fun runTracked(
+        directory: String,
+        command: String,
+        timeout: Duration,
+        onStarted: suspend (TaskProcess) -> Unit,
+    ): CommandOutcome = withContext(dispatchers.io) {
+        val environment = ProcessBuilder().environment().toMutableMap()
+        val removed = environment.keys.filter(::isSecretName)
+        removed.forEach(environment::remove)
+        log.i { "starting contained background command; ${removed.size} secret-like variables withheld" }
+        val process = startProcess(directory, command, environment)
+        var job: WindowsGraphJob? = null
+        val output = HeadTail()
+        val children = mutableMapOf<Long, ProcessHandle>()
+        var hasExited = false
+        try {
+            if (isWindows) job = WindowsGraphJob.attach(process)
+            val startedAt = checkNotNull(process.info().startInstant().orElse(null)) {
+                "The command process has no verifiable start time"
             }
-            val builder = ProcessBuilder(shell)
-                .directory(File(directory))
-                .redirectErrorStream(true)
-                .redirectInput(ProcessBuilder.Redirect.from(File(if (isWindows) "NUL" else "/dev/null")))
-            val removed = builder.environment().keys.filter(::isSecretName)
-            removed.forEach { builder.environment().remove(it) }
-            log.i { "starting background command; ${removed.size} secret-like variables withheld" }
-            val process = builder.start()
-            val output = HeadTail()
-            val children = mutableMapOf<Long, ProcessHandle>()
-            var hasExited = false
-            try {
-                hasExited = drain(process, output, timeout) {
-                    process.descendants().use { descendants -> descendants.forEach { children[it.pid()] = it } }
+            onStarted(
+                TaskProcess(
+                    process.pid(),
+                    startedAt.toString(),
+                    group = process.pid().takeIf { !isWindows },
+                    isJobContained = isWindows,
+                    job = job?.name,
+                ),
+            )
+            process.outputStream.use {
+                it.write("heartbeat-run\n".toByteArray(Charsets.UTF_8))
+                it.flush()
+            }
+            hasExited = drain(process, output, timeout) {
+                if (isWindows) {
+                    process.descendants().use { descendants ->
+                        descendants.forEach {
+                            children[it.pid()] =
+                                it
+                        }
+                    }
                 }
-            } finally {
-                // A cancelled drain never reports an exit, so cancellation also kills the tree.
-                val isKillRequired = !hasExited || process.isAlive || children.values.any { it.isAlive }
-                withContext(NonCancellable) {
+            }
+        } finally {
+            // A cancelled drain never reports an exit, so cancellation also kills the tree.
+            val isKillRequired = !hasExited || process.isAlive || children.values.any { it.isAlive }
+            withContext(NonCancellable) {
+                try {
                     if (isKillRequired) kill(process, children.values.toList())
+                    confirmStopped(process, job)
+                } finally {
+                    job?.close()
                     close(process)
                 }
             }
-            val exitCode = if (hasExited) process.exitValue() else null
-            log.i { "background command ended exitCode=${exitCode ?: "timeout"}" }
-            CommandOutcome(exitCode, output.text())
         }
+        val exitCode = if (hasExited) process.exitValue() else null
+        log.i { "background command ended exitCode=${exitCode ?: "timeout"}" }
+        CommandOutcome(exitCode, output.text())
+    }
+
+    private fun startProcess(directory: String, command: String, environment: Map<String, String>): Process {
+        if (!isWindows) return PosixGraphProcess.start(directory, command, environment)
+        val encoded = Base64.getEncoder().encodeToString(command.toByteArray(Charsets.UTF_16LE))
+        val script = "if ([Console]::ReadLine() -ne 'heartbeat-run') { exit 125 }; " +
+            "& powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded; exit \$LASTEXITCODE"
+        val shell = listOf(
+            "powershell.exe",
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-EncodedCommand",
+            Base64.getEncoder().encodeToString(script.toByteArray(Charsets.UTF_16LE)),
+        )
+        return ProcessBuilder(shell).directory(File(directory)).redirectErrorStream(true).apply {
+            environment().clear()
+            environment().putAll(environment)
+        }.start()
+    }
+
+    private suspend fun confirmStopped(process: Process, job: WindowsGraphJob?) {
+        if (isWindows) job?.terminate() else PosixGraphProcess.signalGroup(process.pid(), SIGKILL)
+        val isStopped = withTimeoutOrNull(KILL_TIMEOUT) {
+            while (if (isWindows) job?.isEmpty() == false else !PosixGraphProcess.isGroupStopped(process.pid())) {
+                delay(POLL)
+            }
+            true
+        } == true
+        check(isStopped) { "Native descendants may still be running" }
+    }
+
+    override suspend fun isStopped(process: TaskProcess): Boolean = withContext(dispatchers.io) {
+        process.group?.let { group ->
+            val leader = ProcessHandle.of(group).orElse(null)
+            val startedAt = leader?.info()?.startInstant()?.orElse(null)?.toString()
+            val isReused = startedAt != null && startedAt != process.startedAt
+            return@withContext isReused || PosixGraphProcess.isGroupStopped(group)
+        }
+        if (isWindows) return@withContext process.job?.let { WindowsGraphJob.inspect(it) } == true
+        val handle = ProcessHandle.of(process.pid).orElse(null)
+        handle == null || !handle.isAlive ||
+            handle.info().startInstant().orElse(null)?.toString()?.let { it != process.startedAt } == true
+    }
+
+    override suspend fun stop(process: TaskProcess): Boolean = withContext(dispatchers.io) {
+        if (isStopped(process)) return@withContext true
+        val group = process.group
+        when {
+            group != null -> stopGroup(group)
+            isWindows -> process.job?.let { stopJob(it) } == true
+            else -> stopTree(process)
+        }
+    }
+
+    private suspend fun stopGroup(group: Long): Boolean {
+        PosixGraphProcess.signalGroup(group, SIGKILL)
+        return withTimeoutOrNull(KILL_TIMEOUT) {
+            while (!PosixGraphProcess.isGroupStopped(group)) delay(POLL)
+            true
+        } == true
+    }
+
+    private suspend fun stopJob(name: String): Boolean = withTimeoutOrNull(KILL_TIMEOUT) {
+        while (!WindowsGraphJob.inspect(name, terminate = true)) delay(POLL)
+        true
+    } == true
+
+    private suspend fun stopTree(process: TaskProcess): Boolean {
+        val handle = ProcessHandle.of(process.pid).orElse(null) ?: return true
+        if (handle.info().startInstant().orElse(null)?.toString() != process.startedAt) return false
+        log.i { "stop an interrupted graph command" }
+        val children = handle.descendants().use { it.toList() }
+        children.forEach { it.destroyForcibly() }
+        handle.destroyForcibly()
+        return withTimeoutOrNull(KILL_TIMEOUT) {
+            while (handle.isAlive || children.any { it.isAlive }) delay(POLL)
+            true
+        } == true
+    }
 
     /** Collects output until the process exits (and its pipe went quiet) or [timeout] passes. */
     private suspend fun drain(process: Process, output: HeadTail, timeout: Duration, observe: () -> Unit): Boolean {
@@ -123,12 +234,14 @@ internal class DesktopCommandRunner(private val dispatchers: DispatcherProvider)
     private fun close(process: Process) {
         try {
             process.inputStream.close()
+            process.outputStream.close()
         } catch (e: IOException) {
             log.w(e) { "background command output could not be closed" }
         }
     }
 
     private companion object {
+        const val SIGKILL = 9
         const val BUFFER_BYTES = 4096
         val POLL = 100.milliseconds
         val EXIT_GRACE = 200.milliseconds

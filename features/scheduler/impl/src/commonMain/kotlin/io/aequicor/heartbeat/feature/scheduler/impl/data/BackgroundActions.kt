@@ -54,12 +54,6 @@ import kotlin.time.Duration.Companion.hours
 /** Longest wait for a helper agent's first turn. */
 private val MAX_HELPER_TIME: Duration = 6.hours
 
-/** Background actions running at once in a profile. */
-private const val MAX_RUNNING = 8
-
-/** Background actions running at once for one session. */
-private const val MAX_RUNNING_PER_SESSION = 3
-
 private const val KIND_COMMAND = "command"
 private const val KIND_AGENT = "agent"
 private const val HISTORY_WINDOW = 20
@@ -67,8 +61,8 @@ private const val HISTORY_WINDOW = 20
 /**
  * Background actions started by agents: a shell command in the project or a helper agent in a new session. Each runs
  * in the profile scope, outliving the turn that started it, and publishes `action.<id>.finished` with its result as
- * the payload. Running actions are journaled, so a restart reports the ones it interrupted. At most [MAX_RUNNING] run
- * at once, [MAX_RUNNING_PER_SESSION] per session. Commands, prompts and results are never logged.
+ * the payload. Running actions are journaled, so a restart reports the ones it interrupted.
+ * Admission uses [BackgroundActionSlots], shared with graph tasks. Commands, prompts and results are never logged.
  */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -86,11 +80,11 @@ internal class BackgroundActions(
     private val clock: Clock,
     // Optional until an application bundle installs the AI engine facade.
     private val facade: EngineFacade = MissingEngineFacade,
+    private val slots: BackgroundActionSlots = BackgroundActionSlots(),
 ) {
     private val log = Log.tag("BackgroundActions")
     private val lock = Mutex()
     private val resultsLock = Mutex()
-    private val running = mutableMapOf<ActionId, SessionRef>()
     private val helpers = mutableSetOf<SessionRef>()
     private var recovery: Job? = null
 
@@ -206,7 +200,7 @@ internal class BackgroundActions(
         machine.state.first { it is SchedulerState.Ready }
         resultsLock.withLock {
             journal.readAll().forEach { stored ->
-                if (stored.payload == null && lock.withLock { stored.id in running }) return@forEach
+                if (stored.payload == null && (stored.id in slots.state.value)) return@forEach
                 val record = if (stored.payload != null) {
                     stored
                 } else {
@@ -238,24 +232,10 @@ internal class BackgroundActions(
     /** Takes a running slot for [id] of [parent]; returns why there is none, or null. */
     private suspend fun reserve(id: ActionId, parent: SessionRef): String? {
         start()
-        return lock.withLock {
-            when {
-                running.size >= MAX_RUNNING -> "the profile already runs $MAX_RUNNING background actions"
-
-                running.values.count { it == parent } >= MAX_RUNNING_PER_SESSION ->
-                    "this session already runs $MAX_RUNNING_PER_SESSION background actions"
-
-                else -> {
-                    running[id] = parent
-                    null
-                }
-            }
-        }
+        return slots.reserve(id, parent)
     }
 
-    private suspend fun release(id: ActionId) {
-        lock.withLock { running.remove(id) }
-    }
+    private suspend fun release(id: ActionId) = slots.release(id)
 
     /** A failed start must not consume a slot or leave an interruption report for work that never began. */
     private suspend fun rollback(id: ActionId) = withContext(NonCancellable) {
