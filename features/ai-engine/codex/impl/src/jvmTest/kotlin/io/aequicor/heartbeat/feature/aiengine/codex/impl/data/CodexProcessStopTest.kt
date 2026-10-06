@@ -22,6 +22,47 @@ import kotlin.test.assertTrue
 
 class CodexProcessStopTest {
     @Test
+    fun `PID reuse during inspection marker write never adopts foreign descendants`() = runTest {
+        val original = StopProcess(1)
+        val reused = StopProcess(1, "2026-10-07T00:00:00Z")
+        val foreign = StopProcess(2)
+        reused.observed = listOf(foreign)
+        var current = original
+        assertTrue(
+            stopper { if (it == 1L) current else foreign }.stop(Owner, {
+                current = reused
+                true
+            }) {
+                assertTrue(it.observedChildren.isEmpty())
+                it
+            },
+        )
+        assertEquals(0, reused.signals)
+        assertEquals(0, foreign.signals)
+    }
+
+    @Test
+    fun `PID reuse during enumeration rejects all newly discovered children`() = runTest {
+        val original = StopProcess(1)
+        val reused = StopProcess(1, "2026-10-07T00:00:00Z")
+        val foreign = StopProcess(2)
+        var current = original
+        original.observed = listOf(foreign)
+        original.onEnumerate = { current = reused }
+        var writes = 0
+        assertFalse(
+            stopper { if (it == 1L) current else foreign }.stop(Owner, { true }) {
+                writes++
+                it
+            },
+        )
+        assertEquals(0, writes)
+        assertEquals(0, original.signals)
+        assertEquals(0, reused.signals)
+        assertEquals(0, foreign.signals)
+    }
+
+    @Test
     fun `absent or reused PID is never signalled and unknown start time is not proof`() = runTest {
         assertTrue(stopper { null }.stop(Owner, { true }) { it })
         val reused = StopProcess(1, "2026-10-07T00:00:00Z")
@@ -168,6 +209,7 @@ class CodexProcessStopTest {
         var startedAt: Instant? = Instant.parse(start)
         var observed: List<ProcessHandle> = emptyList()
         var signals = 0
+        var onEnumerate: () -> Unit = {}
         private val exited = CompletableFuture<ProcessHandle>()
         fun exit() {
             exited.complete(this)
@@ -175,7 +217,10 @@ class CodexProcessStopTest {
         override fun pid(): Long = id
         override fun parent(): Optional<ProcessHandle> = Optional.empty()
         override fun children(): Stream<ProcessHandle> = observed.stream()
-        override fun descendants(): Stream<ProcessHandle> = observed.stream()
+        override fun descendants(): Stream<ProcessHandle> {
+            onEnumerate()
+            return observed.stream()
+        }
         override fun info(): ProcessHandle.Info = object : ProcessHandle.Info {
             override fun startInstant(): Optional<Instant> = Optional.ofNullable(startedAt)
             override fun command(): Optional<String> = error("Unused")

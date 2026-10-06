@@ -28,9 +28,9 @@ internal class CodexProcessStop(
     ): Boolean = withContext(dispatchers.io) {
         try {
             // Failures checking already persisted identities remain retryable; no observation has been lost.
-            val known = (listOf(owner.root) + owner.observedChildren).mapNotNull(::matching)
+            (listOf(owner.root) + owner.observedChildren).forEach { matching(it) }
             if (!beginInspection()) return@withContext false
-            val expanded = discover(owner, known)
+            val expanded = discover(owner)
             val saved = record(expanded) ?: return@withContext false
             check(saved.launchId == owner.launchId && saved.root == owner.root)
             check(saved.observedChildren.containsAll(expanded.observedChildren))
@@ -50,15 +50,18 @@ internal class CodexProcessStop(
         }
     }
 
-    private fun discover(owner: CodexExecutionOwner, known: List<ProcessHandle>): CodexExecutionOwner {
+    private fun discover(owner: CodexExecutionOwner): CodexExecutionOwner {
         val observed = owner.observedChildren.toMutableSet()
-        for (process in known) {
-            process.descendants().use { descendants ->
-                descendants.forEach { child ->
-                    // A child that exited before inspection cannot still execute. Missing live identity aborts.
-                    if (child.isAlive) observed += checkNotNull(child.identity())
-                }
+        for (identity in listOf(owner.root) + owner.observedChildren) {
+            // beginInspection writes to storage; a handle obtained before that await may now have a reused PID.
+            val process = matching(identity) ?: continue
+            val descendants = process.descendants().use { stream ->
+                stream.map { child -> if (child.isAlive) checkNotNull(child.identity()) else null }.toList()
             }
+            // descendants() resolves the current PID tree, unlike ProcessHandle.isAlive's identity check.
+            // Refuse the entire observation if the parent changed while enumeration was in flight.
+            checkNotNull(matching(identity)) { "Parent changed during descendant inspection" }
+            observed += descendants.filterNotNull()
         }
         return owner.copy(observedChildren = observed.toList())
     }
