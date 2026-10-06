@@ -46,9 +46,16 @@ class CodingShellToolTest {
     @Test
     fun commandIsKilledAfterTimeout() = runTest {
         val started = System.nanoTime()
-        val sleep = tool.run(args(if (isWindows) "Start-Sleep -Seconds 30" else "sleep 30", timeout = 1))
+        val command = if (isWindows) "Write-Output \"pid=\$PID\"; Start-Sleep -Seconds 30" else "echo pid=$$; sleep 30"
+        val sleep = tool.run(args(command, timeout = 1))
         assertTrue(sleep.isError)
         assertTrue(sleep.text.startsWith("Timed out"))
+        assertTrue("terminated" in sleep.text && "no running job" in sleep.text, sleep.text)
+        val pid = sleep.text.lineSequence().first { it.startsWith("pid=") }.removePrefix("pid=").trim().toLong()
+        assertFalse(
+            ProcessHandle.of(pid).map { it.isAlive }.orElse(false),
+            "Command must exit before reporting timeout",
+        )
         assertTrue(elapsedSeconds(started) < QUICK_SECONDS)
     }
 

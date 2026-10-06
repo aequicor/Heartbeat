@@ -74,8 +74,12 @@ internal class WorktreeAgentTools(
             "build system, foreground argv commands, shared cache locations and exclusive resources. Commands run " +
             "inside this checkout; cache paths are relative to the original project or absolute, and {cache:id} " +
             "expands in argv/environment. Use run_build for builds, tests and related exclusive operations, and " +
-            "build_status with the returned operation id to poll completion. run_build acknowledges the durable " +
-            "queue immediately. Keep outputs and project state checkout-local; share only genuine caches. " +
+            "build_status with the returned operation id and waitMs=10000 to await completion. run_build " +
+            "acknowledges the durable queue immediately. Queued, WaitingForResource and Running are pending; " +
+            "Completed, Failed, Cancelled and Unknown are terminal. Once terminal, handle the result and continue " +
+            "the task or give the final report. These operations do not publish scheduler events: use build_status, " +
+            "not scheduler_sleep, to wait for them. Keep outputs and project state checkout-local; share only " +
+            "genuine caches. " +
             "Configure a bounded timeoutMillis for every command. Do not detach build processes or start " +
             "background daemons. Gradle uses GRADLE_USER_HOME={cache:id}, --no-daemon and --build-cache. " +
             "Native commands bypass coordination, so obey this workflow."
@@ -397,7 +401,8 @@ internal class WorktreeAgentTools(
             ),
             AgentToolSpec(
                 "build_status",
-                "Read a build operation, optionally waiting at most ten seconds for a terminal result.",
+                "Read a build operation; use waitMs=10000 to wait up to ten seconds for a terminal result. " +
+                    "Completed, Failed, Cancelled and Unknown are terminal: process the result without sleeping.",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{
                         "operation":{"type":"string"},"waitMs":{"type":"integer","minimum":0,"maximum":10000}

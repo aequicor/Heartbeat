@@ -38,7 +38,10 @@ internal fun wakePrompt(delivery: WakeDelivery): WakePrompt {
             is WakeReason.Deadline -> appendLine("Woken because the deadline ${reason.at} passed.")
         }
         if (wake.request.note.isNotBlank()) appendLine("Your note for this moment:").appendLine(wake.request.note)
-        append("Continue the task from here; sleep again with ${SchedulerTools.SLEEP} if you still need to wait.")
+        append("Continue the task from here. Verify the current status of the awaited work; your note is not ")
+        append("evidence that it is still running. If it has finished, process the result and continue or give ")
+        append("the final report. Use build_status for run_build. Sleep again only for a verified pending event ")
+        append("with a known producer or an explicitly requested delay.")
     }
     return WakePrompt(
         RequestId("wake_${wake.id.value}"),
