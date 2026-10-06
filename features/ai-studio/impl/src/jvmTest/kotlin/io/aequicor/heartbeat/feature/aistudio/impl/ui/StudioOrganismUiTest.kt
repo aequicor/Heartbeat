@@ -28,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
@@ -343,6 +344,69 @@ class StudioOrganismUiTest {
         runOnIdle {
             assertEquals(
                 listOf(AiStudioScreenIntent.DecideOrganism("chat", "c1", "t1", "p1", "deny")),
+                events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
+            )
+        }
+    }
+
+    @Test
+    fun `simultaneous organism permissions keep every answer reachable`() {
+        verifyMultiplePermissions(width = 420, height = 600, isDark = false)
+        verifyMultiplePermissions(width = 1280, height = 360, isDark = true)
+    }
+
+    private fun verifyMultiplePermissions(width: Int, height: Int, isDark: Boolean) = runSkikoComposeUiTest(
+        size = Size(width.toFloat(), height.toFloat()),
+    ) {
+        val events = mutableListOf<AiStudioScreenIntent>()
+        val initial = organismState()
+        val organism = initial.organisms.getValue("chat")
+        val template = organism.permissions.single().copy(
+            description = (1..80).joinToString("\n") { "Строка $it: полный текст инструкции." },
+            options = persistentListOf(PermissionOptionUi("allow", "Разрешить")),
+        )
+        val state = initial.copy(
+            organisms = persistentMapOf(
+                "chat" to organism.copy(
+                    permissions = persistentListOf(
+                        template.copy(cell = "c1"),
+                        template.copy(cell = "c2"),
+                        template.copy(cell = "c3"),
+                    ),
+                ),
+            ),
+        )
+        setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f)) {
+                HbTheme(
+                    darkTheme = isDark,
+                    dimensions = HbDimensions.Desktop,
+                    motion = HbMotion(isReducedMotion = true),
+                ) {
+                    StudioPaneView(
+                        state.paneContent(organismPane),
+                        events::add,
+                        PaneLayout(isSplitAllowed = false, isCloseAllowed = false, isCompact = width < 600),
+                        Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+        (1..3).forEach { index ->
+            val answer = onNodeWithTag("organism-permission-c$index-p1-allow").performScrollTo().assertIsDisplayed()
+            val bounds = answer.fetchSemanticsNode().boundsInRoot
+            assertTrue(bounds.top >= 0 && bounds.bottom <= height)
+            assertTrue(bounds.height >= HbDimensions.Desktop.controlHeight.value)
+            answer.performClick()
+        }
+        onNodeWithTag("composer-0").assertIsDisplayed()
+        val directory = File("build/previews")
+        check(directory.isDirectory || directory.mkdirs())
+        val screenshot = File(directory, "multiple-permissions-$width-$height.png")
+        check(ImageIO.write(captureToImage().toAwtImage(), "png", screenshot))
+        runOnIdle {
+            assertEquals(
+                (1..3).map { AiStudioScreenIntent.DecideOrganism("chat", "c$it", "t1", "p1", "allow") },
                 events.filterIsInstance<AiStudioScreenIntent.DecideOrganism>(),
             )
         }
