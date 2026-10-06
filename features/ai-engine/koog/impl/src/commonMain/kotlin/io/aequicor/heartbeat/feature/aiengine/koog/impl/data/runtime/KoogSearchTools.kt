@@ -5,10 +5,17 @@ import ai.koog.agents.core.tools.ToolParameterDescriptor
 import ai.koog.agents.core.tools.ToolParameterType
 import ai.koog.prompt.streaming.StreamFrame
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.searchengine.api.SearchEngine
 import io.aequicor.heartbeat.feature.searchengine.api.SearchException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -29,12 +36,30 @@ internal val koogSearchTools = listOf(
     ),
 )
 
-/** Read-only search tools backed by [search]. */
-internal fun koogSearchToolset(search: SearchEngine): List<KoogTool> = koogSearchTools.map { tool ->
-    object : KoogTool {
-        override val descriptor = tool
+/** Search remains a hosted tool: policy, hooks and trust are checked again immediately before its transport. */
+internal suspend fun koogSearchToolset(
+    search: SearchEngine,
+    tools: ProfileAgentTools,
+    context: AgentToolContext,
+): List<KoogTool> {
+    val policy = tools.nativeTools(
+        ToolPolicyScope(context.session.engine, context.workspace, context.session, context.target),
+    )
+    return koogSearchTools.filterNot { it.name in policy.hostedDenied }.map { tool ->
+        object : KoogTool {
+            override val descriptor = tool
 
-        override suspend fun run(args: JsonObject) = executeKoogSearch(search, tool.name, args)
+            override suspend fun run(args: JsonObject): KoogToolResult {
+                val verdict = tools.authorizeHosted(context, tool.name, args)
+                if (verdict is NativeVerdict.Deny) return KoogToolResult(verdict.reason, true)
+                context.lifetime?.ensureActive()
+                currentCoroutineContext().ensureActive()
+                val result = executeKoogSearch(search, tool.name, args)
+                val note = tools.afterHosted(context, tool.name, args, AgentToolResult(result.text, result.isFailed))
+                currentCoroutineContext().ensureActive()
+                return if (note.isNullOrBlank()) result else result.copy(text = note + "\n\n" + result.text)
+            }
+        }
     }
 }
 

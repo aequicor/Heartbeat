@@ -19,6 +19,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogAutoApprove
@@ -44,6 +46,7 @@ internal class KoogAccess(
     val contextWindows: KoogContextWindows,
     val resources: ResourceResolver = ResourceResolver { null },
     val inputs: KoogModelInputs = KoogModelInputs(),
+    val tools: ProfileAgentTools = NoAgentTools,
 ) {
     private val log = Log.tag("KoogAccess")
 
