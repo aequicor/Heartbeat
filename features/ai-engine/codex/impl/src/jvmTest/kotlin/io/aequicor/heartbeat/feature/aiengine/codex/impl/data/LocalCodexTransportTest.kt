@@ -64,7 +64,11 @@ class LocalCodexTransportTest {
         val second = executable("second", "0.161.0")
         val home = temporaryFolder.newFolder("home").absolutePath
         val args = temporaryFolder.newFile("arguments")
-        val overrides = mutableListOf(ConfigOverride("model_reasoning_effort", "\"low\""))
+        val overrides = mutableListOf(
+            ConfigOverride("model_reasoning_effort", "\"low\""),
+            ConfigOverride("features.shell_tool", "true"),
+            ConfigOverride("web_search", "\"cached\""),
+        )
         var context = LaunchContext(
             LaunchSettings(
                 executable = first.absolutePath,
@@ -96,17 +100,13 @@ class LocalCodexTransportTest {
         overrides.clear()
         context = LaunchContext(LaunchSettings(executable = second.absolutePath))
         assertEquals("0.160.0", prepared.version())
-        repeat(2) {
-            val wire = prepared.open()
-            try {
-                val data = wire.messages.first().obj("params")
-                assertEquals("captured", data.text("label"))
-                assertEquals(home, data.text("home"))
-                assertEquals("first", data.text("executable"))
-            } finally {
-                wire.close()
-            }
-            assertTrue("model_reasoning_effort=\"low\"" in args.readLines())
+        val policies = listOf(
+            CodexNativeOff(isShellDisabled = true, isSearchDisabled = true),
+            CodexNativeOff(isShellDisabled = true),
+            CodexNativeOff(),
+        )
+        for (off in policies) {
+            assertCapturedProcess(prepared, off, home, args)
         }
         assertEquals(1, lookups)
         assertFalse(prepared.toString().contains(home))
@@ -153,6 +153,67 @@ class LocalCodexTransportTest {
         assertFailsWith<CancellationException> { opening.await() }
         assertEquals(0, registrations)
         base.close()
+    }
+
+    private suspend fun assertCapturedProcess(
+        prepared: PreparedCodexLaunch,
+        off: CodexNativeOff,
+        home: String,
+        args: File,
+    ) {
+        val wire = prepared.open(off)
+        try {
+            val data = wire.messages.first().obj("params")
+            assertEquals("captured", data.text("label"))
+            assertEquals(home, data.text("home"))
+            assertEquals("first", data.text("executable"))
+        } finally {
+            wire.close()
+        }
+        val arguments = args.readLines()
+        assertTrue("model_reasoning_effort=\"low\"" in arguments)
+        assertEquals(
+            "features.shell_tool=" + !off.isShellDisabled,
+            arguments.last { it.startsWith("features.shell_tool=") },
+        )
+        assertEquals(
+            if (off.isSearchDisabled) "web_search=\"disabled\"" else "web_search=\"cached\"",
+            arguments.last { it.startsWith("web_search=") },
+        )
+    }
+
+    @Test
+    fun `unsupported versions refuse restricted launch before creating an app server`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        for ((index, version) in listOf("0.159.9", "0.160.0-alpha.1", "unknown").withIndex()) {
+            val arguments = temporaryFolder.newFile("unsupported-arguments-$index")
+            val context = LaunchContext(
+                LaunchSettings(
+                    executable = executable("unsupported-$index", version).absolutePath,
+                    environment = listOf(EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath)),
+                ),
+            )
+            val launch = LocalCodexTransport(
+                CodexLocalConfiguration(),
+                EngineLaunchConfig { context },
+                dispatchers,
+                FakeScope(backgroundScope),
+            ).prepare()
+            assertFailsWith<EngineException> { launch.open(CodexNativeOff(isShellDisabled = true)) }
+            assertEquals("", arguments.readText())
+            val wire = launch.open()
+            try {
+                assertEquals("unsupported-$index", wire.messages.first().obj("params").text("executable"))
+            } finally {
+                wire.close()
+            }
+        }
     }
 
     /** Cancels after IO has created the process but before the awaiting coroutine resumes on main. */

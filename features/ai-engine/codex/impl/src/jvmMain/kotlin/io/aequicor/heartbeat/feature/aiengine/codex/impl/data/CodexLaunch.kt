@@ -65,10 +65,11 @@ internal fun resolveCodexLaunch(
 }
 
 /** `codex app-server` with the user's overrides first and Heartbeat's isolation flags last, so they win. */
-internal fun codexCommand(launch: CodexLaunch): List<String> = listOf(launch.executable, "app-server") +
-    launch.overrides.flatMap { listOf("-c", "${it.key}=${it.value}") } +
-    listOf("-c", "model_provider=\"openai\"") +
-    CodexDisabledCapabilities.flatMap { listOf("-c", "features.$it=false") }
+internal fun codexCommand(launch: CodexLaunch, off: CodexNativeOff = CodexNativeOff()): List<String> =
+    listOf(launch.executable, "app-server") +
+        launch.overrides.flatMap { listOf("-c", "${it.key}=${it.value}") } +
+        listOf("-c", "model_provider=\"openai\"") +
+        CodexDisabledCapabilities.flatMap { listOf("-c", "features.$it=false") } + off.arguments()
 
 /** The host environment without API keys (the CLI login is used), plus the user's entries and `CODEX_HOME`. */
 internal fun applyCodexEnvironment(environment: MutableMap<String, String>, launch: CodexLaunch) {
