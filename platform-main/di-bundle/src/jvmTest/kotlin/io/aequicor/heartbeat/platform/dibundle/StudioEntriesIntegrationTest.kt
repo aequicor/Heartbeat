@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
 import io.aequicor.heartbeat.feature.aistudio.impl.di.AiStudioGraph
 import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSessionViews
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
@@ -37,6 +38,7 @@ import kotlin.test.assertTrue
 interface StudioEntryTestAccessors {
     val model: AiStudioModel
     val backend: StudioBackend
+    val entries: StudioEntries
 }
 
 /** The same session view must reach both the profile recorder and the child studio graph. */

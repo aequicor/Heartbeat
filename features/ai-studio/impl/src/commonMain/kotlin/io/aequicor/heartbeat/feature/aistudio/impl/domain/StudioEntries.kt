@@ -8,6 +8,9 @@ interface StudioEntries {
     /** Whether new attachment input is available in this profile. */
     val showsAttachments: Flow<Boolean> get() = flowOf(false)
 
+    /** Whether the embedded browser can be opened in the active profile. */
+    val showsBrowser: Flow<Boolean> get() = flowOf(false)
+
     /** Whether projectless Koog research entry points may be offered. */
     val showsResearch: Flow<Boolean> get() = flowOf(false)
 

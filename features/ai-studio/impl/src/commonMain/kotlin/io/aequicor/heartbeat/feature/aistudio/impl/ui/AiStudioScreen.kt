@@ -48,6 +48,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.NativeAttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioPhase
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_back
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_description
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.studio_empty
@@ -114,6 +115,10 @@ private fun StudioWorkspace(
     val focus = remember { StudioFocusState() }
     val timelineState = remember { StudioTimelineState() }
     val dispatch: (AiStudioScreenIntent) -> Unit = { intent ->
+        val isChatNavigation =
+            intent is AiStudioScreenIntent.OpenSession || intent is AiStudioScreenIntent.NewSession ||
+                intent is AiStudioScreenIntent.OpenBeside
+        if (chatArea != null && isChatNavigation) exits.onCloseChatArea?.invoke()
         focus.beforeIntent(intent, state)
         onIntent(intent)
     }
@@ -196,6 +201,7 @@ private fun WideWorkspace(
         if (chatArea != null) {
             StudioChatArea(
                 chatArea,
+                exits = exits,
                 onToggleSidebar = { onIntent(AiStudioScreenIntent.ToggleSidebar) },
                 isAtWindowLeadingEdge = !state.sidebar.isVisible,
                 modifier = Modifier.weight(1f).fillMaxHeight(),
@@ -256,6 +262,7 @@ private fun CompactWorkspace(
         if (chatArea != null) {
             StudioChatArea(
                 chatArea,
+                exits = exits,
                 onToggleSidebar = { onIntent(AiStudioScreenIntent.SetDrawerOpen(true)) },
                 isAtWindowLeadingEdge = true,
                 modifier = Modifier.fillMaxSize(),
@@ -376,12 +383,18 @@ private fun workspaceAttachmentCapture(
 @Composable
 private fun StudioChatArea(
     component: ComposableComponent,
+    exits: StudioExits,
     onToggleSidebar: () -> Unit,
     isAtWindowLeadingEdge: Boolean,
     modifier: Modifier = Modifier,
 ) {
     HbColumn(modifier.testTag("studio-chat-area"), gap = HbTheme.spacing.none) {
-        ChatAreaHeader(onToggleSidebar, isAtWindowLeadingEdge)
+        ChatAreaHeader(
+            onToggleSidebar,
+            isAtWindowLeadingEdge,
+            exits.chatAreaTitle ?: stringResource(Res.string.research_mode),
+            exits.onCloseChatArea,
+        )
         Box(Modifier.weight(1f).fillMaxWidth()) { component.Content(Modifier.fillMaxSize()) }
     }
 }

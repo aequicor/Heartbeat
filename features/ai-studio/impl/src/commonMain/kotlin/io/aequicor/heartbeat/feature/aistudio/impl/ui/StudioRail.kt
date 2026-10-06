@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SidebarUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.browser_mode
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_archive
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_profile_settings
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.rail_sessions
@@ -52,6 +53,17 @@ internal fun StudioRail(
                 { onIntent(AiStudioScreenIntent.ShowSidebarMode(SidebarMode.Archive)) },
                 "rail-archive",
                 isSelected = sidebar.mode == SidebarMode.Archive,
+            )
+        }
+        exits.onOpenBrowser?.let { open ->
+            FooterAction(
+                HbIcons.Globe,
+                stringResource(Res.string.browser_mode),
+                {
+                    onIntent(AiStudioScreenIntent.SetDrawerOpen(false))
+                    open()
+                },
+                "rail-browser",
             )
         }
         val openSettings = exits.onOpenSettings

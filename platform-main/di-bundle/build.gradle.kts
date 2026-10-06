@@ -28,6 +28,7 @@ kotlin {
             implementation(projects.features.aiStudio.impl)
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.researchChat.impl)
+            implementation(projects.features.browser.impl)
             implementation(projects.features.searchEngine.impl)
             implementation(projects.features.togglesPanel.impl)
             implementation(projects.features.settings.impl)
@@ -74,6 +75,7 @@ kotlin {
         jvmTest.dependencies {
             implementation(projects.features.checklist.api)
             implementation(projects.features.researchChat.api)
+            implementation(projects.features.browser.api)
             implementation(projects.features.aiEngine.acpInterface.api)
             implementation(projects.features.aiEngine.codex.api)
             implementation(projects.features.togglesPanel.api)
