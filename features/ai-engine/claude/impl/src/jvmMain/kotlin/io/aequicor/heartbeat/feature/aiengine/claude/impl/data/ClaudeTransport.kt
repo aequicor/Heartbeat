@@ -58,6 +58,14 @@ internal interface ClaudeTransport {
         line: suspend (String) -> Boolean,
     ): Int
 
+    /** Owns a bidirectional operation until [session] ends. The caller decides when stdin should close. */
+    suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef? = null,
+        hosted: ClaudeHostedTools? = null,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+
     /**
      * This transport bound to [launch], or to the profile's current launch context when null. A runtime keeps its
      * pinned transport for life, so its sessions never move to another executable or native history mid-way.
@@ -94,6 +102,31 @@ internal class ProcessClaudeTransport(
         hosted: ClaudeHostedTools?,
         line: suspend (String) -> Boolean,
     ): Int = run(startup(null), arguments, input, workspace, closeInput, hosted, line)
+
+    override suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = duplex(startup(null), arguments, workspace, hosted, session)
+
+    suspend fun duplex(
+        startup: ClaudeStartup,
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = withContext(dispatchers.io) {
+        try {
+            withProcess(startup, arguments, workspace, hosted) { communicateDuplex(it, session) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            ensureActive()
+            log.w(e.redacted()) { "Claude duplex process IO failed" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        }
+    }
 
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = PinnedClaudeTransport(this, startup(launch))
 
@@ -137,7 +170,7 @@ internal class ProcessClaudeTransport(
     ): Int = withContext(dispatchers.io) {
         log.d { "Starting Claude CLI operation" }
         try {
-            execute(startup, arguments, input, workspace, closeInput, hosted, line)
+            withProcess(startup, arguments, workspace, hosted) { communicate(it, input, closeInput, line) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -148,15 +181,12 @@ internal class ProcessClaudeTransport(
         }
     }
 
-    @Suppress("LongParameterList") // The run contract's parameters, resolved to one startup.
-    private suspend fun execute(
+    private suspend fun withProcess(
         startup: ClaudeStartup,
         arguments: List<String>,
-        input: String,
         workspace: WorkspaceRef?,
-        closeInput: Boolean,
         hosted: ClaudeHostedTools?,
-        line: suspend (String) -> Boolean,
+        operation: suspend (Process) -> Int,
     ): Int {
         val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
         val bridgeConfig = when {
@@ -183,7 +213,7 @@ internal class ProcessClaudeTransport(
             }
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
-                return communicate(process, input, closeInput, line)
+                return operation(process)
             } finally {
                 process.destroyTree()
                 closeInput(process)
@@ -244,6 +274,29 @@ internal class ProcessClaudeTransport(
         log.d { "MCP config directory ready" }
         return directory
     }
+
+    private suspend fun communicateDuplex(process: Process, session: suspend (ClaudeDuplex) -> Unit): Int =
+        coroutineScope {
+            val pipe = ClaudeDuplexPipe(
+                this,
+                process.outputStream.bufferedWriter(Charsets.UTF_8),
+                process.inputStream.bufferedReader(Charsets.UTF_8),
+            )
+            val exchange = async { session(pipe) }
+            val exit = async { process.waitFor() }
+            try {
+                exchange.await()
+                pipe.closeInput()
+                pipe.reader.await()
+                pipe.writer.await()
+                exit.await()
+            } finally {
+                pipe.revoke()
+                // Do this before coroutineScope joins the reader/writer: either may be blocked in native IO.
+                process.destroyTree()
+                closeInput(process)
+            }
+        }
 
     private suspend fun communicate(
         process: Process,
@@ -359,6 +412,13 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
         hosted: ClaudeHostedTools?,
         line: suspend (String) -> Boolean,
     ): Int = base.run(startup, arguments, input, workspace, closeInput, hosted, line)
+
+    override suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = base.duplex(startup, arguments, workspace, hosted, session)
 
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = launch?.let { base.pinned(it) } ?: this
 
@@ -497,7 +557,7 @@ internal fun restrictToOwner(path: Path, directory: Boolean) {
 private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
 private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
-private fun BufferedReader.readFrame(): String? {
+internal fun BufferedReader.readFrame(): String? {
     val result = StringBuilder()
     var next = read()
     while (next != -1 && next != '\n'.code) {
@@ -508,7 +568,7 @@ private fun BufferedReader.readFrame(): String? {
     return if (next == -1 && result.isEmpty()) null else result.toString().trimEnd('\r')
 }
 
-private const val MAX_FRAME_CHARS = 2 * 1024 * 1024
+internal const val MAX_FRAME_CHARS = 2 * 1024 * 1024
 
 private const val CLAUDE_PROVIDER_SEARCH = "WebSearch"
 
