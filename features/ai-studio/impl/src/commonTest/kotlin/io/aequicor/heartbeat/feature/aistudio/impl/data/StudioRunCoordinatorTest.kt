@@ -565,7 +565,7 @@ class StudioRunCoordinatorTest {
     }
 }
 
-private class RunHost(private val events: MutableList<String>) : StudioRunHost {
+internal class RunHost(private val events: MutableList<String>) : StudioRunHost {
     var execute: suspend (StudioTurnRequest) -> RunOutcome = { RunOutcome.Completed }
     var cleanup: suspend () -> Unit = {}
     var start: suspend () -> Unit = {}
@@ -583,18 +583,18 @@ private class RunHost(private val events: MutableList<String>) : StudioRunHost {
     }
 }
 
-private class RunProfile(override val coroutineScope: CoroutineScope) : ScopeHandle {
+internal class RunProfile(override val coroutineScope: CoroutineScope) : ScopeHandle {
     override val name = "test/profile"
     override val savedState: ScopeSavedState get() = error("Unused")
     override val isClosed = false
     override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
 }
 
-private object RunClock : Clock {
+internal object RunClock : Clock {
     override fun now() = Instant.DISTANT_PAST
 }
 
-private fun runRequest(request: String) = StudioTurnRequest(
+internal fun runRequest(request: String) = StudioTurnRequest(
     "chat",
     "Implement the task",
     RunSettings("model", ReasoningEffort.Medium, ApprovalMode.Ask),
