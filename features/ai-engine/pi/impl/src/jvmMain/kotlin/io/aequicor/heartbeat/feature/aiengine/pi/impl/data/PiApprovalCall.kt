@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
@@ -12,12 +13,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 /**
  * A tool call awaiting approval (`resources/pi/heartbeat-approval.ts`): its name, the command or path shown to the
  * user and, for `edit` / `write`, the absolute [path] the extension pinned in the call; null when it was not pinned.
  */
-internal data class PiApprovalCall(val tool: String, val target: String, val path: String? = null) {
+internal data class PiApprovalCall(
+    val tool: String,
+    val target: String,
+    val path: String? = null,
+    val arguments: JsonObject = JsonObject(emptyMap()),
+    val result: AgentToolResult? = null,
+) {
     override fun toString(): String = "PiApprovalCall"
 }
 
@@ -33,12 +42,13 @@ private const val ALLOW_TITLE = "Разрешить"
 private const val DENY_TITLE = "Запретить"
 private const val ALLOW_HOST_TITLE = "Завершить Heartbeat и выполнить"
 private const val APPROVAL_TARGET_LIMIT = 4_000
+private const val RESULT_CHARS = 32_768
 private const val HEX_RADIX = 16
 private const val HEX_DIGITS = 4
 private val log = Log.tag("PiApproval")
 
 /** Parses the approval message; null when it is malformed, and the request stays blocked. */
-internal fun approvalCall(message: String?): PiApprovalCall? {
+internal fun approvalCall(message: String?, isResult: Boolean = false): PiApprovalCall? {
     val fields = try {
         message?.let { Json.parseToJsonElement(it) as? JsonObject }
     } catch (e: SerializationException) {
@@ -50,7 +60,22 @@ internal fun approvalCall(message: String?): PiApprovalCall? {
     } ?: return null
     val tool = fields.string("toolName")?.takeIf { it.isNotBlank() } ?: return null
     // Field names must match the request built in resources/pi/heartbeat-approval.ts.
-    return PiApprovalCall(tool, fields.string("target").orEmpty(), fields.string("path"))
+    return PiApprovalCall(
+        tool,
+        fields.string("target").orEmpty(),
+        fields.string("path"),
+        fields["arguments"] as? JsonObject ?: JsonObject(emptyMap()),
+        if (isResult && tool in SearchTools) {
+            AgentToolResult(
+                fields.string("result").orEmpty().take(RESULT_CHARS),
+                isError = (fields["isError"] as? JsonPrimitive)?.booleanOrNull == true,
+            )
+        } else if (isResult) {
+            return null
+        } else {
+            null
+        },
+    )
 }
 
 /** The user-facing request; null blocks a call whose target is too long to show in full. */

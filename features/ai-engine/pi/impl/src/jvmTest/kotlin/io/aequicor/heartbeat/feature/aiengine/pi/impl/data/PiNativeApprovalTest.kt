@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolCall
@@ -18,6 +19,8 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,6 +28,69 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class PiNativeApprovalTest {
+    @Test
+    fun `search uses hosted authorization and returns hook context without a user dialog`() = runTest {
+        val arguments = JsonObject(mapOf("query" to JsonPrimitive("original query")))
+        var authorized = false
+        val tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeHosted(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+            ): NativeVerdict {
+                assertEquals("web_search", name)
+                assertEquals("original query", arguments.string("query"))
+                authorized = true
+                return NativeVerdict.Allow
+            }
+            override suspend fun afterHosted(
+                context: AgentToolContext,
+                name: String,
+                arguments: JsonObject,
+                result: AgentToolResult,
+            ): String {
+                assertTrue(authorized)
+                assertEquals("original query", arguments.string("query"))
+                assertEquals(AgentToolResult("failed search", isError = true), result)
+                return "Useful hook context"
+            }
+        }
+        val fixture = fixture(this, tools = tools)
+        fixture.runningTurn(TrustLevel.Full)
+        val request = approval("search", "original query", "web_search")
+        val payload = record(request.string("message")!!)
+        fixture.connection.event(
+            JsonObject(
+                request + ("message" to JsonPrimitive(JsonObject(payload + ("arguments" to arguments)).toString())),
+            ),
+        )
+        runCurrent()
+        assertEquals(listOf(answer("search", "confirmed", true)), fixture.connection.sent)
+        val result = JsonObject(
+            mapOf(
+                "toolName" to JsonPrimitive("web_search"),
+                "arguments" to arguments,
+                "result" to JsonPrimitive("failed search"),
+                "isError" to JsonPrimitive(true),
+            ),
+        )
+        fixture.connection.event(
+            JsonObject(
+                mapOf(
+                    "type" to JsonPrimitive("extension_ui_request"),
+                    "id" to JsonPrimitive("result"),
+                    "method" to JsonPrimitive("input"),
+                    "title" to JsonPrimitive("heartbeat.tool-result"),
+                    "placeholder" to JsonPrimitive(result.toString()),
+                ),
+            ),
+        )
+        runCurrent()
+        assertEquals("Useful hook context", fixture.connection.sent.last().string("value"))
+        assertIs<ActiveSessionState.Running>(fixture.session.state.value)
+        fixture.session.shutdown()
+    }
+
     @Test
     fun `slow gate does not block reader and late allowance cannot reach a later turn`() = runTest {
         val entered = CompletableDeferred<Unit>()

@@ -94,10 +94,10 @@ internal suspend fun fixture(
         { released += it },
     )
     val connections = mutableListOf<FakeConnection>()
-    session.prepareHostedTools()
     session.start(
-        { event, failed ->
+        { plan, event, failed ->
             FakeConnection().also {
+                it.plan = plan
                 it.event = event
                 it.failed = failed
                 configure(connections.size, it)
@@ -105,6 +105,7 @@ internal suspend fun fixture(
             }
         },
         transcript,
+        { connections.last().takeIf { it.isTranscriptPersisted }?.sessionFile },
     )
     return Fixture(session, connections, released)
 }
@@ -211,6 +212,7 @@ internal data class Fixture(
 internal val TestWorkspace: Path = Files.createTempDirectory("pi-workspace").also { it.toFile().deleteOnExit() }
 
 internal class FakeConnection : PiConnection {
+    var plan: PiLaunchPlan? = null
     var event: suspend (JsonObject) -> Unit = {}
     var failed: suspend (EngineFailure) -> Unit = {}
     val promptAck = CompletableDeferred<JsonObject>()
@@ -221,6 +223,8 @@ internal class FakeConnection : PiConnection {
     val sent = mutableListOf<JsonObject>()
     var isClosed = false
     var sessionId = "native"
+    var isTranscriptPersisted = true
+    var sessionFile: String? = "native.jsonl"
     var model = "test"
     var modelMetadata = JsonObject(emptyMap())
     override var contextWindows: Map<String, Long> = emptyMap()
@@ -282,7 +286,11 @@ internal class FakeConnection : PiConnection {
             ),
         )
         return Json.parseToJsonElement(
-            """{"sessionId":"$sessionId","sessionFile":"native.jsonl","isStreaming":$isStreaming,
+            """{"sessionId":"$sessionId","sessionFile":${sessionFile?.let {
+                JsonPrimitive(
+                    it,
+                )
+            }},"isStreaming":$isStreaming,
                "thinkingLevel":"$thinkingLevel",
                "model":$selectedModel}""",
         ).jsonObject

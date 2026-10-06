@@ -39,6 +39,52 @@ import kotlin.test.assertTrue
 
 class AdapterHostedToolsTest {
     @Test
+    fun `adapter result hooks retain arguments errors and only return bounded context while the turn is live`() =
+        runTest {
+            var calls = 0
+            val hooks = object : SessionHooks {
+                override fun context(session: SessionRef, request: RequestId?, turn: TurnId?) =
+                    SessionHookContext(session, null, request, turn, SessionOwner("test"))
+                override suspend fun afterTool(call: HookedToolCall, result: AgentToolResult): String {
+                    calls++
+                    assertEquals(Arguments, call.arguments)
+                    assertFalse(call.isNative)
+                    assertEquals(AgentToolAction.Read, call.action)
+                    assertEquals(AgentToolResult("failed search", isError = true), result)
+                    return "x".repeat(3000)
+                }
+            }
+            val owner = Owner()
+            val tools = DefaultAgentTools(setOf(owner), hooks)
+            assertEquals(NativeVerdict.Allow, tools.authorizeHosted(Context, "web_search", Arguments))
+            owner.isEnabled = false
+            val result = AgentToolResult("failed search", isError = true)
+            assertEquals("x".repeat(2000), tools.afterHosted(Context, "web_search", Arguments, result))
+            assertEquals(null, tools.afterHosted(Context, "unknown", Arguments, result))
+            tools.finishTurn(Context.session, Context.turn)
+            assertEquals(null, tools.afterHosted(Context, "web_search", Arguments, result))
+            assertEquals(1, calls)
+        }
+
+    @Test
+    fun `the turn barrier cancels an adapter result hook before resources are released`() = runTest {
+        val entered = CompletableDeferred<Unit>()
+        val hooks = object : SessionHooks {
+            override fun context(session: SessionRef, request: RequestId?, turn: TurnId?) =
+                SessionHookContext(session, null, request, turn, SessionOwner("test"))
+            override suspend fun afterTool(call: HookedToolCall, result: AgentToolResult): String? {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val tools = DefaultAgentTools(setOf(Owner()), hooks)
+        val waiting = async { tools.afterHosted(Context, "web_search", Arguments, AgentToolResult("done")) }
+        entered.await()
+        tools.finishTurn(Context.session, Context.turn)
+        assertFailsWith<CancellationException> { waiting.await() }
+    }
+
+    @Test
     fun `adapter tools are catalogued but never exposed or executed through generic hosted tools`() = runTest {
         val tools = DefaultAgentTools(setOf(Owner()))
         assertEquals(listOf("web_search"), tools.catalog().single().tools.map { it.name })

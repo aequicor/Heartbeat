@@ -15,6 +15,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
 /** An immutable approval bound to the originating native turn and connection. Never runs on the RPC reader. */
@@ -29,23 +30,26 @@ internal class PiNativeApproval(
 
     suspend fun answer(id: String, call: PiApprovalCall, turn: Turn, context: AgentToolContext) {
         try {
-            val verdict = authorize(id, call, turn, context)
+            val response = call.result?.let { result ->
+                val note = environment.tools.afterHosted(context, call.tool, call.arguments, result)
+                "value" to JsonPrimitive(note.orEmpty())
+            } ?: ("confirmed" to JsonPrimitive(authorize(id, call, turn, context) == NativeVerdict.Allow))
             currentCoroutineContext().ensureActive()
             // Recheck after the gate, before sending Allow to the captured process.
             if (!isCurrent()) return
-            reply(id, verdict == NativeVerdict.Allow)
+            reply(id, response)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             log.w(e.withoutDetails()) { "Pi native approval failed; the call stays blocked" }
-            reply(id, false)
+            reply(id, if (call.result == null) "confirmed" to JsonPrimitive(false) else "value" to JsonPrimitive(""))
         }
     }
 
-    private suspend fun reply(id: String, isAllowed: Boolean) {
+    private suspend fun reply(id: String, response: Pair<String, JsonElement>) {
         if (!connection.isOpen) return
         try {
-            connection.respondToUi(id, "confirmed" to JsonPrimitive(isAllowed))
+            connection.respondToUi(id, response)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -68,7 +72,29 @@ internal class PiNativeApproval(
         turn: Turn,
         context: AgentToolContext,
     ): NativeVerdict {
-        val action = piNativeAction(call.tool) ?: return NativeVerdict.Deny("Unknown native tool")
+        val classified = classify(call) ?: return NativeVerdict.Deny("Unknown native tool")
+        val (native, isHostTermination) = classified
+        val bound = context.copy(
+            permissions = AgentToolPermissions { approval ->
+                if (!isCurrent()) return@AgentToolPermissions false
+                val request = approvalRequest(id, turn.id, call, isHostTermination)
+                    ?.copy(description = approval.description) ?: return@AgentToolPermissions false
+                hosted.approval(turn, request, PiApprovalAllow)
+            },
+        )
+        return if (call.tool in SearchTools) {
+            environment.tools.authorizeHosted(bound, call.tool, call.arguments)
+        } else {
+            environment.tools.authorizeNative(bound, native)
+        }
+    }
+    private suspend fun classify(call: PiApprovalCall): Pair<NativeToolCall, Boolean>? {
+        val action = if (call.tool in SearchTools) {
+            AgentToolAction.Read
+        } else {
+            piNativeAction(call.tool)
+                ?: return null
+        }
         val isHostTermination = action == AgentToolAction.Command && environment.nativeCalls.terminatesHost(call.target)
         val path = call.path
         val workspace = connection.workingDirectory?.toString()
@@ -86,14 +112,6 @@ internal class PiNativeApproval(
                 )
             },
         )
-        val bound = context.copy(
-            permissions = AgentToolPermissions { approval ->
-                if (!isCurrent()) return@AgentToolPermissions false
-                val request = approvalRequest(id, turn.id, call, isHostTermination)
-                    ?.copy(description = approval.description) ?: return@AgentToolPermissions false
-                hosted.approval(turn, request, PiApprovalAllow)
-            },
-        )
-        return environment.tools.authorizeNative(bound, native)
+        return native to isHostTermination
     }
 }

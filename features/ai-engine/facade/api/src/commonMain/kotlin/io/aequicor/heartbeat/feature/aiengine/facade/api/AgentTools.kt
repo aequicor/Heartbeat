@@ -170,6 +170,8 @@ public interface AgentToolContribution {
 }
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */
+// Declaration, invocation and turn cleanup share one profile capability; adapters must use the same instance.
+@Suppress("TooManyFunctions")
 public interface ProfileAgentTools {
     /**
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
@@ -219,6 +221,18 @@ public interface ProfileAgentTools {
      */
     public suspend fun authorizeHosted(context: AgentToolContext, name: String, arguments: JsonObject): NativeVerdict =
         NativeVerdict.Deny("Adapter tool authorization is unavailable")
+
+    /**
+     * Returns bounded hook context for a completed adapter-operated tool. The adapter calls this only after an
+     * authorized operation, under its captured turn lifetime, and prepends the note without replacing the result.
+     * Ordinary hosted tools already dispatch afterTool during [execute]. Ended turns return no note.
+     */
+    public suspend fun afterHosted(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+        result: AgentToolResult,
+    ): String? = null
 
     /**
      * Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources.

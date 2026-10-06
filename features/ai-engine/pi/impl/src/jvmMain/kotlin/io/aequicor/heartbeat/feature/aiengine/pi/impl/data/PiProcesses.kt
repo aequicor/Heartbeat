@@ -13,6 +13,6 @@ internal interface PiProcesses {
         workspace: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
-        hosted: PiHostedTools? = null,
+        plan: PiLaunchPlan? = null,
     ): PiConnection
 }

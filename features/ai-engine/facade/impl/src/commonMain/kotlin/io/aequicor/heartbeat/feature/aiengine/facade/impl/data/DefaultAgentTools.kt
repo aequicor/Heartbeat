@@ -133,6 +133,28 @@ internal class DefaultAgentTools(
         if (result.isError) NativeVerdict.Deny(result.text) else NativeVerdict.Allow
     }
 
+    override suspend fun afterHosted(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+        result: AgentToolResult,
+    ): String? = withInvocation(context, null) { trusted ->
+        // The operation already completed: changing availability must not suppress its result hook.
+        val spec = contributions.filter { it.isAdapterOperated }.flatMap { it.catalog }
+            .singleOrNull { it.name == name } ?: return@withInvocation null
+        val hookContext = hooks.context(trusted.session, trusted.request, trusted.turn) ?: return@withInvocation null
+        try {
+            hooks.afterTool(HookedToolCall(hookContext, name, spec.action, arguments), result)?.take(HOOK_NOTE_CHARS)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.w(IllegalStateException("Adapter result hook failed (${e::class.simpleName.orEmpty()})")) {
+                "Adapter result hook failed"
+            }
+            null
+        }
+    }
+
     private suspend fun <T> withInvocation(
         context: AgentToolContext,
         ended: T,
