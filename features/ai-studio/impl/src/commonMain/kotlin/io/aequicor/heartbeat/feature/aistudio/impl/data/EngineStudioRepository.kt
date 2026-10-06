@@ -71,6 +71,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -143,6 +144,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioHelperAccess>())
 @Inject
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
@@ -165,13 +167,15 @@ internal class EngineStudioRepository(
     private val checklists: StudioChecklists,
     private val organisms: StudioOrganisms,
     private val configuredSubmission: StudioConfiguredSubmission,
+    private val helperAdmission: StudioHelperAdmission,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess,
     StudioChatResolver,
-    StudioHelperChatWriter {
+    StudioHelperChatWriter,
+    StudioHelperAccess {
     private val log = Log.tag("EngineStudio")
     private val nativeSession = StudioNativeSessionOperations(learning)
     private val store = stores.keyValue(ChatSpec)
@@ -414,13 +418,34 @@ internal class EngineStudioRepository(
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         log.i { "Execute the reserved native request" }
-        update(
-            request.id,
-        ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
-        val result = turns.execute(this, request)
-        update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
-        releaseArchived(request.id)
-        return result
+        val admitted = helperAdmission.prepare(record(request.id), request)
+        try {
+            update(
+                request.id,
+            ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
+            val result = turns.execute(this, admitted)
+            update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
+            releaseArchived(request.id)
+            return result
+        } finally {
+            withContext(NonCancellable) { (admitted.submission as? StudioHelperSubmission)?.cancel() }
+        }
+    }
+
+    override suspend fun helperRecord(helper: HelperId): StudioChatRecord {
+        log.v { "Read conversation for helper supervision" }
+        return record(helper.value)
+    }
+
+    override suspend fun openHelper(record: StudioChatRecord): ActiveSession {
+        log.v { "Open the helper's existing native session" }
+        checkNotNull(record.ref) { "Helper has no native session" }
+        return open(record.id, checkNotNull(record.target))
+    }
+
+    override suspend fun liveHelper(helper: HelperId): ActiveSession? = handlesLock.withLock {
+        log.v { "Read existing helper handle" }
+        handles.live(helper.value)
     }
 
     override suspend fun finishedRun(id: String) {

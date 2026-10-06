@@ -74,10 +74,10 @@ class SchedulerIntegrationTest {
     }
 
     @Test
-    fun `helper service resolves without a capable host or a scheduler toggle`() = runTest {
+    fun `studio helper host resolves without a scheduler toggle and rejects a missing parent`() = runTest {
         val profile = app.profileSessions.open(ProfileId("helpers-default"))
         val helpers = (profile.graph as TestSchedulerAccessors).helperAgents
-        assertFalse(helpers.canHost(null))
+        assertTrue(helpers.canHost(null))
         assertFalse(helpers.canHost(session))
         assertFalse(helpers.isHelper(session))
         app.profileSessions.close()

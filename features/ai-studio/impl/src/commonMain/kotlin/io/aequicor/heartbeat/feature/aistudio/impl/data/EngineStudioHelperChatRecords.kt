@@ -22,6 +22,7 @@ internal class EngineStudioHelperChatRecords(
     private val writer: StudioHelperChatWriter,
     private val workspaces: LocalWorkspaces,
     private val clock: Clock,
+    private val attempts: StudioHelperAttempts,
 ) : StudioHelperChatRecords {
     private val log = Log.tag("EngineStudioHelperChatRecords")
     private val store = stores.keyValue(ChatSpec)
@@ -46,7 +47,13 @@ internal class EngineStudioHelperChatRecords(
         log.v { "Read durable helper identity" }
         val record = store.get(ChatsKey).orEmpty().firstOrNull { it.id == helper.value } ?: return null
         return record.helper?.let { identity ->
-            HelperMetadata(helper, identity.owner, identity.parentSession, record.ref, record.lastRunRequest)
+            HelperMetadata(
+                helper,
+                identity.owner,
+                identity.parentSession,
+                record.ref,
+                attempts.unresolved(helper) ?: record.lastRunRequest,
+            )
         }
     }
 

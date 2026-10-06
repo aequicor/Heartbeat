@@ -87,6 +87,7 @@ class StudioScheduledSessionHostTest {
             lazyOf(chats),
             Scope(backgroundScope),
             lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
         )
         assertTrue(host.owns(session))
         assertFalse(host.owns(helper))
@@ -104,6 +105,7 @@ class StudioScheduledSessionHostTest {
             lazyOf(chats),
             Scope(backgroundScope),
             lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
         )
         assertFailsWith<IllegalStateException> { host.wake(request, prompt) }
     }
@@ -118,6 +120,7 @@ class StudioScheduledSessionHostTest {
             lazyOf(chats),
             Scope(backgroundScope),
             lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
         )
         val spawned = host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt))
         assertEquals(helper, spawned)
@@ -132,6 +135,7 @@ class StudioScheduledSessionHostTest {
             lazyOf(chats),
             Scope(backgroundScope),
             lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
         )
         assertNull(host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
         assertTrue(chats.created.isEmpty())
@@ -148,6 +152,7 @@ class StudioScheduledSessionHostTest {
             lazyOf(chats),
             Scope(backgroundScope),
             lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
         )
         assertEquals(helper, host.spawn(SpawnRequest(session, WorkspaceRef("checkout"), target, "Helper", prompt)))
         assertEquals(listOf<Pair<String?, String>>(null to "Helper"), chats.created)

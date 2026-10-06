@@ -77,6 +77,47 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioTurnExecutorTest {
     @Test
+    fun `helper receipts receive exact acceptance and terminal only after tools and history settle`() = runTest {
+        val fixture = TurnFixture()
+        val run = async { fixture.executor.execute(fixture.host, fixture.request) }
+        runCurrent()
+        assertEquals(listOf(fixture.request.request to fixture.turn.id), fixture.host.acceptedReceipts)
+        assertTrue(fixture.host.terminalReceipts.isEmpty())
+        fixture.tools.release.complete(Unit)
+        run.await()
+        assertEquals(
+            listOf<Triple<RequestId, TurnId, TurnOutcome>>(
+                Triple(fixture.request.request, fixture.turn.id, TurnOutcome.Completed),
+            ),
+            fixture.host.terminalReceipts,
+        )
+        assertEquals(listOf("finish-end", "refresh"), fixture.host.terminalEvents.takeLast(2))
+        assertEquals(true, fixture.host.isTerminalHistoryCurrent)
+    }
+
+    @Test
+    fun `recovered helper receipt records actual cancellation instead of generic failed run`() = runTest {
+        val fixture = TurnFixture()
+        fixture.host.isIsolated = false
+        fixture.host.stopCheckFailure = IllegalStateException("Stop check failed")
+        fixture.active.state.value = ActiveSessionState.Running(fixture.turn.copy(outcome = null))
+        val run = async { fixture.executor.execute(fixture.host, fixture.request) }
+        runCurrent()
+        assertTrue(fixture.host.terminalReceipts.isEmpty())
+        fixture.active.state.value = ActiveSessionState.Ready(fixture.turn.copy(outcome = TurnOutcome.Cancelled))
+        fixture.tools.release.complete(Unit)
+        assertEquals(RunOutcome.Failed, run.await())
+        assertEquals(
+            listOf<Triple<RequestId, TurnId, TurnOutcome>>(
+                Triple(fixture.request.request, fixture.turn.id, TurnOutcome.Cancelled),
+            ),
+            fixture.host.terminalReceipts,
+        )
+        assertEquals(false, fixture.host.isTerminalHistoryCurrent)
+        assertEquals("finish-end", fixture.host.terminalEvents.last())
+    }
+
+    @Test
     fun `cancelling scheduled preparation rejects prepared worktree ownership without sending a prompt`() = runTest {
         val fixture = TurnFixture()
         val submission = StudioRunSubmission()
@@ -471,7 +512,7 @@ private class TurnFixture {
     val tools = ExecutorTools(events)
     val machine = ExecutorMachine(events)
     val host = ExecutorHost(active, turn, events)
-    val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools)
+    val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools, host)
 
     fun mainTask() = WorktreeTask(
         "main-task",
@@ -498,7 +539,8 @@ private class ExecutorHost(
     private val active: ExecutorSession,
     private val turn: Turn,
     private val events: MutableList<String>,
-) : StudioTurnHost {
+) : StudioTurnHost,
+    StudioTurnObserver {
     var openFailure: Exception? = null
     var stopCheckFailure: Exception? = null
     var isNativeSubmissionEnabled = false
@@ -506,6 +548,24 @@ private class ExecutorHost(
     var isIsolated = true
     var openCount = 0
     var beforeSubmit: suspend () -> Unit = {}
+    val acceptedReceipts = mutableListOf<Pair<RequestId, TurnId>>()
+    val terminalReceipts = mutableListOf<Triple<RequestId, TurnId, TurnOutcome>>()
+    var terminalEvents = emptyList<String>()
+    var isTerminalHistoryCurrent: Boolean? = null
+    override suspend fun acceptedTurn(request: StudioTurnRequest, active: ActiveSession, turn: TurnId) {
+        acceptedReceipts += request.request to turn
+    }
+    override suspend fun terminalTurn(
+        request: StudioTurnRequest,
+        active: ActiveSession,
+        turn: TurnId,
+        outcome: TurnOutcome,
+        isHistoryCurrent: Boolean,
+    ) {
+        terminalReceipts += Triple(request.request, turn, outcome)
+        terminalEvents = events.toList()
+        isTerminalHistoryCurrent = isHistoryCurrent
+    }
     override suspend fun isWorktree(id: String) = isIsolated
     override suspend fun openTurn(id: String, settings: RunSettings): ActiveSession {
         openCount++

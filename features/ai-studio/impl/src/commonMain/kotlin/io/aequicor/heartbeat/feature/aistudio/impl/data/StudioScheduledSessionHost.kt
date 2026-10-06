@@ -7,9 +7,14 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
@@ -69,6 +74,7 @@ internal class StudioScheduledSessionHost(
     private val scheduledChats: Lazy<StudioScheduledChats>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val helperRecords: Lazy<StudioHelperChatRecords>,
+    private val helpers: Lazy<EngineStudioHelperChats>,
 ) : ScheduledSessionHost {
     private val log = Log.tag("StudioScheduledSessionHost")
     private val chats: StudioScheduledChats get() = scheduledChats.value
@@ -76,13 +82,24 @@ internal class StudioScheduledSessionHost(
     override val priority: Int = STUDIO_HOST_PRIORITY
     override val isWakeAdmissionSupported: Boolean = true
 
-    // Capability stays false until the request-correlated submission and cancellation protocol is implemented.
+    override suspend fun canHostHelper(parent: SessionRef?): Boolean =
+        !profile.isClosed && (parent == null || chats.chatOf(parent) != null)
+
     override suspend fun createHelper(request: HelperCreateRequest): HelperId =
         helperRecords.value.createHelper(request)
 
     override suspend fun helperMetadata(helper: HelperId): HelperMetadata? = helperRecords.value.helperMetadata(helper)
 
     override suspend fun isHelper(session: SessionRef): Boolean = helperRecords.value.isHelper(session)
+
+    override suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission =
+        helpers.value.prompt(helper, prompt)
+
+    override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? =
+        helpers.value.result(helper, request)
+
+    override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
+        helpers.value.cancel(helper, request)
 
     override suspend fun owns(session: SessionRef): Boolean = chats.chatOf(session) != null
 
