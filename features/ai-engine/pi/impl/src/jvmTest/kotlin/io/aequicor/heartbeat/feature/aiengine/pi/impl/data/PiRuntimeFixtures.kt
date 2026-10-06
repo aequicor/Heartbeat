@@ -81,10 +81,11 @@ internal class RuntimeProcesses : PiProcesses {
         workspace: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
-        hosted: PiHostedTools?,
+        plan: PiLaunchPlan?,
     ): PiConnection {
         beforeStart()
         return FakeConnection().also {
+            it.plan = plan
             it.event = event
             it.failed = failed
             configure(it)

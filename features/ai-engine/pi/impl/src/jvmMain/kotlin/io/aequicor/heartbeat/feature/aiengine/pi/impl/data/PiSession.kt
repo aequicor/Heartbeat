@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionEffect
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionIntent
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionMachineKey
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ChangesSessionConfiguration
@@ -55,7 +56,11 @@ import kotlinx.serialization.json.booleanOrNull
 import java.util.UUID
 
 internal typealias PiConnector =
-    suspend (event: suspend (JsonObject) -> Unit, failed: suspend (EngineFailure) -> Unit) -> PiConnection
+    suspend (
+        plan: PiLaunchPlan,
+        event: suspend (JsonObject) -> Unit,
+        failed: suspend (EngineFailure) -> Unit,
+    ) -> PiConnection
 
 /** Session source of transcripts kept in the profile's Pi session directory. */
 internal val PiSessionSource: SessionSourceId = SessionSourceId("pi.profile")
@@ -92,6 +97,7 @@ internal class PiSession(
     private val mutex = Mutex()
     private var connection: PiConnection? = null
     private var connector: PiConnector? = null
+    private var persistedTranscript: suspend (String) -> String? = { null }
     private var nativeRef: SessionRef? = null
     private val usage = PiSessionUsage(environment, handle)
 
@@ -129,7 +135,6 @@ internal class PiSession(
     // Pending tool approvals keyed by the Pi extension UI request id; confined to dispatchers.main.
     private val permissions = mutableMapOf<PermissionRequestId, PermissionRequest>()
     private val decisions = mutableSetOf<PermissionRequestId>()
-    private val nativeApprovals = mutableSetOf<Pair<Int, String>>()
 
     // Non-approval dialogs among [permissions] and how to answer them; confined to dispatchers.main.
     private val dialogs = mutableMapOf<PermissionRequestId, PiDialog>()
@@ -143,8 +148,6 @@ internal class PiSession(
     )
 
     // Hosted tools are prepared once per process from the request that launched it.
-    private val launchTarget = request.target
-    private val areDetachedToolsEnabled = request.areDetachedToolsEnabled
     private val hostedTools = PiHostedSessionTools(
         environment,
         { state.value is ActiveSessionState.Interrupting },
@@ -152,6 +155,15 @@ internal class PiSession(
         permissions,
         { machine.send(it) },
     )
+    private val nativeApprovals = PiNativeApprovals(environment, hostedTools, isCurrent = { process, active, captured ->
+        val isSameProcess = generation == captured && connection === process && process.isOpen
+        val isActiveTurn = turn?.id == active.id && !isHandleClosed
+        isSameProcess && isActiveTurn && state.value !is ActiveSessionState.Interrupting
+    }, failed = ::failed)
+    private val toolPlans = PiToolPlans(environment, hostedTools, request.areDetachedToolsEnabled) {
+        AgentToolScope(route.workspace, target, session = nativeRef)
+    }
+    private var launchedTools: Set<String> = emptySet()
     private val profileClose = profile.onClose {
         cancellationAck?.completeExceptionally(
             EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed)),
@@ -169,14 +181,17 @@ internal class PiSession(
     /** Native session of this handle once started; null before [start] succeeds. */
     val attachedRef: SessionRef? get() = nativeRef
 
-    suspend fun prepareHostedTools(): PiHostedTools? =
-        hostedTools.prepare(route.workspace, launchTarget, areDetachedToolsEnabled)
-
     /** Starts Pi on a new native session, or on the stored [transcript] when the session is resumed. */
-    suspend fun start(factory: PiConnector, transcript: PiTranscript? = null): Unit = withContext(dispatchers.main) {
+    suspend fun start(
+        factory: PiConnector,
+        transcript: PiTranscript? = null,
+        persistedTranscript: suspend (String) -> String? = { null },
+    ): Unit = withContext(dispatchers.main) {
         var isStarted = false
         try {
             connector = factory
+            this@PiSession.persistedTranscript = persistedTranscript
+            nativeRef = transcript?.ref
             withContext(NonCancellable) { connection = open(factory) }
             currentCoroutineContext().ensureActive()
             val stored = transcript?.let { rpc().reattach(it.file).storedConversation() }
@@ -210,6 +225,7 @@ internal class PiSession(
                     piFailure(EngineFailure.Session(SessionFailureReason.Busy))
                 }
                 piValidatePromptRequest(request)
+                refreshTools()
                 promptResources.prepare(ref, request)
                 val next = Turn(TurnId(UUID.randomUUID().toString()), request.id, target)
                 val result = CompletableDeferred<TurnId>()
@@ -379,11 +395,28 @@ internal class PiSession(
     }
 
     private suspend fun open(factory: PiConnector): PiConnection {
+        val plan = toolPlans.launch()
         val current = ++generation
-        return factory(
+        val fresh = factory(
+            plan,
             { record -> withContext(dispatchers.main) { if (current == generation) event(record) } },
             { failure -> withContext(dispatchers.main) { if (current == generation) failed(failure) } },
         )
+        launchedTools = plan.requestedNames
+        return fresh
+    }
+
+    /** Only growth needs a restart, between turns and under the send mutex, on the same saved transcript. */
+    private suspend fun refreshTools() {
+        val process = connection?.takeIf { it.isOpen } ?: return
+        if ((toolPlans.desired().names - launchedTools).isEmpty()) return
+        // get_state may advertise an allocated path before Pi writes its first assistant message.
+        // Only a transcript found in profile storage is safe to reattach after closing this process.
+        val file = nativeRef?.nativeId?.let { persistedTranscript(it) } ?: return
+        sessionFile = file
+        log.i { "Restarting Pi between turns to expose additional tools" }
+        process.close()
+        connected()
     }
 
     /** Returns the live connection, restarting Pi on the same native transcript after process loss. */
@@ -408,7 +441,7 @@ internal class PiSession(
             if (snapshot.string("sessionId") != nativeRef?.nativeId) {
                 piFailure(EngineFailure.Session(SessionFailureReason.Changed))
             }
-            snapshot
+            sessionConfiguration.restore(fresh)
         } catch (e: EngineException) {
             // Never keep a process that sits on a different transcript than this handle.
             log.w(e) { "Pi session recovery could not reattach the transcript" }
@@ -549,36 +582,19 @@ internal class PiSession(
         if (record.string("method") !in DIALOG_METHODS) return
         if (record.string("method") == "confirm" && record.string("title") == APPROVAL_TITLE) {
             approval(id, record.string("message"))
+        } else if (record.string("method") == "input" && record.string("title") == "heartbeat.tool-result") {
+            approval(id, record.string("placeholder"), isResult = true)
         } else {
             val dialog = turn?.let { PiDialog.from(record, id, it.id) }
             await(id, dialog?.request, dialog)
         }
     }
 
-    private suspend fun approval(id: String, message: String?) {
-        val call = approvalCall(message) ?: return dismiss(id)
+    private suspend fun approval(id: String, message: String?, isResult: Boolean = false) {
+        val call = approvalCall(message, isResult) ?: return dismiss(id)
         val active = turn ?: return dismiss(id)
-        val context = hostedTools.context() ?: return dismiss(id)
-        val process = connection
-        if (process == null || isHandleClosed) {
-            dismiss(id)
-            return
-        }
-        val capturedGeneration = generation
-        val key = capturedGeneration to id
-        if (!nativeApprovals.add(key)) return
-        val approval = PiNativeApproval(environment, hostedTools, process, isCurrent = {
-            val isSameProcess = generation == capturedGeneration && connection === process && process.isOpen
-            val isActiveTurn = turn?.id == active.id && context.lifetime?.isActive == true
-            val isAnswerable = !isHandleClosed && state.value !is ActiveSessionState.Interrupting
-            isSameProcess && isActiveTurn && isAnswerable
-        }, failed = ::failed)
-        profile.coroutineScope.launch(dispatchers.main + requireNotNull(context.lifetime)) {
-            approval.answer(id, call, active, context)
-        }.invokeOnCompletion {
-            // Completion also runs when the lifetime was revoked before the coroutine first started.
-            profile.coroutineScope.launch(dispatchers.main) { nativeApprovals.remove(key) }
-        }
+        val process = connection ?: return dismiss(id)
+        if (isHandleClosed || !nativeApprovals.launch(id, call, active, process, generation)) dismiss(id)
     }
 
     /** Surfaces [request] to the user; a malformed request or one nobody can answer is dismissed. */
@@ -635,7 +651,7 @@ internal class PiSession(
 
     private suspend fun dismissApprovals() {
         val pending = permissions.keys.filter { !hostedTools.contains(it) }.toSet() +
-            nativeApprovals.filter { it.first == generation }.map { PermissionRequestId(it.second) }
+            nativeApprovals.pending(generation)
         hostedTools.dismiss()
         permissions.clear()
         dialogs.clear()

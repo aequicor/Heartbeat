@@ -8,9 +8,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionDecision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOption
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionOptionId
@@ -79,42 +79,25 @@ internal class PiHostedSessionTools(
         snapshot = null
     }
 
-    /**
-     * Tools and instructions for the process about to start. A session without a project gets detached tools only
-     * when its caller opted in. Instructions are fixed for the process: a later model switch keeps those of [target].
-     * Detached tools are optional: an unavailable bridge or a failing contribution starts the chat without them,
-     * while a project session fails.
-     */
-    suspend fun prepare(
-        workspace: WorkspaceRef?,
-        target: EngineTarget,
-        areDetachedToolsEnabled: Boolean,
-    ): PiHostedTools? {
-        if (workspace != null) return attach(workspace, target)
-        if (!areDetachedToolsEnabled) return null
-        if (!environment.bridge.isAvailable) {
-            log.i { "Hosted tools bridge is unavailable; the chat starts without hosted tools" }
-            return null
-        }
+    /** Rebuilds a process capability with the exact frozen declarations and their scoped instructions. */
+    suspend fun prepare(scope: AgentToolScope, specs: List<AgentToolSpec>): PiHostedTools? {
+        attachment?.close()
+        attachment = null
+        if (specs.isEmpty()) return null
         return try {
-            attach(null, target)
+            val declared = scope.copy(declared = specs.map { it.name }.toSet())
+            val instructions = environment.tools.instructions(declared)
+            if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
+            val capability = environment.bridge.attach(declared, ::context)
+            attachment = capability
+            PiHostedTools(capability.endpoint, specs, instructions)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Contribution failures may quote instructions or arguments; only the type is logged.
+            if (scope.workspace != null) throw e
             log.w(e.withoutDetails()) { "Hosted tools failed to attach; the chat starts without them" }
             null
         }
-    }
-
-    private suspend fun attach(workspace: WorkspaceRef?, target: EngineTarget): PiHostedTools? {
-        val specs = environment.tools.specifications(workspace)
-        if (specs.isEmpty()) return null
-        val instructions = environment.tools.instructions(AgentToolScope(workspace, target))
-        if (!environment.bridge.isAvailable) piFailure(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
-        val capability = environment.bridge.attach(workspace, ::context)
-        attachment = capability
-        return PiHostedTools(capability.endpoint, specs, instructions)
     }
 
     /** Waits outside the process reader; native approvals retain their original UI id and option labels. */

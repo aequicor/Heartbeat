@@ -126,7 +126,7 @@ class PiHostedSessionTest {
                 project = null,
                 areDetachedToolsEnabled = true,
             )
-            assertNull(fixture.session.prepareHostedTools())
+            assertNull(fixture.connection.plan?.hosted)
             fixture.connection.promptAck.complete(JsonObject(emptyMap()))
             fixture.session.send(PromptRequest(RequestId("chat"), listOf(ContentPart.Text("Hi"))))
             fixture.session.shutdown()

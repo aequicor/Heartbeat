@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthSource
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
 import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngineId
@@ -108,12 +109,18 @@ internal class PiProcessLauncher(
         workspace: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
-        hosted: PiHostedTools?,
+        plan: PiLaunchPlan?,
     ): PiConnection {
         // Fetched before the non-cancellable launch so a slow compatible server stays cancellable.
         val modelsJson = compatibleModelsJson(source)
-        return launch(source, workspace, modelsJson, event, failed, hosted)
+        return launch(source, workspace, modelsJson, event, failed, plan ?: discoveryPlan())
     }
+
+    private suspend fun discoveryPlan(): PiLaunchPlan = PiLaunchPlan(
+        ResolvedToolPolicy(nativeOn = piTools(false).split(",").toSet()),
+        null,
+        if (toggles.get(SearchEngineTools)) SearchTools else emptySet(),
+    )
 
     /** `models.json` for a compatible route, or null for vendor routes Pi knows natively. */
     private suspend fun compatibleModelsJson(source: AuthSource.ManagedKey): String? {
@@ -142,7 +149,7 @@ internal class PiProcessLauncher(
         modelsJson: String?,
         event: suspend (JsonObject) -> Unit,
         failed: suspend (EngineFailure) -> Unit,
-        hosted: PiHostedTools?,
+        plan: PiLaunchPlan,
     ): PiConnection = withContext(NonCancellable + dispatchers.io) {
         val startup = startup()
         val executable = startup.executable?.takeIf { Files.isRegularFile(it) }
@@ -157,8 +164,9 @@ internal class PiProcessLauncher(
         val agentDir = Files.createTempDirectory(Files.createDirectories(root.resolve("runtime")), "pi-")
         val sessionDir = Files.createDirectories(sessionDirectory(root))
         val workingDir = workspace?.let(Path::of) ?: Files.createDirectories(root.resolve("workspace"))
-        val areSearchToolsEnabled = toggles.get(SearchEngineTools)
-        val tools = piTools(areSearchToolsEnabled, hosted?.specifications.orEmpty().map { it.name })
+        val hosted = plan.hosted
+        val areSearchToolsEnabled = plan.search.isNotEmpty()
+        val tools = plan.names.joinToString(",")
         val extensions = piExtensions(agentDir, areSearchToolsEnabled, hosted != null)
         // The user opened the workspace folder explicitly, so its instructions and skills may load.
         val command = piCommand(executable, sessionDir, extensions, tools, isProject = workspace != null)
@@ -167,6 +175,9 @@ internal class PiProcessLauncher(
         applyPiEnvironment(environment, startup)
         environment["PI_CODING_AGENT_DIR"] = agentDir.toString()
         environment["PI_SKIP_VERSION_CHECK"] = "1"
+        // A harness can become active during this process's lifetime. Always gate inspection too, so live Off
+        // and hooks take effect without a restart; ordinary reads are automatically allowed by the host.
+        environment["HEARTBEAT_GATE_ALL"] = "true"
         if (hosted != null) {
             environment["HEARTBEAT_AGENT_TOOLS_URL"] = hosted.endpoint.url
             environment["HEARTBEAT_AGENT_TOOLS_TOKEN"] = hosted.endpoint.token
