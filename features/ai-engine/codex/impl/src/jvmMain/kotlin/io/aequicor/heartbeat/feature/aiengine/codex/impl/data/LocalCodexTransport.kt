@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runInterruptible
@@ -266,19 +267,26 @@ internal class ProcessCodexWire(
                 }
             }
         } finally {
-            // A close that raced this write could not take the lock; the write releases stdin once it is done.
-            if (isClosed.get()) closeStdin()
+            // The exit callback may have missed the writer lock. Retry cleanup on IO after this write releases it.
+            if (isClosed.get()) closeAfterExit()
         }
     }
 
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) return
         log.i { "Stopping local Codex app-server" }
-        // Destroy first: blocked pipe IO must unblock before stdin can be closed.
-        destroyDescendants()
-        process.destroyForcibly()
-        closeStdin()
-        release()
+        try {
+            destroyDescendants()
+            // Process.destroyForcibly also closes Java stdin synchronously and can block on a pending writer.
+            process.toHandle().destroyForcibly()
+        } catch (error: SecurityException) {
+            log.w(error.sanitized()) { "Codex app-server stop signal denied" }
+        } catch (error: UnsupportedOperationException) {
+            log.w(error.sanitized()) { "Codex app-server stop signal unsupported" }
+        } finally {
+            release()
+            closeAfterExit()
+        }
     }
 
     /**
@@ -287,7 +295,7 @@ internal class ProcessCodexWire(
      */
     private fun destroyDescendants() {
         try {
-            process.descendants().toList().forEach { it.destroyForcibly() }
+            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
         } catch (e: SecurityException) {
             log.w(e) { "Codex app-server descendants unavailable" }
         } catch (e: UnsupportedOperationException) {
@@ -295,11 +303,12 @@ internal class ProcessCodexWire(
         }
     }
 
-    /**
-     * Closing flushes under the writer lock. Process death does not release the pipe while a descendant still holds
-     * it, so when an in-flight write holds the lock, that write closes stdin after releasing it: [isClosed] is set
-     * before this lock attempt, and [write] re-checks it after unlocking, so one of them always closes the writer.
-     */
+    /** No flushing/closing on the caller's thread: a surviving descendant may still hold the pipe. */
+    private fun closeAfterExit() {
+        process.onExit().thenRunAsync(::closeStdin, dispatchers.io.asExecutor())
+    }
+
+    /** A missed lock is retried by write's finally block after the writer unlocks. */
     private fun closeStdin() {
         if (!writes.tryLock()) return
         try {

@@ -147,6 +147,7 @@ class LocalCodexTransportTest {
         val prepared = transport.prepare()
         val opening = async(start = CoroutineStart.LAZY) { prepared.open() }
         handoff.afterDispatch = {
+            handoff.afterDispatch = {}
             assertEquals(1, registrations)
             opening.cancel()
         }
