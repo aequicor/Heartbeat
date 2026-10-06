@@ -92,6 +92,12 @@ internal class PiProcessLauncher(
         secret.use { it.reveal { chars -> fingerprint(String(chars)) } }
     }
 
+    override suspend fun stop(
+        owner: PiExecutionOwner,
+        beginInspection: suspend () -> Boolean,
+        record: suspend (PiExecutionOwner) -> PiExecutionOwner?,
+    ): Boolean = PiStoredProcessStop(dispatchers).stop(owner, beginInspection, record)
+
     /** Stored transcript of the native session [nativeId] of this profile, or null when Pi has none. */
     override suspend fun transcript(nativeId: String): String? = withContext(dispatchers.io) {
         val owner = stores.owner as? StorageOwner.Profile

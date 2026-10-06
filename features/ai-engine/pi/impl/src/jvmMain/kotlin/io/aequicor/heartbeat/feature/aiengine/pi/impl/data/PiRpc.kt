@@ -52,6 +52,9 @@ internal interface PiConnection {
 
     /** Requests termination and waits for exit of this process and observed descendants; false is unconfirmed. */
     suspend fun stopAndAwait(): Boolean
+
+    /** Read-only identity of this dedicated execution process; missing evidence forbids a future cold stop. */
+    suspend fun processOwner(): PiExecutionOwner? = null
 }
 
 /**
@@ -71,6 +74,7 @@ internal class PiRpc(
 ) : PiConnection {
     private val log = Log.tag("PiRpc")
     private val termination = PiProcessStop(process, dispatchers)
+    private val ownership = PiProcessOwnership(process::toHandle, dispatchers)
     private val pending = ConcurrentHashMap<String, CompletableDeferred<JsonObject>>()
     private val writes = Mutex()
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
@@ -81,6 +85,9 @@ internal class PiRpc(
     @Volatile private var closeRegistration: DisposableHandle? = null
 
     override val isOpen: Boolean get() = !isClosed && process.isAlive
+
+    override suspend fun processOwner(): PiExecutionOwner? =
+        if (isClosed) null else ownership.capture().takeUnless { isClosed }
 
     init {
         scope.launch(dispatchers.io) { read() }

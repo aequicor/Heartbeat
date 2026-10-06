@@ -20,9 +20,15 @@ import kotlinx.serialization.json.Json
 
 /** Latest logical request boundaries; native transcript status alone cannot settle an interrupted process. */
 @Serializable
-internal data class PiTurnRecord(val turn: Turn, val trust: TrustLevel) {
+internal data class PiTurnRecord(
+    val turn: Turn,
+    val trust: TrustLevel,
+    val processOwner: PiExecutionOwner? = null,
+    val isProcessStopped: Boolean = false,
+) {
     init {
         requireNotNull(turn.request)
+        require(!isProcessStopped || (processOwner != null && turn.outcome != null))
     }
 }
 
@@ -34,6 +40,10 @@ internal data class PiTurnSnapshot(
     val ownership: String,
     val active: PiTurnRecord? = null,
     val last: PiTurnRecord? = null,
+    /** Retained through terminal native events until all observed process exits are confirmed. */
+    val stopping: PiTurnRecord? = null,
+    /** Incomplete descendant discovery cannot be repaired by an empty snapshot after the parent exited. */
+    val stopInspection: String? = null,
 ) {
     init {
         require(ownership.isNotBlank())
@@ -41,6 +51,15 @@ internal data class PiTurnSnapshot(
         require(active?.turn?.outcome == null)
         require(last == null || last.turn.outcome != null)
         require(active == null || active.turn.id != last?.turn?.id)
+        require(stopInspection == null || (stopInspection.isNotBlank() && stopping != null))
+        require(stopping == null || (stopping.processOwner != null && stopping.turn.outcome == null))
+        require(
+            stopping == null || listOfNotNull(active, last).any {
+                it.turn.id == stopping.turn.id && it.turn.request == stopping.turn.request &&
+                    it.processOwner?.launchId == stopping.processOwner?.launchId &&
+                    it.processOwner?.root == stopping.processOwner?.root
+            },
+        )
     }
 
     override fun toString(): String = "PiTurnSnapshot(***)"

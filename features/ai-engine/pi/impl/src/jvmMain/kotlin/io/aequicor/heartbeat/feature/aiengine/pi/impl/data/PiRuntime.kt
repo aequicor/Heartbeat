@@ -167,7 +167,9 @@ internal class PiRuntime(
                 identity.revision,
                 request.workspace,
             )
-            val restored = transcript?.let { PiTurnJournal(environment.turns, it.ref, route, credential).restore() }
+            val restored = transcript?.let {
+                PiTurnJournal(environment.turns, it.ref, route, credential).restoreForOpening()
+            }
             withContext(dispatchers.main) {
                 PiSession(
                     request,
