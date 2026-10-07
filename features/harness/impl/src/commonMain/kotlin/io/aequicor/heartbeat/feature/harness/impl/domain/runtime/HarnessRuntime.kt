@@ -20,6 +20,9 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -41,6 +44,7 @@ internal class HarnessRuntime(
     private val cache = HarnessRuntimeCache(host)
     private val declarations = HarnessToolDeclarations()
     private val current = mutableMapOf<HarnessRuntimeKey, HarnessInstance>()
+    private val publication = MutableStateFlow<List<HarnessInstance>>(emptyList())
     private val pending = mutableMapOf<HarnessRuntimeKey, HarnessPreparation>()
     private val retiring = mutableSetOf<HarnessInstance>()
     private val generations = mutableMapOf<HarnessRuntimeKey, Long>()
@@ -50,6 +54,13 @@ internal class HarnessRuntime(
     private val log = Log.tag("HarnessRuntime")
 
     val isAvailable: Boolean get() = host.isAvailable
+
+    /**
+     * Exact published generations, ordered by harness and item. Updates share the runtime mutation mutex.
+     * This lifecycle snapshot grants no invocation authority: admission may already have changed, and callers
+     * must enter through [invoke] even when they retained a handle from the latest snapshot.
+     */
+    val publishedInstances: StateFlow<List<HarnessInstance>> = publication.asStateFlow()
 
     /** Cancelling a waiter does not revoke an approved profile-owned activation. */
     suspend fun activate(request: HarnessActivationRequest): Boolean {
@@ -66,9 +77,7 @@ internal class HarnessRuntime(
 
     /** Ordered current handles; every dispatcher must still enter through invoke before author code runs. */
     suspend fun published(): List<HarnessInstance> = mutex.withLock {
-        current.values.filter { it.isActive }.sortedWith(
-            compareBy({ it.request.harness.name.value }, { it.request.item.id.value }),
-        )
+        publication.value.filter { it.isActive }
     }
 
     @HighFrequency
@@ -251,6 +260,7 @@ internal class HarnessRuntime(
                 declarations.published(instance)
                 val old = current.put(preparation.request.key(), instance)
                 old?.let(::retire)
+                updatePublication()
                 true
             } else {
                 false
@@ -300,12 +310,22 @@ internal class HarnessRuntime(
 
     private fun retire(instance: HarnessInstance) {
         instance.retire()
+        updatePublication()
         if (retiring.add(instance)) {
             environment.scope.launch(environment.dispatchers.default) {
                 instance.drain()
                 mutex.withLock { retiring.remove(instance) }
             }
         }
+    }
+
+    /** Called only while holding [mutex], after the corresponding current-map mutation. */
+    @HighFrequency
+    private fun updatePublication() {
+        log.v { "update published harness instances" }
+        publication.value = current.values.sortedWith(
+            compareBy({ it.request.harness.name.value }, { it.request.item.id.value }),
+        )
     }
 
     private fun ownedInstances(): List<HarnessInstance> =
