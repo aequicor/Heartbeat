@@ -41,6 +41,7 @@ fun main(arguments: Array<String>) {
     if (runPackagedPlantUmlWorker(arguments)) return
     if (handleWindowRuntimeProbe(arguments)) return
     if (handleComputerUseIndicatorProbe(arguments)) return
+    if (handleHarnessCompilerProbe(arguments)) return
     launchHeartbeat(isDevelopment = false)
 }
 

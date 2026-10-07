@@ -50,6 +50,7 @@ internal class JvmHarnessScriptHost(
     private val appVersion: String,
     private val scope: CoroutineScope,
     private val dispatchers: DispatcherProvider,
+    private val reportCompilerFailure: (Throwable) -> Unit = {},
 ) : HarnessScriptHost {
     @Inject
     constructor(
@@ -144,7 +145,10 @@ internal class JvmHarnessScriptHost(
         )
         currentCoroutineContext().ensureActive()
         return when (result) {
-            is ResultWithDiagnostics.Failure -> HarnessCompilationResult.Failure(result.reports.harnessDiagnostics())
+            is ResultWithDiagnostics.Failure -> {
+                result.reports.mapNotNull { it.exception }.forEach(reportCompilerFailure)
+                HarnessCompilationResult.Failure(result.reports.harnessDiagnostics())
+            }
 
             is ResultWithDiagnostics.Success -> lock.withLock {
                 if (invalidated.get()) {

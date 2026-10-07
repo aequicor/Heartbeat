@@ -1,0 +1,53 @@
+name: Packaged harness compiler
+
+on:
+  push:
+    branches: [master, codex/harness-runtime]
+    paths:
+      - 'features/harness/**'
+      - 'platform-main/desktop/**'
+      - 'platform-main/di-bundle/**'
+      - 'gradle/**'
+      - 'build-logic/**'
+      - '.github/workflows/harness-compiler.yml'
+  pull_request:
+    paths:
+      - 'features/harness/**'
+      - 'platform-main/desktop/**'
+      - 'platform-main/di-bundle/**'
+      - 'gradle/**'
+      - 'build-logic/**'
+      - '.github/workflows/harness-compiler.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: harness-compiler-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-probe:
+    name: Release probe (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Probe the release app image
+        shell: bash
+        run: ./gradlew :platform-main:desktop:verifyReleaseHarnessCompiler --stacktrace
+      - name: Compile the unsupported mobile hosts
+        if: runner.os == 'macOS'
+        shell: bash
+        run: ./gradlew :features:harness:impl:compileAndroidMain :features:harness:impl:compileKotlinIosSimulatorArm64 --stacktrace
