@@ -42,6 +42,14 @@ internal interface HarnessRuntimeContext {
 
     /** Freezes host-owned declaration snapshots; called under the publication mutex, without author code. */
     fun sealForPublication(): Boolean = isReadyForPublication
+
+    /**
+     * Atomically commits shared registration quotas after the instance entered its closed Committing phase,
+     * before it grants invocation authority or wakes publication waiters. False leaves the previous generation's
+     * quotas unchanged. Implementations
+     * run no author code, never suspend, and must not throw after committing external state.
+     */
+    fun tryCommitPublication(): Boolean = true
     fun close()
 }
 
