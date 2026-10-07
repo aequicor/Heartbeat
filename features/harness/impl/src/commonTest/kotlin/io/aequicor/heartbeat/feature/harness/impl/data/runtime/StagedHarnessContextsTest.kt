@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
+import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.impl.domain.code
@@ -72,7 +73,7 @@ class StagedHarnessContextsTest {
         assertFailsWith<IllegalStateException> { script.sessions.list() }
         assertFailsWith<IllegalStateException> { script.scheduler.every(30.seconds) {} }
         assertFailsWith<IllegalStateException> { script.agent.instructions { "" } }
-        assertFailsWith<UnsupportedOperationException> { script.prompts }
+        assertFailsWith<IllegalStateException> { script.prompts.render(ItemName("missing")) }
         assertFailsWith<UnsupportedOperationException> { script.workflows }
         context.close()
     }
