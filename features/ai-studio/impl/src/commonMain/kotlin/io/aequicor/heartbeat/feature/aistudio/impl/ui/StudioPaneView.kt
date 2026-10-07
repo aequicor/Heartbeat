@@ -150,7 +150,7 @@ internal fun StudioPaneView(
             ) {
                 NewSessionHero(
                     content.project,
-                    onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
+                    onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
                     modifier = Modifier.align(BiasAlignment(0f, HbTheme.dimensions.emptyStateVerticalBias))
                         .padding(HbTheme.spacing.xl),
                 )
@@ -255,7 +255,7 @@ private fun PaneComposerRegion(
             }
             if (isCentered) {
                 Box(Modifier.padding(top = HbTheme.spacing.l)) {
-                    NewSessionStarters { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) }
+                    NewSessionStarters { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) }
                 }
             }
         }

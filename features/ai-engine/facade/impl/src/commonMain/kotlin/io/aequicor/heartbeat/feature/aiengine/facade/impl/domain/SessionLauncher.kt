@@ -4,14 +4,17 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreateSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CreatesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
@@ -28,6 +31,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTimes
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import kotlinx.coroutines.NonCancellable
@@ -93,6 +97,12 @@ class SessionLauncher(
         if (root.engine != target.engine) fail(InvalidRequest)
         val resolved = routes.resolve(target.engine, target.binding, access.workspace, target.model)
         return pool.runtime(resolved).features.resolve(SessionTrees).orFail()
+    }
+
+    /** Native composer assists of the engine's runtime; never creates or attaches a session. */
+    suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
+        val resolved = routes.resolve(target.engine, target.binding, workspace, target.model)
+        return pool.runtime(resolved).features.resolve(ListsComposerAssists).orFail().assists(target, workspace)
     }
 
     private suspend fun open(
@@ -171,6 +181,16 @@ class FacadeCapabilities(
                     return launcher.value.trees(root, access).history(root, ref, access)
                 }
             })
+        }
+        if (ListsComposerAssists.id in registration.descriptor.declaredFeatures) {
+            entries[ListsComposerAssists.id] = available(
+                object : ListsComposerAssists {
+                    override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
+                        if (target.engine != engine) fail(InvalidRequest)
+                        return launcher.value.assists(target, workspace)
+                    }
+                },
+            )
         }
         return FeatureTable(entries)
     }

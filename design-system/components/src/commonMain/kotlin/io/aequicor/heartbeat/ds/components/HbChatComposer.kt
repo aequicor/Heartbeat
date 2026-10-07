@@ -54,6 +54,8 @@ public enum class HbComposerLayout { Stacked, Inline, Panel }
  * Controlled multiline editor and send/stop action. Ctrl/Cmd+Enter (including numpad Enter) sends a
  * non-blank draft and never inserts a newline. On desktop Enter sends and Shift+Enter inserts a newline;
  * touch platforms retain multiline Enter. Tab moves focus.
+ * While [suggestions] are shown, arrows move their selection, Enter and Tab accept it and Escape closes
+ * the list; these keys never reach the send shortcut, so accepting a suggestion cannot send the draft.
  * Sending, cancellation and clearing remain caller responsibilities.
  * Constrain [inputMaxHeight] to the minimum composer height in short viewports to preserve history space.
  * [leadingContent] and [trailingContent] populate the bottom toolbar; overflowing controls scroll
@@ -80,6 +82,12 @@ public fun HbChatComposer(
     accessibleLabel: String = placeholder,
     hasAttachments: Boolean = false,
     canSend: Boolean = true,
+    suggestions: HbComposerSuggestions? = null,
+    suggestionsLabel: String = "",
+    onSuggestionMove: (Int) -> Unit = {},
+    onSuggestionAccept: (Int) -> Unit = {},
+    onSuggestionsDismiss: () -> Unit = {},
+    onCaretChange: ((Int) -> Unit)? = null,
     leadingContent: @Composable RowScope.() -> Unit = {},
     trailingContent: @Composable RowScope.() -> Unit = {},
     contextContent: (@Composable RowScope.() -> Unit)? = null,
@@ -134,17 +142,34 @@ public fun HbChatComposer(
                             value = value,
                             onValueChange = onValueChange,
                             interactionSource = interactionSource,
-                            modifier = editorModifier.then(inputModifier)
-                                .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight)
-                                .onPreviewKeyEvent { event ->
-                                    handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
-                                        handleFocusTraversal(event, focusManager)
-                                },
+                            modifier = composerEditorKeys(
+                                base = editorModifier.then(inputModifier)
+                                    .heightIn(min = minOf(editorMinHeight, inputMaxHeight), max = inputMaxHeight),
+                                suggestions = suggestions,
+                                isSendEnabled = isSendEnabled,
+                                isEnterSendingEnabled = isEnterSendingEnabled,
+                                onSend = onSend,
+                                focusManager = focusManager,
+                                onSuggestionMove = onSuggestionMove,
+                                onSuggestionAccept = onSuggestionAccept,
+                                onSuggestionsDismiss = onSuggestionsDismiss,
+                            ),
                             placeholder = placeholder,
                             enabled = enabled,
                             accessibleLabel = accessibleLabel,
+                            onCaretChange = onCaretChange,
                         )
                     },
+                )
+            }
+            // The list lives only while the editor owns the focus; clicking elsewhere closes it.
+            val shownSuggestions = suggestions?.takeIf { isFocused && it.items.isNotEmpty() }
+            if (shownSuggestions != null) {
+                ComposerSuggestionsPopup(
+                    suggestions = shownSuggestions,
+                    label = suggestionsLabel,
+                    onDismiss = onSuggestionsDismiss,
+                    onSelect = { index -> onSuggestionAccept(index) },
                 )
             }
         }
@@ -276,6 +301,7 @@ private fun ComposerEditor(
     placeholder: String = "",
     enabled: Boolean = true,
     accessibleLabel: String = placeholder,
+    onCaretChange: ((Int) -> Unit)? = null,
 ) {
     HbEditableText(
         value = value,
@@ -289,7 +315,43 @@ private fun ComposerEditor(
         singleLine = false,
         interactionSource = interactionSource,
         placeholder = placeholder,
+        onCaretChange = onCaretChange,
     )
+}
+
+/** Key handling of the editor input: suggestion navigation first, then the send shortcut and focus. */
+private fun composerEditorKeys(
+    base: Modifier,
+    suggestions: HbComposerSuggestions?,
+    isSendEnabled: Boolean,
+    isEnterSendingEnabled: Boolean,
+    onSend: () -> Unit,
+    focusManager: FocusManager,
+    onSuggestionMove: (Int) -> Unit,
+    onSuggestionAccept: (Int) -> Unit,
+    onSuggestionsDismiss: () -> Unit,
+): Modifier = base
+    .composerSuggestionKeys(
+        hasSuggestions = suggestions != null && suggestions.items.isNotEmpty(),
+        onNavigate = onSuggestionMove,
+        onAccept = selectedSuggestionAccept(suggestions, onSuggestionAccept),
+        onDismiss = onSuggestionsDismiss,
+    )
+    .onPreviewKeyEvent { event ->
+        handleSendShortcut(event, isSendEnabled, isEnterSendingEnabled, onSend) ||
+            handleFocusTraversal(event, focusManager)
+    }
+
+/** Accepts the keyboard-selected suggestion; a disabled row keeps the draft untouched. */
+private fun selectedSuggestionAccept(
+    suggestions: HbComposerSuggestions?,
+    onSuggestionAccept: (Int) -> Unit,
+): () -> Unit = {
+    suggestions?.let { current ->
+        current.items.getOrNull(current.selectedIndex)
+            ?.takeIf { it.isEnabled }
+            ?.let { onSuggestionAccept(current.selectedIndex) }
+    }
 }
 
 /** Sending keys are consumed even when disabled; Shift+Enter remains an editor newline. */
