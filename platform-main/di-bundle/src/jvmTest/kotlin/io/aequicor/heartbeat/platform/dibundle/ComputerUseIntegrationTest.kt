@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.booleanKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseEnabled
@@ -39,8 +38,8 @@ class ComputerUseIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
-        (app.appScope as OwnedScope).close()
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

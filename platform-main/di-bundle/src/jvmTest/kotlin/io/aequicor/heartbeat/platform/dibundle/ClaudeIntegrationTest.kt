@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.claude.api.ClaudeEngine
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +32,7 @@ class ClaudeIntegrationTest {
             assertTrue(ClaudeEngine.Enabled in toggles.toggleControl.registered)
             assertFalse(toggles.featureToggles.get(ClaudeEngine.Enabled))
         } finally {
-            (app.appScope as OwnedScope).close()
+            app.closeAndAwaitStorages()
             Dispatchers.resetMain()
             File(persisted.storageRoot).deleteRecursively()
         }

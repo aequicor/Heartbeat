@@ -36,8 +36,8 @@ class DataStoreIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
-        (app.appScope as OwnedScope).close()
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

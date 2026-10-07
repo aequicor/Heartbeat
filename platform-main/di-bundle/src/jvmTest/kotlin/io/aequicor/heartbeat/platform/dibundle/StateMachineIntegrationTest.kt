@@ -35,6 +35,7 @@ class StateMachineIntegrationTest {
         processes.forEach { (it.appScope as OwnedScope).close() }
         // close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
         processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
+        processes.forEach { it.storageMaintenance.awaitClosed() }
         Dispatchers.resetMain()
     }
 

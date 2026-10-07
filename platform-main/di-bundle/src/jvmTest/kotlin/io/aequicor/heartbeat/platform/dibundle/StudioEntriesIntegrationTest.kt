@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.koog.api.KoogEngineEnabled
@@ -16,7 +15,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatEnabled
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -71,8 +69,7 @@ class StudioEntriesIntegrationTest {
             flags.setOverride(ResearchChatEnabled, false)
             assertFalse(observed.filterNotNull().first { !it.isResearchEnabled }.isResearchEnabled)
         } finally {
-            (app.appScope as OwnedScope).close()
-            app.appScope.coroutineScope.coroutineContext[Job]?.join()
+            app.closeAndAwaitStorages()
             Dispatchers.resetMain()
             File(persisted.storageRoot).deleteRecursively()
         }

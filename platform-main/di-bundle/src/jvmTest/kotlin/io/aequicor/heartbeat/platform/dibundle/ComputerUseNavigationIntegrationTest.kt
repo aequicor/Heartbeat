@@ -189,6 +189,7 @@ class ComputerUseNavigationIntegrationTest {
             lifecycle.destroy()
             (graph.appScope as OwnedScope).close()
             graph.appScope.coroutineScope.coroutineContext[Job]?.join()
+            graph.storageMaintenance.awaitClosed()
             File(disk.storageRoot).deleteRecursively()
         }
     }

@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.Machine
@@ -26,7 +25,6 @@ import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferId
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferRequest
 import io.aequicor.heartbeat.feature.aisessionenginetransfer.api.TransferResult
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -56,9 +54,7 @@ class SessionTransferIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        // Close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
