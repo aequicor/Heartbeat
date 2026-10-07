@@ -96,15 +96,20 @@ class MachineHarnessSchedulerAccessTest {
     }
 }
 
-private class SchedulerAccessMachine(initial: HarnessState) :
+internal class SchedulerAccessMachine(initial: HarnessState) :
     MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput> {
     override val name = "harness"
     override val state = MutableStateFlow(initial)
     override val outputs = MutableSharedFlow<HarnessOutput>()
-    override suspend fun send(intent: HarnessIntent.Public): SendResult = error("read-only admission")
+    val sent = mutableListOf<HarnessIntent.Public>()
+    var onSend: suspend (HarnessIntent.Public) -> SendResult = { error("read-only admission") }
+    override suspend fun send(intent: HarnessIntent.Public): SendResult {
+        sent += intent
+        return onSend(intent)
+    }
 }
 
-private class SchedulerAccessRegistry : MachineRegistry {
+internal class SchedulerAccessRegistry : MachineRegistry {
     val library = MutableStateFlow<SchedulerAccessMachine?>(null)
     var observations = 0
 
@@ -135,7 +140,7 @@ private class SchedulerAccessRegistry : MachineRegistry {
     ): SendResult = error("read-only admission")
 }
 
-private class SchedulerAccessToggles : FeatureToggles {
+internal class SchedulerAccessToggles : FeatureToggles {
     val enabled = MutableStateFlow(true)
 
     @Suppress("UNCHECKED_CAST") // Admission reads only the boolean harness flag.
