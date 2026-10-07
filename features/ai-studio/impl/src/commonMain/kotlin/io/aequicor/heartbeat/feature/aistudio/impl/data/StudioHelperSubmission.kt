@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
@@ -26,7 +27,7 @@ internal class StudioHelperSubmission(
     override val isCancelled: Boolean get() = cancelled.value
 
     /** All production helper sends enter this scope, including manual turns in a marked chat. */
-    suspend fun <T> withPreparation(session: SessionRef, block: suspend () -> T): T {
+    suspend fun <T> withPreparation(session: SessionRef, workspace: WorkspaceRef? = null, block: suspend () -> T): T {
         check(started.compareAndSet(false, true)) { "Helper submission is already owned" }
         log.v { "Claimed helper preparation" }
         var guard: StudioHelperPromptGuard? = null
@@ -34,7 +35,7 @@ internal class StudioHelperSubmission(
             val bound = attempts.bindSession(helper, request, session)
                 ?: throw CancellationException("Helper preparation is revoked or already submitted")
             val source = checkNotNull(admissions) { "Helper prompt admission is unavailable" }
-            val preparedGuard = StudioHelperPromptGuard(source.decisions(helper, session, bound))
+            val preparedGuard = StudioHelperPromptGuard(source.decisions(helper, session, bound, workspace))
             guard = preparedGuard
             contextGuard = preparedGuard
             return preparedGuard.watch(block)

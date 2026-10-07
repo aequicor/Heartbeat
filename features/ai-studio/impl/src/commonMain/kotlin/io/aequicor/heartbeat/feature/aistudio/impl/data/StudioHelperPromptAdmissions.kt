@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperPromptAttempt
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
@@ -26,7 +27,12 @@ internal class StudioHelperPromptAdmissions(
 ) {
     private val log = Log.tag("StudioHelperPromptAdmissions")
 
-    fun decisions(helper: HelperId, session: SessionRef, receipt: StudioHelperReceipt): Flow<Boolean> = flow {
+    fun decisions(
+        helper: HelperId,
+        session: SessionRef,
+        receipt: StudioHelperReceipt,
+        workspace: WorkspaceRef? = null,
+    ): Flow<Boolean> = flow {
         val handoff = receipt.handoff
         val feature = handoff?.ownerFeature
         if (feature == null && handoff?.initiator == null) {
@@ -34,7 +40,7 @@ internal class StudioHelperPromptAdmissions(
             return@flow
         }
         val metadata = checkNotNull(records.value.helperMetadata(helper)) { "Helper metadata unavailable" }
-        val attempt = HelperPromptAttempt(metadata, session, receipt.request, handoff)
+        val attempt = HelperPromptAttempt(metadata, session, receipt.request, handoff, workspace)
         emitAll(combined(attempt, selectedOwners(feature, handoff.initiator != null)))
     }.catch { error ->
         if (error is CancellationException || error !is Exception) throw error

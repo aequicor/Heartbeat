@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
@@ -60,7 +61,9 @@ class StudioHelperPromptAdmissionsTest {
             flowOf(false)
         }
         val unused = owner("unused") { error("must not resolve") }
-        assertFalse(admissions(setOf(owner, observer, unused)).decisions(helper, session, receipt).first())
+        val workspace = WorkspaceRef("actual-checkout")
+        assertFalse(admissions(setOf(owner, observer, unused)).decisions(helper, session, receipt, workspace).first())
+        assertTrue(seen.all { it.workspace == workspace })
         assertEquals(2, seen.size)
         assertTrue(seen.all { it.helper == metadata && it.handoff == handoff && it.request == request })
     }

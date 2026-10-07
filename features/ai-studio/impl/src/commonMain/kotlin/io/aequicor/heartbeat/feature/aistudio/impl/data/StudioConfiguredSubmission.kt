@@ -123,7 +123,7 @@ internal class StudioConfiguredSubmission(
             )
             SubmittedPrompt(turn, finalTrust)
         }
-        return if (helper == null) submit() else helper.withPreparation(active.ref, submit)
+        return if (helper == null) submit() else helper.withPreparation(active.ref, active.route.workspace, submit)
     }
 
     private data class SubmittedPrompt(val turn: TurnId, val trust: TrustLevel?)

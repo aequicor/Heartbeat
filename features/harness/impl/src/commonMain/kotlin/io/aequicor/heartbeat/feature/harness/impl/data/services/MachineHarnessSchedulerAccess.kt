@@ -17,7 +17,7 @@ import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnap
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
-import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
@@ -44,7 +44,7 @@ internal class MachineHarnessSchedulerAccess(
     private val gate: HarnessEventGate,
 ) : HarnessSchedulerAccess {
     @OptIn(ExperimentalCoroutinesApi::class)
-    override fun permits(harness: HarnessId, target: WakeRequest?): Flow<HarnessDeliveryPermit?> =
+    override fun permits(harness: HarnessId, target: HarnessTarget?): Flow<HarnessDeliveryPermit?> =
         toggles.observe(HarnessEnabled).flatMapLatest { enabled ->
             if (!enabled) {
                 flowOf(null)
@@ -91,7 +91,7 @@ internal data class HarnessSchedulerSnapshot(
     val epoch: Long?,
     val hasOpened: Boolean = true,
 ) {
-    fun allows(harness: HarnessId, target: WakeRequest?): Boolean? {
+    fun allows(harness: HarnessId, target: HarnessTarget?): Boolean? {
         if (library?.isSuspended == true) return false
         if (epoch == null) return if (hasOpened) false else null
         val ready = when (library) {
@@ -111,7 +111,7 @@ internal data class HarnessSchedulerSnapshot(
         ready: HarnessState.Ready,
         enabled: List<Harness>,
         harness: HarnessId,
-        target: WakeRequest,
+        target: HarnessTarget,
     ): Boolean? {
         val workspace = target.workspace
         val source = if (workspace == null) {

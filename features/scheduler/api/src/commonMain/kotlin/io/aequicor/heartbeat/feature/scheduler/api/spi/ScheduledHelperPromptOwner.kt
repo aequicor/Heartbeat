@@ -2,16 +2,19 @@ package io.aequicor.heartbeat.feature.scheduler.api.spi
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadata
 import kotlinx.coroutines.flow.Flow
 
-/** Exact durable helper preparation, created by its host after opening and before any native prompt. */
+/** Exact durable helper preparation, created by its host after opening and before any native prompt.
+ * Workspace is the active native route checkout, never a requested or script-supplied project. */
 public data class HelperPromptAttempt(
     val helper: HelperMetadata,
     val session: SessionRef,
     val request: RequestId,
     val handoff: HelperHandoff?,
+    val workspace: WorkspaceRef?,
 ) {
     init {
         require(helper.session == session && helper.lastRequest == request) { "Helper preparation identity mismatch" }

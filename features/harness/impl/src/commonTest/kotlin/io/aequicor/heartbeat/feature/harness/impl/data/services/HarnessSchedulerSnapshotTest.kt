@@ -11,30 +11,18 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.runtimeRequest
-import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
-import io.aequicor.heartbeat.feature.scheduler.api.WakeId
-import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
-import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeTask
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.time.Instant
 
 class HarnessSchedulerSnapshotTest {
     private val project = WorkspaceRef("project")
     private val checkout = WorkspaceRef("checkout")
     private val harness = runtimeRequest(1).harness.copy(scope = HarnessScope.Projects(setOf(project)))
     private val ready = HarnessState.Ready(listOf(HarnessEntry(harness)), isRuntimeAvailable = true)
-    private val wake = WakeRequest(
-        WakeId("wake"),
-        dispatchSession,
-        checkout,
-        WakeCondition(deadline = Instant.fromEpochSeconds(100)),
-        "private",
-        WakeOrigin.Feature("harness"),
-        ownerFeature = "harness",
-    )
+    private val wake = HarnessTarget(dispatchSession, checkout)
 
     @Test
     fun `cold restart resolves original project without callback proof or promoted checkout fallback`() {
