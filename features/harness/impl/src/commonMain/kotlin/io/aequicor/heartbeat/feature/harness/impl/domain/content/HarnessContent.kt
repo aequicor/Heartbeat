@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessDeliveryMarker
+import kotlinx.serialization.json.Json
 
 /**
  * Pure content projection of a host-authorized active snapshot. It does not resolve sessions or grant access.
@@ -34,27 +35,24 @@ internal class HarnessContent(active: List<Harness>) {
         return renderHarnessTemplate(template, arguments)
     }
 
-    /** Complete lines form a strict prefix; the final marker is reserved whenever anything is omitted. */
-    fun block(): HarnessContentBlock {
-        val lines = buildList {
-            for (harness in harnesses) {
-                add("Харнесс ${harness.name.value}")
-                entries.filter { it.harness.id == harness.id }.forEach { entry ->
-                    when (val item = entry.item) {
-                        is HarnessItem.Instruction -> {
-                            add("Инструкция ${entry.qualifiedName}:")
-                            addAll(item.text.lines())
-                        }
+    val markers: List<HarnessDeliveryMarker> get() = harnesses.map {
+        HarnessDeliveryMarker(it.id, it.name, it.revision)
+    }
 
-                        is HarnessItem.Skill -> add("- Скилл ${entry.qualifiedName} — ${brief(item.description)}")
+    /** Complete canonical projection and renderer version for hashing, never only revisions or a truncated prefix. */
+    fun canonical(contextRevision: String?, instructions: String): String = Json.encodeToString(
+        listOf(
+            "harness-context-v1",
+            contextRevision,
+            Json.encodeToString(markers),
+            lines().joinToString("\n"),
+            instructions,
+        ),
+    )
 
-                        is HarnessItem.Template -> add("- Шаблон ${entry.qualifiedName} — ${brief(item.description)}")
-
-                        is HarnessItem.Script, is HarnessItem.Workflow -> Unit
-                    }
-                }
-            }
-        }
+    /** Complete lines form a strict prefix; protocol and disabled notices precede content and share its budget. */
+    fun block(before: List<String> = emptyList(), instructions: String = ""): HarnessContentBlock {
+        val lines = before + lines() + instructions.takeIf { it.isNotBlank() }?.lines().orEmpty()
         val complete = prefix(lines, HARNESS_CONTEXT_CHARS)
         val isTruncated = complete.size != lines.size
         val text = if (isTruncated) {
@@ -64,9 +62,28 @@ internal class HarnessContent(active: List<Harness>) {
         }
         return HarnessContentBlock(
             text,
-            harnesses.map { HarnessDeliveryMarker(it.id, it.name, it.revision) },
+            markers,
             isTruncated,
         )
+    }
+
+    private fun lines(): List<String> = buildList {
+        harnesses.forEach { add("Харнесс ${it.name.value}") }
+        entries.forEach { entry ->
+            val item = entry.item
+            if (item is HarnessItem.Instruction) {
+                add("Инструкция ${entry.qualifiedName}:")
+                addAll(item.text.lines())
+            }
+        }
+        entries.forEach { entry ->
+            val item = entry.item
+            if (item is HarnessItem.Skill) add("- Скилл ${entry.qualifiedName} — ${brief(item.description)}")
+        }
+        entries.forEach { entry ->
+            val item = entry.item
+            if (item is HarnessItem.Template) add("- Шаблон ${entry.qualifiedName} — ${brief(item.description)}")
+        }
     }
 
     private fun resolve(name: String): ContentEntry {

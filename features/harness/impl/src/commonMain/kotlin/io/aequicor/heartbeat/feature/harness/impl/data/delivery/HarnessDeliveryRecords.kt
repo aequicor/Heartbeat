@@ -20,6 +20,7 @@ internal data class HarnessDeliveryRecord(
     val activeSetSha: String? = null,
     val markers: List<HarnessDeliveryMarker> = emptyList(),
     val pendingDisabled: Set<HarnessName> = emptySet(),
+    val isDeliveryPending: Boolean = false,
 ) {
     init {
         require(generation.isNotBlank())
@@ -36,6 +37,7 @@ internal data class HarnessDeliveryRecord(
         activeSetSha,
         markers,
         pendingDisabled,
+        isDeliveryPending,
     )
     override fun toString(): String = "HarnessDeliveryRecord(***)"
 }
