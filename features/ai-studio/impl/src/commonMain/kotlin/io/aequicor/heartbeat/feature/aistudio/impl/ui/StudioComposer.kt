@@ -18,6 +18,8 @@ import io.aequicor.heartbeat.ds.components.HbComposerAction
 import io.aequicor.heartbeat.ds.components.HbComposerLayout
 import io.aequicor.heartbeat.ds.components.HbComposerMenuButton
 import io.aequicor.heartbeat.ds.components.HbComposerMenuStyle
+import io.aequicor.heartbeat.ds.components.HbComposerSuggestion
+import io.aequicor.heartbeat.ds.components.HbComposerSuggestions
 import io.aequicor.heartbeat.ds.components.HbComposerToggle
 import io.aequicor.heartbeat.ds.components.HbIcon
 import io.aequicor.heartbeat.ds.components.HbIconButton
@@ -40,6 +42,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioMode
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withRememberCommand
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -53,6 +57,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_effort_men
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_placeholder
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_send
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_stop
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.composer_suggestions
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_high
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.effort_low
@@ -69,6 +74,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.resources.organism_mode_hint
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_add
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.project_menu
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.research_mode
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_commands
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_commands
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_engine_skills
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_files
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.suggestions_section_skills
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_plan_prompt
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.template_remember
@@ -137,6 +147,12 @@ internal fun StudioComposer(
         isStreaming = session?.isRunning == true,
         enabled = content.isComposerEnabled(),
         inputModifier = Modifier.focusRequester(focus),
+        suggestions = composerSuggestions(content),
+        suggestionsLabel = stringResource(Res.string.composer_suggestions),
+        onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.MoveSuggestion(pane.id, delta)) },
+        onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.AcceptSuggestion(pane.id, index)) },
+        onSuggestionsDismissed = { onIntent(AiStudioScreenIntent.DismissSuggestions(pane.id)) },
+        onCaretChange = { caret -> onIntent(AiStudioScreenIntent.CaretMoved(pane.id, caret)) },
         contextContent = if (content.hasComposerContext()) {
             { StudioComposerContext(content, onIntent) }
         } else {
@@ -163,6 +179,59 @@ internal fun StudioComposer(
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
     return pane.sessionId == null || project != null || hasWorktree
+}
+
+/** Suggestions of the pane's active token with section labels and icons for their kinds and origins. */
+@Composable
+private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
+    val list = content.suggestions ?: return null
+    var previousSection: String? = null
+    val rows = list.suggestions.mapIndexed { index, suggestion ->
+        val section = suggestion.sectionKey()
+        val row = HbComposerSuggestion(
+            id = suggestion.id,
+            label = suggestion.label,
+            supportingText = suggestion.description.takeIf(String::isNotEmpty),
+            sectionLabel = if (section != previousSection) sectionLabel(suggestion) else null,
+            icon = when (suggestion) {
+                is ComposerSuggestion.Command -> HbIcons.Terminal
+                is ComposerSuggestion.Skill -> HbIcons.Sparkles
+                is ComposerSuggestion.File -> HbIcons.FileText
+            },
+            isEnabled = (suggestion as? ComposerSuggestion.File)?.isSupported ?: true,
+            isSelected = index == list.selectedIndex,
+        )
+        previousSection = section
+        row
+    }.toImmutableList()
+    return HbComposerSuggestions(rows, list.selectedIndex)
+}
+
+private fun ComposerSuggestion.sectionKey(): String = "${origin::class.simpleName}:${this::class.simpleName}:" +
+    when (val engineOrigin = origin) {
+        is ComposerAssistOrigin.Heartbeat -> ""
+        is ComposerAssistOrigin.Engine -> engineOrigin.engine.value
+    }
+
+@Composable
+private fun sectionLabel(suggestion: ComposerSuggestion): String = when (suggestion) {
+    is ComposerSuggestion.Command -> when (val origin = suggestion.origin) {
+        is ComposerAssistOrigin.Heartbeat -> stringResource(Res.string.suggestions_section_commands)
+        is ComposerAssistOrigin.Engine -> stringResource(
+            Res.string.suggestions_section_engine_commands,
+            origin.engine.value,
+        )
+    }
+
+    is ComposerSuggestion.Skill -> when (val origin = suggestion.origin) {
+        is ComposerAssistOrigin.Heartbeat -> stringResource(Res.string.suggestions_section_skills)
+        is ComposerAssistOrigin.Engine -> stringResource(
+            Res.string.suggestions_section_engine_skills,
+            origin.engine.value,
+        )
+    }
+
+    is ComposerSuggestion.File -> stringResource(Res.string.suggestions_section_files)
 }
 
 @Composable

@@ -68,6 +68,12 @@
     <string name="environment_cloud">Cloud</string>
 
     <string name="composer_placeholder">Work with Heartbeat</string>
+    <string name="composer_suggestions">Composer suggestions</string>
+    <string name="suggestions_section_commands">Commands</string>
+    <string name="suggestions_section_engine_commands">Commands · %1$s</string>
+    <string name="suggestions_section_skills">Skills</string>
+    <string name="suggestions_section_engine_skills">Skills · %1$s</string>
+    <string name="suggestions_section_files">Project files</string>
     <string name="composer_effort_menu">Reasoning mode</string>
     <string name="composer_send">Send</string>
     <string name="composer_stop">Stop</string>
