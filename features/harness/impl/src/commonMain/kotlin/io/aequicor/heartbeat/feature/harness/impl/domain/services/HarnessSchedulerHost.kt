@@ -7,7 +7,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
-import kotlin.time.Instant
 
 /** Host resolves trusted routing and current activation; script payload never grants ownership or authority. */
 internal interface HarnessSchedulerHost {
@@ -21,7 +20,6 @@ internal data class HarnessScriptWake(
     val condition: WakeCondition,
     val note: String,
     val origin: HarnessCallOrigin,
-    val at: Instant,
 ) {
     override fun toString(): String = "HarnessScriptWake(***)"
 }

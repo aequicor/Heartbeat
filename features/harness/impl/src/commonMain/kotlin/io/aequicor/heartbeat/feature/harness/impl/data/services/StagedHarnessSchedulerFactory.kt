@@ -29,6 +29,6 @@ internal class StagedHarnessSchedulerFactory(
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessScriptScheduler {
         val owner = HarnessInstanceTarget(request, access)
         val timers = HarnessTimers(owner, slots, invoker, origins, dispatchers.default, clock)
-        return HarnessScriptScheduler(owner, timers, host, origins, clock)
+        return HarnessScriptScheduler(owner, timers, host, origins)
     }
 }

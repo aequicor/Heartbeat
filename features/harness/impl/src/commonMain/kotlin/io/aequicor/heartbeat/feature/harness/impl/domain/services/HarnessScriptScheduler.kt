@@ -12,7 +12,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessTimers
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
-import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Instant
 
@@ -22,7 +21,6 @@ internal class HarnessScriptScheduler(
     private val timers: HarnessTimers,
     private val host: HarnessSchedulerHost,
     private val origins: HarnessCallOrigins,
-    private val clock: Clock,
 ) : ScriptScheduler {
     override fun every(interval: Duration, handler: suspend () -> Unit): ScriptRegistration = timers.every(
         interval,
@@ -31,7 +29,7 @@ internal class HarnessScriptScheduler(
     override fun at(instant: Instant, handler: suspend () -> Unit): ScriptRegistration = timers.at(instant, handler)
     override suspend fun wake(session: SessionRef, condition: WakeCondition, note: String): WakeId {
         val origin = origins.current()
-        return host.wake(owner, HarnessScriptWake(session, condition, note, origin, clock.now()))
+        return host.wake(owner, HarnessScriptWake(session, condition, note, origin))
     }
     override suspend fun cancel(id: WakeId): Boolean {
         val origin = origins.current()

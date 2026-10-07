@@ -68,7 +68,7 @@ internal class EngineHarnessScheduler(
             ownerContext = ownership.encode(harness.id, request.origin),
         )
         return operations.value.schedule(
-            HarnessWakeSubmission(harness.id, wake, request.origin, request.at, isSend = false),
+            HarnessWakeSubmission(harness.id, wake, request.origin, isSend = false),
         ) { permit.isCurrent() && isCurrent(owner) && route.isCurrent() }
     }
 

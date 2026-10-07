@@ -17,7 +17,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.time.Instant
+import kotlin.time.Clock
 
 /**
  * The profile owns an admitted immutable submission, independently of its script's wait. Cancellation or timeout
@@ -29,6 +29,7 @@ internal class HarnessWakeOperations(
     private val port: HarnessWakePort,
     private val quotas: HarnessWakeQuotas,
     private val origins: HarnessRequestOrigins,
+    private val clock: Clock,
 ) {
     private val log = Log.tag("HarnessServices")
 
@@ -61,9 +62,8 @@ internal class HarnessWakeOperations(
         val harness = submission.harness
         val request = submission.request
         val origin = submission.origin
-        val at = submission.at
         val isSend = submission.isSend
-        quotas.reserve(HarnessWakeReservation(request.id, harness, request.session, at, isSend), port::snapshot)
+        quotas.reserve(HarnessWakeReservation(request.id, harness, request.session, isSend), port::snapshot)
         var hasSubmissionStarted = false
         try {
             check(isAdmitted()) { "Harness wake admission was revoked" }
@@ -71,7 +71,7 @@ internal class HarnessWakeOperations(
             check(isAdmitted()) { "Harness wake admission was revoked" }
             currentCoroutineContext().ensureActive()
             hasSubmissionStarted = true
-            when (port.schedule(request, at)) {
+            when (port.schedule(request, clock.now())) {
                 HarnessWakeReceipt.Scheduled -> quotas.acknowledged(request.id)
 
                 HarnessWakeReceipt.Rejected -> {
@@ -93,7 +93,6 @@ internal data class HarnessWakeSubmission(
     val harness: HarnessId,
     val request: WakeRequest,
     val origin: HarnessCallOrigin,
-    val at: Instant,
     val isSend: Boolean,
 ) {
     override fun toString(): String = "HarnessWakeSubmission(***)"

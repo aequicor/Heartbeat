@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessTimerSlo
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakePort
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeQuotas
+import kotlin.time.Clock
 
 /** Quotas and uncertain submissions are shared by every script in this profile. */
 @ContributesTo(ProfileScope::class)
@@ -23,7 +24,7 @@ public object HarnessSchedulerBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun quotas(): HarnessWakeQuotas = HarnessWakeQuotas()
+    internal fun quotas(clock: Clock): HarnessWakeQuotas = HarnessWakeQuotas(clock)
 
     @Provides
     @SingleIn(ProfileScope::class)
@@ -32,5 +33,6 @@ public object HarnessSchedulerBindings {
         port: HarnessWakePort,
         quotas: HarnessWakeQuotas,
         origins: HarnessRequestOrigins,
-    ): HarnessWakeOperations = HarnessWakeOperations(scope.coroutineScope, port, quotas, origins)
+        clock: Clock,
+    ): HarnessWakeOperations = HarnessWakeOperations(scope.coroutineScope, port, quotas, origins, clock)
 }

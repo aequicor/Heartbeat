@@ -42,9 +42,13 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlin.time.Clock
 import kotlin.time.Instant
 
 internal class HarnessScriptSchedulerFixture(scope: TestScope) {
+    private val clock = object : Clock {
+        override fun now(): Instant = Instant.fromEpochMilliseconds(scope.testScheduler.currentTime)
+    }
     var externalReads = 0
     var isAllowed = true
     var admissionRevision = 0
@@ -99,7 +103,13 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
         },
         lazy {
             externalReads++
-            HarnessWakeOperations(scope.backgroundScope, port, HarnessWakeQuotas(), HarnessRequestOrigins(ancestry))
+            HarnessWakeOperations(
+                scope.backgroundScope,
+                port,
+                HarnessWakeQuotas(clock),
+                HarnessRequestOrigins(ancestry),
+                clock,
+            )
         },
     )
     val runtime: HarnessRegistrationFixture = HarnessRegistrationFixture(
