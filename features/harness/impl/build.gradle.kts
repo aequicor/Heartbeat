@@ -6,6 +6,12 @@ plugins {
 
 kotlin {
     sourceSets {
+        jvmMain.dependencies {
+            implementation(libs.kotlin.compiler.embeddable)
+            implementation(libs.kotlin.scripting.common)
+            implementation(libs.kotlin.scripting.jvm)
+            implementation(libs.kotlin.scripting.jvm.host)
+        }
         commonMain.dependencies {
             implementation(projects.features.harness.api)
             implementation(projects.core.common)
@@ -21,4 +27,8 @@ kotlin {
             implementation(libs.okio)
         }
     }
+}
+
+tasks.withType<Test>().configureEach {
+    maxHeapSize = "2g"
 }
