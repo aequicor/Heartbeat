@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessScriptPrompts
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptScheduler
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
@@ -22,6 +23,7 @@ internal class HarnessScriptContext(
     private val sessions: HarnessScriptSessions,
 ) : HarnessRuntimeContext {
     val registrations = HarnessScriptRegistrations(request.harness.name, access, origins)
+    private val prompts = HarnessScriptPrompts(request, access)
     override val evaluation = HarnessEvaluationContext.Script(object : HarnessScriptScope {
         override val harness = request.harness.id
         override val name = request.harness.name
@@ -33,7 +35,7 @@ internal class HarnessScriptContext(
         override val agent: ScriptAgent get() = registrations
         override val sessions: ScriptSessions get() = this@HarnessScriptContext.sessions
         override val scheduler: ScriptScheduler get() = this@HarnessScriptContext.scheduler
-        override val prompts: ScriptPrompts get() = unavailable()
+        override val prompts: ScriptPrompts get() = this@HarnessScriptContext.prompts
         override val workflows: ScriptWorkflows get() = unavailable()
     })
 
