@@ -56,10 +56,12 @@ class HelperHostTest {
     }
 
     @Test
-    fun `only parentless helpers may defer target selection to the host`() {
+    fun `omitted target reaches the host with parent identity for durable inheritance`() {
         val input = HelperCreateRequest(ActionId("owner"), null, null, null, "Private title", TrustLevel.Ask)
         assertNull(input.target)
-        assertFailsWith<IllegalArgumentException> { input.copy(parent = session) }
+        val inherited = input.copy(parent = session)
+        assertEquals(session, inherited.parent)
+        assertNull(inherited.target)
     }
 
     @Test

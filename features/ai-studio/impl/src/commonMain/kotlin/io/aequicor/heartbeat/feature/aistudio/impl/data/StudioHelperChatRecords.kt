@@ -50,7 +50,10 @@ internal interface StudioHelperChatRecords {
     suspend fun isHelper(session: SessionRef): Boolean
 }
 
-/** A helper borrows the parent's checkout, never its worktree provisioning or action ownership. */
+/**
+ * A helper borrows the parent's checkout, never its worktree provisioning or action ownership. A missing target
+ * is resolved from the durable parent before saving; unknown parent routing must never fall back to defaults.
+ */
 internal fun newStudioHelperRecord(
     id: String,
     at: Instant,
@@ -63,11 +66,14 @@ internal fun newStudioHelperRecord(
     check(parent?.worktreeTaskId == null || parent.executionWorkspace != null) {
         "The helper parent's worktree is not ready"
     }
+    val target = request.target ?: parent?.let {
+        checkNotNull(it.target) { "The helper parent's model target is unknown" }
+    }
     return StudioChatRecord(
         id,
         request.title,
         at,
-        target = request.target,
+        target = target,
         projectId = parent?.projectId,
         executionWorkspace = if (parent == null) request.workspace else parent.resolvedExecutionWorkspace(),
         helper = StudioHelperIdentity(
