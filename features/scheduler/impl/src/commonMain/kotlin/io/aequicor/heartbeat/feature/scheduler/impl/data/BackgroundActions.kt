@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityLimits
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityRejection
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
@@ -63,18 +64,18 @@ internal class BackgroundActions(
     /** Whether [session] is a helper started by an action of this profile; helpers start no helpers. */
     suspend fun isHelper(session: SessionRef): Boolean = helperActions.isHelper(session)
 
-    /** Starts [command] for [parent] in [workspace]; returns why it was not started, or null. */
+    /** Starts [command] for [caller] in [workspace]; returns why it was not started, or null. */
     suspend fun startCommand(
         id: ActionId,
-        parent: SessionRef,
+        caller: BackgroundActionCaller,
         workspace: WorkspaceRef,
         command: String,
         timeout: Duration,
-    ): String? = reserve(id, parent) ?: run {
+    ): String? = reserve(id, caller.session) ?: run {
         var isStarted = false
         try {
             val directory = workspaces.resolve(workspace) ?: return@run "the project is not available"
-            val record = ActionRecord(id, KIND_COMMAND, clock.now())
+            val record = ActionRecord(id, KIND_COMMAND, clock.now(), initiator = caller.initiator())
             results.begin(record)
             log.i { "action $id: command started, timeout=$timeout" }
             scope.coroutineScope.launch(dispatchers.io) {
@@ -92,7 +93,10 @@ internal class BackgroundActions(
      * returns why it was not started, or null. Once journaled and handed to the profile, startup
      * belongs to that profile too: cancelling the tool's wait cannot abandon an accepted helper.
      */
-    suspend fun startAgent(id: ActionId, request: SpawnRequest): String? = reserve(id, request.parent) ?: run {
+    suspend fun startAgent(id: ActionId, request: SpawnRequest, initiator: RequestInitiator? = null): String? = reserve(
+        id,
+        request.parent,
+    ) ?: run {
         var isHandedOff = false
         try {
             val record = ActionRecord(
@@ -101,6 +105,7 @@ internal class BackgroundActions(
                 clock.now(),
                 parent = request.parent,
                 request = request.prompt.request,
+                initiator = initiator,
             )
             results.begin(record)
             val startup = scope.coroutineScope.async(

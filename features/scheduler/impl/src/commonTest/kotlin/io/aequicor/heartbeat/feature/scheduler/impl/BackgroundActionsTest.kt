@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
@@ -15,6 +16,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
+import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionCaller
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +39,7 @@ import kotlin.time.Duration.Companion.minutes
 
 class BackgroundActionsTest {
     private val action = ActionId("a1")
+    private val initiator = RequestInitiator(SESSION, RequestId("caller-request"))
     private val spawn = SpawnRequest(
         SESSION,
         PROJECT,
@@ -50,7 +53,15 @@ class BackgroundActionsTest {
         val fixture = ActionsFixture(this, SpecMachine())
         val events = mutableListOf<BusEvent>()
         backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.toList(events) }
-        assertNull(fixture.actions.startCommand(action, SESSION, PROJECT, "make test", 5.minutes))
+        assertNull(
+            fixture.actions.startCommand(
+                action,
+                BackgroundActionCaller(SESSION, initiator.request),
+                PROJECT,
+                "make test",
+                5.minutes,
+            ),
+        )
         runCurrent()
         assertEquals(listOf("/work/project" to "make test"), fixture.commands.runs)
         assertEquals(listOf(action), fixture.journal.records.map { it.id })
@@ -58,7 +69,7 @@ class BackgroundActionsTest {
         runCurrent()
         val event = events.single()
         assertEquals(EventKeys.actionFinished(action), event.key)
-        assertEquals(EventOrigin.Action(action), event.origin)
+        assertEquals(EventOrigin.Action(action, initiator), event.origin)
         assertEquals("status: exited with code 0\noutput:\nok", event.payload)
         assertTrue(fixture.journal.records.isEmpty())
     }
@@ -68,7 +79,13 @@ class BackgroundActionsTest {
         val fixture = ActionsFixture(this, SpecMachine())
         assertEquals(
             "the project is not available",
-            fixture.actions.startCommand(action, SESSION, WorkspaceRef("gone"), "ls", 1.minutes),
+            fixture.actions.startCommand(
+                action,
+                BackgroundActionCaller(SESSION),
+                WorkspaceRef("gone"),
+                "ls",
+                1.minutes,
+            ),
         )
         assertTrue(fixture.journal.records.isEmpty())
     }
@@ -93,8 +110,26 @@ class BackgroundActionsTest {
     @Test
     fun `running actions are limited per session and the helper is marked`() = runTest {
         val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(HelperHostFake()))
-        repeat(3) { assertNull(fixture.actions.startCommand(ActionId("c$it"), SESSION, PROJECT, "sleep 1", 1.minutes)) }
-        val refused = fixture.actions.startCommand(ActionId("c4"), SESSION, PROJECT, "sleep 1", 1.minutes)
+        repeat(
+            3,
+        ) {
+            assertNull(
+                fixture.actions.startCommand(
+                    ActionId("c$it"),
+                    BackgroundActionCaller(SESSION),
+                    PROJECT,
+                    "sleep 1",
+                    1.minutes,
+                ),
+            )
+        }
+        val refused = fixture.actions.startCommand(
+            ActionId("c4"),
+            BackgroundActionCaller(SESSION),
+            PROJECT,
+            "sleep 1",
+            1.minutes,
+        )
         assertTrue(refused.orEmpty().contains("this session"), refused)
         assertNull(fixture.actions.startAgent(ActionId("h1"), spawn.copy(parent = OTHER)))
         assertTrue(fixture.actions.isHelper(OTHER))
@@ -135,7 +170,13 @@ class BackgroundActionsTest {
     fun `completed result survives reopening while the parent is busy`() = runTest {
         val sleeper = scheduled("w1", events = setOf(EventKeys.actionFinished(action)))
         val first = ActionsFixture(this, SpecMachine(SchedulerState.Ready(listOf(sleeper))))
-        first.actions.startCommand(action, SESSION, PROJECT, "make test", 5.minutes)
+        first.actions.startCommand(
+            action,
+            BackgroundActionCaller(SESSION, initiator.request),
+            PROJECT,
+            "make test",
+            5.minutes,
+        )
         first.commands.result.complete(CommandOutcome(0, "all tests passed"))
         runCurrent()
         val completed = first.journal.records.single()
@@ -148,6 +189,8 @@ class BackgroundActionsTest {
         runCurrent()
         val event = restoredMachine.sent.filterIsInstance<SchedulerIntent.Internal.Observed>().single().event
         assertEquals(completed.payload, event.payload)
+        assertEquals(initiator, completed.initiator)
+        assertEquals(EventOrigin.Action(action, initiator), event.origin)
         assertEquals(listOf(completed), restored.journal.records)
         restoredMachine.send(SchedulerIntent.Internal.Delivered(sleeper.id, WakeReason.Event(event)))
         runCurrent()
@@ -175,7 +218,13 @@ class BackgroundActionsTest {
         val sleeper = scheduled("w1", events = setOf(EventKeys.actionFinished(action)))
         val toggles = Toggles(enabled = false)
         val fixture = ActionsFixture(this, SpecMachine(SchedulerState.Ready(listOf(sleeper))), toggles = toggles)
-        fixture.actions.startCommand(action, SESSION, PROJECT, "make test", 5.minutes)
+        fixture.actions.startCommand(
+            action,
+            BackgroundActionCaller(SESSION, initiator.request),
+            PROJECT,
+            "make test",
+            5.minutes,
+        )
         toggles.isEnabled.value = true
         runCurrent()
         assertTrue(fixture.machine.sent.none { it is SchedulerIntent.Internal.Observed })

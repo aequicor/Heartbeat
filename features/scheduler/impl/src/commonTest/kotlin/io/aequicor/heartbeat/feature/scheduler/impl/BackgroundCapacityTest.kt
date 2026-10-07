@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityIntent
 import io.aequicor.heartbeat.feature.scheduler.api.BackgroundCapacityState
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
+import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionCaller
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundCapacityMachine
 import io.aequicor.heartbeat.feature.scheduler.impl.data.CommandOutcome
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
@@ -31,9 +32,17 @@ class BackgroundCapacityTest {
         repeat(7) {
             fixture.capacity.acquireHelper(ActionId("helper$it"), ActionId("run${it / 4}"), null)
         }
-        assertNull(fixture.actions.startCommand(ActionId("command"), SESSION, PROJECT, "work", 1.minutes))
+        assertNull(
+            fixture.actions.startCommand(
+                ActionId("command"),
+                BackgroundActionCaller(SESSION),
+                PROJECT,
+                "work",
+                1.minutes,
+            ),
+        )
         assertTrue(
-            fixture.actions.startCommand(ActionId("extra"), OTHER, PROJECT, "work", 1.minutes)
+            fixture.actions.startCommand(ActionId("extra"), BackgroundActionCaller(OTHER), PROJECT, "work", 1.minutes)
                 .orEmpty().contains("profile"),
         )
         val waiting = async { fixture.capacity.acquireHelper(ActionId("waiting"), ActionId("new_run"), null) }

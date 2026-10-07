@@ -147,9 +147,15 @@ internal class SchedulerActionTools(
 
     private suspend fun startAction(start: ActionStart, context: AgentToolContext): String? = when (start) {
         is ActionStart.Command ->
-            actions.startCommand(start.id, context.session, start.workspace, start.command, start.timeout)
+            actions.startCommand(
+                start.id,
+                BackgroundActionCaller(context.session, context.request),
+                start.workspace,
+                start.command,
+                start.timeout,
+            )
 
-        is ActionStart.Agent -> actions.startAgent(start.id, start.request)
+        is ActionStart.Agent -> actions.startAgent(start.id, start.request, context.initiator())
     }
 
     private suspend fun scheduleWake(request: WakeRequest, context: AgentToolContext): ScheduleOutcome {

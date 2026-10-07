@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
 import io.aequicor.heartbeat.feature.scheduler.impl.data.KeyValueActionJournal
 import kotlinx.coroutines.test.runTest
@@ -15,7 +17,12 @@ class ActionJournalTest {
     fun `completed results replace running records and survive non-destructive reads`() = runTest {
         val stores = MemoryStores()
         val journal = KeyValueActionJournal(stores)
-        val running = ActionRecord(ActionId("a1"), "command", START)
+        val running = ActionRecord(
+            ActionId("a1"),
+            "command",
+            START,
+            initiator = RequestInitiator(SESSION, RequestId("source")),
+        )
         val completed = running.copy(payload = "private command result")
         journal.add(running)
         journal.add(completed)
@@ -33,6 +40,7 @@ class ActionJournalTest {
         val record = KeyValueActionJournal(stores).readAll().single()
         assertEquals(ActionId("a1"), record.id)
         assertNull(record.payload)
+        assertNull(record.initiator)
     }
 
     @Test

@@ -96,7 +96,11 @@ internal class ActionResults(
     suspend fun complete(record: ActionRecord, payload: String) {
         val completed = record.copy(payload = payload.take(SchedulerLimits.MAX_PAYLOAD))
         lock.withLock { journal.add(completed) }
-        bus.publish(EventKeys.actionFinished(record.id), EventOrigin.Action(record.id), completed.payload)
+        bus.publish(
+            EventKeys.actionFinished(record.id),
+            EventOrigin.Action(record.id, record.initiator),
+            completed.payload,
+        )
         recover()
         log.i { "action ${record.id} finished" }
     }
@@ -123,7 +127,7 @@ internal class ActionResults(
     private suspend fun deliverResult(record: ActionRecord) {
         val event = BusEvent(
             EventKeys.actionFinished(record.id),
-            EventOrigin.Action(record.id),
+            EventOrigin.Action(record.id, record.initiator),
             clock.now(),
             record.payload,
         )

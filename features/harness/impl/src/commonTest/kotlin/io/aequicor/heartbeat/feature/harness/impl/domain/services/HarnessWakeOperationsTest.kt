@@ -56,7 +56,7 @@ class HarnessWakeOperationsTest {
         val entered = CompletableDeferred<Unit>()
         val storage = MemoryHarnessRequestAncestry().apply {
             beforeRestrict = {
-                entered.complete(Unit);
+                entered.complete(Unit)
                 awaitCancellation()
             }
         }
