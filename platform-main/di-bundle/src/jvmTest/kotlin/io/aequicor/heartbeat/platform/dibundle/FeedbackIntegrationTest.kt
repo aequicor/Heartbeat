@@ -3,7 +3,6 @@ package io.aequicor.heartbeat.platform.dibundle
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.profilefacade.ProfileSession
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -17,7 +16,6 @@ import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackState
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -47,8 +45,7 @@ class FeedbackIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

@@ -2,7 +2,6 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -31,7 +30,6 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -63,9 +61,7 @@ class ChecklistIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        // Cancellation finishes asynchronously; keep Main installed until profile cleanup completes.
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

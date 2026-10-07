@@ -5,7 +5,6 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -93,7 +92,6 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -421,9 +419,7 @@ class AiEngineFacadeIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        // Close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

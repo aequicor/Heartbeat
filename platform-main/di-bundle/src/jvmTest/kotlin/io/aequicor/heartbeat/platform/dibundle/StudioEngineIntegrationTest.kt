@@ -7,7 +7,6 @@ import com.arkivanov.essenty.lifecycle.resume
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.jsonKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.secrets.Secret
 import io.aequicor.heartbeat.core.statemachine.SendResult
@@ -57,7 +56,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
@@ -102,9 +100,7 @@ class StudioEngineIntegrationTest {
 
     @AfterTest
     fun tearDown() = runTest {
-        (app.appScope as OwnedScope).close()
-        // close cancels without waiting; IO continuations must finish before replacing Dispatchers.Main.
-        app.appScope.coroutineScope.coroutineContext[Job]?.join()
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }
@@ -669,8 +665,7 @@ class StudioEngineIntegrationTest {
             block()
         } finally {
             withContext(NonCancellable) {
-                (app.appScope as OwnedScope).close()
-                app.appScope.coroutineScope.coroutineContext[Job]?.join()
+                app.closeAndAwaitStorages()
             }
         }
     }

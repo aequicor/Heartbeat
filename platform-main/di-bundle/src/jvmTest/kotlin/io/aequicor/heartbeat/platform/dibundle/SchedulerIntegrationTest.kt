@@ -6,7 +6,6 @@ import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.stringKey
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
@@ -69,8 +68,8 @@ class SchedulerIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
-        (app.appScope as OwnedScope).close()
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

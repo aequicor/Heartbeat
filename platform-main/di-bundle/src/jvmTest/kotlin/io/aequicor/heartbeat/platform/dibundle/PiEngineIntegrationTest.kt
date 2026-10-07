@@ -1,7 +1,6 @@
 package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthScope
@@ -129,7 +128,7 @@ class PiEngineIntegrationTest {
             val session = app.profileSessions.open(ProfileId("pi-default-test"))
             ProfileFixture(app, session.graph as AiEngineAccessors).block()
         } finally {
-            (app.appScope as OwnedScope).close()
+            app.closeAndAwaitStorages()
         }
     }
 

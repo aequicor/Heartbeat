@@ -61,14 +61,15 @@ class SettingsIntegrationTest {
             lifecycle.destroy()
             (graph.appScope as OwnedScope).close()
             graph.appScope.coroutineScope.coroutineContext[Job]?.join()
+            graph.storageMaintenance.awaitClosed()
         }
     }
 
     private val RootHost.routes: List<Route> get() = stack.value.items.map { it.configuration.route }
 
     @AfterTest
-    fun cleanup() {
-        processes.forEach { (it.graph.appScope as OwnedScope).close() }
+    fun cleanup() = runTest {
+        processes.forEach { it.graph.closeAndAwaitStorages() }
         Dispatchers.resetMain()
         clock.close()
     }
