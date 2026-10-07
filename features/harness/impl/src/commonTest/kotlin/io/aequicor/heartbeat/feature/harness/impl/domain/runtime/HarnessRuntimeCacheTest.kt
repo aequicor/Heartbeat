@@ -20,7 +20,7 @@ class HarnessRuntimeCacheTest {
     @Test
     fun `item deletion removes cache after drain while a late cleanup preserves a recreated item`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns()) { true }
         val old = fixture.activate()
         val gate = CompletableDeferred<Unit>()
         val call = async { fixture.runtime.invoke(old, 30.seconds) { gate.await() } }
@@ -45,7 +45,7 @@ class HarnessRuntimeCacheTest {
     @Test
     fun `new compiler admission waits for an already authorized old cache removal`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns()) { true }
         fixture.activate()
         val effect = fixture.deactivation()
         fixture.isItemPresent = false
@@ -70,7 +70,7 @@ class HarnessRuntimeCacheTest {
     @Test
     fun `full removal cannot overtake compiler admission after preparation cancellation`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns()) { true }
         val gate = CompletableDeferred<Unit>()
         fixture.beforeCompile = { withContext(NonCancellable) { gate.await() } }
         val activation = async { control.activate(fixture.desired) }
@@ -90,7 +90,7 @@ class HarnessRuntimeCacheTest {
     @Test
     fun `recoverable cache removal failure retains fence and retries without a false completion`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, EmptyRuntimeRuns()) { true }
         var attempts = 0
         fixture.beforeCacheRemoval = {
             attempts++

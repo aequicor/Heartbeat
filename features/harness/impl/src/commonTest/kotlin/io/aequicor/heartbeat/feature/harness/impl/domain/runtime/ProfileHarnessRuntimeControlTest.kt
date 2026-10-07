@@ -32,7 +32,7 @@ class ProfileHarnessRuntimeControlTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         fixture.isHostAvailable = false
         val runs = RuntimeRunRecords()
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs)
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         assertFalse(control.isAvailable)
         assertFalse(control.activate(fixture.desired))
         assertTrue(fixture.code.isEmpty())
@@ -45,7 +45,7 @@ class ProfileHarnessRuntimeControlTest {
     fun `running journal prevents pause stop and cache removal until native work is proven terminal`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val runs = RuntimeRunRecords().apply { records = listOf(runtimeRun()) }
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs)
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         val effect = fixture.deactivation().copy(harnesses = setOf(fixture.desired.harness.id))
         assertFalse(control.deactivate(effect))
         assertFalse(control.deactivate(effect.copy(isStopping = true)))
@@ -61,7 +61,7 @@ class ProfileHarnessRuntimeControlTest {
     @Test
     fun `cache removal follows actual code drain and only removes executable items`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, RuntimeRunRecords())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, RuntimeRunRecords()) { true }
         val instance = fixture.activate()
         val gate = CompletableDeferred<Unit>()
         val call = async { fixture.runtime.invoke(instance, 30.seconds) { gate.await() } }
@@ -84,7 +84,7 @@ class ProfileHarnessRuntimeControlTest {
     fun `fence precedes suspended journal read and delayed receipt preserves newer activation`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val runs = RuntimeRunRecords()
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs)
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         val instance = fixture.activate()
         // Drain the old generation first so the adapter can proceed to its durable running guard.
         val effect = fixture.deactivation().copy(harnesses = setOf(fixture.desired.harness.id))

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeC
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeEnvironment
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.ProfileHarnessRuntimeControl
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOperations
 
 /** Constructs execution without starting it; lazy machine access breaks the library/runtime feedback cycle. */
 @ContributesTo(ProfileScope::class)
@@ -44,6 +45,9 @@ public object HarnessRuntimeBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun control(runtime: HarnessRuntime, runs: HarnessRunStorage): HarnessRuntimeControl =
-        ProfileHarnessRuntimeControl(runtime, runs)
+    internal fun control(
+        runtime: HarnessRuntime,
+        runs: HarnessRunStorage,
+        spawns: HarnessSpawnOperations,
+    ): HarnessRuntimeControl = ProfileHarnessRuntimeControl(runtime, runs, spawns)
 }

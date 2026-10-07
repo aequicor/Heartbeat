@@ -39,7 +39,7 @@ internal class HarnessSpawnOperations(
     private val journal: HarnessSpawnJournal,
     private val helpers: Lazy<HelperAgents>,
     private val bindings: HarnessHelperBindings,
-) {
+) : HarnessSpawnLifecycle {
     private val log = Log.tag("HarnessSpawns")
     private val initialization = Mutex()
     private val registry = Mutex()
@@ -91,7 +91,7 @@ internal class HarnessSpawnOperations(
     }
 
     /** Installs generation fences before any IO; false is an observation, never permission to discard evidence. */
-    suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean {
+    override suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean {
         val selected = registry.withLock {
             effect.harnesses.forEach { harnessFences.raise(it, effect.generation) }
             effect.items.forEach { itemFences.raise(it.harness.id to it.item.id, it.generation) }

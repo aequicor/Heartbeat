@@ -135,6 +135,12 @@ internal class HarnessRuntime(
         removalStatusLocked(effect)
     }
 
+    /** The fence captured for this still-current receipt; retries must never widen it to a newer generation. */
+    suspend fun removalGeneration(effect: HarnessEffect.Remove): Long? = mutex.withLock {
+        if (environment.admission.removalGeneration(effect) == null) return@withLock null
+        removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt }?.generation
+    }
+
     private fun removalStatusLocked(effect: HarnessEffect.Remove): HarnessRemovalResult {
         if (environment.admission.removalGeneration(effect) == null) return HarnessRemovalResult.Obsolete
         val fence = removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt }
