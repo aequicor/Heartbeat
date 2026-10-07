@@ -13,6 +13,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Instant
@@ -20,7 +22,7 @@ import kotlin.time.Instant
 /**
  * The profile owns an admitted immutable submission, independently of its script's wait. Cancellation or timeout
  * of the caller cannot free an uncertain reservation or cause the same text to be submitted again. No author
- * callbacks run here: [isAdmitted] is a synchronous host authority check.
+ * callbacks run here: [isAdmitted] is a host authority check that may suspend.
  */
 internal class HarnessWakeOperations(
     private val scope: CoroutineScope,
@@ -31,7 +33,7 @@ internal class HarnessWakeOperations(
     private val log = Log.tag("HarnessServices")
 
     @HighFrequency
-    suspend fun schedule(submission: HarnessWakeSubmission, isAdmitted: () -> Boolean): WakeId {
+    suspend fun schedule(submission: HarnessWakeSubmission, isAdmitted: suspend () -> Boolean): WakeId {
         val request = submission.request
         check(request.ownerFeature == HARNESS_WAKE_OWNER) { "Invalid harness wake owner" }
         check(isAdmitted()) { "Harness wake is no longer admitted" }
@@ -54,7 +56,7 @@ internal class HarnessWakeOperations(
         return result.await()
     }
 
-    private suspend fun submit(submission: HarnessWakeSubmission, isAdmitted: () -> Boolean) {
+    private suspend fun submit(submission: HarnessWakeSubmission, isAdmitted: suspend () -> Boolean) {
         check(isAdmitted()) { "Harness wake is no longer admitted" }
         val harness = submission.harness
         val request = submission.request
@@ -67,6 +69,7 @@ internal class HarnessWakeOperations(
             check(isAdmitted()) { "Harness wake admission was revoked" }
             origins.register(request.session, request.id.deliveryRequestId(), origin)
             check(isAdmitted()) { "Harness wake admission was revoked" }
+            currentCoroutineContext().ensureActive()
             hasSubmissionStarted = true
             when (port.schedule(request, at)) {
                 HarnessWakeReceipt.Scheduled -> quotas.acknowledged(request.id)

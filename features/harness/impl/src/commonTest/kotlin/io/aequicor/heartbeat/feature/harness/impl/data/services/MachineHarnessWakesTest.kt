@@ -143,16 +143,26 @@ class MachineHarnessWakesTest {
             listOf(ScheduledWake(request, at)),
             delivering = setOf(request.id),
         )
-        assertFalse(fixture.port.cancel(request.id))
-        assertFalse(fixture.port.cancel(WakeId("missing")))
+        assertFalse(fixture.port.cancel(request))
+        assertFalse(fixture.port.cancel(request.copy(id = WakeId("missing"))))
         assertTrue(fixture.machine.sent.isEmpty())
         fixture.machine.current.value = SchedulerState.Ready(listOf(ScheduledWake(request, at)))
         fixture.machine.onSend = {
-            assertEquals(SchedulerIntent.Public.Cancel(request.id), it)
+            assertEquals(SchedulerIntent.Public.Cancel(request.id, expectedRequest = request), it)
             fixture.machine.current.value = SchedulerState.Ready()
             SendResult.Accepted
         }
-        assertTrue(fixture.port.cancel(request.id))
+        assertTrue(fixture.port.cancel(request))
+    }
+
+    @Test
+    fun `cancel refuses a reused id whose immutable request changed`() = runTest {
+        val fixture = WakePortFixture()
+        fixture.machine.current.value = SchedulerState.Ready(
+            listOf(ScheduledWake(request.copy(ownerFeature = "other", note = "Other operation"), at)),
+        )
+        assertFalse(fixture.port.cancel(request))
+        assertTrue(fixture.machine.sent.isEmpty())
     }
 
     @Test
@@ -167,7 +177,7 @@ class MachineHarnessWakesTest {
             SendResult.Accepted
         }
         fixture.machine.beforeRead = { fixture.registry.current.value = replacement }
-        assertFalse(fixture.port.cancel(request.id))
+        assertFalse(fixture.port.cancel(request))
         assertTrue(replacement.sent.isEmpty())
         assertEquals(wakes, replacement.current.value)
     }

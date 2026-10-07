@@ -27,10 +27,43 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.time.Instant
 
 class HarnessWakeOperationsTest {
+    @Test
+    fun `suspending admission is checked again after ancestry before scheduler handoff`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas()
+        val entered = CompletableDeferred<Unit>()
+        val released = CompletableDeferred<Unit>()
+        var hasStoredOrigin = false
+        var isAllowed = true
+        val storage = MemoryHarnessRequestAncestry().apply { beforeRestrict = { hasStoredOrigin = true } }
+        val operations = HarnessWakeOperations(backgroundScope, port, quota, HarnessRequestOrigins(storage))
+        val attempt = async {
+            assertFailsWith<IllegalStateException> {
+                operations.schedule(HarnessWakeSubmission(OWNER, wake("revoked"), HarnessCallOrigin(true), AT, false)) {
+                    if (hasStoredOrigin) {
+                        entered.complete(Unit)
+                        released.await()
+                    }
+                    isAllowed
+                }
+            }
+        }
+        entered.await()
+        assertEquals(0, port.calls)
+        assertFalse(attempt.isCompleted)
+        isAllowed = false
+        released.complete(Unit)
+        attempt.await()
+        assertEquals(0, port.calls)
+        quota.reserve(HarnessWakeReservation(WakeId("free1"), OWNER, dispatchSession, AT, false), port::snapshot)
+        quota.reserve(HarnessWakeReservation(WakeId("free2"), OWNER, dispatchSession, AT, false), port::snapshot)
+    }
+
     @Test
     fun `failed ancestry write returns capacity before scheduler is called`() = runTest {
         val port = WakePortFixture()
@@ -194,7 +227,7 @@ private class WakePortFixture : HarnessWakePort {
         isWaiting = false
         return result
     }
-    override suspend fun cancel(id: WakeId, cause: EventOrigin?): Boolean = false
+    override suspend fun cancel(request: WakeRequest, cause: EventOrigin?): Boolean = false
 }
 
 private fun wake(id: String): WakeRequest = WakeRequest(

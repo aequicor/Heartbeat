@@ -18,7 +18,7 @@ import kotlin.time.Instant
  * | Loading | any Public, Observed, Tick, Delivered, DeliveryFailed | — | ignored | — |
  * | Ready | Schedule | id new, limits hold, deadline within the horizon | Ready(+wake) | Persist; Scheduled |
  * | Ready | Schedule | otherwise | stay | Rejected |
- * | Ready | Cancel | pending, not delivering, same session if given | Ready(−wake) | Persist; Cancelled |
+ * | Ready | Cancel | pending, not delivering, optional session/request match | Ready(−wake) | Persist; Cancelled |
  * | Ready | CancelSession | the session has a pending wake not delivering | Ready(−wakes) | Persist; Cancelled |
  * | Ready | CancelOwned | matching owner wakes not delivering | Ready(−wakes) | Persist; Cancelled |
  * | Ready | CancelOwned | none pending for owner | stay | — |
@@ -170,7 +170,8 @@ private fun SchedulerState.Ready.ownedPending(feature: String): List<ScheduledWa
     cancellable { it.request.ownerFeature == feature }
 
 private fun ScheduledWake.matchesCancel(cancel: SchedulerIntent.Public.Cancel): Boolean =
-    id == cancel.id && (cancel.session == null || cancel.session == session)
+    id == cancel.id && cancel.session?.let { it == session } != false &&
+        cancel.expectedRequest?.let { it == request } != false
 
 private fun SchedulerState.Ready.changed(next: List<ScheduledWake>): SchedulerState.Ready =
     copy(wakes = next, revision = revision + 1)

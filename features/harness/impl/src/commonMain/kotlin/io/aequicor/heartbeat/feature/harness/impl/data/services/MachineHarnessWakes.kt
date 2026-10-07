@@ -89,12 +89,13 @@ internal class MachineHarnessWakes(private val machines: MachineRegistry, privat
     }
 
     @HighFrequency
-    override suspend fun cancel(id: WakeId, cause: EventOrigin?): Boolean {
+    override suspend fun cancel(request: WakeRequest, cause: EventOrigin?): Boolean {
+        val id = request.id
         log.v { "cancel pending owned wake" }
         val machine = machines.find(SchedulerMachineKey) ?: return false
         val before = machine.state.value as? SchedulerState.Ready
-        return if (before?.canCancel(id) == true && machines.find(SchedulerMachineKey) === machine) {
-            val sent = machine.send(SchedulerIntent.Public.Cancel(id, cause = cause))
+        return if (before?.canCancel(request) == true && machines.find(SchedulerMachineKey) === machine) {
+            val sent = machine.send(SchedulerIntent.Public.Cancel(id, cause = cause, expectedRequest = request))
             val after = machine.state.value as? SchedulerState.Ready
             sent == SendResult.Accepted && machines.find(SchedulerMachineKey) === machine &&
                 after?.wakes?.none { it.id == id } == true
@@ -109,4 +110,5 @@ private typealias Scheduler = MachineRef<SchedulerState, SchedulerIntent.Public,
 private fun SchedulerOutput.matches(id: WakeId): Boolean =
     (this is SchedulerOutput.Scheduled && wake.id == id) || (this is SchedulerOutput.Rejected && this.id == id)
 
-private fun SchedulerState.Ready.canCancel(id: WakeId): Boolean = id !in delivering && wakes.any { it.id == id }
+private fun SchedulerState.Ready.canCancel(request: WakeRequest): Boolean =
+    request.id !in delivering && wakes.any { it.request == request }
