@@ -36,6 +36,33 @@ class HarnessDeliveryStorageTest {
     private val digest = "b".repeat(64)
 
     @Test
+    fun `begin invalidates old receipt durably before an uncertain replacement can be sent`() = runTest {
+        val session = session()
+        val initial = repository().snapshot(session)
+        repository().accepted(session, initial.generation, digest, listOf(marker()), emptySet())
+        val accepted = repository().snapshot(session)
+        val begun = kotlin.test.assertNotNull(repository().begin(session, accepted.generation))
+        assertNull(begun.activeSetSha)
+        assertEquals(accepted.markers, begun.markers)
+        assertNotEquals(accepted.generation, begun.generation)
+        assertEquals(begun, repository().snapshot(session))
+        assertNull(repository().begin(session, accepted.generation))
+        assertFalse(repository().accepted(session, accepted.generation, digest, listOf(marker()), emptySet()))
+        assertTrue(repository().accepted(session, begun.generation, digest, listOf(marker()), emptySet()))
+    }
+
+    @Test
+    fun `deletion between snapshot and begin requires a new disabled notice composition`() = runTest {
+        val session = session()
+        val initial = repository().snapshot(session)
+        repository().accepted(session, initial.generation, digest, listOf(marker()), emptySet())
+        val accepted = repository().snapshot(session)
+        repository().removeHarness(marker().harness)
+        assertNull(repository().begin(session, accepted.generation))
+        assertEquals(setOf(marker().name), repository().snapshot(session).pendingDisabled)
+    }
+
+    @Test
     fun `raw access failures hide messages while cancellation remains cancellation`() = runTest {
         kv.readFailureKey = "deliveries"
         val error = assertFailsWith<HarnessStorageUncertain> { repository().snapshot(session()) }

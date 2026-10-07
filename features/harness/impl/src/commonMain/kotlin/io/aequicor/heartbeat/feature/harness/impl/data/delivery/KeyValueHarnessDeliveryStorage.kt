@@ -66,6 +66,23 @@ internal class KeyValueHarnessDeliveryStorage(private val store: KeyValueStore, 
     }
 
     @HighFrequency
+    override suspend fun begin(session: SessionRef, expectedGeneration: String): HarnessDeliverySnapshot? = access {
+        log.v { "begin harness context delivery" }
+        journal.recover()
+        val old = read()
+        val entries = retained(old)
+        val current = entries.singleOrNull { it.session == session && it.generation == expectedGeneration }
+        val replacement = current?.copy(
+            generation = newGeneration(),
+            activeSetSha = null,
+            updatedAt = clock.now(),
+            isDeliveryPending = true,
+        )
+        write(old, if (replacement == null) entries else entries.filterNot { it.session == session } + replacement)
+        replacement?.snapshot()
+    }
+
+    @HighFrequency
     override suspend fun accepted(
         session: SessionRef,
         expectedGeneration: String,
@@ -92,6 +109,7 @@ internal class KeyValueHarnessDeliveryStorage(private val store: KeyValueStore, 
                 activeSetSha = activeSetSha,
                 markers = markers,
                 pendingDisabled = emptySet(),
+                isDeliveryPending = false,
             )
             write(old, entries.filterNot { it.session == session } + replacement)
         } else {
@@ -101,16 +119,20 @@ internal class KeyValueHarnessDeliveryStorage(private val store: KeyValueStore, 
     }
 
     @HighFrequency
-    override suspend fun reset(session: SessionRef) = access {
+    override suspend fun reset(session: SessionRef, isDeliveryPending: Boolean) = access {
         log.v { "reset harness storage" }
         journal.recover()
         val old = read()
-        write(
-            old,
-            retained(old).map { entry ->
-                if (entry.session != session) entry else entry.copy(generation = newGeneration(), activeSetSha = null)
-            },
+        val entries = retained(old)
+        val current = entries.singleOrNull { it.session == session }
+            ?: if (isDeliveryPending) HarnessDeliveryRecord(session, newGeneration(), clock.now()) else null
+        val replacement = current?.copy(
+            generation = newGeneration(),
+            activeSetSha = null,
+            isDeliveryPending = current.isDeliveryPending || isDeliveryPending,
         )
+        val next = if (replacement == null) entries else entries.filterNot { it.session == session } + replacement
+        write(old, next.takeLast(DELIVERY_SESSIONS))
     }
 
     @HighFrequency

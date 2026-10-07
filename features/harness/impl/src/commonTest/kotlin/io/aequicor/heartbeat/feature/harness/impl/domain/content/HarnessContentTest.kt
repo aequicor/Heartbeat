@@ -24,6 +24,21 @@ class HarnessContentTest {
     )
 
     @Test
+    fun `canonical content includes full omitted lines and native identity independent of revision`() {
+        val first = HarnessItem.Instruction(ItemId("first"), ItemName("first"), "First")
+        val last = HarnessItem.Instruction(ItemId("last"), ItemName("last"), "Last")
+        val initial = HarnessContent(listOf(harness.copy(items = listOf(last, first))))
+        val reordered = HarnessContent(listOf(harness.copy(items = listOf(first, last))))
+        assertEquals(initial.canonical("native", "extra"), reordered.canonical("native", "extra"))
+        val changed = HarnessContent(listOf(harness.copy(items = listOf(first, last.copy(text = "Changed")))))
+        kotlin.test.assertNotEquals(initial.canonical("native", "extra"), changed.canonical("native", "extra"))
+        kotlin.test.assertNotEquals(initial.canonical("native", "extra"), initial.canonical("other", "extra"))
+        val bounded = initial.block(listOf("prefix"), "dynamic")
+        assertTrue(bounded.text.startsWith("prefix\n"))
+        assertTrue(bounded.text.endsWith("dynamic"))
+    }
+
+    @Test
     fun `qualified names select one active item while ambiguous bare names never pick the first match`() {
         val first = harness.copy(name = HarnessName("alpha"), items = listOf(skill, template))
         val second = first.copy(id = HarnessId("second"), name = HarnessName("beta"))
