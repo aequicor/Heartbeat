@@ -41,11 +41,15 @@ internal abstract class HarnessAncestryDao {
     }
 }
 
-@Database(entities = [HarnessAncestryRecord::class, HarnessHelperBindingRecord::class], version = 2)
+@Database(
+    entities = [HarnessAncestryRecord::class, HarnessHelperBindingRecord::class, HarnessSpawnEntity::class],
+    version = SPAWN_JOURNAL_VERSION,
+)
 @ConstructedBy(HarnessAncestryDatabaseConstructor::class)
 internal abstract class HarnessAncestryDatabase : RoomDatabase() {
     abstract fun ancestry(): HarnessAncestryDao
     abstract fun helpers(): HarnessHelperBindingDao
+    abstract fun spawns(): HarnessSpawnDao
 }
 
 @Suppress("KotlinNoActualForExpect") // Room generates platform constructors.
@@ -56,7 +60,7 @@ internal expect object HarnessAncestryDatabaseConstructor : RoomDatabaseConstruc
 internal val HarnessAncestryDatabaseSpec = DatabaseSpec(
     "harness_ancestry",
     HarnessAncestryDatabaseConstructor::initialize,
-    listOf(HarnessHelperBindingMigration),
+    listOf(HarnessHelperBindingMigration, HarnessSpawnJournalMigration),
 )
 
 /** Adds ownership without rewriting or weakening any historical request ancestry. */
@@ -68,3 +72,15 @@ internal object HarnessHelperBindingMigration : Migration(1, 2) {
         )
     }
 }
+
+/** Adds cleanup evidence without rewriting helper ownership or request ancestry. */
+internal object HarnessSpawnJournalMigration : Migration(2, SPAWN_JOURNAL_VERSION) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+            "CREATE TABLE IF NOT EXISTS spawn_journal (reservation TEXT NOT NULL PRIMARY KEY, " +
+                "identity TEXT NOT NULL, helper TEXT)",
+        )
+    }
+}
+
+private const val SPAWN_JOURNAL_VERSION = 3
