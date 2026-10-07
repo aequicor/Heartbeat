@@ -205,5 +205,12 @@ private class HelperFixture(private val scope: CoroutineScope) :
         attempts.unresolved(helper),
     )
 
+    override suspend fun helperMetadata(session: SessionRef): HelperMetadata? =
+        if (session == HelperSession) helperMetadata(HelperChat) else null
+
+    override suspend fun ownedHelpers(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> =
+        listOf(helperMetadata(HelperChat)).filter { it.owner == owner && (after == null || it.id.value > after.value) }
+            .take(limit)
+
     override suspend fun isHelper(session: SessionRef): Boolean = session == HelperSession
 }

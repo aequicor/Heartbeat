@@ -51,7 +51,7 @@ public data class SpawnRequest(
  * resumed turn. Without an owning host the wake fails as unavailable; there is no unattended engine fallback.
  * Used only by `scheduler:impl`, hosts that own sessions and `platform-main:di-bundle`.
  */
-public interface ScheduledSessionHost {
+public interface ScheduledSessionHost : ScheduledHelperCatalog {
     /** Higher wins among hosts that own a session. */
     public val priority: Int
 
@@ -81,9 +81,6 @@ public interface ScheduledSessionHost {
     /** Persists an empty marked chat without submitting native work; never falls back to [spawn]. */
     public suspend fun createHelper(request: HelperCreateRequest): HelperId =
         throw UnsupportedOperationException("Helper creation is unavailable")
-
-    /** Durable metadata of a marked helper owned by this host; null for ordinary or unknown chats. */
-    public suspend fun helperMetadata(helper: HelperId): HelperMetadata? = null
 
     /**
      * Submits exactly this immutable attempt, durably correlating acceptance with its request. Repeating the same

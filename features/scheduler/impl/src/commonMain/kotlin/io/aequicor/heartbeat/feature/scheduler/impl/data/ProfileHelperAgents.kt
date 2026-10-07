@@ -7,6 +7,8 @@ import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.logging.HighFrequency
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -17,6 +19,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
+import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
@@ -42,6 +45,7 @@ internal class ProfileHelperAgents(
     private val results: ActionResults,
 ) : ScheduledHelperLeases,
     HelperLeaseRegistry {
+    private val log = Log.tag("ProfileHelperAgents")
     private val lock = Mutex()
     private val recovering = mutableSetOf<HelperId>()
     private val bindings = mutableMapOf<HelperId, ManagedHelperLease>()
@@ -130,7 +134,7 @@ internal class ProfileHelperAgents(
     override suspend fun create(
         lease: HelperLease,
         workspace: WorkspaceRef?,
-        target: EngineTarget,
+        target: EngineTarget?,
         title: String,
         trustCap: TrustLevel,
     ): HelperId {
@@ -155,6 +159,31 @@ internal class ProfileHelperAgents(
         bound(helper).cancel(helper, request)
 
     override suspend fun isHelper(session: SessionRef): Boolean = hosts.value.any { it.isHelper(session) }
+
+    @HighFrequency
+    override suspend fun metadata(session: SessionRef): HelperMetadata? {
+        log.v { "Read durable reverse helper identity" }
+        val matches = hosts.value.mapNotNull { it.helperMetadata(session) }
+        check(matches.size <= 1) { "Helper session ownership is ambiguous" }
+        return matches.singleOrNull()?.also {
+            check(it.session == session) { "Host returned different helper session metadata" }
+        }
+    }
+
+    @HighFrequency
+    override suspend fun owned(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> {
+        log.v { "Read bounded durable helper owner page" }
+        require(limit in 1..HelperMetadataLimits.MAX_PAGE_SIZE) { "Invalid helper metadata page size" }
+        val pages = hosts.value.flatMap { host ->
+            host.ownedHelpers(owner, after, limit).also { page ->
+                check(page.size <= limit && page.all { it.owner == owner }) { "Invalid helper owner page" }
+                check(page.all { after == null || it.id.value > after.value }) { "Invalid helper page boundary" }
+                check(page.zipWithNext().all { (a, b) -> a.id.value < b.id.value }) { "Unordered helper page" }
+            }
+        }
+        check(pages.map { it.id }.distinct().size == pages.size) { "Helper identity belongs to multiple hosts" }
+        return pages.sortedBy { it.id.value }.take(limit)
+    }
 
     override suspend fun finish(action: ActionId, payload: String) = results.finish(action, payload)
 

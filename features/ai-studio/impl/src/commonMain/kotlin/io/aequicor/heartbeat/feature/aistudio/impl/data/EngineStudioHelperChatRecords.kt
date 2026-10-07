@@ -5,10 +5,13 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.datastore.DataStores
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import kotlin.time.Clock
@@ -43,22 +46,45 @@ internal class EngineStudioHelperChatRecords(
         return HelperId(record.id)
     }
 
+    @HighFrequency
     override suspend fun helperMetadata(helper: HelperId): HelperMetadata? {
         log.v { "Read durable helper identity" }
-        val record = store.get(ChatsKey).orEmpty().firstOrNull { it.id == helper.value } ?: return null
-        return record.helper?.let { identity ->
-            HelperMetadata(
-                helper,
-                identity.owner,
-                identity.parentSession,
-                record.ref,
-                attempts.unresolved(helper) ?: record.lastRunRequest,
-            )
-        }
+        val matches = store.get(ChatsKey).orEmpty().filter { it.id == helper.value }
+        check(matches.size <= 1) { "Helper identity is ambiguous" }
+        return matches.singleOrNull()?.metadata()
     }
 
-    override suspend fun isHelper(session: SessionRef): Boolean {
-        log.v { "Read durable helper marker" }
-        return store.get(ChatsKey).orEmpty().any { it.ref == session && it.helper != null }
+    @HighFrequency
+    override suspend fun helperMetadata(session: SessionRef): HelperMetadata? {
+        log.v { "Read durable helper session identity" }
+        val matches = store.get(ChatsKey).orEmpty().filter { it.ref == session }
+        check(matches.size <= 1) { "Helper session identity is ambiguous" }
+        return matches.singleOrNull()?.metadata()
     }
+
+    @HighFrequency
+    override suspend fun ownedHelpers(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> {
+        log.v { "Read bounded durable helper ownership" }
+        require(limit in 1..HelperMetadataLimits.MAX_PAGE_SIZE) { "Invalid helper metadata page size" }
+        val owned = store.get(ChatsKey).orEmpty().filter { it.helper?.owner == owner }
+        check(owned.map { it.id }.distinct().size == owned.size) { "Helper identity is ambiguous" }
+        return owned.asSequence().filter { after == null || it.id > after.value }.sortedBy { it.id }
+            .take(limit).toList().map { checkNotNull(it.metadata()) }
+    }
+
+    @HighFrequency
+    private suspend fun StudioChatRecord.metadata(): HelperMetadata? {
+        log.v { "Project persisted helper metadata" }
+        val identity = helper ?: return null
+        val helperId = HelperId(id)
+        return HelperMetadata(
+            helperId,
+            identity.owner,
+            identity.parentSession,
+            ref,
+            attempts.unresolved(helperId) ?: lastRunRequest,
+        )
+    }
+
+    override suspend fun isHelper(session: SessionRef): Boolean = helperMetadata(session) != null
 }

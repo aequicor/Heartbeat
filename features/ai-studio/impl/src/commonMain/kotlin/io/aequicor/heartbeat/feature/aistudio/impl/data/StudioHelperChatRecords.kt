@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import kotlinx.serialization.Serializable
@@ -34,6 +35,16 @@ internal interface StudioHelperChatRecords {
 
     /** Ordinary chats never carry helper ownership. */
     suspend fun helperMetadata(helper: HelperId): HelperMetadata?
+
+    /** Exact persisted native reference; conflicting records fail instead of choosing one owner. */
+    suspend fun helperMetadata(session: SessionRef): HelperMetadata?
+
+    /** Bounded live page of durable identities, sorted by helper id, strictly after the cursor. */
+    suspend fun ownedHelpers(
+        owner: ActionId,
+        after: HelperId? = null,
+        limit: Int = HelperMetadataLimits.DEFAULT_PAGE_SIZE,
+    ): List<HelperMetadata>
 
     /** Reads the persisted marker rather than inferring ownership from an active run. */
     suspend fun isHelper(session: SessionRef): Boolean
