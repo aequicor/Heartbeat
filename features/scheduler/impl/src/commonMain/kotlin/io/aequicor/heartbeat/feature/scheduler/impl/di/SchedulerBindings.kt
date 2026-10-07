@@ -28,6 +28,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineSpec
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
@@ -103,6 +104,10 @@ public interface SchedulerMultibindings {
     /** Helper prompt context owners; the host resolves these only for explicit handoff or exact initiators. */
     @Multibinds(allowEmpty = true)
     public fun scheduledHelperPromptOwners(): Set<ScheduledHelperPromptOwner>
+
+    /** Exact request provenance, resolved only for host turns carrying saved causal references. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledRequestOriginObservers(): Set<ScheduledRequestOriginObserver>
 
     /** Platform signal sources. */
     @Multibinds(allowEmpty = true)

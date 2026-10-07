@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
@@ -76,6 +77,8 @@ internal data class StudioTurnRequest(
     val onTurnAccepted: suspend (ActiveSession) -> Unit = {},
     /** The graph journal records the native outcome before execution is reported complete. */
     val onOutcome: suspend (TurnOutcome) -> Unit = {},
+    /** Immutable saved causal requests; host relays them to the actual native identity before prompt hooks. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }

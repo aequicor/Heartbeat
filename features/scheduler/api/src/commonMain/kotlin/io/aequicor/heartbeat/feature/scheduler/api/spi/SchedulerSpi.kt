@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.flow.Flow
@@ -41,6 +42,8 @@ public data class SpawnRequest(
     val target: EngineTarget,
     val title: String,
     val prompt: WakePrompt,
+    /** Exact saved causal requests, relayed before each initial or recovery native prompt. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     override fun toString(): String = "SpawnRequest(target=$target, hasWorkspace=${workspace != null})"
 }

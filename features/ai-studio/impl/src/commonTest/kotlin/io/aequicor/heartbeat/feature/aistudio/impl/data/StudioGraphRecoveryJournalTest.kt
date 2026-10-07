@@ -1,13 +1,40 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class StudioGraphRecoveryJournalTest {
+    @Test
+    fun `replayed graph submission preserves prior causes and cannot change native ownership`() {
+        val session = SessionRef(EngineId("test"), SessionSourceId("source"), "source")
+        val original = RequestInitiator(session, RequestId("original"))
+        val retry = RequestInitiator(session, RequestId("retry"))
+        val saved = GraphChatAttempt("helper", checkpoint = "receipt", causes = setOf(original))
+        val restored = Json.decodeFromString<GraphChatAttempt>(Json.encodeToString(saved))
+        val incoming = GraphChatAttempt("helper", recoveryRoot = "R", causes = setOf(retry))
+        val bound = retainGraphAttempt("R", restored, incoming)
+        assertEquals(setOf(original, retry), bound.causes)
+        assertEquals("receipt", bound.checkpoint)
+        assertFailsWith<IllegalStateException> { retainGraphAttempt("R", bound, incoming.copy(chat = "foreign")) }
+        assertFailsWith<IllegalStateException> {
+            retainGraphAttempt(
+                "R",
+                bound,
+                incoming.copy(recoveryRoot = "foreign"),
+            )
+        }
+    }
+
     @Test
     fun `second restart before observer journaling retains the native receipt`() {
         val persisted = Json.encodeToString(
