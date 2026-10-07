@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
@@ -112,20 +113,26 @@ internal fun toolFailureResult(reason: String): JsonObject = toolFailure(reason)
 private const val DEFAULT_COUNT = 5
 private const val MAX_COUNT = 20
 
-internal fun toolResult(success: Boolean, text: String): JsonObject = buildJsonObject {
-    put("success", success)
-    put(
-        "contentItems",
-        JsonArray(
-            listOf(
-                buildJsonObject {
-                    put("type", "inputText")
-                    put("text", text)
+internal fun toolResult(success: Boolean, text: String, images: List<AgentToolImage> = emptyList()): JsonObject =
+    buildJsonObject {
+        put("success", success)
+        put(
+            "contentItems",
+            JsonArray(
+                listOf(
+                    buildJsonObject {
+                        put("type", "inputText")
+                        put("text", text)
+                    },
+                ) + images.map { image ->
+                    buildJsonObject {
+                        put("type", "inputImage")
+                        put("imageUrl", image.dataUrl)
+                    }
                 },
             ),
-        ),
-    )
-}
+        )
+    }
 
 /** Adapter-operated search passes the same policy, hook and permission gate as other hosted tools. */
 internal suspend fun executeHostedSearch(

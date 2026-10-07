@@ -313,14 +313,12 @@ internal class DefaultAgentTools(
         approval: AgentToolApproval,
         verdict: ToolHookVerdict,
     ): AgentToolResult? {
-        val isRequiredByTrust = when (spec.action) {
-            AgentToolAction.Read -> false
-            AgentToolAction.Edit -> context.trust == TrustLevel.Ask
-            AgentToolAction.Command -> context.trust != TrustLevel.Full
-        }
+        val isRequiredByTrust = requiresTrustDecision(spec.action, context.trust)
         // The owner may add a decision (its own approval policy); it can never remove one the table demands.
+        val existing = owner.existingAuthorization(context, spec, arguments)
+        val isCovered = !existing?.binding.isNullOrBlank() && existing == approval
         val isDecisionRequired = verdict is ToolHookVerdict.Ask ||
-            isRequiredByTrust || owner.requiresDecision(context, spec, arguments)
+            (!isCovered && (isRequiredByTrust || owner.requiresDecision(context, spec, arguments)))
         val shown = if (verdict is ToolHookVerdict.Ask) {
             approval.copy(
                 description = "A session hook requires confirmation: ${verdict.reason.take(HOOK_NOTE_CHARS)}\n\n" +
@@ -339,7 +337,7 @@ internal class DefaultAgentTools(
             ).none { it.first === owner && it.second == spec }
         ) {
             AgentToolResult("Tool became unavailable", isError = true)
-        } else if (isDecisionRequired && owner.approval(context, spec, arguments) != approval) {
+        } else if ((isDecisionRequired || isCovered) && owner.approval(context, spec, arguments) != approval) {
             AgentToolResult("The action changed while awaiting approval; request it again", isError = true)
         } else {
             null
@@ -382,3 +380,9 @@ internal class DefaultAgentTools(
 }
 
 private const val HOOK_NOTE_CHARS = 2_000
+
+private fun requiresTrustDecision(action: AgentToolAction, trust: TrustLevel): Boolean = when (action) {
+    AgentToolAction.Read -> false
+    AgentToolAction.Edit -> trust == TrustLevel.Ask
+    AgentToolAction.Command -> trust != TrustLevel.Full
+}

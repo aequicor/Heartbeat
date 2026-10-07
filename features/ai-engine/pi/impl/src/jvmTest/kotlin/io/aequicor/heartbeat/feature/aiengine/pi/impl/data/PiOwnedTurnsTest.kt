@@ -296,7 +296,7 @@ class PiOwnedTurnsTest {
     }
 
     private suspend fun PiRuntime.createOwnedSession(): PiSession =
-        create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        (create(CreateSessionRequest(RuntimeTarget)) as PiSessionView).origin
 
     private fun RuntimeFixture.stopper() = assertIs<FeatureAccess.Available<StopsOwnedTurns>>(
         runtime.features.resolve(StopsOwnedTurns),

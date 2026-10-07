@@ -80,7 +80,21 @@ public data class AgentToolScope(
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */
 @Serializable
-public data class AgentToolResult(val text: String, val isError: Boolean = false)
+public data class AgentToolResult(
+    val text: String,
+    val isError: Boolean = false,
+    /** Inline images delivered with the text in this same tool response; never paths for the model to open. */
+    val images: List<AgentToolImage> = emptyList(),
+)
+
+/** Encoded image owned by a tool response, independent of temporary capture files and their lifetime. */
+@Serializable
+public data class AgentToolImage(val mimeType: String, val data: String) {
+    /** Data URL used by adapters whose image input expects a URL. */
+    public val dataUrl: String get() = "data:$mimeType;base64,$data"
+
+    override fun toString(): String = "AgentToolImage(mimeType=$mimeType)"
+}
 
 /**
  * A profile contribution of hosted tools. Features implement this outside the adapter SPI.
@@ -146,6 +160,18 @@ public interface AgentToolContribution {
         spec: AgentToolSpec,
         arguments: JsonObject,
     ): Boolean = false
+
+    /**
+     * A previously granted, durable authorization covering this exact operation, or null. Implementations must
+     * verify the trusted session owner and immutable approved work; model arguments never confer permission.
+     * Only an exact match with [approval], including a nonblank host-owned binding, covers the trust gate.
+     * This does not change session trust or authorize different commands. The handler revalidates the binding.
+     */
+    public suspend fun existingAuthorization(
+        context: AgentToolContext,
+        spec: AgentToolSpec,
+        arguments: JsonObject,
+    ): AgentToolApproval? = null
 
     /** Presentation for the one trust gate. */
     public fun approval(spec: AgentToolSpec, arguments: JsonObject): AgentToolApproval =

@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -38,6 +39,7 @@ import io.aequicor.heartbeat.feature.organicai.impl.domain.CellSessions
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -193,11 +195,38 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     private suspend fun resume(existing: SessionRef, route: CellRoute): ActiveSession {
         val resumes = facade.sessions.get(existing).features.resolve(ResumesSessions).orThrow()
-        val session = resumes.resume(
-            ResumeSessionRequest(route.target, route.workspace, areDetachedToolsEnabled = true),
-        )
+        val request = ResumeSessionRequest(route.target, route.workspace, areDetachedToolsEnabled = true)
+        val session = resumePatiently(existing, resumes, request)
         log.i { "cell session resumed on ${existing.engine.value}" }
         return session
+    }
+
+    /**
+     * A stored session is served by at most one live process, and a cell is not its only reader: a transcript
+     * view opened on the session or the previous turn's release can hold it right now. Such conflicts are
+     * short and a cell owns its session, so `Busy` is waited out instead of breaking the turn; only a conflict
+     * lasting all [RESUME_BUSY_ATTEMPTS] attempts fails the resume and with it the cell. Every waited-out
+     * attempt keeps its error in the log.
+     */
+    private suspend fun resumePatiently(
+        existing: SessionRef,
+        resumes: ResumesSessions,
+        request: ResumeSessionRequest,
+    ): ActiveSession {
+        repeat(RESUME_BUSY_ATTEMPTS - 1) { attempt ->
+            try {
+                return resumes.resume(request)
+            } catch (e: EngineException) {
+                val isBusy = (e.failure as? EngineFailure.Session)?.reason == SessionFailureReason.Busy
+                if (!isBusy) throw e
+                log.w(e) {
+                    "cell session on ${existing.engine.value} is busy; waiting for its holder " +
+                        "(${attempt + 1}/${RESUME_BUSY_ATTEMPTS})"
+                }
+            }
+            delay(RESUME_BUSY_STEP)
+        }
+        return resumes.resume(request)
     }
 
     /** History of a killed cell stays readable but leaves the active session lists. */
@@ -224,8 +253,14 @@ internal class FacadeCellSessions(private val facade: EngineFacade) : CellSessio
 
     private fun closed() = EngineException(EngineFailure.Lifecycle(LifecycleFailureReason.SessionClosed))
 
-    private companion object {
+    internal companion object {
         val LYSIS_WAIT = 30.seconds
+
+        /** How many times a `Busy` resumption is tried before the turn is allowed to break on it. */
+        internal const val RESUME_BUSY_ATTEMPTS = 8
+
+        /** The pause between two `Busy` resumption attempts. */
+        internal val RESUME_BUSY_STEP = 1.seconds
     }
 }
 

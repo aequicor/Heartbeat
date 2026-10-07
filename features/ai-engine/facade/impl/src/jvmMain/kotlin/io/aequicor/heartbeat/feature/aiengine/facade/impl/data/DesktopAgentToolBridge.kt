@@ -206,6 +206,18 @@ internal class DesktopAgentToolBridge(
         return buildJsonObject {
             put("success", !result.isError)
             put("text", result.text.take(MAX_RESPONSE_CHARS))
+            put(
+                "images",
+                JsonArray(
+                    result.images.map { image ->
+                        buildJsonObject {
+                            put("type", "image")
+                            put("mimeType", image.mimeType)
+                            put("data", image.data)
+                        }
+                    },
+                ),
+            )
         }
     }
 
@@ -262,7 +274,7 @@ internal class DesktopAgentToolBridge(
                                     put("type", "text")
                                     put("text", output["text"] ?: JsonPrimitive(""))
                                 },
-                            ),
+                            ) + (output["images"] as? JsonArray).orEmpty(),
                         ),
                     )
                 }

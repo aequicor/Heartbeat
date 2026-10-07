@@ -43,6 +43,7 @@ import io.aequicor.heartbeat.feature.computeruse.api.TileGrid
 import io.aequicor.heartbeat.feature.computeruse.api.TileRef
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.ComputerUsePreferences
+import io.aequicor.heartbeat.feature.computeruse.impl.domain.FrameStore
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_TYPED_CHARS
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.MAX_WHEEL_NOTCHES
 import io.aequicor.heartbeat.feature.computeruse.impl.domain.WHEEL_NOTCH_PX
@@ -70,8 +71,9 @@ import kotlin.uuid.Uuid
 /**
  * The hosted `computer_*` tools.
  *
- * Read-only tools return the path of a stored frame plus its geometry and token estimate; an engine that can
- * read files opens the frame itself. Mutating tools go through the machine and its guards. A capture belongs to
+ * Frame tools return the encoded image together with its geometry and token estimate in one response.
+ * The host reads the stored preview before returning, so the engine needs no separate file-reading call.
+ * Mutating tools go through the machine and its guards. A capture belongs to
  * the turn that opened it: other turns can neither use, switch nor release it. An authorized input call arms its
  * exact captured frame without a second manual switch, and input stays inside that area. Approvals show the
  * exact action, with control characters escaped and the text bounded.
@@ -85,6 +87,7 @@ internal class ComputerUseAgentTools(
     private val lifecycle: ComputerUseCaptureLifecycle,
     private val preferences: ComputerUsePreferences,
     private val stoppedTurns: ComputerUseStoppedTurns,
+    private val frames: FrameStore,
 ) : AgentToolContribution {
     override val group: String = "computer"
     override val title: String = "Управление компьютером"
@@ -106,7 +109,10 @@ internal class ComputerUseAgentTools(
             "window for work confined to it, or the desktop when the task spans applications. Capture the desktop " +
             "with computer_capture {mode:\"desktop\"} or one application window with " +
             "computer_capture {mode:\"window\", windowId} after picking an id from computer_windows. " +
-            "computer_screenshot returns a downscaled frame (at most ${OVERVIEW_WIDTH_PX}px wide) and a tile grid; " +
+            "computer_capture, computer_screenshot and computer_zoom include the image in their response; " +
+            "inspect it directly without a separate file-reading call. " +
+            "computer_screenshot returns a downscaled frame " +
+            "(at most ${OVERVIEW_WIDTH_PX}px wide) and a tile grid; " +
             "read small text with computer_zoom on a region or a zero-based tile (column:row, e.g. 0:0), " +
             "cut from the master " +
             "frame at native resolution. Pointer coordinates are pixels of the frame you last received unless " +
@@ -488,7 +494,7 @@ internal class ComputerUseAgentTools(
     ): AgentToolResult {
         val output = awaitOutput(machine, intent) ?: return failure("FrameTimedOut")
         return when (output) {
-            is ComputerUseOutput.FrameReady -> AgentToolResult(frameText(output.capture, output.tiles, output.master))
+            is ComputerUseOutput.FrameReady -> frames.agentToolFrame(output)
 
             is ComputerUseOutput.Rejected -> failure(output.reason.name)
 
@@ -499,37 +505,6 @@ internal class ComputerUseAgentTools(
             -> failure("UnexpectedOutput")
         }.also { log.d { "frame served format=${encoding.format}" } }
     }
-
-    private fun frameText(reference: CaptureRef, tiles: TileGrid?, master: CaptureRef?): String = buildJsonObject {
-        put("captureId", reference.id.value)
-        put("masterCaptureId", master?.id?.value)
-        put("path", reference.path)
-        put("format", reference.format.name.lowercase())
-        put("widthPx", reference.widthPx)
-        put("heightPx", reference.heightPx)
-        put("bytes", reference.bytes)
-        put("estimatedTokens", reference.estimatedTokens)
-        put("masterWidthPx", reference.masterWidthPx)
-        put("masterHeightPx", reference.masterHeightPx)
-        put("previewScale", reference.previewScale)
-        put("regionX", reference.region.x)
-        put("regionY", reference.region.y)
-        put("hasTiles", tiles != null)
-        tiles?.let { grid ->
-            put(
-                "tiles",
-                buildJsonObject {
-                    put("columns", grid.columns)
-                    put("rows", grid.rows)
-                    put("format", "column:row (zero-based), e.g. 0:0")
-                    put("tileWidthPx", grid.tileWidthPx)
-                    put("tileHeightPx", grid.tileHeightPx)
-                    put("overlapPx", grid.overlapPx)
-                },
-            )
-        }
-        put("hint", "Open the file at path to see the frame; use computer_zoom for a native-resolution crop.")
-    }.toString()
 
     private fun frameJson(reference: CaptureRef): JsonObject = buildJsonObject {
         put("captureId", reference.id.value)
@@ -804,7 +779,7 @@ internal class ComputerUseAgentTools(
             ),
             AgentToolSpec(
                 SCREENSHOT_TOOL,
-                "Capture one reduced frame of the active session; returns a stored file path and its geometry.",
+                "Capture one reduced frame of the active session; returns the image and its geometry in this response.",
                 Json.parseToJsonElement(
                     """{"type":"object","properties":{
                         "preset":{"type":"string","enum":["overview","text","detail","ui"]},

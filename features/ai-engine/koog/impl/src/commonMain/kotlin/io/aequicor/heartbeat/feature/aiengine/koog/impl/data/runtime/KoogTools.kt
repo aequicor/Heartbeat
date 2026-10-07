@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.agents.core.tools.ToolDescriptor
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,6 +13,7 @@ internal data class KoogToolResult(
     val text: String,
     val isFailed: Boolean,
     val resources: List<ResourceRef> = emptyList(),
+    val images: List<AgentToolImage> = emptyList(),
 )
 
 /**

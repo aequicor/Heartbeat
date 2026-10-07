@@ -24,6 +24,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
@@ -74,7 +75,7 @@ internal class PiSession(
     private val environment: PiSessionEnvironment,
     private val ownership: String,
     private val validate: suspend () -> Unit,
-    private val released: (PiSession) -> Unit = {},
+    private val released: suspend (PiSession) -> Unit = {},
     private val restored: PiTurnSnapshot? = null,
 ) : PiActiveSession,
     SendsPrompts,
@@ -149,6 +150,15 @@ internal class PiSession(
     )
 
     // Hosted tools are prepared once per process from the request that launched it.
+
+    /** The process was launched for detached hosted tools; a sharing attach must ask for the same. */
+    val areDetachedToolsEnabled = request.areDetachedToolsEnabled
+    private val areSessionHooksEnabled = request.areSessionHooksEnabled
+
+    /** Whether this live process can serve [request]: one workspace and one detached-tools setting per process. */
+    fun serves(request: ResumeSessionRequest): Boolean =
+        route.workspace == request.workspace && areDetachedToolsEnabled == request.areDetachedToolsEnabled &&
+            areSessionHooksEnabled == request.areSessionHooksEnabled
     private val hostedTools = PiHostedSessionTools(
         environment,
         { state.value is ActiveSessionState.Interrupting },
@@ -183,6 +193,15 @@ internal class PiSession(
     override val ref: SessionRef get() = requireNotNull(nativeRef)
     override val state = machine.state
     override val contextUsage: SessionContextUsage get() = usage
+    val turnRecovery = PiTurnRecovery({ ref }, { turn ?: (state.value as? ActiveSessionState.Ready)?.lastTurn }) {
+        withContext(dispatchers.main) {
+            mutex.withLock {
+                validate()
+                ensureOpen()
+                withContext(NonCancellable) { connected() }.command("get_state")
+            }
+        }
+    }
     override val features: EngineFeatures = piSessionFeatures(this, journal) { promptResources.support }
 
     /** Native session of this handle once started; null before [start] succeeds. */
@@ -402,7 +421,7 @@ internal class PiSession(
         }
     }
 
-    private fun release() {
+    private suspend fun release() {
         if (isReleased) return
         isReleased = true
         nativeRef?.let { environment.hostedDrains.retain(it, route, ownership, hostedJobs) }
@@ -520,7 +539,7 @@ internal class PiSession(
     }
 
     /** Pi never accepted this prompt, so no agent_settled will release the turn. */
-    private fun reject(rejected: TurnId) {
+    private suspend fun reject(rejected: TurnId) {
         if (turn?.id == rejected) {
             turn = null
             hostedTools.revoke()
@@ -673,7 +692,7 @@ internal class PiSession(
         val DefaultTrust = TrustLevel.Ask
     }
 
-    internal fun applyStopped(stop: PiStopClaim, record: PiTurnRecord) {
+    internal suspend fun applyStopped(stop: PiStopClaim, record: PiTurnRecord) {
         commands.clear()
         cancellationAck?.completeExceptionally(
             EngineException(EngineFailure.Request(RequestFailureReason.OutcomeUnknown, record.turn.request)),

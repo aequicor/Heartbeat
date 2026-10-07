@@ -10,7 +10,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Exact, irreversible main-confined admission revocation, retained until a durable stop receipt is applied. */
-internal class PiSessionStop(private val session: PiSession, private val apply: (PiStopClaim, PiTurnRecord) -> Unit) {
+internal class PiSessionStop(
+    private val session: PiSession,
+    private val apply: suspend (PiStopClaim, PiTurnRecord) -> Unit,
+) {
     var claim: PiStopClaim? = null
         private set
 
