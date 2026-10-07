@@ -31,12 +31,7 @@ public object HarnessHostProbe {
      */
     @JvmStatic
     public fun run(cacheDirectory: String, appVersion: String): CompletionStage<String> =
-        runHarnessProbe(cacheDirectory, appVersion) { directory, version, scope, dispatchers ->
-            // Full compiler exceptions are safe only here: this host sees fixed fixtures and no profile data.
-            JvmHarnessScriptHost(directory, version, scope, dispatchers) { error ->
-                log.w(error) { "Fixed compiler fixture failed inside the packaged compiler" }
-            }
-        }
+        runHarnessProbe(cacheDirectory, appVersion, ::JvmHarnessScriptHost)
 }
 
 internal typealias HarnessProbeHostFactory = (Path, String, CoroutineScope, DispatcherProvider) -> HarnessScriptHost

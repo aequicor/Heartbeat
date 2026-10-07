@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-java@v6
         with:
-          distribution: temurin
+          distribution: jetbrains
           java-version: '21'
       - name: Probe the release app image
         shell: bash

@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.script
 
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
@@ -67,13 +66,6 @@ private suspend fun withProbeHost(
 
 private suspend fun compileAndEvaluate(host: HarnessScriptHost, scope: CoroutineScope, kind: HarnessCodeKind) {
     val compiled = host.compile(probeRequest(kind))
-    if (compiled is HarnessCompilationResult.Failure) {
-        // This standalone probe compiles only constants below, never profile content. Bounded diagnostics
-        // make missing release-image resources or stripped metadata actionable in CI.
-        compiled.diagnostics.forEach { diagnostic ->
-            Log.tag("HarnessHostProbe").w { "Fixed compiler fixture: ${diagnostic.message}" }
-        }
-    }
     checkProbe(compiled is HarnessCompilationResult.Success, "Compile${kind.name}")
     val code = (compiled as HarnessCompilationResult.Success).code
     try {
