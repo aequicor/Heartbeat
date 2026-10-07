@@ -31,6 +31,8 @@ public data class WakePrompt(
     val ownerFeature: String? = null,
     /** Live owner decision for this attempt; hosts must check it again immediately before native submission. */
     val admission: Flow<ScheduledWakeAdmission>? = null,
+    /** Host-stamped exact causes, durably relayed to [request] before hooks and native submission. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     override fun toString(): String = "WakePrompt(request=$request)"
 }
@@ -58,7 +60,10 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
     /** Higher wins among hosts that own a session. */
     public val priority: Int
 
-    /** Whether this host enforces live admission through an atomic pre-submission handoff. */
+    /**
+     * Whether this host enforces live admission through an atomic pre-submission handoff and awaits
+     * [ScheduledRequestOriginObserver] for nonempty [WakePrompt.causes] before hooks and that handoff.
+     */
     public val isWakeAdmissionSupported: Boolean get() = false
 
     /** Whether this host keeps the transcript of [session]. */

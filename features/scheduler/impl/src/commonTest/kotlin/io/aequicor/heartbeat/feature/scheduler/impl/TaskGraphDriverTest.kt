@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphOutput
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphState
 import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import io.aequicor.heartbeat.feature.scheduler.api.TaskRecoveryDecision
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionSlots
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphDriver
@@ -27,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -35,6 +37,37 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TaskGraphDriverTest {
+    @Test
+    fun `cancelled graph notifies with legacy request identity all causes and live toggle admission`() = runTest {
+        val f = GraphFixture(this)
+        val first = RequestInitiator(SESSION, RequestId("first"))
+        val cancelled = RequestInitiator(SESSION, RequestId("cancel"))
+        val graph = f.graph(listOf(f.command("A"))).copy(initiator = first)
+        f.machine.send(TaskGraphIntent.Public.Create(graph))
+        f.machine.send(TaskGraphIntent.Public.Cancel(graph.id, SESSION, cancelled))
+        f.driver.start()
+        runCurrent()
+        val prompt = f.host.woken.single()
+        assertEquals(RequestId("done_graph"), prompt.request)
+        assertTrue(prompt.isDeduplicationRequired)
+        assertEquals(setOf(first, cancelled), prompt.causes)
+        assertEquals(ScheduledWakeAdmission.Allow, prompt.admission!!.first())
+        f.toggles.isEnabled.value = false
+        assertEquals(ScheduledWakeAdmission.Defer, prompt.admission!!.first())
+    }
+
+    @Test
+    fun `graph notification cannot use a host without atomic wake admission`() = runTest {
+        val f = GraphFixture(this)
+        f.host.isWakeAdmissionSupported = false
+        f.machine.send(TaskGraphIntent.Public.Create(f.graph(listOf(f.command("A")))))
+        f.machine.send(TaskGraphIntent.Public.Cancel("graph", SESSION))
+        f.driver.start()
+        runCurrent()
+        assertTrue(f.host.woken.isEmpty())
+        assertFalse(f.machine.graph().isCompletionNotified)
+    }
+
     @Test
     fun `initial and restored helper submissions carry every saved graph cause`() = runTest {
         val first = RequestInitiator(SESSION, RequestId("first"))

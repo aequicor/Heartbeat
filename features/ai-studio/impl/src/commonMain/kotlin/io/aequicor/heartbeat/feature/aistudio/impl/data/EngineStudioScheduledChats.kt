@@ -107,6 +107,7 @@ internal class EngineStudioScheduledChats(
                     onAccepted()
                 },
                 directives = listOf(prompt.directive),
+                causes = prompt.causes,
             ),
             waitForIdle = true,
             cancelBeforeSubmission = true,

@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.isTerminal
 import io.aequicor.heartbeat.feature.scheduler.api.readiness
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledTaskHost
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
@@ -48,6 +49,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -424,7 +426,9 @@ internal class TaskGraphDriver(
 
     private suspend fun wakeOwner(graph: TaskGraph, delivery: String, text: String): Boolean {
         if (!isEnabled()) return false
-        val host = hosts.value.sortedByDescending { it.priority }.firstOrNull { it.owns(graph.owner) } ?: return false
+        val host = hosts.value.sortedByDescending { it.priority }.firstOrNull {
+            it.isWakeAdmissionSupported && it.owns(graph.owner)
+        } ?: return false
         val note = text.take(SchedulerLimits.MAX_NOTE)
         val request = WakeRequest(
             WakeId(delivery),
@@ -444,6 +448,10 @@ internal class TaskGraphDriver(
                     note,
                     "Inspect the saved graph before acting.",
                     isDeduplicationRequired = true,
+                    admission = admission.map {
+                        if (it) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Defer
+                    },
+                    causes = graph.causes + listOfNotNull(graph.initiator),
                 ),
             )
             true

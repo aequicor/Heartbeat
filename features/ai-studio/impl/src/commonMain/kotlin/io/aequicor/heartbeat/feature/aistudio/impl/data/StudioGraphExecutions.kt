@@ -306,5 +306,5 @@ private fun SpawnRequest.graphAttempt(chat: String, checkpoint: String?, previou
         chat,
         checkpoint = checkpoint,
         recoveryRoot = previousExecution ?: prompt.request.value,
-        causes = causes,
+        causes = causes + prompt.causes,
     )

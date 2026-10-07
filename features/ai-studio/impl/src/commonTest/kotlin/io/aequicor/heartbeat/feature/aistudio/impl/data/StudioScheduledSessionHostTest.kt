@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
@@ -80,6 +81,34 @@ class StudioScheduledSessionHostTest {
         override val savedState: ScopeSavedState get() = error("unused")
         override val isClosed: Boolean = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle { }
+    }
+
+    @Test
+    fun `legacy spawn preserves both prompt and operation causal references`() = runTest {
+        val chats = Chats().apply {
+            owned[session] = StudioScheduledChat("parent", "project")
+            sessions["helper"] = helper
+        }
+        val host = StudioScheduledSessionHost(
+            lazyOf(chats),
+            Scope(backgroundScope),
+            lazy { error("unused helper storage") },
+            lazy { error("unused helper orchestration") },
+        )
+        val initial = RequestInitiator(session, RequestId("initial"))
+        val additional = RequestInitiator(session, RequestId("additional"))
+        host.spawn(
+            SpawnRequest(
+                session,
+                null,
+                target,
+                "Helper",
+                prompt.copy(causes = setOf(initial)),
+                setOf(additional),
+            ),
+        )
+        assertEquals(setOf(initial, additional), (chats.runs.single()[1] as WakePrompt).causes)
+        chats.finish.complete(Unit)
     }
 
     @Test

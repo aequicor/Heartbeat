@@ -158,6 +158,11 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
+    fun `graph notifications retain legacy dedupe and revoke origin preparation when paused`() = runStudioTest {
+        assertGraphWakeOrigins(configured())
+    }
+
+    @Test
     fun `graph request provenance reaches native target before send and refuses incomplete writes`() = runStudioTest {
         val services = configured()
         assertGraphOrigins(services)
