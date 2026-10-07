@@ -20,7 +20,7 @@ class HarnessRemovalLifecycleTest {
     fun `rollback permits fresh activation while stale removal touches neither cache nor journals`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val runs = RemovalTestRuns()
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs)
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         fixture.activate()
         val removal = fixture.removal()
         assertEquals(HarnessRemovalResult.Retry, control.remove(removal))
@@ -40,7 +40,7 @@ class HarnessRemovalLifecycleTest {
     @Test
     fun `retry never widens captured fence when unrelated library generations advance`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, RemovalTestRuns())
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, RemovalTestRuns()) { true }
         fixture.activate()
         val removal = fixture.removal()
         assertEquals(HarnessRemovalResult.Retry, control.remove(removal))
@@ -80,7 +80,7 @@ class HarnessRemovalLifecycleTest {
     fun `deletion becoming obsolete during journal read never begins cache IO`() = runTest {
         val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
         val runs = RemovalTestRuns()
-        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs)
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, runs) { true }
         val gate = CompletableDeferred<Unit>()
         runs.beforeLoad = { gate.await() }
         val removal = fixture.removal()
