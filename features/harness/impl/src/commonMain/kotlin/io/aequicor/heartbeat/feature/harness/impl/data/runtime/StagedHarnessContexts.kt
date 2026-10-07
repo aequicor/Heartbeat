@@ -15,16 +15,20 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeC
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContextFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSchedulerFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 
 /** Constructs private candidate contexts. Services are added with their dispatch and quota owners. */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class StagedHarnessContexts(override val origins: HarnessCallOrigins) : HarnessRuntimeContextFactory {
+internal class StagedHarnessContexts(
+    override val origins: HarnessCallOrigins,
+    private val schedulers: HarnessScriptSchedulerFactory,
+) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
         when (request.item) {
-            is HarnessItem.Script -> HarnessScriptContext(request, access, origins)
+            is HarnessItem.Script -> HarnessScriptContext(request, access, origins, schedulers.create(request, access))
 
             is HarnessItem.Workflow -> HarnessWorkflowContext()
 

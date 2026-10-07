@@ -72,10 +72,15 @@ internal class HarnessDispatchFixture(
         override fun canPublish(request: HarnessActivationRequest): Boolean = isEnabled && request == desired
         override fun canInvoke(request: HarnessActivationRequest): Boolean = isEnabled
     }
-    val runtime = HarnessRuntime(
+    val runtime: HarnessRuntime = HarnessRuntime(
         host,
         HarnessExecutionLane(dispatcher),
-        HarnessRuntimeEnvironment(scope, dispatchers, admission, StagedHarnessContexts(origins)) { feedback += it },
+        HarnessRuntimeEnvironment(
+            scope,
+            dispatchers,
+            admission,
+            StagedHarnessContexts(origins, schedulerTestFactory(origins, dispatcher) { runtime }),
+        ) { feedback += it },
     )
     val sessions = HarnessSessionAdmission { _, session -> isSessionAllowed && session == context.session }
     val events = HarnessEventDispatch(runtime, sessions)

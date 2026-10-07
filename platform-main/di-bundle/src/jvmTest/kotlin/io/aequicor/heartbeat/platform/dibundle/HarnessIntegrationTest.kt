@@ -27,8 +27,14 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
+import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
@@ -98,7 +104,7 @@ class HarnessIntegrationTest {
                     it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
                 }
                 assertTrue(saved.isRuntimeAvailable)
-                val call = assertDirectHooks(hooks)
+                val call = assertSchedulerHooks(hooks, (profile.graph as TestHarnessHookAccessors).harnessSchedulerBus)
                 val generation = assertIs<ItemStatus.Active>(saved.harnesses.single().itemStatus[code.id]).generation
                 toggles.toggleControl.setOverride(HarnessEnabled, false)
                 machine.state.first { it.isSuspended }
@@ -131,6 +137,18 @@ class HarnessIntegrationTest {
         }
         app.profileSessions.close()
     }
+    private suspend fun assertSchedulerHooks(hooks: Set<SessionHook>, bus: SchedulerBus): HookedToolCall =
+        coroutineScope {
+            val event = async(start = CoroutineStart.UNDISPATCHED) {
+                bus.events.first { it.key == EventKeys.custom("harness.test.hook_timer") }
+            }
+            val call = assertDirectHooks(hooks)
+            val published = event.await()
+            assertEquals("harness", assertIs<EventOrigin.Feature>(published.origin).name)
+            assertEquals("timer finished", published.payload)
+            call
+        }
+
     private suspend fun assertDirectHooks(hooks: Set<SessionHook>): HookedToolCall {
         val context = SessionHookContext(
             SessionRef(EngineId("test"), SessionSourceId("test"), "harness-session"),
@@ -152,7 +170,15 @@ class HarnessIntegrationTest {
         "",
         """
         check(script.item.value == "code")
-        script.hooks.beforePrompt { _, _ -> "Harness context" }
+        script.hooks.beforePrompt { _, _ ->
+            script.scheduler.at(kotlin.time.Instant.fromEpochMilliseconds(0)) {
+                script.scheduler.publish(
+                    io.aequicor.heartbeat.feature.harness.api.ItemName("hook_timer"),
+                    "timer finished",
+                )
+            }
+            "Harness context"
+        }
         script.hooks.beforeTool {
             io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict.Deny("Harness test denial")
         }
@@ -163,4 +189,5 @@ class HarnessIntegrationTest {
 @ContributesTo(ProfileScope::class)
 interface TestHarnessHookAccessors {
     val harnessSessionHooks: Set<SessionHook>
+    val harnessSchedulerBus: SchedulerBus
 }

@@ -15,10 +15,15 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilati
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerHost
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 
-internal class HarnessRegistrationFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
+internal class HarnessRegistrationFixture(
+    scope: CoroutineScope,
+    dispatcher: CoroutineDispatcher,
+    schedulerHost: HarnessSchedulerHost = UnusedSchedulerHost,
+) {
     var desired = scriptRequest(1)
     var isEnabled = true
     var isEvaluationSuccessful = true
@@ -29,10 +34,11 @@ internal class HarnessRegistrationFixture(scope: CoroutineScope, dispatcher: Cor
         override fun canPublish(request: HarnessActivationRequest) = isEnabled && request == desired
         override fun canInvoke(request: HarnessActivationRequest) = isEnabled
     }
+    private val schedulers = schedulerTestFactory(origins, dispatcher, schedulerHost) { runtime }
     private val contexts = object : HarnessRuntimeContextFactory {
         override val origins = this@HarnessRegistrationFixture.origins
         override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess) =
-            HarnessScriptContext(request, access, origins)
+            HarnessScriptContext(request, access, origins, schedulers.create(request, access))
     }
     private val host = object : HarnessScriptHost {
         override val isAvailable = true
@@ -67,7 +73,7 @@ internal class HarnessRegistrationFixture(scope: CoroutineScope, dispatcher: Cor
         override val default = dispatcher
         override val io = dispatcher
     }
-    val runtime = HarnessRuntime(
+    val runtime: HarnessRuntime = HarnessRuntime(
         host,
         HarnessExecutionLane(dispatcher),
         HarnessRuntimeEnvironment(scope, dispatchers, admission, contexts) {},

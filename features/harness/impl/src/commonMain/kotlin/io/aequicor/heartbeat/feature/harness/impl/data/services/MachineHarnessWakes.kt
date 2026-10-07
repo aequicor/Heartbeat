@@ -1,5 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import dev.zacsweers.metro.ContributesBinding
+import dev.zacsweers.metro.Inject
+import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
@@ -28,6 +31,8 @@ import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 
 /** Matching output subscription is attached before Schedule; state is an additional positive ACK, never a retry. */
+@ContributesBinding(ProfileScope::class)
+@Inject
 internal class MachineHarnessWakes(private val machines: MachineRegistry, private val toggles: FeatureToggles) :
     HarnessWakePort {
     private val log = Log.tag("HarnessServices")

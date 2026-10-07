@@ -16,11 +16,16 @@ import kotlin.time.Instant
 public interface ScriptScheduler {
     /**
      * Registers a process-local timer, recreated on activation.
-     * The interval must be at least [HarnessLimits.MIN_TIMER].
+     * The finite interval must be at least [HarnessLimits.MIN_TIMER]. It starts after publication and then after
+     * each callback actually stops, including after timeout; callbacks of one timer never overlap. All items of
+     * one harness share [HarnessLimits.TIMERS] registrations.
      */
     public fun every(interval: Duration, handler: suspend () -> Unit): ScriptRegistration
 
-    /** Registers one process-local deadline; it is not a durable session wake and does not survive unload. */
+    /**
+     * Registers one process-local deadline; it does not survive unload. A past deadline fires once after
+     * publication. Disposing either kind of timer prevents future callbacks but lets an admitted callback finish.
+     */
     public fun at(instant: Instant, handler: suspend () -> Unit): ScriptRegistration
 
     /**

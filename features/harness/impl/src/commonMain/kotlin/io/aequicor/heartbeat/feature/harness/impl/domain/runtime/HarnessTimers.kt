@@ -23,7 +23,7 @@ import kotlin.time.Instant
  * origin. Disposal wakes pending delays without cancelling an already admitted callback or its runtime budget.
  */
 internal class HarnessTimers(
-    private val target: HarnessTimerTarget,
+    private val target: HarnessInstanceTarget,
     private val slots: HarnessTimerSlots,
     private val invoker: HarnessTimerInvoker,
     private val origins: HarnessCallOrigins,
