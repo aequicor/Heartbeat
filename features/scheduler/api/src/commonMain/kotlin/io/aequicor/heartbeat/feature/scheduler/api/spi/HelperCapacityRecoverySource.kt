@@ -27,6 +27,6 @@ public data class HelperCapacityRecoveryRecord(
  * Keep unresolved records until confirmed lease release; no TTL may erase evidence of possible native work.
  */
 public fun interface HelperCapacityRecoverySource {
-    /** All unresolved granted acquisitions, with unique stable reservation and non-null helper identities. */
+    /** All unresolved grants with unique reservations; any non-null helper identities must also be unique. */
     public suspend fun reservations(): List<HelperCapacityRecoveryRecord>
 }
