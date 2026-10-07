@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
@@ -69,7 +70,14 @@ internal class ScheduledHelperActions(
             journal.add(saved)
             entry.record = saved
             val submission = withTimeoutOrNull(remaining(record)) {
-                helpers.prompt(helper, HelperPrompt(request.prompt.request, request.prompt.visible))
+                helpers.prompt(
+                    helper,
+                    HelperPrompt(
+                        request.prompt.request,
+                        request.prompt.visible,
+                        handoff = record.initiator?.let { HelperHandoff(initiator = it) },
+                    ),
+                )
             }
             val payload = when (submission) {
                 is HelperSubmission.Accepted -> null

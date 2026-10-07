@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperPromptAttempt
 
 /**
  * Resolves only trusted host references. Independent causes combine monotonically; payload, titles and the latest
@@ -50,6 +51,18 @@ internal class HarnessEventAncestry(private val requests: Lazy<HarnessRequestAnc
 
     suspend fun delivery(delivery: WakeDelivery): HarnessCallOrigin =
         wake(delivery.wake.request).merge(reason(delivery.reason))
+
+    /** First and recovery helper prompts merge immutable handoff with any previously persisted exact target. */
+    suspend fun helper(attempt: HelperPromptAttempt): HarnessCallOrigin {
+        val handoff = attempt.handoff
+        val owned = if (handoff?.ownerFeature == HARNESS_WAKE_OWNER) {
+            checkNotNull(ownership.decode(handoff.ownerContext)) { "Invalid harness helper ancestry" }.origin()
+        } else {
+            HarnessCallOrigin()
+        }
+        val prior = requests.value.lookup(attempt.session, attempt.request) ?: HarnessCallOrigin()
+        return owned.merge(request(handoff?.initiator)).merge(prior)
+    }
 
     suspend fun output(output: SchedulerOutput): HarnessCallOrigin = when (output) {
         is SchedulerOutput.Scheduled -> wake(output.wake.request)
