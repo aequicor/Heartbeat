@@ -24,10 +24,12 @@ class WakeOwnershipTest {
             json.encodeToJsonElement(serializer, request()).jsonObject - setOf(
                 "ownerContext",
                 "isNoteVisible",
+                "initiator",
             ),
         )
         val decoded = json.decodeFromJsonElement(serializer, legacy)
         assertNull(decoded.ownerContext)
+        assertNull(decoded.initiator)
         assertFalse(decoded.isNoteVisible)
         assertEquals(request(), decoded)
     }
@@ -39,6 +41,7 @@ class WakeOwnershipTest {
             ownerFeature = "harness",
             ownerContext = "private admission metadata",
             isNoteVisible = true,
+            initiator = RequestInitiator(request().session, RequestId("private-request")),
         )
         val wake = ScheduledWake(request, Instant.fromEpochMilliseconds(1))
         val encoded = Json.encodeToString(ScheduledWake.serializer(), wake)

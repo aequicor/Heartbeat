@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
@@ -87,6 +88,7 @@ class SchedulerAgentToolsTest {
         val wake = (fixture.machine.state.value as SchedulerState.Ready).wakes.single()
         assertEquals(SESSION, wake.session)
         assertEquals(TARGET, wake.request.target)
+        assertEquals(RequestInitiator(SESSION, RequestId("request")), wake.request.initiator)
         assertEquals(WakeCondition(deadline = START + 90.seconds), wake.request.condition)
         assertEquals(WakeOrigin.Agent(TurnId("t1")), wake.request.origin)
         assertTrue(wake.id.value in result.text && "End your turn" in result.text)

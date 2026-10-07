@@ -122,6 +122,7 @@ internal class SchedulerActionTools(
                 note,
                 WakeOrigin.Agent(context.turn),
                 context.target,
+                initiator = context.initiator(),
             )
             val outcome = scheduleWake(request, context)
             if (outcome == ScheduleOutcome.Unconfirmed) cancelWake(request.id, context)

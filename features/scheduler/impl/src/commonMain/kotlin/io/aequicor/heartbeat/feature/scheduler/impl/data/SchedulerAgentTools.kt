@@ -119,6 +119,7 @@ internal class SchedulerAgentTools(
             note,
             WakeOrigin.Agent(context.turn),
             context.target,
+            initiator = context.initiator(),
         )
         val outcome = scheduler.schedule(request, now)
         log.i { "sleep ${request.id} events=${condition.events.size} timed=${condition.deadline != null}: $outcome" }

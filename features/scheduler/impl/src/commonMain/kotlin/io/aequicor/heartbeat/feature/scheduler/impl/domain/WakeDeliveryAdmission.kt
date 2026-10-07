@@ -48,7 +48,7 @@ internal class WakeDeliveryAdmission private constructor(private val gates: List
     }
 
     companion object {
-        /** Resolves only required sets; uncorrelated session events and deadlines leave publisher owners lazy. */
+        /** Resolves only required sets; wakes without any exact causal reference leave publisher owners lazy. */
         fun create(
             delivery: WakeDelivery,
             owners: Lazy<Set<ScheduledWakeOwner>>,
@@ -69,20 +69,20 @@ internal class WakeDeliveryAdmission private constructor(private val gates: List
         private fun publishingOwners(
             delivery: WakeDelivery,
             publishers: Lazy<Set<ScheduledEventOwner>>,
-        ): List<ScheduledEventOwner> = when (val origin = (delivery.reason as? WakeReason.Event)?.event?.origin) {
-            is EventOrigin.Feature -> listOf(
-                publishers.value.singleOrNull { it.feature == origin.name } ?: throw WakeOwnerUnavailableException(),
-            )
-
-            is EventOrigin.Session -> if (origin.request != null) {
-                publishers.value.filter { it.isSessionOriginObserver }
+        ): List<ScheduledEventOwner> {
+            val origin = (delivery.reason as? WakeReason.Event)?.event?.origin
+            val featureOwners = if (origin is EventOrigin.Feature) {
+                listOf(
+                    publishers.value.singleOrNull { it.feature == origin.name }
+                        ?: throw WakeOwnerUnavailableException(),
+                )
             } else {
                 emptyList()
             }
-
-            is EventOrigin.HostTurn -> publishers.value.filter { it.isSessionOriginObserver }
-
-            EventOrigin.Host, EventOrigin.System, is EventOrigin.Action, null -> emptyList()
+            val hasExactRequest = delivery.wake.request.initiator != null || origin is EventOrigin.HostTurn ||
+                (origin is EventOrigin.Session && origin.request != null)
+            val observers = if (hasExactRequest) publishers.value.filter { it.isSessionOriginObserver } else emptyList()
+            return (featureOwners + observers).distinct()
         }
     }
 }
