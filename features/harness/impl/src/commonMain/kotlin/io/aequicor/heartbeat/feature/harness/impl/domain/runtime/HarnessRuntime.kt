@@ -39,6 +39,7 @@ internal class HarnessRuntime(
 ) {
     private val mutex = Mutex()
     private val cache = HarnessRuntimeCache(host)
+    private val declarations = HarnessToolDeclarations()
     private val current = mutableMapOf<HarnessRuntimeKey, HarnessInstance>()
     private val pending = mutableMapOf<HarnessRuntimeKey, HarnessPreparation>()
     private val retiring = mutableSetOf<HarnessInstance>()
@@ -63,10 +64,18 @@ internal class HarnessRuntime(
         current[HarnessRuntimeKey(harness, item)]?.takeIf { it.isActive }
     }
 
+    /** Ordered current handles; every dispatcher must still enter through invoke before author code runs. */
+    suspend fun published(): List<HarnessInstance> = mutex.withLock {
+        current.values.filter { it.isActive }.sortedWith(
+            compareBy({ it.request.harness.name.value }, { it.request.item.id.value }),
+        )
+    }
+
     @HighFrequency
     suspend fun <T> invoke(
         instance: HarnessInstance,
         budget: Duration,
+        options: HarnessInvocationOptions = HarnessInvocationOptions(),
         block: suspend () -> T,
     ): HarnessInvocationResult<HarnessAttempt<T>>? {
         log.v { "admit harness callback" }
@@ -77,11 +86,13 @@ internal class HarnessRuntime(
         }
         if (!isAdmitted) return null
         try {
-            val result = instance.calls.run(instance.dispatcher, budget) { captureHarnessFailure(block) }
+            val result = instance.calls.run(instance.dispatcher, budget, options) { captureHarnessFailure(block) }
             if (result is HarnessInvocationResult.TimedOut) {
                 log.w(ScriptFailure()) { "Script callback timed out" }
             }
-            recordOutcome(instance, result.hasFailed())
+            if (result !is HarnessInvocationResult.Cancelled || !result.isExpected) {
+                recordOutcome(instance, result.hasFailed())
+            }
             return result
         } finally {
             instance.releaseCall()
@@ -236,7 +247,8 @@ internal class HarnessRuntime(
         val evaluation = (result as? HarnessInvocationResult.Completed)?.value as? HarnessAttempt.Success
         if (evaluation?.value != HarnessEvaluationResult.Success) return false
         return mutex.withLock {
-            if (isCandidate(preparation) && instance.publish()) {
+            if (isCandidate(preparation) && declarations.accepts(instance, current.values) && instance.publish()) {
+                declarations.published(instance)
                 val old = current.put(preparation.request.key(), instance)
                 old?.let(::retire)
                 true
@@ -327,7 +339,8 @@ private fun <K> MutableMap<K, Long>.raise(key: K, generation: Long) {
 }
 
 private fun HarnessInvocationResult<*>.hasFailed(): Boolean = this is HarnessInvocationResult.TimedOut ||
-    (this as? HarnessInvocationResult.Completed)?.value is HarnessAttempt.Failure
+    (this as? HarnessInvocationResult.Completed)?.value is HarnessAttempt.Failure ||
+    (this is HarnessInvocationResult.Cancelled && !isExpected)
 
 private fun HarnessActivationRequest.compilation(): HarnessCompilationRequest? = when (val code = item) {
     is HarnessItem.Script -> HarnessCompilationRequest(harness.id, code.id, HarnessCodeKind.Script, code.source)

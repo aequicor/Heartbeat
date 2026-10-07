@@ -7,19 +7,13 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
-import io.aequicor.heartbeat.feature.harness.api.script.HarnessScriptScope
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptAgent
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptEvents
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptHooks
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptPrompts
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
-import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRegistration
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeContextFactory
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessScriptContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -27,10 +21,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class)
 @Inject
-internal class StagedHarnessContexts : HarnessRuntimeContextFactory {
+internal class StagedHarnessContexts(override val origins: HarnessCallOrigins) : HarnessRuntimeContextFactory {
     override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
         when (request.item) {
-            is HarnessItem.Script -> PendingScriptContext(request, access)
+            is HarnessItem.Script -> HarnessScriptContext(request, access, origins)
 
             is HarnessItem.Workflow -> HarnessWorkflowContext()
 
@@ -66,28 +60,3 @@ private sealed interface WorkflowRegistrationState {
     }
     data object Closed : WorkflowRegistrationState
 }
-
-/**
- * Executable scope with explicit refusal for services whose dispatchers are not connected yet. Accessing an
- * unavailable service fails candidate evaluation instead of producing a successful but ineffective registration.
- */
-private class PendingScriptContext(request: HarnessActivationRequest, access: HarnessInstanceAccess) :
-    HarnessRuntimeContext {
-    override val evaluation = HarnessEvaluationContext.Script(object : HarnessScriptScope {
-        override val harness = request.harness.id
-        override val name = request.harness.name
-        override val item = request.item.id
-        override val revision = request.harness.revision
-        override val scope = access.scope
-        override val events: ScriptEvents get() = unavailable()
-        override val hooks: ScriptHooks get() = unavailable()
-        override val sessions: ScriptSessions get() = unavailable()
-        override val scheduler: ScriptScheduler get() = unavailable()
-        override val agent: ScriptAgent get() = unavailable()
-        override val prompts: ScriptPrompts get() = unavailable()
-        override val workflows: ScriptWorkflows get() = unavailable()
-    })
-    override fun close() = Unit
-}
-
-private fun unavailable(): Nothing = throw UnsupportedOperationException("Harness service unavailable")

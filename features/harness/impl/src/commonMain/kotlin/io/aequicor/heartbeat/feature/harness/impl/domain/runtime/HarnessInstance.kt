@@ -35,10 +35,15 @@ internal class HarnessInstance(
         phase.compareAndSet(HarnessInstancePhase.Preparing, HarnessInstancePhase.PreparationFailed)
         environment.scope.launch(environment.dispatchers.default) { onBackgroundFailure(this@HarnessInstance) }
     }
-    override val scope = CoroutineScope(environment.scope.coroutineContext + background + dispatcher + errors)
+    private val backgroundContext = environment.scope.coroutineContext + background + dispatcher + errors
+    override val scope = HarnessOriginScope(CoroutineScope(backgroundContext), environment.origins)
+
+    /** Host pumps have neutral ancestry; only each delivered envelope supplies author-call provenance. */
+    internal val dispatchScope = CoroutineScope(backgroundContext + environment.origins.context(HarnessCallOrigin()))
     internal val calls = HarnessInvocation(
         CoroutineScope(environment.scope.coroutineContext + root + errors),
         environment.dispatchers.default,
+        environment.origins,
     )
     internal var consecutiveFailures: Int = 0
 
@@ -56,6 +61,8 @@ internal class HarnessInstance(
 
     override val isActive: Boolean
         get() = root.isActive && phase.value == HarnessInstancePhase.Active && environment.admission.canInvoke(request)
+
+    override val isRegistrationAllowed: Boolean get() = isPreparing || isActive
 
     val isClosed: Boolean get() = phase.value == HarnessInstancePhase.Closed
 
@@ -76,7 +83,7 @@ internal class HarnessInstance(
     }
 
     internal fun publish(): Boolean {
-        val isAllowed = isPreparing && context?.isReadyForPublication == true &&
+        val isAllowed = isPreparing && context?.sealForPublication() == true &&
             phase.compareAndSet(HarnessInstancePhase.Preparing, HarnessInstancePhase.Active)
         if (isAllowed) {
             log.v { "publish instance code" }

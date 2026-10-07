@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlin.coroutines.CoroutineContext
 
 /** Synchronous reads of the current committed library; implementations perform no IO or user callbacks. */
 internal interface HarnessRuntimeAdmission {
@@ -28,6 +29,7 @@ internal interface HarnessInstanceAccess {
     val scope: CoroutineScope
     val dispatcher: CoroutineDispatcher
     val isActive: Boolean
+    val isRegistrationAllowed: Boolean get() = isActive
     suspend fun awaitPublication(): Boolean
 }
 
@@ -37,11 +39,15 @@ internal interface HarnessRuntimeContext {
 
     /** Validates host registrations after evaluation, without executing user callbacks. */
     val isReadyForPublication: Boolean get() = true
+
+    /** Freezes host-owned declaration snapshots; called under the publication mutex, without author code. */
+    fun sealForPublication(): Boolean = isReadyForPublication
     fun close()
 }
 
 /** Builds staged services; externally visible dispatch reads only successfully published instances. */
 internal fun interface HarnessRuntimeContextFactory {
+    val origins: HarnessCallOrigins get() = MarkerHarnessCallOrigins
     fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext
 }
 
@@ -53,5 +59,12 @@ internal data class HarnessRuntimeEnvironment(
     val contexts: HarnessRuntimeContextFactory,
     val reportFailure: suspend (HarnessIntent.Internal.ItemRuntimeFailed) -> Unit,
 ) {
+    val origins: HarnessCallOrigins get() = contexts.origins
     override fun toString(): String = "HarnessRuntimeEnvironment(***)"
+}
+
+/** Marker-only default for pure lifecycle fixtures; executing platforms inject their scope carrier. */
+private object MarkerHarnessCallOrigins : HarnessCallOrigins {
+    override fun current(): HarnessCallOrigin = HarnessCallOrigin()
+    override fun context(origin: HarnessCallOrigin): CoroutineContext = HarnessOriginContext(origin)
 }
