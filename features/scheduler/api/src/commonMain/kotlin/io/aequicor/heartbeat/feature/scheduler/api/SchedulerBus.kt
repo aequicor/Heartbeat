@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.scheduler.api
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.Serializable
@@ -12,13 +13,43 @@ public sealed interface EventOrigin {
     @Serializable
     public data object Host : EventOrigin
 
+    /**
+     * Host-authenticated lifecycle notification correlated to an exact session request. Agent signal tools
+     * always publish [Session], so a matching key or payload cannot claim this host provenance.
+     */
+    @Serializable
+    public data class HostTurn(val session: SessionRef, val request: RequestId) : EventOrigin {
+        override fun toString(): String = "EventOrigin.HostTurn(***)"
+    }
+
     /** A platform signal. */
     @Serializable
     public data object System : EventOrigin
 
+    /**
+     * Host-stamped feature ancestry. Only the named feature interprets [context]; wake delivery must consult
+     * that publisher's live admission even when the receiving wake belongs to another feature or an agent.
+     * Neither the model nor event payload can provide or override this context.
+     */
+    @Serializable
+    public data class Feature(val name: String, val context: String) : EventOrigin {
+        init {
+            require(isValidEventFeatureName(name)) { "Invalid feature event namespace" }
+            require(context.length <= SchedulerLimits.MAX_OWNER_CONTEXT) { "Feature event context is too long" }
+        }
+
+        override fun toString(): String = "EventOrigin.Feature(***)"
+    }
+
     /** An agent of [session] through a hosted tool. */
     @Serializable
-    public data class Session(val session: SessionRef) : EventOrigin
+    public data class Session(
+        val session: SessionRef,
+        /** Host-stamped request of the publishing turn; absent only for legacy or unbound external turns. */
+        val request: RequestId? = null,
+    ) : EventOrigin {
+        override fun toString(): String = "EventOrigin.Session(***)"
+    }
 
     /** A background action. */
     @Serializable

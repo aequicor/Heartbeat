@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
@@ -163,7 +164,13 @@ internal class SchedulerActionTools(
         if (wake == null) return
         withContext(NonCancellable) {
             try {
-                machine.send(SchedulerIntent.Public.Cancel(wake, context.session))
+                machine.send(
+                    SchedulerIntent.Public.Cancel(
+                        wake,
+                        context.session,
+                        EventOrigin.Session(context.session, context.request),
+                    ),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

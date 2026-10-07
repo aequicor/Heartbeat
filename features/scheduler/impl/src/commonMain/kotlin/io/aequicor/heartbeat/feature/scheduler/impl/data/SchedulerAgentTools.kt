@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -91,11 +92,14 @@ internal class SchedulerAgentTools(
         }
     }
 
-    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId) = finishTurn(session, turn, null)
+
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?) {
         if (!toggles.get(SchedulerEnabled)) return
         // Bounded: the bus only buffers, but a stuck collector must not hold the finished turn.
-        withTimeoutOrNull(PUBLISH_TIMEOUT) { bus.publish(EventKeys.turnFinished(session), EventOrigin.Host) }
-            ?: log.w { "turn_finished of a session was not published in time" }
+        withTimeoutOrNull(PUBLISH_TIMEOUT) {
+            bus.publish(EventKeys.turnFinished(session), EventOrigin.Session(session, request))
+        } ?: log.w { "turn_finished of a session was not published in time" }
     }
 
     private suspend fun sleep(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
@@ -137,13 +141,19 @@ internal class SchedulerAgentTools(
         if ((payload?.length ?: 0) > SchedulerLimits.MAX_PAYLOAD) return failure("the payload is too long")
         val key = EventKey.parse("${EventNamespace.Custom.prefix}.$name")
             ?: return failure("invalid signal name: use dot-separated [a-z0-9_-] segments")
-        bus.publish(key, EventOrigin.Session(context.session), payload)
+        bus.publish(key, EventOrigin.Session(context.session, context.request), payload)
         return AgentToolResult("Published $key.")
     }
 
     private suspend fun cancel(context: AgentToolContext, arguments: JsonObject): AgentToolResult {
         val id = arguments.text(Arguments.WAKE_ID)?.let(WakeId::parse) ?: return failure("unknown wake id")
-        val result = machine.send(SchedulerIntent.Public.Cancel(id, context.session))
+        val result = machine.send(
+            SchedulerIntent.Public.Cancel(
+                id,
+                context.session,
+                EventOrigin.Session(context.session, context.request),
+            ),
+        )
         log.i { "cancel $id -> $result" }
         return if (result == SendResult.Accepted) {
             AgentToolResult("Cancelled wake $id.")

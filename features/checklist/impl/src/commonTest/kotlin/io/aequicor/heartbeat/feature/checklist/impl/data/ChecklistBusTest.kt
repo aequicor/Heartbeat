@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.statemachine.MachineRef
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.core.statemachine.MachineState
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistAcknowledgement
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistCompletionMode
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistDelivery
@@ -15,6 +16,7 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistEvents
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistJournal
 import io.aequicor.heartbeat.feature.checklist.api.ChecklistStatus
 import io.aequicor.heartbeat.feature.checklist.api.event
+import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.RunStartedEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
@@ -90,6 +92,38 @@ class ChecklistBusTest {
     }
 
     @Test
+    fun `host turn generation requires matching session and request while acknowledgements stay host only`() = runTest {
+        val storage = ChecklistStorage(ChecklistTestStores())
+        val card = testCard().copy(mode = ChecklistCompletionMode.MarkSessionReady)
+        val journal = ChecklistJournal(listOf(card), listOf(card.event()), revision = 1)
+        storage.save(journal)
+        val machine = PersistingChecklist(storage, journal)
+        val bus = ChecklistTestBus()
+        ChecklistBus(machine, storage, bus, registry(TestScheduler()), ChecklistTestToggles(), Clock.System)
+            .start(backgroundScope)
+        runCurrent()
+        val request = RequestId("host_request")
+        val origin = EventOrigin.HostTurn(TEST_SESSION, request)
+        val started = RunStartedEvent(TEST_SESSION, request, 2)
+        listOf(
+            origin.copy(request = RequestId("different")),
+            origin.copy(session = TEST_SESSION.copy(nativeId = "different")),
+        ).forEach { mismatch ->
+            bus.publish(SchedulerEvents.RunStarted, mismatch, Json.encodeToString(started))
+        }
+        bus.publish(
+            ChecklistEvents.Acknowledged,
+            origin,
+            Json.encodeToString(ChecklistAcknowledgement(card.event().eventId)),
+        )
+        runCurrent()
+        assertEquals(journal, storage.load())
+        bus.publish(SchedulerEvents.RunStarted, origin, Json.encodeToString(started))
+        runCurrent()
+        assertEquals(request, storage.load().generations[EventKeys.sessionSegment(TEST_SESSION)])
+    }
+
+    @Test
     fun `toggle pauses actions and agent signals cannot acknowledge or supersede host cards`() = runTest {
         val storage = ChecklistStorage(ChecklistTestStores())
         val card = testCard().copy(mode = ChecklistCompletionMode.MarkSessionReady)
@@ -114,7 +148,7 @@ class ChecklistBusTest {
         )
         bus.publish(
             SchedulerEvents.RunStarted,
-            EventOrigin.Session(TEST_SESSION),
+            EventOrigin.Session(TEST_SESSION, RequestId("forged")),
             Json.encodeToString(
                 RunStartedEvent(
                     TEST_SESSION,

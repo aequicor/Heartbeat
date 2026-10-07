@@ -2,9 +2,12 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools.Arguments
@@ -127,14 +130,18 @@ class SchedulerActionToolsTest {
 
     @Test
     fun `a refused action cancels its wake`() = runTest {
-        val fixture = ActionsFixture(this, SpecMachine())
+        val machine = SpecMachine()
+        val fixture = ActionsFixture(this, machine)
+        val request = RequestId("causal-request")
         val helper = tools(fixture).execute(
-            inProject,
+            inProject.copy(request = request),
             SchedulerTools.START_ACTION,
             args(Arguments.KIND to Kinds.AGENT, Arguments.PROMPT to "write docs", Arguments.WAKE_NOTE to "review"),
         )
         assertTrue(helper.isError && "helper" in helper.text, helper.text)
         assertTrue((fixture.machine.state.value as SchedulerState.Ready).wakes.isEmpty())
+        val cancel = machine.sent.filterIsInstance<SchedulerIntent.Public.Cancel>().single()
+        assertEquals(EventOrigin.Session(SESSION, request), cancel.cause)
     }
 
     @Test
