@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptPreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -32,6 +33,13 @@ public interface SessionHooks {
 
     /** Prompt additions within a common two-second budget; failure adds no text. */
     public suspend fun beforePrompt(context: SessionHookContext, text: String): String? = null
+
+    /** Composes bounded additions, retaining receipts exclusively for complete included blocks. */
+    public suspend fun preparePrompt(
+        context: SessionHookContext,
+        text: String,
+        contextRevision: String?,
+    ): SessionPromptPreparation? = beforePrompt(context, text)?.let { SessionPromptPreparation(it) }
 
     /** Deny > Ask > Continue; timeout or failure forces a decision within a common 1.2-second budget. */
     public suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = ToolHookVerdict.Continue

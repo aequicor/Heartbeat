@@ -22,6 +22,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptAddition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptReceipt
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -44,6 +46,26 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SessionHooksIntegrationTest {
+    @Test
+    fun `receipt is enqueued once before send returns when native finishes immediately`() = runTest {
+        val fixture = HookFixture(this)
+        val accepted = mutableListOf<SessionHookContext>()
+        fixture.hook.receipt = object : SessionPromptReceipt {
+            override fun accepted(context: SessionHookContext, contextRevision: String?) {
+                accepted += context
+            }
+        }
+        val native = FakeNativeSession()
+        native.onAccepted = { native.finish() }
+        val session = fixture.open(native)
+        val turn = session.send(prompt("receipted"))
+        assertEquals(1, accepted.size)
+        assertEquals(turn, accepted.single().turn)
+        assertEquals(RequestId("receipted"), accepted.single().request)
+        runCurrent()
+        assertEquals(1, accepted.size)
+    }
+
     @Test
     fun `opt-in appends raw context only to the last text part`() = runTest {
         for (isEnabled in listOf(false, true)) {
@@ -251,6 +273,12 @@ private class IntegrationHook : SessionHook {
     val events = mutableListOf<SessionLifecycle>()
     val prompts = mutableListOf<String>()
     var verdict: ToolHookVerdict = ToolHookVerdict.Continue
+    var receipt: SessionPromptReceipt? = null
+    override suspend fun preparePrompt(
+        context: SessionHookContext,
+        text: String,
+        contextRevision: String?,
+    ): SessionPromptAddition = SessionPromptAddition(beforePrompt(context, text), receipt)
     override suspend fun observe(event: SessionLifecycle) {
         events += event
     }

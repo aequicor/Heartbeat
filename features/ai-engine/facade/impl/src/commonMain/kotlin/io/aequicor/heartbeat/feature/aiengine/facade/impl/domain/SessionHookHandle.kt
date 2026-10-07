@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptPreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
@@ -26,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 internal class SessionHookHandle(
     private val hooks: SessionHooks,
     private val context: SessionHookContext,
+    private val contextRevision: () -> String? = { null },
     private val finishUnaccepted: (TurnId) -> Unit,
 ) {
     private val log = Log.tag("SessionHooks")
@@ -56,15 +58,15 @@ internal class SessionHookHandle(
     suspend fun prepare(request: PromptRequest, turn: Turn): PromptRequest {
         val bound = context.copy(request = request.id, turn = turn.id)
         val text = request.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        val addition = if (text.startsWith('/')) null else hooks.beforePrompt(bound, text)
-        lock.withLock { turns[turn.id] = OwnedTurn(bound) }
+        val addition = if (text.startsWith('/')) null else hooks.preparePrompt(bound, text, contextRevision())
+        lock.withLock { turns[turn.id] = OwnedTurn(bound, addition = addition) }
         hooks.bindTurn(bound)
-        return if (addition.isNullOrBlank()) request else request.append(addition)
+        return if (addition == null || addition.text.isBlank()) request else request.append(addition.text)
     }
 
     /** The machine refused submission before starting native work. */
     suspend fun refused(turn: TurnId) {
-        lock.withLock { turns.remove(turn) }
+        lock.withLock { turns.remove(turn) }?.addition?.receipts?.forEach { it.discarded() }
         hooks.releaseTurn(context.session, turn, isRejected = true)
     }
 
@@ -73,11 +75,12 @@ internal class SessionHookHandle(
     }
 
     @HighFrequency
-    private suspend fun accepted(turn: Turn) = lock.withLock {
+    suspend fun accepted(turn: Turn) = lock.withLock {
         val owned = turns[turn.id] ?: return@withLock
         if (owned.context.request != turn.request || owned.isAccepted) return@withLock
         log.v { "Observe accepted hook turn" }
-        turns[turn.id] = owned.copy(isAccepted = true, pending = emptyMap())
+        turns[turn.id] = owned.copy(isAccepted = true, pending = emptyMap(), addition = null)
+        owned.addition?.receipts?.forEach { it.accepted(owned.context, contextRevision()) }
         hooks.observe(SessionLifecycle.TurnStarted(owned.context))
         owned.pending.values.forEach { hooks.observe(SessionLifecycle.PermissionRequested(owned.context, it)) }
     }
@@ -90,6 +93,7 @@ internal class SessionHookHandle(
             log.v { "Observe finished hook turn" }
             turn.outcome?.let { hooks.observe(SessionLifecycle.TurnFinished(owned.context, it)) }
         } else {
+            owned.addition?.receipts?.forEach { it.discarded() }
             // Reconciliation ended an ambiguous submission; the caller never received its facade turn id.
             log.v { "Release recovered unaccepted hook turn" }
             finishUnaccepted(turn.id)
@@ -111,6 +115,7 @@ internal class SessionHookHandle(
 
 private data class OwnedTurn(
     val context: SessionHookContext,
+    val addition: SessionPromptPreparation? = null,
     val isAccepted: Boolean = false,
     val pending: Map<PermissionRequestId, PermissionRequest> = emptyMap(),
 ) {
