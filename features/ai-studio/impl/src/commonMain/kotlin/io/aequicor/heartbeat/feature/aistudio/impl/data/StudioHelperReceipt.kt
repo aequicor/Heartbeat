@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.aistudio.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
@@ -50,9 +51,19 @@ internal data class StudioHelperReceipt(
     val session: SessionRef? = null,
     val turn: TurnId? = null,
     val terminal: StudioHelperTerminal? = null,
+    /** Host ancestry captured before opening; never inferred from a parent's latest request. */
+    val handoff: HelperHandoff? = null,
+    /** Bound before admission IO; unlike session/turn, this is not evidence of native acceptance. */
+    val preparedSession: SessionRef? = null,
 ) {
     init {
         require(fingerprint != null || phase == StudioHelperPhase.NotSubmitted)
+        require(fingerprint != null || (handoff == null && preparedSession == null))
+        require(preparedSession == null || session == null || preparedSession == session)
+        require(
+            phase in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) ||
+                handoff == null || preparedSession != null,
+        )
         require((session == null) == (turn == null))
         require(phase != StudioHelperPhase.Accepted || session != null)
         require((phase == StudioHelperPhase.Terminal) == (terminal != null))
@@ -67,6 +78,9 @@ internal data class StudioHelperReceipt(
     )
 
     fun requireNativeIdentity(session: SessionRef, turn: TurnId) {
+        check(
+            preparedSession == null || preparedSession == session,
+        ) { "Native helper differs from its prepared session" }
         check(this.session == null || (this.session == session && this.turn == turn)) {
             "Native helper identity does not match its receipt"
         }

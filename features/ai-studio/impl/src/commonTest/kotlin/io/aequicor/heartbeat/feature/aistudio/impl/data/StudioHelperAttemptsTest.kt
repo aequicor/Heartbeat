@@ -10,14 +10,19 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -36,6 +41,112 @@ class StudioHelperAttemptsTest {
         StudioHelperTerminalOutcome.Completed,
         "private answer",
     )
+
+    @Test
+    fun `handoff is immutable across restart and cancellation preserves its prepared target`() = runTest {
+        val stores = ChecklistTestStores()
+        val journal = StudioHelperAttempts(stores)
+        val handoff = HelperHandoff(RequestInitiator(session, RequestId("source")), "harness", "private ancestry")
+        val owned = prompt.copy(handoff = handoff)
+        assertTrue(journal.prepare(helper, owned).isNew)
+        assertFailsWith<IllegalStateException> { journal.begin(helper, prompt.request) }
+        val bound = assertNotNull(journal.bindSession(helper, prompt.request, session))
+        assertEquals(handoff, bound.handoff)
+        assertNull(bound.session)
+        assertNull(bound.turn)
+        assertEquals(bound, journal.bindSession(helper, prompt.request, session))
+        assertFailsWith<IllegalStateException> {
+            journal.bindSession(helper, prompt.request, session.copy(nativeId = "different"))
+        }
+        val restarted = StudioHelperAttempts(stores)
+        assertFalse(restarted.prepare(helper, owned).isNew)
+        assertFailsWith<IllegalStateException> { restarted.prepare(helper, prompt) }
+        assertFailsWith<IllegalStateException> {
+            restarted.prepare(helper, owned.copy(handoff = handoff.copy(ownerContext = "changed")))
+        }
+        val cancelled = restarted.cancelBeforeSubmission(helper, prompt.request)
+        assertEquals(handoff, cancelled.handoff)
+        assertEquals(session, cancelled.preparedSession)
+        assertEquals(StudioHelperPhase.NotSubmitted, cancelled.phase)
+        assertNull(restarted.bindSession(helper, prompt.request, session))
+        assertFalse(restarted.begin(helper, prompt.request))
+    }
+
+    @Test
+    fun `prepared reference fences native evidence and distinct recovery can bind another session`() = runTest {
+        val stores = ChecklistTestStores()
+        val journal = StudioHelperAttempts(stores)
+        journal.prepare(helper, prompt)
+        journal.bindSession(helper, prompt.request, session)
+        assertTrue(journal.begin(helper, prompt.request))
+        assertFailsWith<IllegalStateException> {
+            journal.accepted(helper, prompt.request, session.copy(nativeId = "wrong"), terminal.turn)
+        }
+        journal.terminal(helper, prompt.request, terminal)
+        val recovery = prompt.copy(
+            request = RequestId("recovery"),
+            isRecovery = true,
+            handoff = HelperHandoff(RequestInitiator(session, prompt.request)),
+        )
+        assertTrue(journal.prepare(helper, recovery).isNew)
+        val restarted = StudioHelperAttempts(stores)
+        val nextSession = session.copy(nativeId = "recovered")
+        assertEquals(nextSession, restarted.bindSession(helper, recovery.request, nextSession)?.preparedSession)
+        assertEquals(recovery.handoff, restarted.receipt(helper, recovery.request)?.handoff)
+        assertTrue(restarted.begin(helper, recovery.request))
+    }
+
+    @Test
+    fun `binding storage failure and lost acknowledgement never authorize an unbound target`() = runTest {
+        val stores = AttemptStores()
+        val journal = StudioHelperAttempts(stores)
+        val owned = prompt.copy(handoff = HelperHandoff(ownerFeature = "harness", ownerContext = "context"))
+        journal.prepare(helper, owned)
+        stores.beforeWrite = { error("disk") }
+        assertFailsWith<IllegalStateException> { journal.bindSession(helper, prompt.request, session) }
+        assertNull(journal.receipt(helper, prompt.request)?.preparedSession)
+        stores.beforeWrite = {}
+        assertFailsWith<IllegalStateException> { journal.begin(helper, prompt.request) }
+        stores.afterWrite = { throw CancellationException("lost ACK") }
+        assertFailsWith<CancellationException> { journal.bindSession(helper, prompt.request, session) }
+        stores.afterWrite = {}
+        val restarted = StudioHelperAttempts(stores)
+        assertEquals(session, restarted.bindSession(helper, prompt.request, session)?.preparedSession)
+        assertFalse(restarted.prepare(helper, owned).isNew)
+        assertFailsWith<IllegalStateException> {
+            restarted.bindSession(helper, prompt.request, session.copy(nativeId = "other"))
+        }
+    }
+
+    @Test
+    fun `native handoff receipt without prepared identity fails closed on decode`() = runTest {
+        val stores = ChecklistTestStores()
+        val journal = StudioHelperAttempts(stores)
+        val owned = prompt.copy(handoff = HelperHandoff(ownerFeature = "harness", ownerContext = "private ancestry"))
+        journal.prepare(helper, owned)
+        journal.bindSession(helper, prompt.request, session)
+        journal.begin(helper, prompt.request)
+        val values = stores.stores.getValue(HelperAttemptsSpec).values
+        values.value = values.value.mapValues { (_, raw) ->
+            val entries = Json.parseToJsonElement(raw as String).jsonObject
+            JsonObject(
+                entries.mapValues { (_, receipt) -> JsonObject(receipt.jsonObject - "preparedSession") },
+            ).toString()
+        }
+        val failure = assertFailsWith<IllegalStateException> { journal.receipt(helper, prompt.request) }
+        assertFalse(failure.message.orEmpty().contains("private"))
+        assertNull(failure.cause)
+    }
+
+    @Test
+    fun `legacy receipt defaults do not fabricate handoff or prepared identity`() {
+        val old = Json.decodeFromString<StudioHelperReceipt>(
+            """{"request":{"value":"R"},"phase":"Preparing","fingerprint":"legacy"}""",
+        )
+        assertNull(old.handoff)
+        assertNull(old.preparedSession)
+        assertEquals(StudioHelperPhase.Preparing, old.phase)
+    }
 
     @Test
     fun `old receipts deduplicate immutable requests after newer attempts and restart`() = runTest {
