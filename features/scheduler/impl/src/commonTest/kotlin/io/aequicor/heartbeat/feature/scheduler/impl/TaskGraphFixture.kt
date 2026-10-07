@@ -94,6 +94,7 @@ internal class GraphCommands : CommandRunner {
 }
 
 internal class GraphHost : ScheduledTaskHost {
+    override var isWakeAdmissionSupported = true
     override val priority = 100
     var isAvailable = true
     override suspend fun owns(session: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef) = isAvailable

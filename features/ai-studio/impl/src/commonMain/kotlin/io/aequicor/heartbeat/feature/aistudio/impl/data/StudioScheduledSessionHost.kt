@@ -137,7 +137,12 @@ internal class StudioScheduledSessionHost(
         val chat = chats.createHelperChat(projectId, request.title)
         log.i { "start a helper conversation hasProject=${projectId != null}" }
         // The helper never gets more trust than the chat that started it.
-        submit(chat, request.prompt, request.target, approvalFrom = parent.id)
+        submit(
+            chat,
+            request.prompt.copy(causes = request.prompt.causes + request.causes),
+            request.target,
+            approvalFrom = parent.id,
+        )
         return checkNotNull(chats.sessionOf(chat)) { "The helper conversation has no session" }
     }
 
