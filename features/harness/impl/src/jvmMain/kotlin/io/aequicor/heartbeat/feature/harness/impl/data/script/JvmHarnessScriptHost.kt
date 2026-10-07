@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.rethrowFatalHarnessFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
@@ -117,6 +118,7 @@ internal class JvmHarnessScriptHost(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
+        error.rethrowFatalHarnessFailure()
         log.w(error.safeHarnessFailure()) { "compiler operation failed" }
         HarnessCompilationResult.Failure(harnessHostFailure())
     }
@@ -126,6 +128,7 @@ internal class JvmHarnessScriptHost(
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
+        error.rethrowFatalHarnessFailure()
         log.w(error.safeHarnessFailure()) { "recompile cached code" }
         cache.remove(item)
         null
@@ -143,6 +146,7 @@ internal class JvmHarnessScriptHost(
             harnessCompilerConfiguration(request.kind, classpath),
         )
         currentCoroutineContext().ensureActive()
+        result.reports.forEach { it.exception?.rethrowFatalHarnessFailure() }
         return when (result) {
             is ResultWithDiagnostics.Failure -> HarnessCompilationResult.Failure(result.reports.harnessDiagnostics())
 
@@ -193,7 +197,8 @@ internal class JvmHarnessScriptHost(
                 },
             )
             val failure = (result as? ResultWithDiagnostics.Success)?.value?.returnValue as? ResultValue.Error
-            (failure?.error as? CancellationException)?.let { throw it }
+            failure?.error?.rethrowFatalHarnessFailure()
+            result.reports.forEach { it.exception?.rethrowFatalHarnessFailure() }
             currentCoroutineContext().ensureActive()
             return when (result) {
                 is ResultWithDiagnostics.Failure -> HarnessEvaluationResult.Failure(result.reports.harnessDiagnostics())
@@ -207,6 +212,7 @@ internal class JvmHarnessScriptHost(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
+            error.rethrowFatalHarnessFailure()
             log.w(error.safeHarnessFailure()) { "evaluation operation failed" }
             return HarnessEvaluationResult.Failure(harnessHostFailure())
         } finally {
