@@ -85,6 +85,7 @@ kotlinx-serialization-core = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
 androidx-datastore-preferencesCore = { module = "androidx.datastore:datastore-preferences-core", version.ref = "datastore" }
