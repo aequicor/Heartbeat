@@ -8,9 +8,11 @@ import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
@@ -38,6 +40,20 @@ class ScheduledHelperActionsTest {
     private val request = RequestId("attempt")
     private val spawn = SpawnRequest(SESSION, PROJECT, TARGET, "Helper", WakePrompt(request, "Task", "Directive"))
     private val helper = HelperId("durable-helper")
+
+    @Test
+    fun `scheduled helper receives exact immutable initiating request before its first prompt`() = runTest {
+        val host = HelperHostFake()
+        val fixture = ActionsFixture(this, SpecMachine(), hosts = setOf(host))
+        val initiator = RequestInitiator(SESSION, RequestId("source-R"))
+        assertNull(fixture.actions.startAgent(action, spawn, initiator))
+        assertEquals(HelperHandoff(initiator = initiator), host.prompts.single().handoff)
+        assertEquals(initiator, fixture.journal.records.single().initiator)
+        host.results[request] = HelperResult(request, HelperOutcome.Completed, "done")
+        fixture.bus.publish(EventKeys.turnFinished(OTHER), EventOrigin.Host)
+        runCurrent()
+        assertTrue(fixture.reservations().isEmpty())
+    }
 
     @Test
     fun `timeout retains its single scheduled slot until exact cancellation is confirmed`() = runTest {

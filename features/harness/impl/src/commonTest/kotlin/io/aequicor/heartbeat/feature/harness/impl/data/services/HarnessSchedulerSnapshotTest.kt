@@ -25,6 +25,31 @@ class HarnessSchedulerSnapshotTest {
     private val wake = HarnessTarget(dispatchSession, checkout)
 
     @Test
+    fun `durable helper attachment still obeys the eight active harness limit`() {
+        val attached = harness.copy(name = HarnessName("zz_owner"), scope = HarnessScope.Attached)
+        val earlier = (1..8).map { index ->
+            HarnessEntry(
+                harness.copy(
+                    id = HarnessId("earlier-$index"),
+                    name = HarnessName("early_$index"),
+                    scope = HarnessScope.Profile,
+                ),
+            )
+        }
+        val library = ready.copy(
+            harnesses = earlier + HarnessEntry(attached),
+            attachments = mapOf(wake.session to setOf(attached.id)),
+        )
+        val snapshot = HarnessSchedulerSnapshot(library, WorktreeState.Ready(), setOf(checkout), 1)
+        assertEquals(false, snapshot.allows(attached.id, wake))
+        assertEquals(
+            true,
+            snapshot.copy(library = library.copy(harnesses = library.harnesses.drop(1)))
+                .allows(attached.id, wake),
+        )
+    }
+
+    @Test
     fun `cold restart resolves original project without callback proof or promoted checkout fallback`() {
         val promoted = harness.copy(
             id = HarnessId("promoted"),
