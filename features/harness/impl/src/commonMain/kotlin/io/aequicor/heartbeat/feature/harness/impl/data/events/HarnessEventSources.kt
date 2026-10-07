@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessLifecycleEvent
 import io.aequicor.heartbeat.feature.harness.api.event.SystemEvent
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEnabledWork
@@ -13,10 +14,14 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventDis
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstance
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
@@ -56,6 +61,7 @@ internal data class HarnessEventSourcePorts(
 internal class HarnessEventSources(
     private val inputs: () -> HarnessEventInputs,
     private val ports: HarnessEventSourcePorts,
+    private val ancestry: HarnessEventAncestry,
 ) : HarnessEnabledWork {
     private val log = Log.tag("HarnessRuntime")
 
@@ -71,14 +77,17 @@ internal class HarnessEventSources(
         }
         owned.launch(start = CoroutineStart.UNDISPATCHED) {
             streams.bus.collect { event ->
-                if (ports.gate.isEnabled) {
-                    ports.dispatch.emit(event.harnessEvent(), HarnessCallOrigin())
-                    if (scheduling.value) event.networkEvent()?.let { ports.dispatch.emit(it, HarnessCallOrigin()) }
-                }
+                val epoch = ports.gate.currentEpoch ?: return@collect
+                forward(event.harnessEvent(), epoch) { ancestry.origin(event.origin) }
+                if (scheduling.value) event.networkEvent()?.let { ports.dispatch.emit(it, HarnessCallOrigin(), epoch) }
             }
         }
         streams.scheduler.subscribe(owned) { output ->
-            if (ports.gate.isEnabled) output.harnessEvent(ports.clock.now())?.let { ports.dispatch.emit(it) }
+            if (ports.gate.isEnabled) {
+                output.harnessEvent(ports.clock.now())?.let { projected ->
+                    forward(projected) { ancestry.output(output) }
+                }
+            }
         }
         observeEngines(owned, streams)
         streams.workflows.subscribe(owned) {
@@ -86,6 +95,25 @@ internal class HarnessEventSources(
         }
         observePublished(owned)
         observeStarted(owned, scheduling)
+    }
+
+    @HighFrequency
+    private suspend fun forward(
+        event: HarnessEvent,
+        admittedEpoch: Long? = ports.gate.currentEpoch,
+        resolve: suspend () -> HarnessCallOrigin,
+    ) {
+        val epoch = admittedEpoch ?: return
+        val origin = try {
+            resolve()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(harnessScriptFailure(error)) { "Skip event with unavailable request ancestry" }
+            return
+        }
+        currentCoroutineContext().ensureActive()
+        if (ports.gate.currentEpoch == epoch) ports.dispatch.emit(event, origin, epoch)
     }
 
     @HighFrequency

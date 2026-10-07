@@ -2,14 +2,20 @@ package io.aequicor.heartbeat.feature.harness.impl.data.events
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBinding
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessBusEvent
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.event.HarnessLifecycleEvent
 import io.aequicor.heartbeat.feature.harness.api.event.SchedulerEvent
 import io.aequicor.heartbeat.feature.harness.api.event.SystemEvent
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessDispatchFixture
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.RegistrationTestOrigins
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.scriptRequest
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
@@ -22,7 +28,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -41,6 +49,103 @@ import kotlin.time.Clock
 import kotlin.time.Instant
 
 class HarnessEventSourcesTest {
+    @Test
+    fun `bus callback receives exact restrictions and failed lookup skips only that event`() = runTest {
+        val fixture = SourcesFixture(this)
+        fixture.dispatch.activate()
+        fixture.start()
+        val request = RequestId("source")
+        val expected = HarnessCallOrigin(true)
+        fixture.ancestry.restrict(dispatchSession, request, expected)
+        val event = BusEvent(EventKeys.custom("done"), EventOrigin.Session(dispatchSession, request), fixture.now)
+        fixture.bus.emit(event)
+        runCurrent()
+        assertEquals(expected, fixture.originsObserved.last())
+        val count = fixture.observed.size
+        fixture.ancestry.failure = IllegalStateException("private storage failure")
+        fixture.bus.emit(event)
+        runCurrent()
+        assertEquals(count, fixture.observed.size)
+        fixture.bus.emit(event.copy(origin = EventOrigin.Host))
+        runCurrent()
+        assertEquals(count + 1, fixture.observed.size)
+    }
+
+    @Test
+    fun `ancestry lookup cannot deliver an old event into a newly enabled epoch`() = runTest {
+        val fixture = SourcesFixture(this)
+        fixture.dispatch.activate()
+        fixture.start()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        fixture.ancestry.beforeLookup = {
+            entered.complete(Unit)
+            release.await()
+        }
+        val event = BusEvent(
+            EventKeys.custom("old"),
+            EventOrigin.Session(dispatchSession, RequestId("source")),
+            fixture.now,
+        )
+        fixture.bus.emit(event)
+        entered.await()
+        fixture.gate.close()
+        fixture.gate.open()
+        release.complete(Unit)
+        runCurrent()
+        assertFalse(fixture.observed.any { (it.second as? HarnessBusEvent)?.key == event.key })
+    }
+
+    @Test
+    fun `both network projections retain the epoch captured before first dispatch`() = runTest {
+        val fixture = SourcesFixture(this)
+        fixture.scheduling.value = true
+        fixture.dispatch.activate()
+        fixture.start()
+        runCurrent()
+        fixture.observed.clear()
+        var hasChanged = false
+        fixture.dispatchEpoch = {
+            // Interleave reenable at the first dispatch admission, after the bus source captured its epoch.
+            if (!hasChanged) {
+                hasChanged = true
+                fixture.gate.close()
+                fixture.gate.open()
+            }
+            fixture.gate.currentEpoch
+        }
+        fixture.bus.emit(BusEvent(EventKeys.NetworkAvailable, EventOrigin.System, fixture.now))
+        runCurrent()
+        assertTrue(hasChanged)
+        assertTrue(fixture.observed.isEmpty())
+    }
+
+    @Test
+    fun `cancelled producer cannot emit after noncancellable ancestry lookup returns`() = runTest {
+        val fixture = SourcesFixture(this)
+        fixture.dispatch.activate()
+        val branch = fixture.start()
+        runCurrent()
+        fixture.observed.clear()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        fixture.ancestry.beforeLookup = {
+            withContext(NonCancellable) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        fixture.bus.emit(
+            BusEvent(EventKeys.custom("old"), EventOrigin.Session(dispatchSession, RequestId("old")), fixture.now),
+        )
+        entered.await()
+        branch.cancel()
+        release.complete(Unit)
+        branch.join()
+        runCurrent()
+        assertTrue(fixture.observed.isEmpty())
+    }
+
     @Test
     fun `start synchronously attaches every hot input before library can start`() = runTest {
         val fixture = SourcesFixture(this)
@@ -207,9 +312,13 @@ private class SourcesFixture(private val test: TestScope) {
     val bindings = MutableStateFlow<List<EngineBinding>>(emptyList())
     val workflows = MutableSharedFlow<HarnessLifecycleEvent.WorkflowFinished>()
     val observed = mutableListOf<Pair<Long, HarnessEvent>>()
+    val originsObserved = mutableListOf<HarnessCallOrigin>()
     var now = Instant.fromEpochMilliseconds(1_000)
     var factoryCalls = 0
     var preparations = 0
+    val gate = HarnessEventGate()
+    var dispatchEpoch: () -> Long? = { gate.currentEpoch }
+    val ancestry = MemoryHarnessRequestAncestry()
     val sources = HarnessEventSources(
         {
             factoryCalls++
@@ -219,17 +328,23 @@ private class SourcesFixture(private val test: TestScope) {
         },
         HarnessEventSourcePorts(
             dispatch.runtime,
-            dispatch.events,
-            HarnessEventGate(),
+            HarnessEventDispatch(dispatch.runtime, dispatch.sessions) { dispatchEpoch() },
+            gate,
             object : Clock {
                 override fun now(): Instant = now
             },
             RegistrationTestOrigins(),
         ),
+        HarnessEventAncestry(lazyOf(ancestry)),
     )
 
     init {
-        dispatch.onEvaluate = { script -> script.events.on(HarnessEvent::class) { observed += script.revision to it } }
+        dispatch.onEvaluate = { script ->
+            script.events.on(HarnessEvent::class) {
+                observed += script.revision to it
+                originsObserved += currentCoroutineContext()[HarnessOriginContext]?.origin ?: HarnessCallOrigin()
+            }
+        }
     }
 
     fun start(): Job {
