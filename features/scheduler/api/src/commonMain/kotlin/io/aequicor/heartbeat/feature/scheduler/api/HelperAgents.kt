@@ -117,9 +117,20 @@ public interface HelperAgents {
 
     /**
      * Waits for profile and owner capacity. Recovery supplies [existing] to rebind a durable helper after checking
-     * its persisted owner and parent. A helper can have only one live lease; unresolved work retains its new slot.
+     * its persisted owner and parent. [reservation] optionally names the caller's stable journaled acquisition:
+     * a new id follows normal admission, a restored id adopts its already counted slot without queueing. Identity
+     * must match the recovery source, including [existing]. A restored pre-prompt record with no helper returns
+     * a cleanup-only lease: creation and prompting are forbidden, and release settles that exact slot. A helper
+     * and a restored reservation can each have only one live lease. If a prior caller lost the handoff, retrying
+     * its exact identity returns the already closing lease so cleanup can continue after an unconfirmed barrier.
+     * That lease cannot create or prompt. Never reuse an acquisition id after release.
      */
-    public suspend fun acquire(owner: ActionId, parent: SessionRef? = null, existing: HelperId? = null): HelperLease
+    public suspend fun acquire(
+        owner: ActionId,
+        parent: SessionRef? = null,
+        existing: HelperId? = null,
+        reservation: ActionId? = null,
+    ): HelperLease
 
     /**
      * Creates and persists an empty helper chat, never a prompt. A parent uses its actual execution workspace;

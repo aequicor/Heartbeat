@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperReleaseResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -337,13 +338,14 @@ internal class HelpersFixture(
     scope: TestScope,
     val host: HelperHostFake = HelperHostFake(),
     hosts: Set<ScheduledSessionHost> = setOf(host),
+    recovery: Set<HelperCapacityRecoverySource> = emptySet(),
 ) {
     private val profile = TestScopeHandle(
         CoroutineScope(
             scope.backgroundScope.coroutineContext + SupervisorJob(scope.backgroundScope.coroutineContext[Job]),
         ),
     )
-    val actions = ActionsFixture(scope, SpecMachine(), profile = profile)
+    val actions = ActionsFixture(scope, SpecMachine(), profile = profile, recovery = recovery)
     val service = ProfileHelperAgents(profile, lazyOf(hosts), actions.capacity, actions.results)
     val active: Int get() = (actions.capacityMachine.state.value as BackgroundCapacityState.Ready).active.size
 }

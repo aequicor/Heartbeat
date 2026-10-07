@@ -49,61 +49,109 @@ internal class ProfileHelperAgents(
     private val lock = Mutex()
     private val recovering = mutableSetOf<HelperId>()
     private val bindings = mutableMapOf<HelperId, ManagedHelperLease>()
+    private val lostHandoffs = mutableMapOf<ActionId, HelperAcquisition>()
 
     override suspend fun canHost(parent: SessionRef?): Boolean = hosts.value.any { it.canHostHelper(parent) }
 
-    override suspend fun acquire(owner: ActionId, parent: SessionRef?, existing: HelperId?): HelperLease {
-        val reservation = newActionId()
-        var isAcquired = false
-        var isClaimed = false
+    override suspend fun acquire(
+        owner: ActionId,
+        parent: SessionRef?,
+        existing: HelperId?,
+        reservation: ActionId?,
+    ): HelperLease {
+        currentCoroutineContext().ensureActive()
+        lostHandoff(owner, parent, existing, reservation)?.let { return it }
+        val attempt = HelperAcquisition(reservation ?: newActionId(), owner, parent, existing)
         var isHandedOff = false
-        var lease: ManagedHelperLease? = null
         try {
-            currentCoroutineContext().ensureActive()
-            if (existing != null) {
-                lock.withLock {
-                    check(existing !in bindings && recovering.add(existing)) { "Helper already has a live lease" }
-                    isClaimed = true
-                }
-            }
-            val restored = existing?.let { resolve(it) }
-            val host = restored?.first ?: hosts.value.sortedByDescending { it.priority }
-                .firstOrNull { it.canHostHelper(parent) }
-                ?: error("No host can supervise this helper")
-            restored?.second?.checkOwner(owner, parent)
-            capacity.acquireHelper(reservation, owner, parent)
-            isAcquired = true
-            // Queueing may take time. Read persisted attempts again before binding recovered work.
-            val metadata = existing?.let { resolve(it) }?.also {
-                check(it.first === host) { "Helper host changed during recovery" }
-                it.second.checkOwner(owner, parent)
-            }?.second
-            val created = ManagedHelperLease(
-                HelperLeaseIdentity(owner, reservation, parent, existing, metadata?.lastRequest),
-                host,
-                this,
-                profile,
-                capacity,
-            )
-            if (existing != null) bind(existing, created)
-            lease = created
-            if (isClaimed) {
-                lock.withLock {
-                    recovering.remove(existing)
-                    isClaimed = false
-                }
-            }
+            val lease = prepareLease(attempt)
             currentCoroutineContext().ensureActive()
             isHandedOff = true
-            return created
+            return lease
         } finally {
-            if (!isHandedOff) {
-                withContext(NonCancellable) {
-                    if (isClaimed) lock.withLock { recovering.remove(existing) }
-                    if (isAcquired) abandonAcquisition(reservation, lease)
-                }
+            if (!isHandedOff) withContext(NonCancellable) { abandon(attempt) }
+        }
+    }
+
+    private suspend fun prepareLease(attempt: HelperAcquisition): HelperLease {
+        val acquisition = attempt.id
+        val owner = attempt.owner
+        val parent = attempt.parent
+        val existing = attempt.existing
+        val recovered = capacity.claimRestoredHelper(acquisition, owner, parent, existing)
+        attempt.isRestored = recovered != null
+        if (recovered != null && recovered.helper == null) {
+            return CleanupOnlyHelperLease(owner, acquisition, capacity)
+        }
+        if (existing != null) {
+            lock.withLock {
+                check(existing !in bindings && recovering.add(existing)) { "Helper already has a live lease" }
+                attempt.isClaimed = true
             }
         }
+        val restored = existing?.let { resolve(it) }
+        val host = restored?.first ?: hosts.value.sortedByDescending { it.priority }
+            .firstOrNull { it.canHostHelper(parent) } ?: error("No host can supervise this helper")
+        restored?.second?.checkOwner(owner, parent)
+        if (!attempt.isRestored) {
+            capacity.acquireHelper(acquisition, owner, parent)
+            attempt.isAcquired = true
+        }
+        // Queueing may take time. Read persisted attempts again before binding recovered work.
+        val metadata = existing?.let { resolve(it) }?.also {
+            check(it.first === host) { "Helper host changed during recovery" }
+            it.second.checkOwner(owner, parent)
+        }?.second
+        val created = ManagedHelperLease(
+            HelperLeaseIdentity(owner, acquisition, parent, existing, metadata?.lastRequest),
+            host,
+            this,
+            profile,
+            capacity,
+        )
+        if (existing != null) bind(existing, created)
+        attempt.lease = created
+        if (attempt.isClaimed) {
+            lock.withLock {
+                recovering.remove(existing)
+                attempt.isClaimed = false
+            }
+        }
+        return created
+    }
+
+    /** Lost handoff keeps a closing lease reachable even when its first native barrier was unconfirmed. */
+    private suspend fun abandon(attempt: HelperAcquisition) {
+        if (attempt.isClaimed) lock.withLock { recovering.remove(attempt.existing) }
+        val lease = attempt.lease
+        when {
+            lease != null -> {
+                lease.scheduleRelease()
+                lock.withLock { lostHandoffs[attempt.id] = attempt }
+            }
+
+            attempt.isRestored -> capacity.returnHelperClaim(attempt.id)
+
+            attempt.isAcquired -> capacity.release(attempt.id)
+        }
+    }
+
+    private suspend fun lostHandoff(
+        owner: ActionId,
+        parent: SessionRef?,
+        existing: HelperId?,
+        reservation: ActionId?,
+    ): HelperLease? = lock.withLock {
+        val attempt = if (reservation != null) {
+            lostHandoffs[reservation]
+        } else {
+            lostHandoffs.values.singleOrNull { existing != null && it.existing == existing }
+        } ?: return@withLock null
+        check(attempt.matches(owner, parent, existing)) {
+            "Lost helper handoff ownership does not match"
+        }
+        // scheduleRelease irreversibly closes create/prompt before publishing this recovery handle.
+        checkNotNull(attempt.lease)
     }
 
     /** Transfers an already acquired scheduled reservation without consuming a second profile slot. */
@@ -187,10 +235,6 @@ internal class ProfileHelperAgents(
 
     override suspend fun finish(action: ActionId, payload: String) = results.finish(action, payload)
 
-    private suspend fun abandonAcquisition(reservation: ActionId, lease: ManagedHelperLease?) {
-        if (lease == null) capacity.release(reservation) else lease.scheduleRelease()
-    }
-
     private suspend fun bound(id: HelperId): ManagedHelperLease = lock.withLock {
         checkNotNull(bindings[id]) { "Helper needs an active lease" }
     }
@@ -218,4 +262,21 @@ internal class ProfileHelperAgents(
 
 private fun HelperMetadata.checkOwner(owner: ActionId, parent: SessionRef?) {
     check(this.owner == owner && this.parent == parent) { "Helper recovery ownership does not match" }
+}
+
+/** One acquisition's cleanup bookkeeping; ownership fields are immutable across every suspension. */
+private class HelperAcquisition(
+    val id: ActionId,
+    val owner: ActionId,
+    val parent: SessionRef?,
+    val existing: HelperId?,
+) {
+    var isAcquired = false
+    var isRestored = false
+    var isClaimed = false
+    var lease: ManagedHelperLease? = null
+    fun matches(owner: ActionId, parent: SessionRef?, existing: HelperId?): Boolean =
+        this.owner == owner && this.parent == parent && this.existing == existing
+
+    override fun toString(): String = "HelperAcquisition(***)"
 }
