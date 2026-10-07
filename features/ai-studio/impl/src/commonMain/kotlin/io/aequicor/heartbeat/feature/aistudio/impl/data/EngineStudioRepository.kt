@@ -568,19 +568,11 @@ internal class EngineStudioRepository(
         mutableState.update { it.copy(configurations = it.configurations + (id to state)) }
     }
 
-    override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome = when (outcome) {
-        TurnOutcome.Completed -> RunOutcome.Completed
-
-        TurnOutcome.Cancelled -> RunOutcome.Stopped
-
-        TurnOutcome.Unknown, null, is TurnOutcome.Failed -> {
-            log.w {
-                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()} " +
-                    "code=${(outcome as? TurnOutcome.Failed)?.failure?.code.orEmpty()}"
-            }
+    override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
+        log.v { "Map native turn outcome" }
+        return nativeSession.outcome(outcome) {
             val kind = (outcome as? TurnOutcome.Failed)?.failure.toRunFailureKind()
             update(id) { copy(hasFailed = true, failureKind = kind) }
-            RunOutcome.Failed
         }
     }
 
@@ -806,6 +798,21 @@ internal class EngineStudioRepository(
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
 private class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
+
+    suspend fun outcome(outcome: TurnOutcome?, onFailure: suspend () -> Unit): RunOutcome = when (outcome) {
+        TurnOutcome.Completed -> RunOutcome.Completed
+
+        TurnOutcome.Cancelled -> RunOutcome.Stopped
+
+        TurnOutcome.Unknown, null, is TurnOutcome.Failed -> {
+            log.w {
+                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()} " +
+                    "code=${(outcome as? TurnOutcome.Failed)?.failure?.code.orEmpty()}"
+            }
+            onFailure()
+            RunOutcome.Failed
+        }
+    }
 
     /** Mirrors native history; after the final refresh the finished turn read by [finished] is checked for hints. */
     suspend fun mirrorHistory(

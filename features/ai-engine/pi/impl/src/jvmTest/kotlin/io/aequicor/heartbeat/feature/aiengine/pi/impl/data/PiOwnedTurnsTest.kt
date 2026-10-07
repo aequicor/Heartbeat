@@ -38,7 +38,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("first"))
         val result = assertIs<OwnedTurnStop.Confirmed>(fixture.stop(session, "first", turn))
         assertEquals(TurnOutcome.Unknown, result.turn.outcome)
@@ -54,7 +54,7 @@ class PiOwnedTurnsTest {
     fun `stop during durable preparation prevents every delayed prompt`() = runTest {
         val records = GatedPiTurnRecords()
         val fixture = runtimeFixture(this, records)
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val gate = CompletableDeferred<Unit>()
         records.beforeWrite = { if (it.active != null) gate.await() }
         val sending = async { assertFailsWith<EngineException> { session.send(prompt("pending")) } }
@@ -80,7 +80,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         fixture.processes.stopResult = false
         assertEquals(OwnedTurnStop.Unconfirmed, fixture.stop(session, "request", turn))
@@ -101,7 +101,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = first.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = first.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         val second = runtimeFixture(this, records)
         assertFailsWith<EngineException> {
@@ -126,7 +126,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val old = session.send(prompt("old"))
         fixture.processes.connections.single().event(record("""{"type":"agent_settled"}"""))
         val next = session.send(prompt("new"))
@@ -147,7 +147,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         val gate = CompletableDeferred<Unit>()
         backgroundScope.launch(backgroundScope.coroutineContext + checkNotNull(session.hostedJobs.lifetime(turn))) {
@@ -173,7 +173,7 @@ class PiOwnedTurnsTest {
     @Test
     fun `caller cancellation during preflight preserves exact stop admission`() = runTest {
         val fixture = runtimeFixture(this)
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val gate = CompletableDeferred<Unit>()
         fixture.processes.connections.single().captureOwner = {
             gate.await()
@@ -198,7 +198,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         fixture.processes.beforeStop = { awaitCancellation() }
         val stopping = async { fixture.stop(session, "request", turn) }
@@ -214,7 +214,7 @@ class PiOwnedTurnsTest {
     fun `legacy active turn without process identity is never falsely confirmed`() = runTest {
         val fixture = runtimeFixture(this)
         fixture.processes.configure = { it.promptAck.complete(JsonObject(emptyMap())) }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         assertEquals(OwnedTurnStop.Unconfirmed, fixture.stop(session, "request", turn))
         assertEquals(0, fixture.processes.stopCalls)
@@ -230,7 +230,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         records.beforeWrite = { if (it.last?.isProcessStopped == true) error("Disk unavailable") }
         assertFailsWith<EngineException> { fixture.stop(session, "request", turn) }
@@ -249,7 +249,7 @@ class PiOwnedTurnsTest {
             it.owner = Owner
             it.promptAck.complete(JsonObject(emptyMap()))
         }
-        val session = first.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = first.runtime.createOwnedSession()
         val turn = session.send(prompt("request"))
         val gate = CompletableDeferred<Unit>()
         backgroundScope.launch(backgroundScope.coroutineContext + checkNotNull(session.hostedJobs.lifetime(turn))) {
@@ -276,7 +276,7 @@ class PiOwnedTurnsTest {
     fun `late acknowledgement after stop cannot settle or clear admission of a new request`() = runTest {
         val fixture = runtimeFixture(this)
         fixture.processes.configure = { it.owner = Owner }
-        val session = fixture.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSession
+        val session = fixture.runtime.createOwnedSession()
         val oldProcess = fixture.processes.connections.single()
         val old = async { assertFailsWith<EngineException> { session.send(prompt("old")) } }
         runCurrent()
@@ -294,6 +294,9 @@ class PiOwnedTurnsTest {
         assertEquals(nextState.turn.id, next.await())
         fixture.runtime.close()
     }
+
+    private suspend fun PiRuntime.createOwnedSession(): PiSession =
+        create(CreateSessionRequest(RuntimeTarget)) as PiSession
 
     private fun RuntimeFixture.stopper() = assertIs<FeatureAccess.Available<StopsOwnedTurns>>(
         runtime.features.resolve(StopsOwnedTurns),
