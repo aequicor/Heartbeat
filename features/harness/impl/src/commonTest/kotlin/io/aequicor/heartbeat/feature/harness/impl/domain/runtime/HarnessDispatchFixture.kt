@@ -79,7 +79,9 @@ internal class HarnessDispatchFixture(
             scope,
             dispatchers,
             admission,
-            StagedHarnessContexts(origins, schedulerTestFactory(origins, dispatcher) { runtime }),
+            StagedHarnessContexts(origins, schedulerTestFactory(origins, dispatcher) { runtime }) { request, access ->
+                unusedScriptSessions(HarnessInstanceTarget(request, access), origins)
+            },
         ) { feedback += it },
     )
     val sessions = HarnessSessionAdmission { _, session -> isSessionAllowed && session == context.session }

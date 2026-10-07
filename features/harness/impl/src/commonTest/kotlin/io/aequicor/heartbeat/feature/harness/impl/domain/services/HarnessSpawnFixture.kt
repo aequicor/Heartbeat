@@ -114,6 +114,7 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
     var release: suspend () -> HelperReleaseResult = { HelperReleaseResult.Released }
     var submission: (HelperPrompt) -> HelperSubmission = { HelperSubmission.Accepted(it.request, dispatchSession) }
     var creates = 0
+    val workspaces = mutableListOf<WorkspaceRef?>()
     var releases = 0
 
     override suspend fun acquire(
@@ -142,6 +143,7 @@ internal class SpawnTestHelpers(private val trace: MutableList<String>) : Helper
         check(trustCap == TrustLevel.Ask && target == null)
         beforeCreate()
         creates++
+        workspaces += workspace
         trace += "create"
         return helper
     }

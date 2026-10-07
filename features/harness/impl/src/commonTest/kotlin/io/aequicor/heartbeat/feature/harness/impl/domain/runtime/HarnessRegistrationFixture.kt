@@ -16,6 +16,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluatio
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerHost
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 
@@ -23,6 +24,8 @@ internal class HarnessRegistrationFixture(
     scope: CoroutineScope,
     dispatcher: CoroutineDispatcher,
     schedulerHost: HarnessSchedulerHost = UnusedSchedulerHost,
+    private val sessionServices: (HarnessInstanceTarget, HarnessCallOrigins) -> HarnessScriptSessions =
+        ::unusedScriptSessions,
 ) {
     var desired = scriptRequest(1)
     var isEnabled = true
@@ -37,8 +40,13 @@ internal class HarnessRegistrationFixture(
     private val schedulers = schedulerTestFactory(origins, dispatcher, schedulerHost) { runtime }
     private val contexts = object : HarnessRuntimeContextFactory {
         override val origins = this@HarnessRegistrationFixture.origins
-        override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess) =
-            HarnessScriptContext(request, access, origins, schedulers.create(request, access))
+        override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess) = HarnessScriptContext(
+            request,
+            access,
+            origins,
+            schedulers.create(request, access),
+            sessionServices(HarnessInstanceTarget(request, access), origins),
+        )
     }
     private val host = object : HarnessScriptHost {
         override val isAvailable = true
