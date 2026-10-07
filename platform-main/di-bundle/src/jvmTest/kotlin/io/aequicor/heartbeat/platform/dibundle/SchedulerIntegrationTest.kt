@@ -4,6 +4,8 @@ import dev.zacsweers.metro.ContributesIntoSet
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.datastore.KeyValueSpec
+import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -18,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTask
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
+import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
@@ -43,6 +46,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
@@ -110,6 +115,19 @@ class SchedulerIntegrationTest {
             accessors.schedulerTools.execute(context(), SchedulerTools.SLEEP, arguments)
         }
         assertFalse(slept.isError, slept.text)
+        // Scheduled acknowledges the transition; reopening tests require its separate durable write first.
+        val expected = ready(accessors).wakes.single()
+        val store = (first.graph as TestStorageAccessors).stores.keyValue(KeyValueSpec("scheduler"))
+        withContext(app.dispatchers.default) {
+            withTimeout(10.seconds) {
+                store.observe(stringKey("wakes")).first { raw ->
+                    raw != null && Json.decodeFromString(
+                        ListSerializer(ScheduledWake.serializer()),
+                        raw,
+                    ) == listOf(expected)
+                }
+            }
+        }
         app.profileSessions.close()
 
         val reopened = app.profileSessions.open(ProfileId("scheduler"))
