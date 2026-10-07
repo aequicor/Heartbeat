@@ -1,9 +1,20 @@
 package io.aequicor.heartbeat.platform.dibundle
 
+import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
 import io.aequicor.heartbeat.core.di.OwnedScope
+import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.HookedToolCall
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.harness.api.HarnessDraft
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -11,6 +22,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
+import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
@@ -26,6 +38,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -60,24 +73,23 @@ class HarnessIntegrationTest {
         assertTrue(HarnessEnabled in toggles.toggleControl.registered)
         assertFalse(HarnessEnabled.default)
         val profileId = ProfileId("harness")
-        app.profileSessions.open(profileId)
+        val profile = app.profileSessions.open(profileId)
+        // Construct facade/hooks first while harness stays disabled: the cycle must remain lazy.
+        (profile.graph as AiEngineTestAccessors).engineFacade.engines.state.value
+        val hooks = (profile.graph as TestHarnessHookAccessors).harnessSessionHooks
+        assertTrue(hooks.none { it.isIntercepting })
         assertNull(app.machines.find(HarnessMachineKey))
         toggles.toggleControl.setOverride(HarnessEnabled, true)
         withContext(app.dispatchers.default) {
             withTimeout(30.seconds) {
                 val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
                 machine.state.filterIsInstance<HarnessState.Ready>().first()
-                val code = HarnessItem.Script(
-                    ItemId("code"),
-                    ItemName("code"),
-                    "",
-                    "check(script.item.value == \"code\")",
-                )
+                val code = hookScript()
                 machine.send(
                     HarnessIntent.Public.Create(
                         RequestId("create"),
                         HarnessId("harness"),
-                        HarnessDraft(HarnessName("test"), "Test", items = listOf(code)),
+                        HarnessDraft(HarnessName("test"), "Test", scope = HarnessScope.Profile, items = listOf(code)),
                         null,
                         Instant.fromEpochMilliseconds(1_000),
                     ),
@@ -86,9 +98,11 @@ class HarnessIntegrationTest {
                     it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
                 }
                 assertTrue(saved.isRuntimeAvailable)
+                val call = assertDirectHooks(hooks)
                 val generation = assertIs<ItemStatus.Active>(saved.harnesses.single().itemStatus[code.id]).generation
                 toggles.toggleControl.setOverride(HarnessEnabled, false)
                 machine.state.first { it.isSuspended }
+                assertTrue(hooks.map { it.beforeTool(call) }.all { it == ToolHookVerdict.Continue })
                 toggles.toggleControl.setOverride(HarnessEnabled, true)
                 val resumed = machine.state.filterIsInstance<HarnessState.Ready>().first {
                     !it.isSuspended && it.harnesses.single().itemStatus[code.id] is ItemStatus.Active
@@ -101,7 +115,7 @@ class HarnessIntegrationTest {
             }
         }
         app.profileSessions.close()
-        app.profileSessions.open(profileId)
+        val reopened = app.profileSessions.open(profileId)
         withContext(app.dispatchers.default) {
             withTimeout(30.seconds) {
                 val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
@@ -110,8 +124,43 @@ class HarnessIntegrationTest {
                 }
                 assertEquals(HarnessName("test"), restored.harnesses.single().harness.name)
                 assertTrue(restored.isRuntimeAvailable)
+                // Reverse construction order: startup already activated harness before this explicit facade read.
+                (reopened.graph as AiEngineTestAccessors).engineFacade.engines.state.value
+                assertTrue((reopened.graph as TestHarnessHookAccessors).harnessSessionHooks.any { it.isIntercepting })
             }
         }
         app.profileSessions.close()
     }
+    private suspend fun assertDirectHooks(hooks: Set<SessionHook>): HookedToolCall {
+        val context = SessionHookContext(
+            SessionRef(EngineId("test"), SessionSourceId("test"), "harness-session"),
+            null,
+            null,
+            null,
+            SessionOwner("harness-test"),
+        )
+        val call = HookedToolCall(context, "read", AgentToolAction.Read, JsonObject(emptyMap()))
+        // No Opened notification: direct hooks must prime their trusted route themselves.
+        assertTrue(hooks.map { it.beforeTool(call) }.any { it is ToolHookVerdict.Deny })
+        assertTrue(hooks.map { it.beforePrompt(context, "original") }.contains("Harness context"))
+        return call
+    }
+
+    private fun hookScript(): HarnessItem.Script = HarnessItem.Script(
+        ItemId("code"),
+        ItemName("code"),
+        "",
+        """
+        check(script.item.value == "code")
+        script.hooks.beforePrompt { _, _ -> "Harness context" }
+        script.hooks.beforeTool {
+            io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict.Deny("Harness test denial")
+        }
+        """.trimIndent(),
+    )
+}
+
+@ContributesTo(ProfileScope::class)
+interface TestHarnessHookAccessors {
+    val harnessSessionHooks: Set<SessionHook>
 }
