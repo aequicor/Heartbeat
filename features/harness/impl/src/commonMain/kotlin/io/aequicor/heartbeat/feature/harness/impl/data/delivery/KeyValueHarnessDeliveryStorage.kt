@@ -66,6 +66,18 @@ internal class KeyValueHarnessDeliveryStorage(private val store: KeyValueStore, 
     }
 
     @HighFrequency
+    override suspend fun begin(session: SessionRef, expectedGeneration: String): HarnessDeliverySnapshot? = access {
+        log.v { "begin harness context delivery" }
+        journal.recover()
+        val old = read()
+        val entries = retained(old)
+        val current = entries.singleOrNull { it.session == session && it.generation == expectedGeneration }
+        val replacement = current?.copy(generation = newGeneration(), activeSetSha = null, updatedAt = clock.now())
+        write(old, if (replacement == null) entries else entries.filterNot { it.session == session } + replacement)
+        replacement?.snapshot()
+    }
+
+    @HighFrequency
     override suspend fun accepted(
         session: SessionRef,
         expectedGeneration: String,

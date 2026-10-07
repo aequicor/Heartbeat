@@ -36,6 +36,13 @@ internal interface HarnessDeliveryStorage {
     suspend fun snapshot(session: SessionRef): HarnessDeliverySnapshot
 
     /**
+     * Invalidates the previously accepted hash before a different block may reach native context. Returns a fresh
+     * durable generation only if the composing snapshot is still current; null requests recomposition. Names
+     * survive uncertain submissions. Cancellation or failure must prevent the caller from returning its block.
+     */
+    suspend fun begin(session: SessionRef, expectedGeneration: String): HarnessDeliverySnapshot?
+
+    /**
      * Called only after native Accepted. Installs the hash and marker set if the captured generation still matches
      * and every pending disabled name was included in that prompt. Success rotates the generation, so duplicate
      * or late feedback has no effect. False requires a fresh snapshot; it does not undo native acceptance.
