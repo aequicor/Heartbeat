@@ -45,6 +45,7 @@ internal class StorageTestEnv(private val test: TestScope) {
     }
     val errors = mutableListOf<Throwable>()
     val logs = mutableListOf<String>()
+    private val registries = mutableListOf<StoreRegistry>()
     val layout = StorageLayout { root.toString() }
     var app = newScope("app")
         private set
@@ -64,18 +65,20 @@ internal class StorageTestEnv(private val test: TestScope) {
     }
 
     fun registry(roomBuilders: RoomBuilderFactory = RoomBuilderFactory { _, _ -> error("no Room in this test") }) =
-        StoreRegistry(layout, retentionClock, dispatchers, roomBuilders, app)
+        StoreRegistry(layout, retentionClock, dispatchers, roomBuilders, app).also(registries::add)
 
     /** Ends the "process": closes the app scope and waits until its DataStores have released their files. */
     suspend fun restartProcess() {
         app.close()
         app.job.cancelAndJoin()
+        registries.forEach { it.awaitClosed() }
         app = newScope("app")
     }
 
     suspend fun dispose() {
         app.close()
         app.job.cancelAndJoin()
+        registries.forEach { it.awaitClosed() }
         FileSystem.SYSTEM.deleteRecursively(root)
         Log.init(isDebug = false)
     }

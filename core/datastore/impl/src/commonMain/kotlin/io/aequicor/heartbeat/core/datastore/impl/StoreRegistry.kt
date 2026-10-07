@@ -11,6 +11,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.room.RoomDatabase
 import androidx.room.useReaderConnection
+import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import dev.zacsweers.metro.AppScope
 import dev.zacsweers.metro.Inject
@@ -25,6 +26,8 @@ import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -56,6 +59,7 @@ internal class StoreRegistry(
     private val roomBuilders: RoomBuilderFactory,
     @ForScope(AppScope::class) private val appScope: ScopeHandle,
     private val profileCleaners: Set<ProfileStorageCleaner> = emptySet(),
+    private val databaseDriver: SQLiteDriver = BundledSQLiteDriver(),
 ) {
     private val log = Log.tag(DS_LOG_TAG)
     private val fileSystem = FileSystem.SYSTEM
@@ -74,7 +78,7 @@ internal class StoreRegistry(
             current + stores
         }
         scope.onClose {
-            update { it - stores }
+            stores.onClosed { update { it - stores } }
             stores.close()
             log.i { "${owner.label}: storages closed" }
         }
@@ -113,8 +117,8 @@ internal class StoreRegistry(
 
         @Suppress("SpreadOperator") // Room takes migrations as varargs; once per database open
         val db = roomBuilders.builder(layout.databaseFile(owner, spec.name).toString(), spec.factory)
-            .setDriver(DirectoryCreatingDriver(BundledSQLiteDriver(), fileSystem))
-            .setQueryCoroutineContext(dispatchers.io)
+            .setDriver(DirectoryCreatingDriver(databaseDriver, fileSystem))
+            .setQueryCoroutineContext(dispatchers.io + checkNotNull(scope.coroutineScope.coroutineContext[Job]))
             .addMigrations(*spec.migrations.map { LoggingMigration(label, it) }.toTypedArray())
             .addCallback(retention)
             .build()
@@ -130,7 +134,7 @@ internal class StoreRegistry(
     suspend fun fire(owner: StorageOwner, event: DataEvent) {
         val firedAt = clock.now()
         withContext(dispatchers.io) { journal(owner).record(event, firedAt) }
-        val affected = owners.load().filter { owner == StorageOwner.App || it.owner == owner }
+        val affected = owners.load().filter { !it.isClosed && (owner == StorageOwner.App || it.owner == owner) }
         log.i { "${owner.label}: $event fired, ${affected.size} open owners affected" }
         affected.forEach { it.purgeEvent(event.name, firedAt) }
     }
@@ -147,9 +151,10 @@ internal class StoreRegistry(
         try {
             // a new list instance: an attach that read `wiping` before the id was added fails its CAS and re-checks
             update { current ->
-                check(current.none { it.owner == owner }) { "storages of ${owner.label} are open" }
-                current.toList()
+                check(current.none { it.owner == owner && !it.isClosed }) { "storages of ${owner.label} are open" }
+                ArrayList(current)
             }
+            owners.load().filter { it.owner == owner }.forEach { it.awaitClosed() }
             profileCleaners.forEach { it.wipeProfile(id) }
             // the directory itself plus a separator: "alice" must not match the directory of "alice2"
             val dir = layout.profileDir(id).toString() + Path.DIRECTORY_SEPARATOR
@@ -164,6 +169,42 @@ internal class StoreRegistry(
                 if (wiping.compareAndSet(current, current - id)) break
             }
         }
+    }
+
+    /** Snapshot of already closing owners; active owners and later closures do not extend this wait. */
+    suspend fun awaitClosed() {
+        owners.load().filter { it.isClosed }.forEach { it.awaitClosed() }
+    }
+
+    /**
+     * Runs once per owner, after construction and query drain. Physical Room close can wait for its invalidation
+     * barrier, so it runs on IO outside the cancelled owner's job. The retained completion owns this cleanup;
+     * even app shutdown cannot cancel it. Only this executor's actual close completion permits file deletion.
+     */
+    internal fun closeDatabases(opened: List<OpenDatabase>, completion: CompletableDeferred<Unit>) {
+        val cleanup = CoroutineScope(dispatchers.io).launch {
+            var failure: Exception? = null
+            for (open in opened) {
+                val error = closeDatabase(open)
+                if (failure == null) failure = error
+            }
+            val error = failure
+            if (error == null) completion.complete(Unit) else completion.completeExceptionally(error)
+        }
+        cleanup.invokeOnCompletion { error ->
+            if (error != null) completion.completeExceptionally(error)
+        }
+    }
+
+    private fun closeDatabase(open: OpenDatabase): Exception? = try {
+        open.db.close()
+        Log.tag(DB_LOG_TAG).i { "${open.label}: closed" }
+        null
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.tag(DB_LOG_TAG).e(error) { "${open.label}: close failed" }
+        error
     }
 
     private fun firedEvents(owner: StorageOwner): Map<String, Long> {
