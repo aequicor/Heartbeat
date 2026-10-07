@@ -41,12 +41,16 @@ public sealed interface SchedulerIntent : MachineIntent {
          */
         public data class Schedule(val request: WakeRequest, val at: Instant) : Public
 
-        /** Cancels a pending wake; when [session] is set, only a wake of that session. */
+        /**
+         * Cancels a pending wake; [session] and [expectedRequest], when supplied, must still match at transition
+         * time. An immutable expected request prevents a delayed cancellation from removing a reused id.
+         */
         public data class Cancel(
             val id: WakeId,
             val session: SessionRef? = null,
             /** Trusted caller ancestry, retained together with the removed wake's origin. Never tool payload. */
             val cause: EventOrigin? = null,
+            val expectedRequest: WakeRequest? = null,
         ) : Public
 
         /** Cancels every pending wake of [session] (its chat was deleted or it no longer wants to sleep). */

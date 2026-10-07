@@ -177,6 +177,36 @@ class SchedulerMachineTest {
     }
 
     @Test
+    fun `cancel expected request rejects reused identity and accepts exact pending request`() {
+        val pending = wake("owned")
+        val intent = SchedulerIntent.Public.Cancel(pending.id, expectedRequest = pending.request)
+        val ready = SchedulerState.Ready(listOf(pending))
+        spec.assertTransition(
+            ready,
+            intent,
+            SchedulerState.Ready(revision = 1),
+            effects = listOf(SchedulerEffect.Persist(emptyList(), 1)),
+            outputs = listOf(
+                SchedulerOutput.Cancelled(
+                    listOf(pending.id),
+                    listOf(EventOrigin.Session(session, pending.id.deliveryRequestId())),
+                ),
+            ),
+        )
+        val replacements = listOf(
+            pending.request.copy(note = "Reused operation"),
+            pending.request.copy(ownerFeature = "other"),
+            pending.request.copy(session = other),
+        )
+        replacements.forEach { request ->
+            spec.assertIgnored(ready.copy(wakes = listOf(pending.copy(request = request))), intent)
+        }
+        spec.assertIgnored(ready.copy(delivering = setOf(pending.id)), intent)
+        spec.assertIgnored(ready, intent.copy(session = other))
+        spec.assertIgnored(SchedulerState.Loading, intent)
+    }
+
+    @Test
     fun `cancel session removes all its pending wakes`() {
         val ready = SchedulerState.Ready(listOf(wake("w1"), wake("w2"), wake("w3", target = other)))
         spec.assertTransition(
