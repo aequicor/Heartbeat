@@ -13,7 +13,10 @@ kotlin {
             implementation(libs.kotlin.scripting.jvm)
             implementation(libs.kotlin.scripting.jvm.host)
         }
-        jvmTest.dependencies { implementation(libs.androidx.sqlite.bundled) }
+        jvmTest.dependencies {
+            implementation(libs.androidx.sqlite.bundled)
+            implementation(libs.androidx.room.testing)
+        }
         commonMain.dependencies {
             implementation(projects.features.harness.api)
             implementation(projects.features.aiEngine.facade.api)

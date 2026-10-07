@@ -9,6 +9,9 @@ import androidx.room.RoomDatabase
 import androidx.room.RoomDatabaseConstructor
 import androidx.room.Transaction
 import androidx.room.Upsert
+import androidx.room.migration.Migration
+import androidx.sqlite.SQLiteConnection
+import androidx.sqlite.execSQL
 import io.aequicor.heartbeat.core.datastore.DatabaseSpec
 
 /**
@@ -38,10 +41,11 @@ internal abstract class HarnessAncestryDao {
     }
 }
 
-@Database(entities = [HarnessAncestryRecord::class], version = 1)
+@Database(entities = [HarnessAncestryRecord::class, HarnessHelperBindingRecord::class], version = 2)
 @ConstructedBy(HarnessAncestryDatabaseConstructor::class)
 internal abstract class HarnessAncestryDatabase : RoomDatabase() {
     abstract fun ancestry(): HarnessAncestryDao
+    abstract fun helpers(): HarnessHelperBindingDao
 }
 
 @Suppress("KotlinNoActualForExpect") // Room generates platform constructors.
@@ -52,4 +56,15 @@ internal expect object HarnessAncestryDatabaseConstructor : RoomDatabaseConstruc
 internal val HarnessAncestryDatabaseSpec = DatabaseSpec(
     "harness_ancestry",
     HarnessAncestryDatabaseConstructor::initialize,
+    listOf(HarnessHelperBindingMigration),
 )
+
+/** Adds ownership without rewriting or weakening any historical request ancestry. */
+internal object HarnessHelperBindingMigration : Migration(1, 2) {
+    override fun migrate(connection: SQLiteConnection) {
+        connection.execSQL(
+            "CREATE TABLE IF NOT EXISTS helper_bindings (helper TEXT NOT NULL PRIMARY KEY, " +
+                "owner TEXT NOT NULL, harness TEXT NOT NULL, attachRequest TEXT NOT NULL, session TEXT)",
+        )
+    }
+}
