@@ -8,8 +8,10 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.schedulerTestFactory
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.unusedScriptSessions
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -57,6 +59,7 @@ class StagedHarnessContextsTest {
         val context = StagedHarnessContexts(
             origins,
             schedulers,
+            { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
         ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
         assertSame(backgroundScope, script.scope)
@@ -66,7 +69,7 @@ class StagedHarnessContextsTest {
             ) {}
         }
         assertFailsWith<IllegalStateException> { script.hooks.beforePrompt { _, _ -> null } }
-        assertFailsWith<UnsupportedOperationException> { script.sessions }
+        assertFailsWith<IllegalStateException> { script.sessions.list() }
         assertFailsWith<IllegalStateException> { script.scheduler.every(30.seconds) {} }
         assertFailsWith<IllegalStateException> { script.agent.instructions { "" } }
         assertFailsWith<UnsupportedOperationException> { script.prompts }

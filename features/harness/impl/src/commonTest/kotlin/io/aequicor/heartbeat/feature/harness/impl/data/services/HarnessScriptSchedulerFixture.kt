@@ -1,5 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import io.aequicor.heartbeat.core.di.ScopeHandle
+import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
@@ -26,6 +28,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRe
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessDeliveryPermit
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptSessions
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnFixture
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakePort
@@ -38,6 +42,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerBus
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -119,10 +124,20 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
         },
         clock,
     )
+    val spawns = HarnessSpawnFixture(scope.backgroundScope)
+    private val profile = object : ScopeHandle {
+        override val name = "test"
+        override val coroutineScope = scope.backgroundScope
+        override val isClosed = false
+        override val savedState: ScopeSavedState get() = error("Not used")
+        override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
+    }
+    val spawner = EngineHarnessSessionSpawner(sessionAccess, lazyOf(spawns.operations), profile)
     val runtime: HarnessRegistrationFixture = HarnessRegistrationFixture(
         scope.backgroundScope,
         StandardTestDispatcher(scope.testScheduler),
         sender,
+        { owner, origins -> HarnessScriptSessions(owner, origins, reader, sender, spawner) },
     )
     val script get() = runtime.scripts.last()
     suspend fun activate(): HarnessInstance = runtime.activate()
