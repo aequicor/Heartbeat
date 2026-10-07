@@ -45,23 +45,52 @@ internal class StudioHelperAttempts(
         val fingerprint = "${prompt.isRecovery}:${prompt.text}".encodeUtf8().sha256().hex()
         val existing = records[prompt.request.value]
         if (existing != null) {
-            check(existing.fingerprint == null || existing.fingerprint == fingerprint) {
+            check(
+                existing.fingerprint == null ||
+                    (existing.fingerprint == fingerprint && existing.handoff == prompt.handoff),
+            ) {
                 "A helper request cannot change after it was journaled"
             }
             return@withLock StudioHelperPreparation(existing, isNew = false)
         }
         check(records.values.none { it.isUnresolved }) { "The previous helper request must be reconciled first" }
-        val receipt = StudioHelperReceipt(prompt.request, StudioHelperPhase.Preparing, fingerprint)
+        val receipt = StudioHelperReceipt(
+            prompt.request,
+            StudioHelperPhase.Preparing,
+            fingerprint,
+            handoff = prompt.handoff,
+        )
         write(helper, records + (prompt.request.value to receipt))
         log.v { "Journaled helper preparation" }
         StudioHelperPreparation(receipt, isNew = true)
     }
+
+    /**
+     * Binds an opened native session before any context handoff. A repeated bind is idempotent only for the exact
+     * same reference. Cancellation and binding share the journal lock; null means preparation is already revoked
+     * or has crossed its submission boundary. Binding alone never authorizes sending a prompt.
+     */
+    suspend fun bindSession(helper: HelperId, request: RequestId, session: SessionRef): StudioHelperReceipt? =
+        lock.withLock {
+            val records = read(helper)
+            val receipt = checkNotNull(records[request.value]) { "The helper request was not journaled" }
+            if (receipt.phase != StudioHelperPhase.Preparing) return@withLock null
+            check(receipt.preparedSession == null || receipt.preparedSession == session) {
+                "A helper preparation cannot change its native session"
+            }
+            if (receipt.preparedSession == session) return@withLock receipt
+            val prepared = receipt.copy(preparedSession = session)
+            write(helper, records + (request.value to prepared))
+            log.v { "Journaled helper target before context admission" }
+            prepared
+        }
 
     /** A successful return owns the only permission to send R; persistence precedes any native side effect. */
     suspend fun begin(helper: HelperId, request: RequestId): Boolean = lock.withLock {
         val records = read(helper)
         val receipt = records[request.value]
         if (receipt?.phase != StudioHelperPhase.Preparing) return@withLock false
+        check(receipt.handoff == null || receipt.preparedSession != null) { "Helper context has no bound target" }
         write(helper, records + (request.value to receipt.copy(phase = StudioHelperPhase.Submitting)))
         log.v { "Journaled helper submission boundary" }
         true
@@ -72,7 +101,8 @@ internal class StudioHelperAttempts(
         val records = read(helper)
         val receipt = records[request.value]
         if (receipt != null && receipt.phase != StudioHelperPhase.Preparing) return@withLock receipt
-        val cancelled = StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, receipt?.fingerprint)
+        val cancelled = receipt?.copy(phase = StudioHelperPhase.NotSubmitted)
+            ?: StudioHelperReceipt(request, StudioHelperPhase.NotSubmitted, null)
         write(helper, records + (request.value to cancelled))
         log.v { "Journaled helper cancellation before submission" }
         cancelled

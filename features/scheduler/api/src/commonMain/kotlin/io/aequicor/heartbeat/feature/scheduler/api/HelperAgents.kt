@@ -17,7 +17,13 @@ public data class HelperId(val value: String) {
 }
 
 /** A caller-generated immutable attempt, recorded by the workflow before submission. Text is never logged. */
-public data class HelperPrompt(val request: RequestId, val text: String, val isRecovery: Boolean = false) {
+public data class HelperPrompt(
+    val request: RequestId,
+    val text: String,
+    val isRecovery: Boolean = false,
+    /** Trusted immutable context, persisted before the host resolves the helper's native session. */
+    val handoff: HelperHandoff? = null,
+) {
     override fun toString(): String = "HelperPrompt(request=$request, isRecovery=$isRecovery)"
 }
 
