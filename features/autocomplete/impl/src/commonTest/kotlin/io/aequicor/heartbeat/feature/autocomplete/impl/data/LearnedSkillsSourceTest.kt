@@ -16,25 +16,28 @@ import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flowOf
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class LearnedSkillsSourceTest {
     private val project = WorkspaceRef("project")
 
     @Test
     fun `only enabled skills of the same project are visible`() {
-        val source = LearnedSkillsSource(registry(instructions = listOf(
-            skill("1", "verify", project = project),
-            skill("2", "disabled", project = project, isEnabled = false),
-            skill("3", "other-project", project = WorkspaceRef("other")),
-            skill("4", "detached", project = null),
-            general("5", "a general instruction", project = project),
-        )))
+        val source = LearnedSkillsSource(
+            registry(
+                instructions = listOf(
+                    skill("1", "verify", project = project),
+                    skill("2", "disabled", project = project, isEnabled = false),
+                    skill("3", "other-project", project = WorkspaceRef("other")),
+                    skill("4", "detached", project = null),
+                    general("5", "a general instruction", project = project),
+                ),
+            ),
+        )
 
         assertEquals(listOf("verify"), source.skills(project).map { it.title })
         assertEquals(listOf("detached"), source.skills(null).map { it.title })
@@ -98,4 +101,3 @@ private class LearningMachineRef(state: MutableStateFlow<AgentLearningState>) :
     override val outputs: Flow<AgentLearningOutput> = emptyFlow()
     override suspend fun send(intent: AgentLearningIntent.Public): SendResult = SendResult.NotRunning
 }
-

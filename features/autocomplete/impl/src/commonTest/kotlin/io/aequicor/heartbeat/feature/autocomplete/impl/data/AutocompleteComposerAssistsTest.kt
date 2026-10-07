@@ -3,11 +3,31 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
-import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningMachineKey
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningState
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionId
 import io.aequicor.heartbeat.feature.agentlearning.api.InstructionKind
 import io.aequicor.heartbeat.feature.agentlearning.api.LearnedInstruction
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
@@ -15,28 +35,9 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineCatalog
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatureKey
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeatures
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
-import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
-import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
-import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -45,9 +46,6 @@ import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.runTest
 
 class AutocompleteComposerAssistsTest {
     private val pi = EngineId("pi")
@@ -64,7 +62,10 @@ class AutocompleteComposerAssistsTest {
             ComposerScope(
                 target = target,
                 workspace = project,
-                inputSupport = PromptInputSupport(resourceMediaTypes = setOf("text/markdown"), maxFileBytes = 1_048_576),
+                inputSupport = PromptInputSupport(
+                    resourceMediaTypes = setOf("text/markdown"),
+                    maxFileBytes = 1_048_576,
+                ),
             ),
         )
         val file = assertIs<ComposerSuggestion.File>(suggestions.single())
@@ -268,11 +269,7 @@ class AutocompleteComposerAssistsTest {
         files,
     )
 
-    private fun facade(
-        assists: List<EngineAssist>,
-        onRead: () -> Unit,
-        failure: Exception? = null,
-    ): EngineFacade {
+    private fun facade(assists: List<EngineAssist>, onRead: () -> Unit, failure: Exception? = null): EngineFacade {
         val features = object : EngineFeatures {
             override fun <F : io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFeature> resolve(
                 key: EngineFeatureKey<F>,
@@ -280,10 +277,7 @@ class AutocompleteComposerAssistsTest {
                 onRead()
                 @Suppress("UNCHECKED_CAST")
                 val feature = object : ListsComposerAssists {
-                    override suspend fun assists(
-                        target: EngineTarget,
-                        workspace: WorkspaceRef?,
-                    ): List<EngineAssist> {
+                    override suspend fun assists(target: EngineTarget, workspace: WorkspaceRef?): List<EngineAssist> {
                         failure?.let { throw it }
                         return assists
                     }
@@ -318,7 +312,11 @@ class AutocompleteComposerAssistsTest {
 }
 
 internal class FakeToggles(private val values: Map<FeatureToggle.Flag, Boolean>) : FeatureToggles {
-    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = kotlinx.coroutines.flow.flow { emit(value(toggle)) }
+    override fun <T : Any> observe(toggle: FeatureToggle<T>): Flow<T> = kotlinx.coroutines.flow.flow {
+        emit(
+            value(toggle),
+        )
+    }
 
     override suspend fun <T : Any> get(toggle: FeatureToggle<T>): T = value(toggle)
 

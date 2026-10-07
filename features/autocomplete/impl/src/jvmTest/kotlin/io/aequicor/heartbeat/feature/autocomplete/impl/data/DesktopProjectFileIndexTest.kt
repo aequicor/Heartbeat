@@ -3,16 +3,16 @@ package io.aequicor.heartbeat.feature.autocomplete.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.time.Clock
 import kotlin.time.Instant
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.runTest
 
 class DesktopProjectFileIndexTest {
     private val workspace = WorkspaceRef("project")

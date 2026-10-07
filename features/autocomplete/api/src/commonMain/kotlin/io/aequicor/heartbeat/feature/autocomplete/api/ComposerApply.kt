@@ -13,9 +13,7 @@ public fun applyComposerSuggestion(
 ): ComposerDraft {
     val insertion = when (suggestion) {
         is ComposerSuggestion.Command -> suggestion.insert
-
         is ComposerSuggestion.Skill -> suggestion.insert
-
         is ComposerSuggestion.File -> "@${suggestion.relativePath} "
     }
     val from = trigger.range.first

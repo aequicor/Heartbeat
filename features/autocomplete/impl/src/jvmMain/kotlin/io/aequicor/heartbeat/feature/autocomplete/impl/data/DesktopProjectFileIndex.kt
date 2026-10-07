@@ -4,11 +4,14 @@ import dev.zacsweers.metro.ContributesBinding
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
-import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
+import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.nio.file.FileVisitResult
 import java.nio.file.Files
 import java.nio.file.Path
@@ -19,9 +22,6 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 
 private val log = Log.tag("Autocomplete/ProjectFiles")
 
@@ -101,7 +101,13 @@ internal class DesktopProjectFileIndex(
                                     mediaType = attachmentMediaTypeFor(relative),
                                 )
                             }
-                            return if (files.size >= ENTRY_LIMIT) FileVisitResult.TERMINATE else FileVisitResult.CONTINUE
+                            return if (files.size >=
+                                ENTRY_LIMIT
+                            ) {
+                                FileVisitResult.TERMINATE
+                            } else {
+                                FileVisitResult.CONTINUE
+                            }
                         }
                     },
                 )

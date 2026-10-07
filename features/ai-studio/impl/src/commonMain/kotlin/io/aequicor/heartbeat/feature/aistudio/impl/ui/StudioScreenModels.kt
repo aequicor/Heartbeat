@@ -146,7 +146,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
-        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.suggestions.isNotEmpty() },
+        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,

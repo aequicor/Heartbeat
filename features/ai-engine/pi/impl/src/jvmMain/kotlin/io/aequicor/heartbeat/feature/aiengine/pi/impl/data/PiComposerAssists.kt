@@ -7,10 +7,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.withContext
 
 private val log = Log.tag("Pi/ComposerAssists")
 
@@ -41,31 +41,37 @@ internal class PiComposerAssists(
     }
 
     private fun scan(root: Path): List<EngineAssist> {
-        val assists = mutableListOf<EngineAssist>()
         val seen = mutableSetOf<String>()
-        outer@ for (directory in SKILL_DIRECTORIES) {
-            val skills = root.resolve(directory)
-            if (!Files.isDirectory(skills)) continue
-            val entries = Files.list(skills).use { stream ->
-                stream.filter { Files.isDirectory(it) }.sorted().toList()
-            }
-            for (entry in entries) {
-                val file = entry.resolve(SKILL_FILE)
-                if (!Files.isRegularFile(file)) continue
-                val frontmatter = readFrontmatter(file) ?: continue
-                val id = entry.fileName.toString()
-                if (!seen.add(id)) continue
-                assists += EngineAssist(
-                    id = "skill:$id",
-                    label = frontmatter.name ?: id,
-                    description = frontmatter.description,
-                    insert = "${frontmatter.name ?: id} ",
-                    kind = EngineAssist.Kind.Skill,
-                )
-                if (assists.size >= SKILL_LIMIT) break@outer
-            }
+        val assists = mutableListOf<EngineAssist>()
+        for (directory in SKILL_DIRECTORIES) {
+            assists += skillDirectories(root.resolve(directory))
+                .mapNotNull(::skillAssist)
+                .filter { seen.add(it.id) }
+            if (assists.size >= SKILL_LIMIT) return assists.take(SKILL_LIMIT)
         }
         return assists
+    }
+
+    private fun skillDirectories(directory: Path): List<Path> {
+        if (!Files.isDirectory(directory)) return emptyList()
+        return Files.list(directory).use { stream ->
+            stream.filter { Files.isDirectory(it) }.sorted().toList()
+        }
+    }
+
+    private fun skillAssist(entry: Path): EngineAssist? {
+        val file = entry.resolve(SKILL_FILE)
+        if (!Files.isRegularFile(file)) return null
+        val frontmatter = readFrontmatter(file) ?: return null
+        val id = entry.fileName.toString()
+        val name = frontmatter.name ?: id
+        return EngineAssist(
+            id = "skill:$id",
+            label = name,
+            description = frontmatter.description,
+            insert = "$name ",
+            kind = EngineAssist.Kind.Skill,
+        )
     }
 
     private fun readFrontmatter(file: Path): SkillFrontmatter? = try {
@@ -102,7 +108,9 @@ internal class PiComposerAssists(
                     val trimmed = line.trim()
                     if (trimmed == "---") break
                     when {
-                        trimmed.startsWith("name:") -> name = trimmed.removePrefix("name:").trim().takeIf(String::isNotEmpty)
+                        trimmed.startsWith(
+                            "name:",
+                        ) -> name = trimmed.removePrefix("name:").trim().takeIf(String::isNotEmpty)
 
                         trimmed.startsWith("description:") ->
                             description = trimmed.removePrefix("description:").trim()

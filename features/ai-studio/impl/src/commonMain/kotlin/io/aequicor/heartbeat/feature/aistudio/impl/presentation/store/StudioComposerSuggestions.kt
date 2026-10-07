@@ -1,8 +1,11 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import kotlinx.collections.immutable.persistentListOf
@@ -34,8 +37,11 @@ internal data class SuggestionQuery(
     val scope: ComposerScope,
     val hostCommands: List<HostCommand>,
 ) {
-    val token: String get() = "${trigger::class.simpleName}:${trigger.range.first}:${trigger.query}"
+    val token: String get() = trigger.tokenKey()
 }
+
+/** Identity of the token being completed; a dismissed token stays dismissed until it changes. */
+internal fun ComposerTrigger.tokenKey(): String = "${this::class.simpleName}:$range.first:$query"
 
 /** The caret follows the end of a programmatic draft replacement until the editor reports a position. */
 internal fun AiStudioScreenState.withDraftCaret(paneId: Int, caret: Int): AiStudioScreenState = copy(
@@ -51,21 +57,23 @@ internal fun AiStudioScreenState.withoutSuggestions(paneId: Int): AiStudioScreen
 internal fun AiStudioScreenState.withDismissedSuggestions(paneId: Int, token: String): AiStudioScreenState = copy(
     composerSuggestions = (
         composerSuggestions + (draftKey(paneId) to ComposerSuggestionsUi(persistentListOf(), 0, token))
-        ).toImmutableMap(),
+    ).toImmutableMap(),
 )
 
 /** Published suggestions replace the pane's entry unless that exact token was dismissed. */
 internal fun AiStudioScreenState.withSuggestionItems(
     query: SuggestionQuery,
-    items: List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion>,
+    items: List<ComposerSuggestion>,
 ): AiStudioScreenState {
     val current = composerSuggestions[query.draftKey]
-    val isDismissed = current != null && current.suggestions.isEmpty() && current.token == query.token
+    val isDismissed = current != null && current.items.isEmpty() && current.token == query.token
     if (isDismissed) return this
     return copy(
         composerSuggestions = (
-            composerSuggestions + (query.draftKey to ComposerSuggestionsUi(items.toImmutableList(), 0, query.token))
-            ).toImmutableMap(),
+            composerSuggestions + (
+                query.draftKey to ComposerSuggestionsUi(items.map { it.toUi() }.toImmutableList(), 0, query.token)
+            )
+        ).toImmutableMap(),
     )
 }
 
@@ -73,9 +81,65 @@ internal fun AiStudioScreenState.withSuggestionItems(
 internal fun AiStudioScreenState.withMovedSuggestion(paneId: Int, delta: Int): AiStudioScreenState {
     val key = draftKey(paneId)
     val list = composerSuggestions[key] ?: return this
-    if (list.suggestions.isEmpty()) return this
-    val next = (list.selectedIndex + delta).mod(list.suggestions.size)
-    return copy(
-        composerSuggestions = (composerSuggestions + (key to list.copy(selectedIndex = next))).toImmutableMap(),
+    if (list.items.isEmpty()) return this
+    val next = (list.selectedIndex + delta).mod(list.items.size)
+    return copy(composerSuggestions = (composerSuggestions + (key to list.copy(selectedIndex = next))).toImmutableMap())
+}
+
+/** The screen projection of one merged suggestion. */
+internal fun ComposerSuggestion.toUi(): SuggestionUi = SuggestionUi(
+    id = id,
+    label = label,
+    description = description,
+    kind = when (this) {
+        is ComposerSuggestion.Command -> SuggestionKindUi.Command
+        is ComposerSuggestion.Skill -> SuggestionKindUi.Skill
+        is ComposerSuggestion.File -> SuggestionKindUi.File
+    },
+    origin = when (val apiOrigin = origin) {
+        is ComposerAssistOrigin.Heartbeat -> SuggestionOriginUi.Heartbeat
+        is ComposerAssistOrigin.Engine -> SuggestionOriginUi(apiOrigin.engine)
+    },
+    insert = when (this) {
+        is ComposerSuggestion.Command -> insert
+        is ComposerSuggestion.Skill -> insert
+        is ComposerSuggestion.File -> ""
+    },
+    isSupported = (this as? ComposerSuggestion.File)?.isSupported ?: true,
+    relativePath = (this as? ComposerSuggestion.File)?.relativePath,
+    location = (this as? ComposerSuggestion.File)?.location,
+    sizeBytes = (this as? ComposerSuggestion.File)?.sizeBytes ?: 0,
+    mediaType = (this as? ComposerSuggestion.File)?.mediaType,
+)
+
+/** The API form the token replacement applies; file fields matter only for the attach request. */
+internal fun SuggestionUi.toCompletion(): ComposerSuggestion = when (kind) {
+    SuggestionKindUi.Command -> ComposerSuggestion.Command(
+        id,
+        label,
+        description,
+        origin.toApi(),
+        insert,
+    )
+
+    SuggestionKindUi.Skill -> ComposerSuggestion.Skill(id, label, description, origin.toApi(), insert)
+
+    SuggestionKindUi.File -> ComposerSuggestion.File(
+        id,
+        label,
+        description,
+        origin.toApi(),
+        relativePath.orEmpty(),
+        location.orEmpty(),
+        sizeBytes,
+        mediaType,
+        isSupported,
     )
 }
+
+private fun SuggestionOriginUi.toApi(): ComposerAssistOrigin = engine
+    ?.let(ComposerAssistOrigin::Engine)
+    ?: ComposerAssistOrigin.Heartbeat
+
+@Suppress("unused")
+private val unusedEngineId: EngineId? = null

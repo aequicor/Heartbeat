@@ -22,8 +22,10 @@ public data class HostCommand(
 
 /** Where a suggestion comes from: Heartbeat itself, or a native engine of the pane's route. */
 public sealed interface ComposerAssistOrigin {
+    /** Offered by Heartbeat's own features. */
     public data object Heartbeat : ComposerAssistOrigin
 
+    /** Offered by the native runtime of [engine]. */
     public data class Engine(public val engine: EngineId) : ComposerAssistOrigin
 }
 
@@ -58,6 +60,7 @@ public sealed interface ComposerSuggestion {
     /**
      * A workspace file completed to its full relative path and attached as an input of the draft.
      * [location] is the transient native source of one accepted suggestion; it is never persisted or logged.
+     * [isSupported] is false when the scope's model cannot take the file; it stays visible with the reason.
      */
     public data class File(
         override val id: String,
@@ -68,6 +71,7 @@ public sealed interface ComposerSuggestion {
         public val location: String,
         public val sizeBytes: Long,
         public val mediaType: String?,
+        public val isSupported: Boolean = true,
     ) : ComposerSuggestion {
         override fun toString(): String = "ComposerSuggestion.File(path=$relativePath, size=$sizeBytes)"
     }

@@ -49,6 +49,12 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
+import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureSessionId
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseCapabilities
@@ -57,12 +63,6 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
-import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
@@ -169,15 +169,15 @@ class AiStudioModelTest {
             },
         )
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "/rem"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "/rem"))
         advanceTimeBy(300.milliseconds)
         runCurrent()
-        assertEquals(listOf("/remember"), screen.states.value.suggestions(0)?.suggestions?.map { it.label })
+        assertEquals(listOf("/remember"), screen.states.value.suggestions(0)?.items?.map { it.label })
 
-        fixture.model.store.intent(AiStudioScreenIntent.AcceptSuggestion(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(0))
         runCurrent()
         assertEquals("/remember ", screen.states.value.draft(0))
-        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
     }
 
     @Test
@@ -196,20 +196,20 @@ class AiStudioModelTest {
             },
         )
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "use @ver"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "use @ver"))
         advanceTimeBy(300.milliseconds)
         runCurrent()
-        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
 
-        fixture.model.store.intent(AiStudioScreenIntent.DismissSuggestions(0))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DismissSuggestions(0))
         runCurrent()
-        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
 
         // Typing on changes the token, so the completion returns for the new query.
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "use @veri"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "use @veri"))
         advanceTimeBy(300.milliseconds)
         runCurrent()
-        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
     }
 
     @Test
@@ -237,22 +237,22 @@ class AiStudioModelTest {
             },
         )
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "read @READ"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "read @READ"))
         advanceTimeBy(300.milliseconds)
         runCurrent()
-        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+        assertEquals(1, screen.states.value.suggestions(0)?.items?.size)
 
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "plain words only"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "plain words only"))
         advanceTimeBy(300.milliseconds)
         runCurrent()
-        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
+        assertEquals(0, screen.states.value.suggestions(0)?.items?.size ?: 0)
     }
 
     @Test
     fun `submit preserves the draft until native acceptance`() = runTest {
         val fixture = Fixture(this, ready)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Next step"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Next step"))
         fixture.machine.result = SendResult.Ignored
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
@@ -280,7 +280,7 @@ class AiStudioModelTest {
         }
         val fixture = Fixture(this, ready, repository)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Follow up"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "Follow up"))
         fixture.model.store.intent(AiStudioScreenIntent.SelectSubSession("s-facade", "c1"))
         fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
         runCurrent()
@@ -333,7 +333,7 @@ class AiStudioModelTest {
         val failed = ready.copy(panes = listOf(StudioPane(0, createRequestId = 7)))
         val fixture = Fixture(this, failed)
         val screen = fixture.subscribe()
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "New input"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(0, "New input"))
         runCurrent()
         fixture.machine.outputs.emit(AiStudioOutput.SubmitFailed(0, "Old prompt", 7))
         runCurrent()
@@ -502,7 +502,7 @@ class AiStudioModelTest {
         val fixture = Fixture(this, ready.copy(panes = ready.panes + StudioPane(1)))
         val screen = fixture.subscribe()
         fixture.model.store.intent(AiStudioScreenIntent.SetDrawerOpen(true))
-        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(1, "Draft"))
+        fixture.model.store.intent(AiStudioScreenIntent.Suggestions.DraftChanged(1, "Draft"))
         fixture.model.store.intent(AiStudioScreenIntent.OpenSession("s-adr"))
         fixture.model.store.intent(AiStudioScreenIntent.ClosePane(1))
         runCurrent()

@@ -5,6 +5,9 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningEnabled
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import io.aequicor.heartbeat.feature.autocomplete.api.AutocompleteEnabled
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
@@ -14,10 +17,6 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
-import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 
 /**
  * Profile service merging the suggestion sources of one composer token. Heartbeat items come first, native
@@ -57,14 +56,16 @@ internal class AutocompleteComposerAssists(
             .map { it.suggestion.label.lowercase() }
             .toSet()
         return merged
-            .filterNot { it.suggestion.origin != ComposerAssistOrigin.Heartbeat && it.suggestion.label.lowercase() in heartbeatNames }
+            .filterNot {
+                it.suggestion.origin != ComposerAssistOrigin.Heartbeat &&
+                    it.suggestion.label.lowercase() in heartbeatNames
+            }
             .sortedBy { it.rank }
             .map { it.suggestion }
             .take(SUGGESTION_LIMIT)
     }
 
-    private fun HostCommand.matches(query: String): Boolean =
-        queryRank(query, id) >= 0 || queryRank(query, label) >= 0
+    private fun HostCommand.matches(query: String): Boolean = queryRank(query, id) >= 0 || queryRank(query, label) >= 0
 
     private fun hostCommand(command: HostCommand): Ranked = Ranked(
         ComposerSuggestion.Command(
@@ -137,9 +138,7 @@ internal class AutocompleteComposerAssists(
                 // A file the current model cannot take stays visible with the reason instead of disappearing.
                 val reason = when {
                     mediaType == null || mediaType !in support.allowedMediaTypes -> "unsupported format"
-
                     file.sizeBytes > support.maxFileBytes -> "too large"
-
                     else -> null
                 }
                 Ranked(
@@ -160,10 +159,8 @@ internal class AutocompleteComposerAssists(
     }
 
     private fun describeSize(sizeBytes: Long): String = when {
-        sizeBytes >= 1_048_576 -> "${sizeBytes / 1_048_576} MB"
-
-        sizeBytes >= 1_024 -> "${sizeBytes / 1_024} kB"
-
+        sizeBytes >= BYTES_PER_MB -> "${sizeBytes / BYTES_PER_MB} MB"
+        sizeBytes >= BYTES_PER_KB -> "${sizeBytes / BYTES_PER_KB} kB"
         else -> "$sizeBytes B"
     }
 
@@ -177,5 +174,7 @@ internal class AutocompleteComposerAssists(
     private companion object {
         const val SUGGESTION_LIMIT = 8
         const val HOST_RANK = -1
+        const val BYTES_PER_KB = 1_024L
+        const val BYTES_PER_MB = 1_048_576L
     }
 }

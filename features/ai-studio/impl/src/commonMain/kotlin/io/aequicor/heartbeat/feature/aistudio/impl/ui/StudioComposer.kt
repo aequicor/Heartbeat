@@ -39,11 +39,11 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PrimarySubSession
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ProjectUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.StudioModelOptions
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionKindUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SuggestionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreeJournalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.WorktreePhaseUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.withRememberCommand
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_ask
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.approval_auto
@@ -129,7 +129,7 @@ internal fun StudioComposer(
     }
     HbChatComposer(
         value = draft,
-        onValueChange = { onIntent(AiStudioScreenIntent.DraftChanged(pane.id, it)) },
+        onValueChange = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(pane.id, it)) },
         onSend = { onIntent(AiStudioScreenIntent.Submit(pane.id)) },
         onStop = { session?.let { onIntent(AiStudioScreenIntent.Stop(it.id)) } },
         sendLabel = stringResource(Res.string.composer_send),
@@ -149,10 +149,10 @@ internal fun StudioComposer(
         inputModifier = Modifier.focusRequester(focus),
         suggestions = composerSuggestions(content),
         suggestionsLabel = stringResource(Res.string.composer_suggestions),
-        onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.MoveSuggestion(pane.id, delta)) },
-        onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.AcceptSuggestion(pane.id, index)) },
-        onSuggestionsDismissed = { onIntent(AiStudioScreenIntent.DismissSuggestions(pane.id)) },
-        onCaretChange = { caret -> onIntent(AiStudioScreenIntent.CaretMoved(pane.id, caret)) },
+        onSuggestionMove = { delta -> onIntent(AiStudioScreenIntent.Suggestions.MoveSuggestion(pane.id, delta)) },
+        onSuggestionAccept = { index -> onIntent(AiStudioScreenIntent.Suggestions.AcceptSuggestion(pane.id, index)) },
+        onSuggestionsDismiss = { onIntent(AiStudioScreenIntent.Suggestions.DismissSuggestions(pane.id)) },
+        onCaretChange = { caret -> onIntent(AiStudioScreenIntent.Suggestions.CaretMoved(pane.id, caret)) },
         contextContent = if (content.hasComposerContext()) {
             { StudioComposerContext(content, onIntent) }
         } else {
@@ -186,19 +186,19 @@ private fun PaneContent.hasComposerContext(): Boolean {
 private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
     val list = content.suggestions ?: return null
     var previousSection: String? = null
-    val rows = list.suggestions.mapIndexed { index, suggestion ->
+    val rows = list.items.mapIndexed { index, suggestion ->
         val section = suggestion.sectionKey()
         val row = HbComposerSuggestion(
             id = suggestion.id,
             label = suggestion.label,
             supportingText = suggestion.description.takeIf(String::isNotEmpty),
             sectionLabel = if (section != previousSection) sectionLabel(suggestion) else null,
-            icon = when (suggestion) {
-                is ComposerSuggestion.Command -> HbIcons.Terminal
-                is ComposerSuggestion.Skill -> HbIcons.Sparkles
-                is ComposerSuggestion.File -> HbIcons.FileText
+            icon = when (suggestion.kind) {
+                SuggestionKindUi.Command -> HbIcons.Terminal
+                SuggestionKindUi.Skill -> HbIcons.Sparkles
+                SuggestionKindUi.File -> HbIcons.FileText
             },
-            isEnabled = (suggestion as? ComposerSuggestion.File)?.isSupported ?: true,
+            isEnabled = suggestion.kind != SuggestionKindUi.File || suggestion.isSupported,
             isSelected = index == list.selectedIndex,
         )
         previousSection = section
@@ -207,31 +207,21 @@ private fun composerSuggestions(content: PaneContent): HbComposerSuggestions? {
     return HbComposerSuggestions(rows, list.selectedIndex)
 }
 
-private fun ComposerSuggestion.sectionKey(): String = "${origin::class.simpleName}:${this::class.simpleName}:" +
-    when (val engineOrigin = origin) {
-        is ComposerAssistOrigin.Heartbeat -> ""
-        is ComposerAssistOrigin.Engine -> engineOrigin.engine.value
-    }
+private fun SuggestionUi.sectionKey(): String = "${origin.engine?.value.orEmpty()}:${kind.name}"
 
 @Composable
-private fun sectionLabel(suggestion: ComposerSuggestion): String = when (suggestion) {
-    is ComposerSuggestion.Command -> when (val origin = suggestion.origin) {
-        is ComposerAssistOrigin.Heartbeat -> stringResource(Res.string.suggestions_section_commands)
-        is ComposerAssistOrigin.Engine -> stringResource(
-            Res.string.suggestions_section_engine_commands,
-            origin.engine.value,
-        )
+private fun sectionLabel(suggestion: SuggestionUi): String = when (suggestion.kind) {
+    SuggestionKindUi.Command -> when (val origin = suggestion.origin.engine) {
+        null -> stringResource(Res.string.suggestions_section_commands)
+        else -> stringResource(Res.string.suggestions_section_engine_commands, origin.value)
     }
 
-    is ComposerSuggestion.Skill -> when (val origin = suggestion.origin) {
-        is ComposerAssistOrigin.Heartbeat -> stringResource(Res.string.suggestions_section_skills)
-        is ComposerAssistOrigin.Engine -> stringResource(
-            Res.string.suggestions_section_engine_skills,
-            origin.engine.value,
-        )
+    SuggestionKindUi.Skill -> when (val origin = suggestion.origin.engine) {
+        null -> stringResource(Res.string.suggestions_section_skills)
+        else -> stringResource(Res.string.suggestions_section_engine_skills, origin.value)
     }
 
-    is ComposerSuggestion.File -> stringResource(Res.string.suggestions_section_files)
+    SuggestionKindUi.File -> stringResource(Res.string.suggestions_section_files)
 }
 
 @Composable
@@ -251,7 +241,7 @@ private fun StudioComposerLeading(
         } else {
             content.settings.approval.takeIf { hasRunPreferences || content.isTrustSupported() }
         },
-        onDraft = { onIntent(AiStudioScreenIntent.DraftChanged(content.pane.id, it)) },
+        onDraft = { onIntent(AiStudioScreenIntent.Suggestions.DraftChanged(content.pane.id, it)) },
         onApproval = { onIntent(AiStudioScreenIntent.SelectApproval(it, content.pane.id)) },
         approvalEnabled = !content.isSettingPending && content.organism == null,
         organism = content.pane.isOrganism.takeIf { content.isOrganismOffered() },

@@ -12,10 +12,6 @@ import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.core.statemachine.flowmvi.reflect
 import io.aequicor.heartbeat.core.statemachine.flowmvi.sendTo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
-import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
-import io.aequicor.heartbeat.feature.autocomplete.api.applyComposerSuggestion
-import io.aequicor.heartbeat.feature.autocomplete.api.composerTrigger
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioOutput
@@ -35,6 +31,7 @@ import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsIntent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsMachineKey
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsOutput
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
 import io.aequicor.heartbeat.feature.computeruse.api.CaptureOwner
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
@@ -61,9 +58,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flatMapLatest
@@ -77,8 +72,6 @@ import pro.respawn.flowmvi.api.PipelineContext
 import pro.respawn.flowmvi.plugins.reduce
 import pro.respawn.flowmvi.plugins.whileSubscribed
 import kotlin.time.Clock
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
@@ -90,7 +83,7 @@ private typealias StudioPipeline = PipelineContext<AiStudioScreenState, AiStudio
  * sessions and transcripts of open panes) and keeps local input (drafts, sidebar). Business decisions stay
  * with the machine: the store forwards intents and clears a draft only after native engine acceptance.
  */
-@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
+@OptIn(ExperimentalCoroutinesApi::class)
 @SingleIn(AiStudioScope::class)
 @Inject
 class AiStudioModel(
@@ -108,18 +101,18 @@ class AiStudioModel(
 ) {
     private val log = Log.tag("AiStudioModel")
 
-    private companion object {
-        val SUGGESTION_DEBOUNCE: Duration = 200.milliseconds
-    }
-
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
     private val previewRequests = MutableStateFlow<List<ResourceRef>>(emptyList())
 
-    /** Latest suggestion request; null hides the popup. The debounced collector resolves it. */
-    private val suggestionQueries = MutableStateFlow<SuggestionQuery?>(null)
     private val organisms = StudioOrganismView(machine, machines, backend) { it.withAttachmentMetadata() }
 
+    /** Late-bound file attach of an accepted suggestion: the store itself is created below. */
+    private var attachSuggestedFile: suspend (paneId: Int, location: String) -> Unit = { _, _ -> }
+
+    private val suggestions = StudioSuggestions(assists) { paneId, location ->
+        attachSuggestedFile(paneId, location)
+    }
     val store = factory.create<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction>(
         name = "AiStudio",
         initial = AiStudioScreenState(now = clock.now()).reflectMachine(machine.state.value),
@@ -225,7 +218,7 @@ class AiStudioModel(
                 }
                 launch { observeTranscripts(pipeline) }
                 launch { observeAttachmentPreviews(pipeline, previews, previewRequests) }
-                launch { observeSuggestions(pipeline) }
+                launch { suggestions.observe(pipeline) }
                 launch { observeClock(pipeline) }
             }
         }
@@ -233,6 +226,11 @@ class AiStudioModel(
     }
 
     init {
+        attachSuggestedFile = { paneId, location ->
+            store.intent(
+                AiStudioScreenIntent.ImportAttachments(paneId, listOf(NativeAttachmentUi.File(location))),
+            )
+        }
         store.start(scope.coroutineScope)
         scope.coroutineScope.launch { machine.send(AiStudioIntent.Public.Start) }
     }
@@ -469,32 +467,7 @@ class AiStudioModel(
                 AiStudioIntent.Public.RespondPermission(intent.sessionId, intent.requestId, intent.optionId),
             )
 
-            is AiStudioScreenIntent.DraftChanged -> {
-                updateState { withDraft(intent.paneId, intent.text).withDraftCaret(intent.paneId, intent.text.length) }
-                queueSuggestions(pipeline, intent.paneId)
-            }
-
-            is AiStudioScreenIntent.CaretMoved -> {
-                updateState { withDraftCaret(intent.paneId, intent.caret) }
-                queueSuggestions(pipeline, intent.paneId)
-            }
-
-            is AiStudioScreenIntent.MoveSuggestion -> updateState { withMovedSuggestion(intent.paneId, intent.delta) }
-
-            is AiStudioScreenIntent.AcceptSuggestion -> acceptSuggestion(pipeline, intent)
-
-            is AiStudioScreenIntent.DismissSuggestions -> withState {
-                val token = composerSuggestions[draftKey(intent.paneId)]?.token
-                    ?: composerTrigger(draft(intent.paneId), draftCaret(intent.paneId))?.let { query ->
-                        "${query::class.simpleName}:${query.range.first}:${query.query}"
-                    }
-                if (token == null) {
-                    suggestionQueries.value = null
-                    updateState { withoutSuggestions(intent.paneId) }
-                } else {
-                    updateState { withDismissedSuggestions(intent.paneId, token) }
-                }
-            }
+            is AiStudioScreenIntent.Suggestions -> suggestions.handle(pipeline, intent)
 
             is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, intent.paneId)
 
@@ -524,76 +497,6 @@ class AiStudioModel(
             }
         }
     }
-
-    /** Resolves the pane's active token; no token clears the list and its pending query. */
-    private suspend fun queueSuggestions(pipeline: StudioPipeline, paneId: Int) = with(pipeline) {
-        withState {
-            val trigger = composerTrigger(draft(paneId), draftCaret(paneId))
-            if (trigger == null) {
-                suggestionQueries.value = null
-                updateState { withoutSuggestions(paneId) }
-                return@withState
-            }
-            val query = SuggestionQuery(
-                draftKey(paneId),
-                trigger,
-                composerScope(paneId),
-                hostCommands(),
-            )
-            val dismissed = composerSuggestions[query.draftKey]
-                ?.takeIf { it.suggestions.isEmpty() && it.token == query.token }
-            if (dismissed == null) suggestionQueries.value = query
-        }
-    }
-
-    /** Debounced publication of suggestions; a newer query cancels an obsolete resolve. */
-    private suspend fun observeSuggestions(pipeline: StudioPipeline) {
-        suggestionQueries
-            .debounce { if (it == null) Duration.ZERO else SUGGESTION_DEBOUNCE }
-            .collectLatest { query ->
-                if (query == null) return@collectLatest
-                val items = try {
-                    assists.suggest(query.trigger, query.scope, query.hostCommands)
-                } catch (e: kotlin.coroutines.cancellation.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    log.w(e) { "composer suggestions failed" }
-                    emptyList()
-                }
-                pipeline.updateState { withSuggestionItems(query, items) }
-            }
-    }
-
-    /** Replaces the pane's active token with the chosen suggestion and imports an attached file. */
-    private suspend fun acceptSuggestion(pipeline: StudioPipeline, intent: AiStudioScreenIntent.AcceptSuggestion) =
-        with(pipeline) {
-            withState {
-                val key = draftKey(intent.paneId)
-                val list = composerSuggestions[key] ?: return@withState
-                val suggestion = list.suggestions.getOrNull(intent.index ?: list.selectedIndex)
-                    ?.takeIf { it !is ComposerSuggestion.File || it.isSupported } ?: return@withState
-                val trigger = composerTrigger(draft(intent.paneId), draftCaret(intent.paneId))
-                    ?: return@withState
-                val applied = applyComposerSuggestion(draft(intent.paneId), trigger, suggestion)
-                log.i { "composer suggestion accepted kind=${suggestion::class.simpleName.orEmpty()}" }
-                updateState {
-                    copy(
-                        drafts = (drafts + (key to applied.text)).toImmutableMap(),
-                        draftCarets = (draftCarets + (key to applied.caret)).toImmutableMap(),
-                        composerSuggestions = (composerSuggestions - key).toImmutableMap(),
-                    )
-                }
-                applied.attach?.let { file ->
-                    attach(
-                        pipeline,
-                        AiStudioScreenIntent.ImportAttachments(
-                            intent.paneId,
-                            listOf(NativeAttachmentUi.File(file.location)),
-                        ),
-                    )
-                }
-            }
-        }
 
     private suspend fun attach(pipeline: StudioPipeline, intent: AiStudioScreenIntent.Attachment) = with(pipeline) {
         log.i { "Attachment action kind=${intent::class.simpleName.orEmpty()}" }

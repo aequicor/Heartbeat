@@ -8,12 +8,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 private val log = Log.tag("Autocomplete/EngineAssists")
 
@@ -23,10 +23,7 @@ private val log = Log.tag("Autocomplete/EngineAssists")
  * failure degrades to the Heartbeat-only sections instead of blocking the popup.
  */
 @Inject
-internal class EngineAssistsSource(
-    private val facade: EngineFacade,
-    private val clock: Clock,
-) {
+internal class EngineAssistsSource(private val facade: EngineFacade, private val clock: Clock) {
     private val mutex = Mutex()
     private val cache = mutableMapOf<Route, Entry>()
 

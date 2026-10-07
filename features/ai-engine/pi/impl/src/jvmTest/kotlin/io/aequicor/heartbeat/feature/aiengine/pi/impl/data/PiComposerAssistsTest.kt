@@ -1,18 +1,18 @@
 package io.aequicor.heartbeat.feature.aiengine.pi.impl.data
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.test.runTest
 
 class PiComposerAssistsTest {
     private val target = EngineTarget(EngineId("pi"), EngineBindingId("b"), ModelId("m"))
@@ -48,9 +48,13 @@ class PiComposerAssistsTest {
     private fun assists(root: Path) = PiComposerAssists(
         object : io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces {
             override val isAvailable = true
-            override fun observe() = kotlinx.coroutines.flow.flowOf(emptyList<io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace>())
+            override fun observe() = kotlinx.coroutines.flow.flowOf(
+                emptyList<io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspace>(),
+            )
             override suspend fun register(directory: String) = throw UnsupportedOperationException()
-            override suspend fun resolve(ref: WorkspaceRef): String? = ref.takeIf { it == workspace }?.let { root.toString() }
+            override suspend fun resolve(ref: WorkspaceRef): String? = ref.takeIf {
+                it == workspace
+            }?.let { root.toString() }
         },
         object : DispatcherProvider {
             override val main = Dispatchers.Default

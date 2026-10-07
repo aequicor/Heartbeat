@@ -11,9 +11,7 @@ internal fun queryRank(query: String, candidate: String): Int {
     val haystack = candidate.lowercase()
     return when {
         haystack.startsWith(needle) -> 0
-
         haystack.contains(needle) -> 1
-
         else -> -1
     }
 }
@@ -29,11 +27,8 @@ internal fun fileRank(query: String, relativePath: String): Int {
     val name = path.substringAfterLast('/')
     return when {
         name.startsWith(needle) -> 0
-
         path.startsWith(needle) -> 1
-
         path.contains(needle) -> 2
-
         else -> -1
     }
 }

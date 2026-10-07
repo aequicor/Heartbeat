@@ -260,7 +260,7 @@ class StudioOrganismUiTest {
         editor.performSemanticsAction(SemanticsActions.RequestFocus)
         editor.assertIsFocused().performKeyInput { pressKey(Key.Enter) }
         runOnIdle {
-            assertTrue(events.any { it is AiStudioScreenIntent.DraftChanged })
+            assertTrue(events.any { it is AiStudioScreenIntent.Suggestions.DraftChanged })
             assertEquals(listOf(AiStudioScreenIntent.Submit(0)), events.filterIsInstance<AiStudioScreenIntent.Submit>())
         }
     }
