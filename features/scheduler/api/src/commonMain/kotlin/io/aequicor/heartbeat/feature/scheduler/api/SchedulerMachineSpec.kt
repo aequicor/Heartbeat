@@ -58,6 +58,7 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                         intent.request.id,
                         state.rejection(intent.request, intent.at) ?: WakeRejection.Duplicate,
                         intent.request.ownedOrigin(),
+                        intent.request.initiator,
                     )
                 }
             }
@@ -185,5 +186,5 @@ private fun deadlineDelivery(wake: ScheduledWake): WakeDelivery =
 private fun List<ScheduledWake>.cancelledOutput(cause: EventOrigin? = null): SchedulerOutput.Cancelled =
     SchedulerOutput.Cancelled(
         map { it.id },
-        mapNotNull { it.request.ownedOrigin() } + listOfNotNull(cause),
+        flatMap { listOfNotNull(it.request.ownedOrigin(), it.request.initiator?.origin()) } + listOfNotNull(cause),
     )

@@ -117,6 +117,8 @@ public sealed interface SchedulerOutput : MachineOutput {
         val rejection: WakeRejection,
         /** Host ancestry retained even when no pending wake was created. Contains no note. */
         val origin: EventOrigin.Feature? = null,
+        /** Initiating request retained even when no wake row is created. */
+        val initiator: RequestInitiator? = null,
     ) : SchedulerOutput
 
     /** Pending wakes [ids] were cancelled. */

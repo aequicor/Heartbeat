@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEffect
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
@@ -37,6 +38,70 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class EventWakeAdmissionTest {
+    @Test
+    fun `initiating request is checked for deadline and system event delivery`() = runTest {
+        val initiator = RequestInitiator(SESSION, RequestId("original"))
+        for (reason in listOf(WakeReason.Deadline(START), WakeReason.Event(BusEvent(KEY, EventOrigin.System, START)))) {
+            val base = eventDelivery()
+            val delivery = base.copy(
+                wake = base.wake.copy(request = base.wake.request.copy(initiator = initiator)),
+                reason = reason,
+            )
+            val observer = object : ScheduledEventOwner {
+                override val feature = "observer"
+                override val isSessionOriginObserver = true
+                override fun admission(delivery: WakeDelivery): Flow<ScheduledWakeAdmission> {
+                    assertEquals(initiator, delivery.wake.request.initiator)
+                    return flowOf(ScheduledWakeAdmission.Drop)
+                }
+            }
+            val result = RecordingScope()
+            effects(
+                lazy { error("Denied initiator must not resolve host") },
+                setOf(observer),
+            ).handle(deliver(delivery), result)
+            assertEquals(listOf(rejected(delivery, WakeFailure.OwnerRejected)), result.sent)
+        }
+    }
+
+    @Test
+    fun `initiator observers intersect feature publisher and duplicate owner is queried once`() = runTest {
+        val base = eventDelivery()
+        val delivery = base.copy(
+            wake = base.wake.copy(
+                request = base.wake.request.copy(
+                    initiator = RequestInitiator(SESSION, RequestId("original")),
+                ),
+            ),
+        )
+        val observed = mutableListOf<String>()
+        fun owner(name: String, decision: ScheduledWakeAdmission) = object : ScheduledEventOwner {
+            override val feature = name
+            override val isSessionOriginObserver = true
+            override fun admission(delivery: WakeDelivery): Flow<ScheduledWakeAdmission> {
+                observed += name
+                return flowOf(decision)
+            }
+        }
+        val admission = assertNotNull(
+            WakeDeliveryAdmission.create(
+                delivery,
+                lazyOf(emptySet()),
+                lazyOf(
+                    setOf(
+                        owner("harness", ScheduledWakeAdmission.Allow),
+                        owner("other", ScheduledWakeAdmission.Drop),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(ScheduledWakeAdmission.Drop, admission.decisions.first())
+        // One source factory per gate, even when the same owner is publisher and request observer.
+        assertEquals(1, observed.count { it == "other" })
+        assertEquals(1, observed.count { it == "harness" })
+        assertTrue(observed.containsAll(listOf("harness", "other")))
+    }
+
     @Test
     fun `publisher denial blocks a previously registered ordinary wake before resolving any host`() = runTest {
         val delivery = eventDelivery()

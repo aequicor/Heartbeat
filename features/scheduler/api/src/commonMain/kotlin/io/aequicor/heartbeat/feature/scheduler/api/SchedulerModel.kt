@@ -91,6 +91,8 @@ public data class WakeRequest(
     val ownerContext: String? = null,
     /** Shows a feature owner's complete fenced note in the transcript instead of hiding it in the directive. */
     val isNoteVisible: Boolean = false,
+    /** Exact initiating host request, retained across scheduling and deadline delivery. Never parsed from note. */
+    val initiator: RequestInitiator? = null,
 ) {
     init {
         require(note.length <= SchedulerLimits.MAX_NOTE) { "Wake note is too long" }

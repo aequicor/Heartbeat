@@ -16,15 +16,17 @@ public interface ScheduledEventOwner {
 
     /**
      * Also observes [EventOrigin.Session] deliveries carrying an exact request identity and trusted
-     * [EventOrigin.HostTurn] notifications. All opted-in observers intersect; an observer must allow ancestry it
+     * [EventOrigin.HostTurn] notifications and wakes carrying a trusted initiating request, including deadlines.
+     * All opted-in observers intersect; an observer must allow ancestry it
      * does not own. Defaults to publisher-only admission.
      * Reading this property must not construct a runtime or start feature work.
      */
     public val isSessionOriginObserver: Boolean get() = false
 
     /**
-     * Current admission for one immutable Feature delivery, or an opted-in exact Session/HostTurn causal relay,
+     * Current admission for one immutable Feature delivery, or an opted-in exact request causal relay,
      * including its original event and opaque host metadata. Session observations must allow unknown ancestry.
+     * Inspect both the wake initiator and trigger origin; restrictions from independent causes combine.
      * Emit the current decision immediately, then changes. The host collects again at the native submission
      * boundary; correlation bookkeeping must be idempotent for the same delivery request. Refusal stays sticky
      * for that attempt. A deadline cannot defer. Never infer authority from event payload or render metadata
