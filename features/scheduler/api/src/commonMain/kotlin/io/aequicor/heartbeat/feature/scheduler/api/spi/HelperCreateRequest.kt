@@ -8,7 +8,8 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 
 /**
  * Empty helper creation. Persist identity, owner, parent, helper marker and trust cap before returning.
- * A null [target] is allowed only without [parent]; the host selects its current default on the first prompt.
+ * A null [target] inherits the durable target of [parent], failing if it is unknown. Only a parentless helper
+ * may leave its target unset for the host to select its current default on the first prompt.
  */
 public data class HelperCreateRequest(
     val owner: ActionId,
@@ -18,10 +19,6 @@ public data class HelperCreateRequest(
     val title: String,
     val trustCap: TrustLevel,
 ) {
-    init {
-        require(parent == null || target != null) { "A parented helper requires an explicit target" }
-    }
-
     override fun toString(): String = "HelperCreateRequest(owner=$owner, hasParent=${parent != null})"
 }
 

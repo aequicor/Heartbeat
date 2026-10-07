@@ -123,8 +123,9 @@ public interface HelperAgents {
 
     /**
      * Creates and persists an empty helper chat, never a prompt. A parent uses its actual execution workspace;
-     * [workspace] routes parentless helpers. A null [target] is allowed only without a parent and leaves the first
-     * model choice to the host's current defaults. The host enforces [trustCap] and parent trust on every turn.
+     * [workspace] routes parentless helpers. A null [target] inherits the parent's durable target; creation fails
+     * if that target is unknown. Without a parent, null leaves the first model choice to the host's current
+     * defaults. An explicit target is preserved. The host enforces [trustCap] and parent trust on every turn.
      */
     public suspend fun create(
         lease: HelperLease,

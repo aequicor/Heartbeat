@@ -85,6 +85,28 @@ class StudioHelperChatRecordsTest {
     }
 
     @Test
+    fun `omitted target inherits durable parent model while explicit target stays unchanged`() {
+        val parentTarget = target.copy(model = ModelId("parent-model"))
+        val routedParent = parent.copy(target = parentTarget)
+        val inherited = newStudioHelperRecord("helper", at, request.copy(target = null), routedParent)
+        assertEquals(parentTarget, inherited.target)
+        assertEquals(
+            parentTarget,
+            Json.decodeFromString<StudioChatRecord>(Json.encodeToString(inherited)).target,
+        )
+        assertEquals(target, newStudioHelperRecord("explicit", at, request, routedParent).target)
+    }
+
+    @Test
+    fun `unknown parent model refuses default fallback but parentless helper may use host default`() {
+        assertFailsWith<IllegalStateException> {
+            newStudioHelperRecord("helper", at, request.copy(target = null), parent)
+        }
+        val detached = newStudioHelperRecord("detached", at, request.copy(parent = null, target = null), null)
+        assertNull(detached.target)
+    }
+
+    @Test
     fun `old chat without helper metadata stays ordinary`() {
         val old = Json.decodeFromString<StudioChatRecord>(
             """{"id":"old","title":"Old","updatedAt":"2026-09-28T00:00:00Z"}""",
