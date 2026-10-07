@@ -60,6 +60,9 @@ private const val REJECTION_GRACE_FRAMES = 2
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
  * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
+ *
+ * [onCaretChange] reports the caret (selection start) after every user edit or owner-driven replacement, so an
+ * owner can resolve token triggers at the caret; it is not called while the value and selection stay unchanged.
  */
 @Composable
 internal fun HbEditableText(
@@ -74,14 +77,23 @@ internal fun HbEditableText(
     isSecret: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    onCaretChange: ((Int) -> Unit)? = null,
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
     val currentValue by rememberUpdatedState(value)
+    val caretListener by rememberUpdatedState(onCaretChange)
+    // The first composition reports nothing: owners see caret changes, not the initial position.
+    var reportedCaret by remember { mutableIntStateOf(state.selection.min) }
     // Reading text also observes rejected proposals and edits that bypass InputTransformation, such as undo.
     val editingText = state.text.toString()
     SideEffect(value, editingText, state.selection, bridge.revision) {
         bridge.reconcile(state, value, onValueChange)
+        val caret = state.selection.min
+        if (caret != reportedCaret) {
+            reportedCaret = caret
+            caretListener?.invoke(caret)
+        }
     }
     LaunchedEffect(bridge, bridge.rejectionCheck) {
         if (bridge.rejectionCheck == 0) return@LaunchedEffect
