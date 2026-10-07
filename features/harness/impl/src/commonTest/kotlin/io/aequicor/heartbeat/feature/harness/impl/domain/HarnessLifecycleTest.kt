@@ -6,7 +6,10 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessChange
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -18,6 +21,48 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class HarnessLifecycleTest {
+    @Test
+    fun `enabled work subscribes before load and closes admission before suspension`() = runTest {
+        val signal = MutableSharedFlow<Unit>()
+        val load = CompletableDeferred<Unit>()
+        var starts = 0
+        var closes = 0
+        val storage = MemoryLibrary().apply {
+            beforeLoad = {
+                assertEquals(1, signal.subscriptionCount.value)
+                load.await()
+            }
+        }
+        val library = lazy { HarnessMachineFixture(backgroundScope, HarnessEffects(storage, RecordingRuntime())) }
+        val work = lazy {
+            object : HarnessEnabledWork {
+                override fun start(scope: CoroutineScope) {
+                    starts++
+                    scope.launch(start = CoroutineStart.UNDISPATCHED) { signal.collect {} }
+                }
+                override fun stop() {
+                    assertFalse(library.value.state.value.isSuspended)
+                    closes++
+                }
+            }
+        }
+        val enabled = MutableStateFlow(false)
+        backgroundScope.launch { followHarnessToggle(library, enabled, work) }
+        runCurrent()
+        assertFalse(library.isInitialized())
+        assertFalse(work.isInitialized())
+        enabled.value = true
+        runCurrent()
+        assertEquals(1, starts)
+        assertIs<HarnessState.Loading>(library.value.state.value)
+        enabled.value = false
+        runCurrent()
+        assertEquals(1, closes)
+        assertEquals(0, signal.subscriptionCount.value)
+        assertTrue(library.value.state.value.isSuspended)
+        load.complete(Unit)
+    }
+
     @Test
     fun `off during initial load stays suspended and never activates until a later enable`() = runTest {
         val gate = CompletableDeferred<Unit>()

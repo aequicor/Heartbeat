@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.profilefacade.ProfileStartup
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessEnabledWork
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.followHarnessToggle
 import kotlinx.coroutines.launch
@@ -19,8 +20,9 @@ internal class HarnessStartup(
     private val machine: Lazy<HarnessMachine>,
     private val toggles: FeatureToggles,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val work: Lazy<HarnessEnabledWork>,
 ) : ProfileStartup {
     override fun start() {
-        profile.coroutineScope.launch { followHarnessToggle(machine, toggles.observe(HarnessEnabled)) }
+        profile.coroutineScope.launch { followHarnessToggle(machine, toggles.observe(HarnessEnabled), work) }
     }
 }

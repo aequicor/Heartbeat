@@ -14,18 +14,25 @@ import kotlinx.coroutines.withContext
  * Starts lazily on the first enable. Closing an enabled branch suspends even an in-flight initial load.
  * Machine effects belong to the profile, not this branch: saving and its receipt survive global suspension.
  */
-internal suspend fun followHarnessToggle(machine: Lazy<HarnessMachine>, enabled: Flow<Boolean>) {
+internal suspend fun followHarnessToggle(
+    machine: Lazy<HarnessMachine>,
+    enabled: Flow<Boolean>,
+    work: Lazy<HarnessEnabledWork>? = null,
+) {
     enabled.distinctUntilChanged().collectLatest { isEnabled ->
         if (isEnabled) {
             coroutineScope {
                 val library = machine.value
+                val sources = work?.value
                 try {
+                    sources?.start(this)
                     if (library.state.value.isSuspended) library.send(HarnessIntent.Internal.Resumed)
                     if (library.state.value is HarnessState.Idle || library.state.value is HarnessState.Failed) {
                         library.send(HarnessIntent.Internal.Start)
                     }
                     awaitCancellation()
                 } finally {
+                    sources?.stop()
                     withContext(NonCancellable) { library.send(HarnessIntent.Internal.Suspended) }
                 }
             }
