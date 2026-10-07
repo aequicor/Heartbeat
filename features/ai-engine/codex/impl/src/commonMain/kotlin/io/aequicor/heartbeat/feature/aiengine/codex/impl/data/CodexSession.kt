@@ -61,6 +61,7 @@ internal class CodexSession(
     val connection get() = execution.connection
     private val rpc get() = connection.rpc
     val contextUsage = CodexContextUsage()
+    val contextRevision = CodexContextRevision()
     private val log = Log.tag("CodexSession")
     val history = CodexHistory()
     private val journal = CodexTurnJournal(runtime.host.turns, ref, route, runtime.turnOwnership)
@@ -160,6 +161,7 @@ internal class CodexSession(
     }
 
     private fun connectionChanged(source: CodexConnection) {
+        contextRevision.renewed()
         questions = CodexUserInput(scope.coroutineScope, source::respondQuietly, permissions::awaitDecision)
     }
 
@@ -477,6 +479,7 @@ internal class CodexSession(
     private suspend fun receive(message: JsonObject, source: CodexConnection) {
         val params = message.obj("params")
         val method = message.text("method")
+        contextRevision.event(method, params)
         if (contextUsage.event(method, params, runtime::usageEnabled)) return
         val turn = currentTurn()
         val turnId = correlate(params, turn)

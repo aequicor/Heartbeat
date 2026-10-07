@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
@@ -37,5 +38,6 @@ internal fun piSessionFeatures(
         ChangesSessionConfiguration to session,
         SessionHistory to journal,
         SessionContextUsage to session.contextUsage,
+        SessionContextRevision to session.contextRevision,
     ),
 )
