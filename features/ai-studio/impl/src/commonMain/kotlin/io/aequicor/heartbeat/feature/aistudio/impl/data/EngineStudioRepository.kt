@@ -142,6 +142,7 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRepository>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRuntime>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHelperAccess>())
@@ -312,7 +313,9 @@ internal class EngineStudioRepository(
         title: String,
         isWorktree: Boolean,
         organism: OrganismRequest?,
+        executionWorkspace: WorkspaceRef?,
     ): StudioSession {
+        workspaces.requireExecutionWorkspace(executionWorkspace, projectId != null && !isWorktree && organism == null)
         log.i { "Create studio conversation worktree=$isWorktree organism=${organism != null}" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
@@ -325,6 +328,7 @@ internal class EngineStudioRepository(
             clock.now(),
             projectId = projectId,
             worktreeTaskId = id.takeIf { isWorktree },
+            executionWorkspace = executionWorkspace,
             organismId = organism?.let { organisms.admit(id, it, isWorktree) },
         )
         val record = conversations.create(pending, ::saveConversation)
@@ -908,3 +912,8 @@ private fun studioCreateRequest(target: EngineTarget, workspace: WorkspaceRef?):
 /** Resuming another segment retains the same Studio ownership contract. */
 private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
     ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+
+private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
+    require(workspace == null || isSupported)
+    if (workspace != null) requireNotNull(resolve(workspace)) { "The execution folder is unavailable" }
+}

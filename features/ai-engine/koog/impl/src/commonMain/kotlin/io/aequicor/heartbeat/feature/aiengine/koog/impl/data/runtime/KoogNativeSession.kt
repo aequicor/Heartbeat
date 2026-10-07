@@ -351,7 +351,7 @@ internal class KoogNativeSession(
                 val textModel = provider.textModel(
                     selectedModel,
                     tools = !tools.isEmpty(),
-                    attachments = record.items.hasResourceInputs(),
+                    attachments = history.items.hasResourceInputs(),
                 )
                 // Hosted instructions only accompany the tools they describe; blank ones add no system message.
                 val instructions = workspace?.instructions?.takeIf { it.isNotBlank() && !tools.isEmpty() }

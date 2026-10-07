@@ -113,6 +113,14 @@ internal class CodexSession(
         },
     )
 
+    val recovery = CodexTurnRecovery(
+        ref,
+        machine,
+        nativeTurns,
+        { readNativeHistory()?.turns },
+        { codexTurnOutcome(it, route.binding) },
+    ) { nativeTurn = it }
+
     private val leases = mutableSetOf<CodexLease>()
     fun lease(): ActiveSession = CodexLease(this).also { leases += it }
     fun release(lease: CodexLease) {
@@ -586,7 +594,7 @@ internal class CodexSession(
         val context = toolContext(turn, params)
         return try {
             val result = runtime.host.tools.execute(context, name, args)
-            toolResult(!result.isError, result.text)
+            toolResult(!result.isError, result.text, result.images)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

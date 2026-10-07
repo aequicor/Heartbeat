@@ -10,8 +10,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -165,6 +167,17 @@ class PiTurnRecoveryTest {
             assertTrue(records.get(session.ref)?.active != null)
         }
         assertTrue(fixture.processes.connections.all { it.isClosed && it.stopRequests > 0 })
+    }
+
+    @Test
+    fun `fresh native busy snapshot never treats a recreated ready handle as idle`() = runTest {
+        val f = fixture(this)
+        val recovery = (f.session.features.resolve(RestoresSessionTurns) as FeatureAccess.Available).feature
+        f.connection.isStreaming = true
+        assertEquals(TurnInspection.Unknown, recovery.inspect(null))
+        f.connection.isStreaming = false
+        assertEquals(TurnInspection.Idle, recovery.inspect(null))
+        f.session.shutdown()
     }
 }
 

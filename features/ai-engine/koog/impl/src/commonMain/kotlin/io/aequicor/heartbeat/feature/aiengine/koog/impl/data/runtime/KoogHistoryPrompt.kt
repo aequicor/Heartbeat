@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.prompt.Prompt
+import ai.koog.prompt.dsl.PromptBuilder
 import ai.koog.prompt.dsl.prompt
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.params.LLMParams
@@ -45,13 +46,7 @@ internal suspend fun koogHistoryPrompt(
                 }
 
                 is SessionItem.ToolResult -> calls[item.call]?.let { call ->
-                    val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
-                    toolResult(
-                        tool = call.name,
-                        output = text,
-                        id = item.call.value,
-                        isError = item.failure != null,
-                    )
+                    historyToolResult(item, call, provider)
                 }
 
                 is SessionItem.Plan, is SessionItem.Notice, is SessionItem.UnsupportedItem -> Unit
@@ -71,4 +66,17 @@ private suspend fun koogUserInputs(
         inputs[item.info.id] = resolveKoogInputs(item.parts, support, resources).koogUserParts(provider)
     }
     return inputs
+}
+
+private fun PromptBuilder.historyToolResult(
+    item: SessionItem.ToolResult,
+    call: SessionItem.ToolCall,
+    provider: KoogProvider,
+) {
+    val text = item.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+    toolResult(tool = call.name, output = text, id = item.call.value, isError = item.failure != null)
+    val images = item.parts.filterIsInstance<ContentPart.Image>()
+    if (images.isNotEmpty()) {
+        user(listOf(MessagePart.Text(toolImageSource(item.call.value))) + images.koogUserParts(provider))
+    }
 }

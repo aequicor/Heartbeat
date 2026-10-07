@@ -307,7 +307,7 @@ internal class FakeConnection : PiConnection {
                 JsonPrimitive(
                     it,
                 )
-            }},"isStreaming":$isStreaming,
+            }},"isStreaming":$isStreaming,"isCompacting":false,
                "thinkingLevel":"$thinkingLevel",
                "model":$selectedModel}""",
         ).jsonObject

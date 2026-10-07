@@ -37,14 +37,16 @@ internal class ProfileBackgroundCapacity(
     private val machine: BackgroundCapacityMachine,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
     private val journal: ActionJournal,
+    private val graphs: GraphCapacityRecords = GraphCapacityRecords { emptyList() },
 ) {
     private val lock = Mutex()
     private var isRestored = false
+    val changes get() = machine.state
 
     /** One barrier shared by every acquisition: existing native work is counted before any new admission. */
     suspend fun restore() = lock.withLock {
         if (isRestored) return@withLock
-        val reservations = journal.readAll().filter {
+        val reservations = graphs.reservations() + journal.readAll().filter {
             it.kind == "agent" && it.payload == null && (it.helper != null || it.parent == null || it.request == null)
         }.map { record ->
             BackgroundReservation(
@@ -72,6 +74,34 @@ internal class ProfileBackgroundCapacity(
     suspend fun acquireHelper(id: ActionId, owner: ActionId, parent: SessionRef?) {
         check(acquire(BackgroundReservation(id, owner, parent, BackgroundCapacityKind.Helper)) == null) {
             "Duplicate helper acquisition"
+        }
+    }
+
+    /** Restored native work counts even when it exceeds the current admission quota. */
+    suspend fun restoreScheduled(id: ActionId, parent: SessionRef) {
+        restore()
+        lock.withLock {
+            val reservation = BackgroundReservation(id, id, parent, BackgroundCapacityKind.Scheduled)
+            machine.send(BackgroundCapacityIntent.Internal.Restore(listOf(reservation)))
+        }
+    }
+
+    /** Transfer never releases capacity to another waiter between old and new recovery attempts. */
+    suspend fun transferScheduled(previous: ActionId, next: ActionId, parent: SessionRef): Boolean {
+        restore()
+        return lock.withLock {
+            val ready = machine.state.value as BackgroundCapacityState.Ready
+            if (ready.active.none { it.id == previous && it.parent == parent } ||
+                (ready.active + ready.queued).any { it.id == next }
+            ) {
+                return@withLock false
+            }
+            withContext(NonCancellable) {
+                val reservation = BackgroundReservation(next, next, parent, BackgroundCapacityKind.Scheduled)
+                machine.send(BackgroundCapacityIntent.Internal.Restore(listOf(reservation)))
+                machine.send(BackgroundCapacityIntent.Public.Release(previous))
+            }
+            true
         }
     }
 

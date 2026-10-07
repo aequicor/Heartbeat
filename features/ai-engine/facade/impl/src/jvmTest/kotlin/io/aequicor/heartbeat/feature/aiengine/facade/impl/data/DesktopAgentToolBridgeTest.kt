@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.di.ScopeSavedState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
@@ -28,7 +29,11 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -84,6 +89,34 @@ class DesktopAgentToolBridgeTest {
             active = original
             assertTrue(post(endpoint.url, CALL, endpoint.token).body().contains("\"isError\":false"))
             assertEquals(1, calls)
+        } finally {
+            capability.close()
+            profile.close()
+        }
+    }
+
+    @Test
+    fun `execute and MCP deliver image content without truncating it to the text limit`() = runBlocking {
+        val profile = BridgeProfile()
+        val image = AgentToolImage("image/jpeg", "AQID".repeat(100_000))
+        val tools = CapturingTools(AgentToolResult("geometry", images = listOf(image)))
+        val capability = DesktopAgentToolBridge(tools, profile).attach(PROJECT) { context() }
+        try {
+            val endpoint = capability.endpoint
+            val mcp = Json.parseToJsonElement(post(endpoint.url, CALL, endpoint.token).body()).jsonObject
+            val content = mcp.getValue("result").jsonObject.getValue("content") as JsonArray
+            assertEquals("geometry", content[0].jsonObject.getValue("text").jsonPrimitive.content)
+            assertEquals("image", content[1].jsonObject.getValue("type").jsonPrimitive.content)
+            assertEquals(image.mimeType, content[1].jsonObject.getValue("mimeType").jsonPrimitive.content)
+            assertEquals(image.data, content[1].jsonObject.getValue("data").jsonPrimitive.content)
+            val response = HttpClient.newHttpClient().send(
+                request(endpoint.url, """{"name":"tool","arguments":{}}""", endpoint.token, "/execute"),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+            val output = Json.parseToJsonElement(response.body()).jsonObject
+            val images = output.getValue("images") as JsonArray
+            assertEquals(content[1], images.single())
+            assertEquals(2, tools.calls.size)
         } finally {
             capability.close()
             profile.close()
@@ -259,7 +292,7 @@ class DesktopAgentToolBridgeTest {
     }
 }
 
-private class CapturingTools : ProfileAgentTools {
+private class CapturingTools(private val result: AgentToolResult = AgentToolResult("done")) : ProfileAgentTools {
     val calls = mutableListOf<AgentToolContext>()
     override suspend fun specifications(workspace: WorkspaceRef?) = listOf(
         AgentToolSpec("tool", "Tool", JsonObject(emptyMap())),
@@ -267,7 +300,7 @@ private class CapturingTools : ProfileAgentTools {
     override suspend fun instructions(workspace: WorkspaceRef?) = "Host instructions"
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         calls += context
-        return AgentToolResult("done")
+        return result
     }
 }
 
@@ -308,8 +341,8 @@ private fun context() = AgentToolContext(
     TurnId("turn"),
 )
 
-private fun request(origin: String, body: String, token: String): HttpRequest =
-    HttpRequest.newBuilder(URI("$origin/mcp")).timeout(Duration.ofSeconds(10))
+private fun request(origin: String, body: String, token: String, path: String = "/mcp"): HttpRequest =
+    HttpRequest.newBuilder(URI("$origin$path")).timeout(Duration.ofSeconds(10))
         .header("Authorization", "Bearer $token").header("Content-Type", "application/json")
         .POST(HttpRequest.BodyPublishers.ofString(body)).build()
 

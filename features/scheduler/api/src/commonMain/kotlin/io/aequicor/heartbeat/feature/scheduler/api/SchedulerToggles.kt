@@ -20,6 +20,12 @@ public val SchedulerActions: FeatureToggle.Flag = FeatureToggle.Flag(
     "Планировщик: фоновые команды и агенты-помощники с пробуждением по результату",
 )
 
+/** Immutable task graphs; requires both the scheduler and background actions. */
+public val SchedulerTaskGraphs: FeatureToggle.Flag = FeatureToggle.Flag(
+    "scheduler.task_graphs",
+    "Планировщик: графы зависимых и параллельных задач",
+)
+
 /** Names of the hosted scheduler tools and their arguments. */
 public object SchedulerTools {
     /** Schedules a wake of the calling session; the agent ends its turn afterwards. */

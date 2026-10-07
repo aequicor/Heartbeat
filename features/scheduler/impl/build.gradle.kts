@@ -6,6 +6,9 @@ plugins {
 
 kotlin {
     sourceSets {
+        jvmMain.dependencies {
+            implementation(libs.jna.platform)
+        }
         commonMain.dependencies {
             implementation(projects.features.scheduler.api)
             implementation(projects.core.common)

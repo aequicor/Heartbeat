@@ -5,10 +5,12 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RestoresSessionTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -21,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -159,6 +162,61 @@ class CodexTurnRecoveryTest {
             listOf(json("id" to "answer".json(), "type" to "agentMessage".json(), "text" to "Answer".json())),
         ),
     )
+
+    @Test
+    fun `completion during adoption is discovered by the second native snapshot`() = runTest {
+        val before = Fixture(this)
+        val original = before.open()
+        original.feature(SendsPrompts).send(Prompt)
+        val receipt = assertNotNull(original.feature(RestoresSessionTurns).checkpoint(Prompt.id))
+        val after = Fixture(this)
+        after.threadTurns = listOf(json("id" to "native-turn".json(), "status" to "inProgress".json()))
+        val resumed = after.runtime.attach(original.ref, ResumeSessionRequest(after.target))
+        val handler = after.wire.handler
+        after.wire.handler = { message ->
+            handler(message)
+            if (message.text("method") == "thread/read") {
+                after.threadTurns = listOf(json("id" to "native-turn".json(), "status" to "completed".json()))
+                after.event("turn/completed", "turn" to after.threadTurns.single())
+            }
+        }
+        assertEquals(
+            TurnInspection.Observed(Prompt.id, TurnOutcome.Completed),
+            resumed.feature(RestoresSessionTurns).inspect(receipt),
+        )
+        assertIs<ActiveSessionState.Ready>(resumed.state.value)
+    }
+
+    @Test
+    fun `native receipt survives recreation and recovers completed outcome`() = runTest {
+        val before = Fixture(this)
+        val original = before.open()
+        original.feature(SendsPrompts).send(Prompt)
+        val receipt = assertNotNull(original.feature(RestoresSessionTurns).checkpoint(Prompt.id))
+        val after = Fixture(this)
+        after.threadTurns = listOf(json("id" to "native-turn".json(), "status" to "completed".json()))
+        val resumed = after.runtime.attach(original.ref, ResumeSessionRequest(after.target))
+        assertIs<ActiveSessionState.Ready>(resumed.state.value)
+        assertEquals(
+            TurnInspection.Observed(Prompt.id, TurnOutcome.Completed),
+            resumed.feature(RestoresSessionTurns).inspect(receipt),
+        )
+    }
+
+    @Test
+    fun `only a receipt matched running native turn may be adopted`() = runTest {
+        val before = Fixture(this)
+        val original = before.open()
+        original.feature(SendsPrompts).send(Prompt)
+        val receipt = assertNotNull(original.feature(RestoresSessionTurns).checkpoint(Prompt.id))
+        val after = Fixture(this)
+        after.threadTurns = listOf(json("id" to "native-turn".json(), "status" to "inProgress".json()))
+        val resumed = after.runtime.attach(original.ref, ResumeSessionRequest(after.target))
+        val recovery = resumed.feature(RestoresSessionTurns)
+        assertEquals(TurnInspection.Unknown, recovery.inspect(null))
+        assertEquals(TurnInspection.Observed(Prompt.id, null), recovery.inspect(receipt))
+        assertEquals(Prompt.id, assertIs<ActiveSessionState.Running>(resumed.state.value).turn.request)
+    }
 }
 
 /** Delays writes before the atomic in-memory update, preserving the production store's transaction semantics. */

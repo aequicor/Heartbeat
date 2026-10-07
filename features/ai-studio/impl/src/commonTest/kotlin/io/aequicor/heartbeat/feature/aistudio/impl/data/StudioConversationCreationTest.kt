@@ -47,6 +47,24 @@ import kotlin.time.Instant
 @OptIn(ExperimentalCoroutinesApi::class)
 class StudioConversationCreationTest {
     @Test
+    fun `helper creation durably keeps the approved existing checkout without provisioning another`() = runTest {
+        val fixture = CreationFixture(backgroundScope)
+        val workspace = WorkspaceRef("approved-worktree")
+        val record = StudioChatRecord(
+            "helper",
+            "Graph task",
+            Instant.parse("2026-10-05T10:00:00Z"),
+            projectId = "project",
+            executionWorkspace = workspace,
+        )
+        val stored = mutableListOf<StudioChatRecord>()
+        assertEquals(record, fixture.creation.create(record) { stored += it })
+        assertEquals(workspace, stored.single().executionWorkspace)
+        assertNull(stored.single().worktreeTaskId)
+        assertEquals(0, fixture.machine.preparations)
+    }
+
+    @Test
     fun `closing the screen waiter preserves chat identity and finishes the same checkout in the profile`() = runTest {
         val fixture = CreationFixture(backgroundScope)
         val caller = async { fixture.create() }
@@ -178,7 +196,7 @@ private class CreationFixture(
         override val isClosed = false
         override fun onClose(action: () -> Unit): DisposableHandle = DisposableHandle {}
     }
-    private val creation = StudioConversationCreation(profile, StudioWorktrees(creationRegistry(machine), NoAgentTools))
+    val creation = StudioConversationCreation(profile, StudioWorktrees(creationRegistry(machine), NoAgentTools))
 
     suspend fun create(isWorktree: Boolean = true): StudioChatRecord = creation.create(pending(isWorktree), ::save)
 

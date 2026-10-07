@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -112,6 +113,53 @@ class FacadeAdaptersTest {
         cells.open(key, route, old.ref, generation = 2).submit(RequestId("new"), "work", null)
         assertEquals(1, newer.prompts.size)
         assertEquals(2, facade.resumptions.size)
+    }
+
+    @Test
+    fun `a busy resumption waits out a short transcript view instead of breaking the cell`() = runTest {
+        val native = FakeSession(session("continued"))
+        val facade = FakeFacade(stored = mapOf(native.ref to native))
+        facade.onResume = {
+            if (facade.resumptions.size < 3) {
+                throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+            }
+        }
+        val cells = FacadeCellSessions(facade)
+        val opened = async { cells.open(key, route, existing = native.ref) }
+        advanceUntilIdle()
+        assertSame(native.ref, opened.await().session)
+        assertEquals(3, facade.resumptions.size)
+    }
+
+    @Test
+    fun `a persistently busy session fails the resume only after all its attempts`() = runTest {
+        val native = FakeSession(session("busy"))
+        val facade = FakeFacade(stored = mapOf(native.ref to native))
+        facade.onResume = {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.Busy))
+        }
+        val cells = FacadeCellSessions(facade)
+        val failed = async {
+            assertFailsWith<EngineException> { cells.open(key, route, existing = native.ref) }
+        }
+        advanceUntilIdle()
+        assertEquals(
+            SessionFailureReason.Busy,
+            (failed.await().failure as? EngineFailure.Session)?.reason,
+        )
+        assertEquals(FacadeCellSessions.RESUME_BUSY_ATTEMPTS, facade.resumptions.size)
+    }
+
+    @Test
+    fun `a resumption failure other than busy fails without waiting`() = runTest {
+        val native = FakeSession(session("gone"))
+        val facade = FakeFacade(stored = mapOf(native.ref to native))
+        facade.onResume = {
+            throw EngineException(EngineFailure.Session(SessionFailureReason.NotFound))
+        }
+        val cells = FacadeCellSessions(facade)
+        assertFailsWith<EngineException> { cells.open(key, route, existing = native.ref) }
+        assertEquals(1, facade.resumptions.size)
     }
 
     @Test

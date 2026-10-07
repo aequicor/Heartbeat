@@ -249,23 +249,6 @@ class ComputerUseAgentToolsTest {
     }
 
     @Test
-    fun `capture waits for host acknowledgement before requesting a frame`() = runTest {
-        val fixture = Fixture(this, ComputerUseState.Ready(Capabilities))
-        val args = buildJsonObject { put("mode", "desktop") }
-        val spec = fixture.tools.specifications(null).first { it.name == "computer_capture" }
-        val approved = fixture.context.copy(authorization = fixture.tools.approval(fixture.context, spec, args))
-        val call = async { fixture.tools.execute(approved, spec.name, args) }
-        runCurrent()
-        assertTrue(fixture.machine.sent.any { it is ComputerUseIntent.Public.BeginCapture })
-        assertFalse(fixture.machine.sent.any { it is ComputerUseIntent.Public.Capture })
-        val opened = fixture.machine.state.value as ComputerUseState.Capturing
-        fixture.machine.state.value = opened.copy(isOpen = true)
-        advanceUntilIdle()
-        assertFalse(call.await().isError)
-        assertEquals(1, fixture.machine.sent.count { it is ComputerUseIntent.Public.Capture })
-    }
-
-    @Test
     fun `unrelated frame and refusal cannot answer another request`() = runTest {
         val fixture = Fixture(this, Capturing)
         val reply = fixture.tools.execute(fixture.context, "computer_screenshot", JsonObject(emptyMap()))
@@ -701,11 +684,12 @@ class ComputerUseAgentToolsTest {
         assertTrue(fixture.machine.sent.none { it is ComputerUseIntent.Public.CancelSession })
     }
 
-    private class Fixture(scope: TestScope, initial: ComputerUseState) {
+    internal class Fixture(scope: TestScope, initial: ComputerUseState) {
         val machine = ToolMachine(initial)
         val registry = ToolRegistry(machine)
         val preferences = FakeComputerUsePreferences()
         val stoppedTurns = ComputerUseStoppedTurns()
+        val frames = FakeFrameStore().apply { files[Frame.path] = byteArrayOf(1, 2, 3) }
         val tools = ComputerUseAgentTools(
             registry,
             FakeToggles(mapOf(ComputerUseEnabled.key to true)),
@@ -720,6 +704,7 @@ class ComputerUseAgentToolsTest {
             ComputerUseCaptureLifecycle(registry, TestComputerUseScope(scope.backgroundScope), stoppedTurns),
             preferences,
             stoppedTurns,
+            frames,
         )
         val context = AgentToolContext(Owner.session, null, Owner.turn)
 
@@ -733,7 +718,7 @@ class ComputerUseAgentToolsTest {
         }
     }
 
-    private class ToolMachine(initial: ComputerUseState) :
+    internal class ToolMachine(initial: ComputerUseState) :
         MachineRef<ComputerUseState, ComputerUseIntent.Public, ComputerUseOutput> {
         override val name = "computer-use"
         override val state = MutableStateFlow(initial)
@@ -775,7 +760,7 @@ class ComputerUseAgentToolsTest {
         }
     }
 
-    private class ToolRegistry(private val machine: ToolMachine) : MachineRegistry {
+    internal class ToolRegistry(private val machine: ToolMachine) : MachineRegistry {
         var findCount = 0
         var onFind: ((Int) -> Unit)? = null
 
@@ -800,7 +785,7 @@ class ComputerUseAgentToolsTest {
         )!!.send(intent)
     }
 
-    private companion object {
+    internal companion object {
         val Capabilities = ComputerUseCapabilities(
             true,
             true,

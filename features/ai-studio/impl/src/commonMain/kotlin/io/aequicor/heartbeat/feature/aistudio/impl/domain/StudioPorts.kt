@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeCoverage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioEffect
 import io.aequicor.heartbeat.feature.aistudio.api.AiStudioIntent
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
@@ -36,14 +37,17 @@ interface StudioRepository {
      * An isolated execution request or an organic AI organism ([organism]); demo backends support neither and never
      * silently fall back to an ordinary conversation. An organism chat is created only when its organism could be
      * conceived now, and its first prompt conceives it. The default delegates to the short form, so a backend must
-     * override one of the two.
+     * override one of the two. [executionWorkspace] pins a hosted helper to an existing checkout without creating
+     * another worktree; it requires a project and cannot accompany [isWorktree].
      */
     suspend fun createSession(
         projectId: String?,
         title: String,
         isWorktree: Boolean,
         organism: OrganismRequest? = null,
+        executionWorkspace: WorkspaceRef? = null,
     ): StudioSession {
+        check(executionWorkspace == null) { "Fixed workspace execution is unavailable in this backend" }
         check(!isWorktree) { "Worktree execution is unavailable in this backend" }
         check(organism == null) { "Organic AI is unavailable in this backend" }
         return createSession(projectId, title)

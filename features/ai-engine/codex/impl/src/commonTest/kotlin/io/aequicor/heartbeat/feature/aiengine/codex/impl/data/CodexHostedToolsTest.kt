@@ -5,6 +5,7 @@ package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
@@ -41,6 +42,27 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 class CodexHostedToolsTest {
+    @Test
+    fun `hosted image reaches the dynamic tool response alongside text`() = runTest {
+        val image = AgentToolImage("image/png", "AQID")
+        val tools = object : ProfileAgentTools by HostedFixture() {
+            override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) =
+                AgentToolResult("geometry", images = listOf(image))
+        }
+        val fixture = Fixture(this, tools = tools)
+        fixture.workspacePaths[workspace] = "/project"
+        val session = fixture.open(workspace)
+        session.feature(SendsPrompts).send(Prompt)
+        fixture.callHosted()
+        runCurrent()
+        val result = fixture.wire.written.last { it["id"] == JsonPrimitive(80) }.obj("result")
+        val content = result.getValue("contentItems") as JsonArray
+        assertEquals("geometry", (content[0] as JsonObject).text("text"))
+        assertEquals("inputImage", (content[1] as JsonObject).text("type"))
+        assertEquals(image.dataUrl, (content[1] as JsonObject).text("imageUrl"))
+        fixture.runtime.close()
+    }
+
     private val workspace = WorkspaceRef("hosted-project")
 
     @Test

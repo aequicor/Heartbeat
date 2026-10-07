@@ -6,7 +6,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import kotlinx.coroutines.CompletableDeferred
@@ -93,10 +95,11 @@ class PiRuntimeTest {
     @Test
     fun `detached session keeps its transcript busy until the accepted turn settles`() = runTest {
         val fixture = runtimeFixture(this)
-        val first = assertIs<PiSession>(fixture.runtime.attach(RuntimeRef, RuntimeRequest))
+        val first = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
         val connection = fixture.processes.connections.single()
         connection.promptAck.complete(JsonObject(emptyMap()))
-        first.send(prompt("accepted"))
+        val prompts = assertIs<FeatureAccess.Available<SendsPrompts>>(first.features.resolve(SendsPrompts)).feature
+        prompts.send(prompt("accepted"))
         first.close()
         val second = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
         assertEquals(EngineFailure.Session(SessionFailureReason.Busy), second.failure)
@@ -107,6 +110,86 @@ class PiRuntimeTest {
         assertTrue(connection.isClosed)
         assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
         assertEquals(2, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `a live session is shared with later attaches instead of refusing them`() = runTest {
+        val fixture = runtimeFixture(this)
+        fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val firstBorrow = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val secondBorrow = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        assertEquals(RuntimeRef, firstBorrow.ref)
+        assertEquals(RuntimeRef, secondBorrow.ref)
+        assertEquals(1, fixture.processes.connections.size)
+
+        firstBorrow.close()
+        secondBorrow.close()
+        // The owner still holds the process: a later attach borrows the same live session.
+        assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
+        assertEquals(1, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `the owner keeps the process until its borrower is gone`() = runTest {
+        val fixture = runtimeFixture(this)
+        val owner = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val borrow = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        owner.close()
+        // The owner is detached, but the borrower keeps the process alive: a later attach still shares it.
+        val later = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        assertEquals(RuntimeRef, later.ref)
+        assertEquals(1, fixture.processes.connections.size)
+
+        borrow.close()
+        later.close()
+        assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
+        assertEquals(2, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `a repeated close of a borrower does not release the shared process`() = runTest {
+        val fixture = runtimeFixture(this)
+        val owner = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val borrow = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        borrow.close()
+        borrow.close()
+        // The borrow ends once: the repeated close must not decrement the consumer count again.
+        val later = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        assertEquals(RuntimeRef, later.ref)
+        assertEquals(1, fixture.processes.connections.size)
+
+        owner.close()
+        later.close()
+        // The last real consumer is gone: the process closes and a later attach starts a fresh one.
+        assertEquals(RuntimeRef, fixture.runtime.attach(RuntimeRef, RuntimeRequest).ref)
+        assertEquals(2, fixture.processes.connections.size)
+        fixture.runtime.close()
+    }
+
+    @Test
+    fun `a borrower closed after the runtime is gone does not resurrect bookkeeping`() = runTest {
+        val fixture = runtimeFixture(this)
+        val view = fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        fixture.runtime.close()
+        view.close()
+        // The stale release is a harmless no-op: no process or bookkeeping comes back, and the runtime stays closed.
+        val closed = assertFailsWith<EngineException> { fixture.runtime.attach(RuntimeRef, RuntimeRequest) }
+        assertEquals(EngineFailure.Lifecycle(LifecycleFailureReason.ProfileClosed), closed.failure)
+        assertEquals(1, fixture.processes.connections.size)
+    }
+
+    @Test
+    fun `a shared live session refuses a request with another detached-tools setting`() = runTest {
+        val fixture = runtimeFixture(this)
+        fixture.runtime.attach(RuntimeRef, RuntimeRequest)
+        val foreign = assertFailsWith<EngineException> {
+            fixture.runtime.attach(RuntimeRef, RuntimeRequest.copy(areDetachedToolsEnabled = true))
+        }
+        assertEquals(EngineFailure.Session(SessionFailureReason.NotResumable), foreign.failure)
+        assertEquals(1, fixture.processes.connections.size)
         fixture.runtime.close()
     }
 

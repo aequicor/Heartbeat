@@ -15,12 +15,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
+import io.aequicor.heartbeat.feature.scheduler.api.GraphTask
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerMachineKey
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTaskGraphs
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraph
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphDefinition
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineKey
+import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
@@ -66,6 +74,8 @@ class SchedulerIntegrationTest {
     fun `the scheduler is registered, disabled by default and offers no tools then`() = runTest {
         assertTrue(SchedulerEnabled in toggles.toggleControl.registered)
         assertTrue(SchedulerActions in toggles.toggleControl.registered)
+        assertTrue(SchedulerTaskGraphs in toggles.toggleControl.registered)
+        assertFalse(SchedulerTaskGraphs.default)
         assertFalse(SchedulerEnabled.default || SchedulerActions.default)
         val profile = app.profileSessions.open(ProfileId("scheduler-off"))
         val names = (profile.graph as TestSchedulerAccessors).schedulerTools.specifications(null).map { it.name }
@@ -108,6 +118,47 @@ class SchedulerIntegrationTest {
         assertEquals("check the nightly build", wakes.single().request.note)
         app.profileSessions.close()
     }
+
+    @Test
+    fun `graph machine persists while disabled and restores without submitting tasks`() = runTest {
+        val first = app.profileSessions.open(ProfileId("graph-persistence"))
+        val accessors = first.graph as TestSchedulerAccessors
+        graphReady(accessors)
+        val graph = TaskGraph(
+            "saved",
+            session,
+            null,
+            null,
+            TaskGraphDefinition(listOf(GraphTask("A", GraphAction.Agent("work after enabling")))),
+            "test approval",
+        )
+        accessors.schedulerMachines.send(TaskGraphMachineKey, TaskGraphIntent.Public.Create(graph))
+        withContext(app.dispatchers.default) {
+            withTimeout(10.seconds) {
+                checkNotNull(accessors.schedulerMachines.find(TaskGraphMachineKey)).state
+                    .filterIsInstance<TaskGraphState.Ready>().first {
+                        it.graphs.isNotEmpty() &&
+                            it.persisted >= it.revision
+                    }
+            }
+        }
+        app.profileSessions.close()
+        val reopened = app.profileSessions.open(ProfileId("graph-persistence"))
+        val restored = graphReady(reopened.graph as TestSchedulerAccessors)
+        assertEquals(graph.definition, restored.graphs.single().definition)
+        assertEquals(0, restored.graphs.single().runs.getValue("A").attempt)
+        app.profileSessions.close()
+    }
+
+    private suspend fun graphReady(accessors: TestSchedulerAccessors): TaskGraphState.Ready =
+        withContext(app.dispatchers.default) {
+            withTimeout(10.seconds) {
+                @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+                accessors.schedulerMachines.observe(TaskGraphMachineKey).filterNotNull()
+                    .flatMapLatest { it.state }.filterIsInstance<TaskGraphState.Ready>()
+                    .first { it.persisted >= it.revision }
+            }
+        }
 
     private suspend fun ready(accessors: TestSchedulerAccessors): SchedulerState.Ready =
         withContext(app.dispatchers.default) {

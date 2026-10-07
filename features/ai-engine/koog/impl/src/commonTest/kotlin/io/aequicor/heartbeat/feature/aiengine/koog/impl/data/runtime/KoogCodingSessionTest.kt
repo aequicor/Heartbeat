@@ -1,6 +1,8 @@
 package io.aequicor.heartbeat.feature.aiengine.koog.impl.data.runtime
 
 import ai.koog.agents.core.tools.ToolDescriptor
+import ai.koog.prompt.llm.LLMCapability
+import ai.koog.prompt.message.AttachmentContent
 import ai.koog.prompt.message.Message
 import ai.koog.prompt.message.MessagePart
 import ai.koog.prompt.streaming.StreamFrame
@@ -8,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolApproval
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolImage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
@@ -43,6 +46,37 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class KoogCodingSessionTest {
+    @Test
+    fun `hosted image reaches the next model request and survives history replay`() = runTest {
+        val f = fixture()
+        val image = AgentToolImage("image/png", "AQID")
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) =
+                AgentToolResult("geometry", images = listOf(image))
+        }
+        val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))
+        chat.features.require(SendsPrompts).send(f.request("capture"))
+        f.callTool("remember")
+        runCurrent()
+        fun assertImage() {
+            assertTrue(f.executor.models.last().supports(LLMCapability.Vision.Image))
+            val result = f.executor.prompts.last().messages.flatMap { it.parts }
+                .filterIsInstance<MessagePart.Tool.Result>().single()
+            assertEquals("geometry", result.parts.filterIsInstance<MessagePart.Text>().single().text)
+            val attachment = f.executor.prompts.last().messages.filterIsInstance<Message.User>()
+                .flatMap { it.parts }.filterIsInstance<MessagePart.Attachment>().single()
+            assertEquals(AttachmentContent.Binary.Base64(image.data), attachment.source.content)
+        }
+        assertImage()
+        f.executor.complete()
+        runCurrent()
+        chat.features.require(SendsPrompts).send(f.request("continue"))
+        runCurrent()
+        assertImage()
+        f.executor.complete()
+        runCurrent()
+    }
+
     @Test
     fun `hosted tools with document input ignore legacy auto approve and keep trusted turn context`() = runTest {
         val f = fixture(autoApprove = true)

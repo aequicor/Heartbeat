@@ -64,8 +64,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -96,7 +96,8 @@ class StudioEngineIntegrationTest {
     fun setUp() {
         val os = System.getProperty("os.name")
         assumeTrue(os.startsWith("Windows") || os.startsWith("Mac"))
-        Dispatchers.setMain(UnconfinedTestDispatcher())
+        // Profile services share Main in production; real IO must resume them serially on the test scheduler.
+        Dispatchers.setMain(StandardTestDispatcher())
         TestAdapter.runtimes.clear()
     }
 
@@ -377,7 +378,11 @@ class StudioEngineIntegrationTest {
         requireNotNull(app.machines.find(AiStudioMachineKey)).state.first {
             it is AiStudioState.Ready && it.settings.modelId.isNotBlank()
         }
-        app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.UpdateSettings(settings))
+        assertEquals(
+            SendResult.Accepted,
+            app.machines.send(AiStudioMachineKey, AiStudioIntent.Public.UpdateSettings(settings)),
+            "Start page settings must be accepted before waiting for their durable value",
+        )
         val stores = (services as TestStorageAccessors).stores
         stores.keyValue(KeyValueSpec("ai_studio_preferences"))
             .observe(jsonKey("new_session", JsonObject.serializer()))
