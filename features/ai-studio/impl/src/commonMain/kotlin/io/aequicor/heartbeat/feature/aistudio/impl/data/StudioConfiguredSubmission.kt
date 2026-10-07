@@ -23,6 +23,7 @@ internal class StudioConfiguredSubmission(
     private val learning: StudioLearningPrompts,
     private val helperPolicy: StudioHelperPolicy,
     private val efforts: EffortChoicesView,
+    private val origins: StudioRequestOrigins,
 ) {
     private val log = Log.tag("StudioConfiguredSubmission")
 
@@ -107,6 +108,7 @@ internal class StudioConfiguredSubmission(
         log.i { "Send the reserved native request" }
         val helper = request.submission as? StudioHelperSubmission
         val submit: suspend () -> SubmittedPrompt = {
+            origins.record(active.ref, request.request, request.causes)
             val prompt = learning.prompt(request.id, request.prompt, request.directives)
             val finalTrust = if (helper != null) {
                 helper.begin(trust)

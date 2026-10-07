@@ -158,6 +158,12 @@ class StudioEngineIntegrationTest {
     }
 
     @Test
+    fun `graph request provenance reaches native target before send and refuses incomplete writes`() = runStudioTest {
+        val services = configured()
+        assertGraphOrigins(services)
+    }
+
+    @Test
     fun `empty helper identity survives restart and concurrent ordinary chat creation without native work`() =
         runStudioTest {
             val services = configured()
