@@ -95,7 +95,7 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
         },
     )
     val reader = EngineHarnessSessionReader(lazy { facade }, sessionAccess)
-    private val host = EngineHarnessScheduler(
+    val sender = EngineHarnessScheduler(
         sessionAccess,
         lazy {
             externalReads++
@@ -117,11 +117,12 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
                 clock,
             )
         },
+        clock,
     )
     val runtime: HarnessRegistrationFixture = HarnessRegistrationFixture(
         scope.backgroundScope,
         StandardTestDispatcher(scope.testScheduler),
-        host,
+        sender,
     )
     val script get() = runtime.scripts.last()
     suspend fun activate(): HarnessInstance = runtime.activate()
