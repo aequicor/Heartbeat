@@ -26,7 +26,11 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlin.time.Instant
 
-internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
+internal class HarnessRuntimeFixture(
+    scope: CoroutineScope,
+    dispatcher: CoroutineDispatcher,
+    callOrigins: HarnessCallOrigins? = null,
+) {
     var desired = runtimeRequest(1)
     var isEnabled = true
     var isItemPresent = true
@@ -43,6 +47,7 @@ internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: Coroutin
     var beforeCompile: suspend (HarnessCompilationRequest) -> Unit = {}
     var beforeEvaluation: suspend () -> Unit = {}
     var onCreate: (HarnessInstanceAccess) -> Unit = {}
+    var customContext: (HarnessActivationRequest, HarnessInstanceAccess) -> HarnessRuntimeContext? = { _, _ -> null }
     var beforeFeedback: suspend () -> Unit = {}
     var beforeCacheRemoval: suspend () -> Unit = {}
     var contextCloses = 0
@@ -89,10 +94,10 @@ internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: Coroutin
         override fun removalGeneration(effect: HarnessEffect.Remove): Long? =
             libraryGeneration.takeIf { effect == pendingRemoval }
     }
-    private val contexts = HarnessRuntimeContextFactory { _, access ->
+    private val baseContexts = HarnessRuntimeContextFactory { request, access ->
         accesses += access
         onCreate(access)
-        object : HarnessRuntimeContext {
+        customContext(request, access) ?: object : HarnessRuntimeContext {
             override val evaluation = HarnessEvaluationContext.Workflow(WorkflowRegistration {})
             override val isReadyForPublication: Boolean get() = isContextReady
             override fun tryCommitPublication(): Boolean {
@@ -104,6 +109,11 @@ internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: Coroutin
                 contextCloses++
             }
         }
+    }
+    private val contexts = object : HarnessRuntimeContextFactory {
+        override val origins = callOrigins ?: baseContexts.origins
+        override fun create(request: HarnessActivationRequest, access: HarnessInstanceAccess): HarnessRuntimeContext =
+            baseContexts.create(request, access)
     }
     private val dispatchers = object : DispatcherProvider {
         override val main = dispatcher

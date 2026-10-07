@@ -4,18 +4,41 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.ItemId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HarnessTimerSlotsTest {
+    @Test
+    fun `concurrent dynamic registration across items cannot exceed shared quota`() = runTest {
+        val slots = HarnessTimerSlots()
+        val owners = List(4) { owner(slots, item = "item$it") }
+        owners.forEach { assertTrue(slots.publish(it)) }
+        val start = CompletableDeferred<Unit>()
+        val attempts = List(64) { index ->
+            async(Dispatchers.Default) {
+                start.await()
+                slots.reserve(owners[index % owners.size])
+            }
+        }
+        start.complete(Unit)
+        val ids = attempts.awaitAll().filterNotNull()
+        assertEquals(HarnessLimits.TIMERS, ids.size)
+        assertEquals(ids.size, ids.distinct().size)
+    }
+
     @Test
     fun `private candidate slots do not evict old timers and replacement can reuse all eight`() = runTest {
         val slots = HarnessTimerSlots()
