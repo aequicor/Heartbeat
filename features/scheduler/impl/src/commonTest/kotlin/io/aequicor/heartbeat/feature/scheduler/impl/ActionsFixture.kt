@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEffect
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionJournal
 import io.aequicor.heartbeat.feature.scheduler.impl.data.ActionRecord
@@ -97,13 +98,14 @@ internal class ActionsFixture(
     toggles: Toggles = Toggles(),
     workspaces: LocalWorkspaces = Projects(),
     profile: TestScopeHandle = TestScopeHandle(scope.backgroundScope),
+    recovery: Set<HelperCapacityRecoverySource> = emptySet(),
 ) {
     val clock = VirtualClock(scope.testScheduler)
     val bus = InMemorySchedulerBus(clock)
     val wakeStorage = MemoryWakeStorage((machine.state.value as? SchedulerState.Ready)?.wakes.orEmpty())
     val persistence = SchedulerPersistence(wakeStorage)
     val capacityMachine = CapacitySpecMachine()
-    val capacity = ProfileBackgroundCapacity(capacityMachine, profile, journal)
+    val capacity = ProfileBackgroundCapacity(capacityMachine, profile, journal, helpers = lazyOf(recovery))
     val results = ActionResults(profile, bus, machine, persistence, journal, toggles, clock)
     val helperAgents = ProfileHelperAgents(profile, lazyOf(hosts), capacity, results)
     val helperActions = ScheduledHelperActions(profile, helperAgents, capacity, journal, results, bus, clock)

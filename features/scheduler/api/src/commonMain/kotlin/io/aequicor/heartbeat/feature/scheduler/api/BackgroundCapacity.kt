@@ -30,7 +30,7 @@ public enum class BackgroundCapacityKind {
 
 /**
  * One immutable reservation. [id] identifies this acquisition, while [owner] identifies the action or workflow run.
- * A recovered workflow uses new acquisition ids. Scheduled reservations require [parent].
+ * Durable helper recovery adopts the original acquisition id. Scheduled reservations require [parent].
  */
 public data class BackgroundReservation(
     val id: ActionId,
@@ -43,7 +43,7 @@ public data class BackgroundReservation(
     }
 }
 
-/** Ephemeral capacity; durable scheduled helpers are restored before admission, workflows reacquire their leases. */
+/** Ephemeral capacity; durable scheduled and contributed helper work is counted before any new admission. */
 public sealed interface BackgroundCapacityState : MachineState {
     /** Active reservations and helper requests waiting in arrival order. No native work starts while queued. */
     public data class Ready(

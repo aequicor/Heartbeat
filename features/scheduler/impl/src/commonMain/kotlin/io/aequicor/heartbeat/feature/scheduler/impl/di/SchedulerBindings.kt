@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTaskGraphs
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphEffect
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineSpec
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCapacityRecoverySource
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledRequestOriginObserver
@@ -92,6 +93,10 @@ public interface SchedulerMultibindings {
     /** Hosts that own sessions and deliver wake prompts through their normal turn lifecycle. */
     @Multibinds(allowEmpty = true)
     public fun scheduledSessionHosts(): Set<ScheduledSessionHost>
+
+    /** Durable helper slots, read before any new background admission. */
+    @Multibinds(allowEmpty = true)
+    public fun helperCapacityRecoverySources(): Set<HelperCapacityRecoverySource>
 
     /** Feature-owned admission controllers; resolved lazily only for owned wake delivery. */
     @Multibinds(allowEmpty = true)
