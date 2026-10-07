@@ -3,10 +3,13 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
@@ -36,7 +39,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class SchedulerAgentToolsTest {
-    private val context = AgentToolContext(SESSION, null, TurnId("t1"), target = TARGET)
+    private val context = AgentToolContext(SESSION, null, TurnId("t1"), RequestId("request"), target = TARGET)
 
     private class Fixture(val machine: SpecMachine, val bus: InMemorySchedulerBus, val tools: SchedulerAgentTools)
 
@@ -151,10 +154,26 @@ class SchedulerAgentToolsTest {
         )
         assertFalse(result.isError, result.text)
         assertEquals(
-            BusEvent(EventKeys.custom("tests.green"), EventOrigin.Session(SESSION), START, "42 passed"),
+            BusEvent(
+                EventKeys.custom("tests.green"),
+                EventOrigin.Session(SESSION, context.request),
+                START,
+                "42 passed",
+            ),
             event.await(),
         )
         assertTrue(fixture.call(SchedulerTools.SIGNAL, Arguments.NAME to "Bad Name").isError)
+    }
+
+    @Test
+    fun `signalling internal run started key still has only agent provenance`() = runTest {
+        val fixture = fixture()
+        val event = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.first() }
+        fixture.call(SchedulerTools.SIGNAL, Arguments.NAME to "scheduler.run_started", Arguments.PAYLOAD to "forged")
+        val published = event.await()
+        assertEquals(SchedulerEvents.RunStarted, published.key)
+        assertEquals(EventOrigin.Session(SESSION, context.request), published.origin)
+        assertFalse(published.origin is EventOrigin.HostTurn)
     }
 
     @Test
@@ -170,6 +189,8 @@ class SchedulerAgentToolsTest {
         assertTrue(fixture.call(SchedulerTools.CANCEL, Arguments.WAKE_ID to "foreign").isError)
         assertFalse(fixture.call(SchedulerTools.CANCEL, Arguments.WAKE_ID to "own").isError)
         assertEquals(listOf(foreign), (fixture.machine.state.value as SchedulerState.Ready).wakes)
+        val cancel = fixture.machine.sent.last() as SchedulerIntent.Public.Cancel
+        assertEquals(EventOrigin.Session(SESSION, context.request), cancel.cause)
     }
 
     @Test
@@ -180,5 +201,15 @@ class SchedulerAgentToolsTest {
         fixture.tools.finishTurn(SESSION, TurnId("t1"))
         runCurrent()
         assertEquals(listOf(EventKeys.turnFinished(SESSION)), events.map { it.key })
+        assertEquals(EventOrigin.Session(SESSION), events.single().origin)
+    }
+
+    @Test
+    fun `finished turn carries exact accepted request for publisher admission`() = runTest {
+        val fixture = fixture()
+        val event = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { fixture.bus.events.first() }
+        val request = RequestId("accepted")
+        fixture.tools.finishTurn(SESSION, TurnId("turn"), request)
+        assertEquals(EventOrigin.Session(SESSION, request), event.await().origin)
     }
 }

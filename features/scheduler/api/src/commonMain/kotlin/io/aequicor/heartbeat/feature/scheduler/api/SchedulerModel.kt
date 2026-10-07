@@ -84,9 +84,23 @@ public data class WakeRequest(
     val isDeduplicationRequired: Boolean = false,
     /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
     val ownerFeature: String? = null,
+    /**
+     * Opaque host-owned admission context, persisted for recovery and never included in prompts or logs.
+     * Only an owned wake can carry it; the feature owner interprets and verifies its contents.
+     */
+    val ownerContext: String? = null,
+    /** Shows a feature owner's complete fenced note in the transcript instead of hiding it in the directive. */
+    val isNoteVisible: Boolean = false,
 ) {
     init {
         require(note.length <= SchedulerLimits.MAX_NOTE) { "Wake note is too long" }
+        require(ownerContext == null || ownerFeature?.let(::isValidEventFeatureName) == true) {
+            "Wake context requires a valid feature owner"
+        }
+        require((ownerContext?.length ?: 0) <= SchedulerLimits.MAX_OWNER_CONTEXT) { "Wake context is too long" }
+        require(!isNoteVisible || (ownerFeature != null && origin is WakeOrigin.Feature)) {
+            "Visible wake note requires a feature owner and origin"
+        }
     }
 
     override fun toString(): String = "WakeRequest(id=$id, events=${condition.events.size}, " +
@@ -167,6 +181,9 @@ public object SchedulerLimits {
 
     /** Characters of a wake note. */
     public const val MAX_NOTE: Int = 2_000
+
+    /** Characters of opaque host context persisted for an owned wake's admission and recovery. */
+    public const val MAX_OWNER_CONTEXT: Int = 4_096
 
     /** Characters of an event payload. */
     public const val MAX_PAYLOAD: Int = 8_192

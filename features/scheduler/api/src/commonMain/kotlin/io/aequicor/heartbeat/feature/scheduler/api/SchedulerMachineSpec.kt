@@ -29,6 +29,9 @@ import kotlin.time.Instant
  * | Ready | DeliveryFailed | ≥1 of the wakes is delivering | Ready(−wakes) | Persist; DeliveryFailed |
  * | Ready | Observed / Tick without a match | — | ignored | — |
  *
+ * Rejected preserves the request owner context. Cancelled combines removed owners and the trusted cancellation
+ * cause, retaining execution restrictions for downstream callbacks without exposing wake notes.
+ *
  * Effect failures: Load → LoadFailed; Deliver → DeliveryFailed(Unknown) for its wakes; Persist is only logged.
  */
 public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, SchedulerEffect, SchedulerOutput> =
@@ -54,20 +57,21 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                     SchedulerOutput.Rejected(
                         intent.request.id,
                         state.rejection(intent.request, intent.at) ?: WakeRejection.Duplicate,
+                        intent.request.ownedOrigin(),
                     )
                 }
             }
             on<SchedulerIntent.Public.Cancel>(guard = { state.cancellable { it.matchesCancel(intent) }.isNotEmpty() }) {
                 stay { state.changed(state.wakes - state.cancellable { it.matchesCancel(intent) }.toSet()) }
                 effect { state.persist(state.wakes - state.cancellable { it.matchesCancel(intent) }.toSet()) }
-                output { SchedulerOutput.Cancelled(listOf(intent.id)) }
+                output { state.cancellable { it.matchesCancel(intent) }.cancelledOutput(intent.cause) }
             }
             on<SchedulerIntent.Public.CancelSession>(
                 guard = { state.cancellable { it.session == intent.session }.isNotEmpty() },
             ) {
                 stay { state.changed(state.wakes - state.cancellable { it.session == intent.session }.toSet()) }
                 effect { state.persist(state.wakes - state.cancellable { it.session == intent.session }.toSet()) }
-                output { SchedulerOutput.Cancelled(state.cancellable { it.session == intent.session }.map { it.id }) }
+                output { state.cancellable { it.session == intent.session }.cancelledOutput() }
             }
             on<SchedulerIntent.Public.CancelOwned>(
                 guard = { state.ownedPending(intent.feature).isNotEmpty() },
@@ -77,7 +81,7 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                     state.persist(state.wakes - state.ownedPending(intent.feature).toSet())
                 }
                 output {
-                    SchedulerOutput.Cancelled(state.ownedPending(intent.feature).map { it.id })
+                    state.ownedPending(intent.feature).cancelledOutput()
                 }
             }
             on<SchedulerIntent.Public.CancelOwned>(
@@ -176,3 +180,10 @@ private fun SchedulerState.Ready.settled(ids: Set<WakeId>): SchedulerState.Ready
 
 private fun deadlineDelivery(wake: ScheduledWake): WakeDelivery =
     WakeDelivery(wake, WakeReason.Deadline(checkNotNull(wake.request.condition.deadline)))
+
+/** Refusal/cancellation retain only host ancestry, never private prompt text. */
+private fun List<ScheduledWake>.cancelledOutput(cause: EventOrigin? = null): SchedulerOutput.Cancelled =
+    SchedulerOutput.Cancelled(
+        map { it.id },
+        mapNotNull { it.request.ownedOrigin() } + listOfNotNull(cause),
+    )

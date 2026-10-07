@@ -42,7 +42,12 @@ public sealed interface SchedulerIntent : MachineIntent {
         public data class Schedule(val request: WakeRequest, val at: Instant) : Public
 
         /** Cancels a pending wake; when [session] is set, only a wake of that session. */
-        public data class Cancel(val id: WakeId, val session: SessionRef? = null) : Public
+        public data class Cancel(
+            val id: WakeId,
+            val session: SessionRef? = null,
+            /** Trusted caller ancestry, retained together with the removed wake's origin. Never tool payload. */
+            val cause: EventOrigin? = null,
+        ) : Public
 
         /** Cancels every pending wake of [session] (its chat was deleted or it no longer wants to sleep). */
         public data class CancelSession(val session: SessionRef) : Public
@@ -107,10 +112,19 @@ public sealed interface SchedulerOutput : MachineOutput {
     public data class Scheduled(val wake: ScheduledWake) : SchedulerOutput
 
     /** The request [id] was not scheduled. */
-    public data class Rejected(val id: WakeId, val rejection: WakeRejection) : SchedulerOutput
+    public data class Rejected(
+        val id: WakeId,
+        val rejection: WakeRejection,
+        /** Host ancestry retained even when no pending wake was created. Contains no note. */
+        val origin: EventOrigin.Feature? = null,
+    ) : SchedulerOutput
 
     /** Pending wakes [ids] were cancelled. */
-    public data class Cancelled(val ids: List<WakeId>) : SchedulerOutput
+    public data class Cancelled(
+        val ids: List<WakeId>,
+        /** Immutable host ancestry of the removed wakes, without their private notes. */
+        val origins: List<EventOrigin> = emptyList(),
+    ) : SchedulerOutput
 
     /** [wake]'s session accepted its wake prompt. */
     public data class Woke(val wake: ScheduledWake, val reason: WakeReason) : SchedulerOutput

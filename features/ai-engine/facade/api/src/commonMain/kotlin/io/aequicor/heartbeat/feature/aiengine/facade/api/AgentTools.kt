@@ -193,6 +193,13 @@ public interface AgentToolContribution {
      * turn; the dispatcher only isolates failures, it does not time contributions out.
      */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
+
+    /**
+     * Same lifecycle barrier with the trusted request of this exact turn, when known. A null request preserves
+     * legacy external-turn cleanup; implementations must not substitute another or the latest session request.
+     */
+    public suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?): Unit =
+        finishTurn(session, turn)
 }
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */
@@ -277,6 +284,13 @@ public interface ProfileAgentTools {
      * [turn] is the facade id registered by [bindTurn], or the native id of an unbound external turn.
      */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
+
+    /**
+     * Same lifecycle barrier with the trusted request of this exact turn, when known. A null request preserves
+     * legacy external-turn cleanup; implementations must not substitute another or the latest session request.
+     */
+    public suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?): Unit =
+        finishTurn(session, turn)
 }
 
 /** Optional adapter dependency used when hosted tools are not installed. */

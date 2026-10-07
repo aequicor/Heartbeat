@@ -229,19 +229,25 @@ internal class DefaultAgentTools(
         }
     }
 
-    override suspend fun finishTurn(session: SessionRef, turn: TurnId) {
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId) = finishTurn(session, turn, null)
+
+    override suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?) {
         log.i { "Revoke hosted tools and await outstanding calls" }
-        val pending = callsLock.withLock {
+        val (acceptedRequest, pending) = callsLock.withLock {
             val key = session to turn
+            val bound = boundTurns.entries.singleOrNull {
+                it.key.first == session && it.value.turn == turn
+            }?.key?.second
+            check(request == null || bound == null || request == bound) { "Cleanup request does not match its turn" }
             finishedTurns.add(key)
-            calls[key]?.toList().orEmpty()
+            (bound ?: request) to calls[key]?.toList().orEmpty()
         }
         pending.forEach { it.cancel() }
         pending.forEach { it.cancelAndJoin() }
         // One owner's failed cleanup must neither skip the others nor fail the turn that already ended.
         contributions.forEach { contribution ->
             try {
-                contribution.finishTurn(session, turn)
+                contribution.finishTurn(session, turn, acceptedRequest)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
