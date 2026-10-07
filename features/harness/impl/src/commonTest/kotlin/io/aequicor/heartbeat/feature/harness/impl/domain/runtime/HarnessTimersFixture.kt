@@ -16,7 +16,7 @@ internal class HarnessTimersFixture(scope: TestScope, callOrigins: HarnessCallOr
     private val slots = HarnessTimerSlots()
     var origin = HarnessCallOrigin()
     val timers = mutableListOf<HarnessTimers>()
-    val targets = mutableListOf<HarnessTimerTarget>()
+    val targets = mutableListOf<HarnessInstanceTarget>()
     private val origins = callOrigins ?: object : HarnessCallOrigins {
         override fun current(): HarnessCallOrigin = origin
         override fun context(origin: HarnessCallOrigin): CoroutineContext = HarnessOriginContext(origin)
@@ -27,7 +27,7 @@ internal class HarnessTimersFixture(scope: TestScope, callOrigins: HarnessCallOr
 
     init {
         runtime.customContext = { request, access ->
-            val target = HarnessTimerTarget(request, access).also(targets::add)
+            val target = HarnessInstanceTarget(request, access).also(targets::add)
             val services = HarnessTimers(target, slots, invoker, origins, dispatcher, clock).also(timers::add)
             object : HarnessRuntimeContext {
                 override val evaluation = HarnessEvaluationContext.Workflow(WorkflowRegistration {})

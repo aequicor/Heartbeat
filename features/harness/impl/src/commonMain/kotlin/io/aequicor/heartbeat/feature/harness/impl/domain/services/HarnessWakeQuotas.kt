@@ -9,15 +9,18 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.time.Clock
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Instant
 
 /**
  * Profile-owned reservations bridge the gap before a scheduler receipt. Durable wakes, including delivering
  * ones, count together with uncertain reservations by exact id. Send rate is shared by all items of a harness.
+ * A send awaiting its receipt never ages out. Acknowledgement starts the minute window conservatively after
+ * acceptance; uncertain attempts retain both debits until an authoritative receipt. Caller timestamps are not used.
  * The snapshot supplier is called inside the mutex; a snapshot taken before waiting could miss a concurrent ACK.
  */
-internal class HarnessWakeQuotas {
+internal class HarnessWakeQuotas(private val clock: Clock) {
     private val mutex = Mutex()
     private val reservations = mutableMapOf<WakeId, SessionRef>()
     private val sends = mutableMapOf<WakeId, HarnessSendStamp>()
@@ -29,7 +32,7 @@ internal class HarnessWakeQuotas {
         val id = reservation.id
         val harness = reservation.harness
         val session = reservation.session
-        val at = reservation.at
+        val at = clock.now()
         val isSend = reservation.isSend
         val ready = checkNotNull(snapshot()) { "Scheduler is not ready" }
         val pending = ready.wakes.filter { it.request.ownerFeature == HARNESS_WAKE_OWNER }
@@ -39,12 +42,12 @@ internal class HarnessWakeQuotas {
         check(pending.values.count { it == session } < HarnessLimits.WAKES_PER_SESSION) {
             "Harness session wake quota reached"
         }
-        sends.entries.removeAll { at - it.value.at >= 1.minutes }
+        sends.entries.removeAll { (_, stamp) -> stamp.at?.let { at - it >= 1.minutes } == true }
         if (isSend) {
             check(sends.values.count { it.harness == harness } < HarnessLimits.SENDS_PER_MINUTE) {
                 "Harness send rate quota reached"
             }
-            sends[id] = HarnessSendStamp(harness, at)
+            sends[id] = HarnessSendStamp(harness, null)
         }
         reservations[id] = session
     }
@@ -53,7 +56,9 @@ internal class HarnessWakeQuotas {
     @HighFrequency
     suspend fun acknowledged(id: WakeId) = mutex.withLock {
         log.v { "transfer harness wake reservation" }
-        reservations.remove(id)
+        if (reservations.remove(id) != null) {
+            sends[id]?.let { sends[id] = it.copy(at = clock.now()) }
+        }
         Unit
     }
 
@@ -69,7 +74,7 @@ internal class HarnessWakeQuotas {
 
 internal const val HARNESS_WAKE_OWNER = "harness"
 
-private data class HarnessSendStamp(val harness: HarnessId, val at: Instant) {
+private data class HarnessSendStamp(val harness: HarnessId, val at: Instant?) {
     override fun toString(): String = "HarnessSendStamp(***)"
 }
 
@@ -78,7 +83,6 @@ internal data class HarnessWakeReservation(
     val id: WakeId,
     val harness: HarnessId,
     val session: SessionRef,
-    val at: Instant,
     val isSend: Boolean,
 ) {
     override fun toString(): String = "HarnessWakeReservation(***)"

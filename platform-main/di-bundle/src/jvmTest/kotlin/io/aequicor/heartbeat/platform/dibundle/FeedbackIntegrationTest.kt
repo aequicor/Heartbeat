@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.feedback.api.FeedbackOutcome
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackRecord
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -45,8 +46,9 @@ class FeedbackIntegrationTest {
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
 
     @AfterTest
-    fun tearDown() {
+    fun tearDown() = runTest {
         (app.appScope as OwnedScope).close()
+        app.appScope.coroutineScope.coroutineContext[Job]?.join()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

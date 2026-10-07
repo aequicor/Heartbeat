@@ -10,12 +10,14 @@ import io.aequicor.heartbeat.feature.harness.api.script.ScriptScheduler
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptSessions
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptWorkflows
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessScriptScheduler
 
 /** Candidate-local services become externally visible only with their enclosing runtime instance. */
 internal class HarnessScriptContext(
     request: HarnessActivationRequest,
     access: HarnessInstanceAccess,
     origins: HarnessCallOrigins,
+    private val scheduler: HarnessScriptScheduler,
 ) : HarnessRuntimeContext {
     val registrations = HarnessScriptRegistrations(request.harness.name, access, origins)
     override val evaluation = HarnessEvaluationContext.Script(object : HarnessScriptScope {
@@ -28,7 +30,7 @@ internal class HarnessScriptContext(
         override val hooks: ScriptHooks get() = registrations
         override val agent: ScriptAgent get() = registrations
         override val sessions: ScriptSessions get() = unavailable()
-        override val scheduler: ScriptScheduler get() = unavailable()
+        override val scheduler: ScriptScheduler get() = this@HarnessScriptContext.scheduler
         override val prompts: ScriptPrompts get() = unavailable()
         override val workflows: ScriptWorkflows get() = unavailable()
     })
@@ -38,7 +40,12 @@ internal class HarnessScriptContext(
         return true
     }
 
-    override fun close() = registrations.close()
+    override fun tryCommitPublication(): Boolean = scheduler.tryCommitPublication()
+
+    override fun close() {
+        registrations.close()
+        scheduler.close()
+    }
 }
 
 private fun unavailable(): Nothing = throw UnsupportedOperationException("Harness service unavailable")

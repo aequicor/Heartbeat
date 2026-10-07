@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.schedulerTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -20,6 +21,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 class StagedHarnessContextsTest {
     @Test
@@ -51,7 +53,11 @@ class StagedHarnessContextsTest {
             override fun current() = HarnessCallOrigin()
             override fun context(origin: HarnessCallOrigin) = HarnessOriginContext(origin)
         }
-        val context = StagedHarnessContexts(origins).create(HarnessActivationRequest(harness, code, 1), access)
+        val schedulers = schedulerTestFactory(origins, dispatcher) { error("Inactive instance cannot reach runtime") }
+        val context = StagedHarnessContexts(
+            origins,
+            schedulers,
+        ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
         assertSame(backgroundScope, script.scope)
         assertFailsWith<IllegalStateException> {
@@ -61,7 +67,7 @@ class StagedHarnessContextsTest {
         }
         assertFailsWith<IllegalStateException> { script.hooks.beforePrompt { _, _ -> null } }
         assertFailsWith<UnsupportedOperationException> { script.sessions }
-        assertFailsWith<UnsupportedOperationException> { script.scheduler }
+        assertFailsWith<IllegalStateException> { script.scheduler.every(30.seconds) {} }
         assertFailsWith<IllegalStateException> { script.agent.instructions { "" } }
         assertFailsWith<UnsupportedOperationException> { script.prompts }
         assertFailsWith<UnsupportedOperationException> { script.workflows }
