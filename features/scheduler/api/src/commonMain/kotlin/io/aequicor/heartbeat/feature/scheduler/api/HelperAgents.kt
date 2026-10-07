@@ -117,12 +117,13 @@ public interface HelperAgents {
 
     /**
      * Creates and persists an empty helper chat, never a prompt. A parent uses its actual execution workspace;
-     * [workspace] routes parentless helpers. The host enforces [trustCap] and current parent trust on every turn.
+     * [workspace] routes parentless helpers. A null [target] is allowed only without a parent and leaves the first
+     * model choice to the host's current defaults. The host enforces [trustCap] and parent trust on every turn.
      */
     public suspend fun create(
         lease: HelperLease,
         workspace: WorkspaceRef?,
-        target: EngineTarget,
+        target: EngineTarget?,
         title: String,
         trustCap: TrustLevel = TrustLevel.Ask,
     ): HelperId
@@ -138,6 +139,25 @@ public interface HelperAgents {
 
     /** Durable helper identity, including parentless helpers and helpers from previous profile lifetimes. */
     public suspend fun isHelper(session: SessionRef): Boolean
+
+    /**
+     * Reads the unique durable helper of [session], including before its first prompt is accepted. Returns null
+     * for an ordinary/unknown session. Ambiguous hosts or inconsistent identity fail rather than grant ownership.
+     * This never opens a native session, submits work or acquires a capacity slot.
+     */
+    public suspend fun metadata(session: SessionRef): HelperMetadata?
+
+    /**
+     * Reads a bounded owner page in ascending [HelperId.value] order, strictly after [after]. [limit] is in
+     * 1..[HelperMetadataLimits.MAX_PAGE_SIZE]. A full page may have a successor: continue after its last id until
+     * a shorter/empty page. Pages are live reads, not a snapshot; callers fence new creation for exhaustive cleanup.
+     * Historical helpers are included and do not acquire capacity. Owner equality comes from durable host records.
+     */
+    public suspend fun owned(
+        owner: ActionId,
+        after: HelperId? = null,
+        limit: Int = HelperMetadataLimits.DEFAULT_PAGE_SIZE,
+    ): List<HelperMetadata>
 
     /** Saves a terminal workflow result and publishes its finished event through the durable scheduler outbox. */
     public suspend fun finish(action: ActionId, payload: String)

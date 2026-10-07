@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
@@ -33,6 +34,8 @@ class HelperHostTest {
         assertFalse(host.canHostHelper(null))
         assertFalse(host.isHelper(session))
         assertNull(host.helperMetadata(helper))
+        assertNull(host.helperMetadata(session))
+        assertEquals(emptyList(), host.ownedHelpers(ActionId("owner")))
         assertNull(host.helperResult(helper, request))
         assertFailsWith<UnsupportedOperationException> {
             host.createHelper(
@@ -50,6 +53,13 @@ class HelperHostTest {
             host.promptHelper(helper, HelperPrompt(request, "Private prompt"))
         }
         assertFailsWith<UnsupportedOperationException> { host.cancelHelper(helper, request) }
+    }
+
+    @Test
+    fun `only parentless helpers may defer target selection to the host`() {
+        val input = HelperCreateRequest(ActionId("owner"), null, null, null, "Private title", TrustLevel.Ask)
+        assertNull(input.target)
+        assertFailsWith<IllegalArgumentException> { input.copy(parent = session) }
     }
 
     @Test

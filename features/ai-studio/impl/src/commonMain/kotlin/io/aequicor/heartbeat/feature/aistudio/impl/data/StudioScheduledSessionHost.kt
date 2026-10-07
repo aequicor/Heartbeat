@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -104,6 +105,12 @@ internal class StudioScheduledSessionHost(
         helperRecords.value.createHelper(request)
 
     override suspend fun helperMetadata(helper: HelperId): HelperMetadata? = helperRecords.value.helperMetadata(helper)
+
+    override suspend fun helperMetadata(session: SessionRef): HelperMetadata? =
+        helperRecords.value.helperMetadata(session)
+
+    override suspend fun ownedHelpers(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> =
+        helperRecords.value.ownedHelpers(owner, after, limit)
 
     override suspend fun isHelper(session: SessionRef): Boolean = helperRecords.value.isHelper(session)
 

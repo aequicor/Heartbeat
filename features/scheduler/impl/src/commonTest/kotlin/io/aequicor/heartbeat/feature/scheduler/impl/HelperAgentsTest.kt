@@ -376,6 +376,14 @@ internal class HelperHostFake : ScheduledSessionHost by FakeHost(100) {
         return metadata[helper]
     }
 
+    override suspend fun helperMetadata(
+        session: io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef,
+    ): HelperMetadata? = metadata.values.singleOrNull { it.session == session }
+
+    override suspend fun ownedHelpers(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> =
+        metadata.values.filter { it.owner == owner && (after == null || it.id.value > after.value) }
+            .sortedBy { it.id.value }.take(limit)
+
     override suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission {
         metadata[helper] = checkNotNull(metadata[helper]).copy(session = OTHER, lastRequest = prompt.request)
         prompts += prompt
