@@ -12,9 +12,12 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
+import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.autocomplete.impl.domain.queryRank
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 
 /**
  * Profile service merging the suggestion sources of one composer token. Heartbeat items come first, native
@@ -29,6 +32,7 @@ internal class AutocompleteComposerAssists(
     private val toggles: FeatureToggles,
     private val learnedSkills: LearnedSkillsSource,
     private val engineAssists: EngineAssistsSource,
+    private val projectFiles: ProjectFileIndex,
 ) : ComposerAssists {
     override suspend fun suggest(
         trigger: ComposerTrigger,
@@ -45,6 +49,7 @@ internal class AutocompleteComposerAssists(
             is ComposerTrigger.Mention -> buildList {
                 learned(trigger, scope).forEach { add(it) }
                 native(trigger, scope).forEach { add(it) }
+                files(trigger, scope).forEach { add(it) }
             }
         }
         val heartbeatNames = merged.asSequence()
@@ -120,6 +125,46 @@ internal class AutocompleteComposerAssists(
                 }
                 Ranked(suggestion, rank)
             }
+    }
+
+    private suspend fun files(trigger: ComposerTrigger.Mention, scope: ComposerScope): List<Ranked> {
+        if (!toggles.get(AttachmentsEnabled)) return emptyList()
+        val support = scope.inputSupport ?: return emptyList()
+        if (support.allowedMediaTypes.isEmpty()) return emptyList()
+        return projectFiles.search(scope.workspace, trigger.query, SUGGESTION_LIMIT)
+            .map { file ->
+                val mediaType = file.mediaType ?: attachmentMediaTypeFor(file.relativePath)
+                // A file the current model cannot take stays visible with the reason instead of disappearing.
+                val reason = when {
+                    mediaType == null || mediaType !in support.allowedMediaTypes -> "unsupported format"
+
+                    file.sizeBytes > support.maxFileBytes -> "too large"
+
+                    else -> null
+                }
+                Ranked(
+                    ComposerSuggestion.File(
+                        id = "file:${file.relativePath}",
+                        label = file.relativePath,
+                        description = describeSize(file.sizeBytes) + (reason?.let { " · $it" } ?: ""),
+                        origin = ComposerAssistOrigin.Heartbeat,
+                        relativePath = file.relativePath,
+                        location = file.location,
+                        sizeBytes = file.sizeBytes,
+                        mediaType = mediaType,
+                        isSupported = reason == null,
+                    ),
+                    fileRank(trigger.query, file.relativePath).coerceAtLeast(0),
+                )
+            }
+    }
+
+    private fun describeSize(sizeBytes: Long): String = when {
+        sizeBytes >= 1_048_576 -> "${sizeBytes / 1_048_576} MB"
+
+        sizeBytes >= 1_024 -> "${sizeBytes / 1_024} kB"
+
+        else -> "$sizeBytes B"
     }
 
     private fun rank(query: String, vararg candidates: String): Int? {

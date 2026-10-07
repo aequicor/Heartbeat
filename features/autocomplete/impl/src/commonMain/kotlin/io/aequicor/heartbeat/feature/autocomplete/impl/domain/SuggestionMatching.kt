@@ -17,3 +17,23 @@ internal fun queryRank(query: String, candidate: String): Int {
         else -> -1
     }
 }
+
+/**
+ * Ranking of a project file by its relative path: a file whose own name starts with the query beats a path
+ * prefix, which beats a substring somewhere inside the path.
+ */
+internal fun fileRank(query: String, relativePath: String): Int {
+    if (query.isEmpty()) return 3
+    val needle = query.lowercase()
+    val path = relativePath.lowercase()
+    val name = path.substringAfterLast('/')
+    return when {
+        name.startsWith(needle) -> 0
+
+        path.startsWith(needle) -> 1
+
+        path.contains(needle) -> 2
+
+        else -> -1
+    }
+}

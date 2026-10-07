@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
 import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
 import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
+import io.aequicor.heartbeat.feature.autocomplete.impl.domain.fileRank
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineAssist
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindingId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineBindings
@@ -26,6 +27,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptInputSupport
+import io.aequicor.heartbeat.feature.attachments.api.AttachmentsEnabled
+import io.aequicor.heartbeat.feature.attachments.api.attachmentMediaTypeFor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
@@ -35,7 +39,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
@@ -47,6 +53,63 @@ class AutocompleteComposerAssistsTest {
     private val pi = EngineId("pi")
     private val target = EngineTarget(pi, EngineBindingId("b1"), ModelId("m1"))
     private val project = WorkspaceRef("project")
+
+    @Test
+    fun `files complete mentions with support reasons`() = runTest {
+        val service = service(
+            toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true, AttachmentsEnabled to true),
+        )
+        val suggestions = service.suggest(
+            ComposerTrigger.Mention(0..4, "read"),
+            ComposerScope(
+                target = target,
+                workspace = project,
+                inputSupport = PromptInputSupport(resourceMediaTypes = setOf("text/markdown"), maxFileBytes = 1_048_576),
+            ),
+        )
+        val file = assertIs<ComposerSuggestion.File>(suggestions.single())
+        assertEquals("docs/readme.md", file.relativePath)
+        assertEquals("2 kB", file.description)
+        assertTrue(file.isSupported)
+        val oversized = service.suggest(
+            ComposerTrigger.Mention(0..4, "logo"),
+            ComposerScope(
+                target = target,
+                workspace = project,
+                inputSupport = PromptInputSupport(resourceMediaTypes = setOf("image/png"), maxFileBytes = 1_048_576),
+            ),
+        ).single()
+        val logo = assertIs<ComposerSuggestion.File>(oversized)
+        assertFalse(logo.isSupported)
+        assertTrue("too large" in logo.description)
+    }
+
+    @Test
+    fun `attachments off or unsupported input hides the file section`() = runTest {
+        val off = service(
+            toggles = mapOf(AutocompleteEnabled to true, AgentLearningEnabled to true),
+        )
+        val none = off.suggest(
+            ComposerTrigger.Mention(0..4, "read"),
+            ComposerScope(
+                target = target,
+                workspace = project,
+                inputSupport = PromptInputSupport(resourceMediaTypes = setOf("text/markdown")),
+            ),
+        )
+        assertEquals(0, none.count { it is ComposerSuggestion.File })
+        val closed = service(
+            toggles = mapOf(
+                AutocompleteEnabled to true,
+                AgentLearningEnabled to true,
+                AttachmentsEnabled to true,
+            ),
+        ).suggest(
+            ComposerTrigger.Mention(0..4, "read"),
+            ComposerScope(target = target, workspace = project),
+        )
+        assertEquals(0, closed.count { it is ComposerSuggestion.File })
+    }
 
     @Test
     fun `the feature toggle gates everything`() = runTest {
@@ -189,12 +252,20 @@ class AutocompleteComposerAssistsTest {
             ),
         ),
         failWith: Exception? = null,
+        files: ProjectFileIndex = object : ProjectFileIndex {
+            override suspend fun search(workspace: WorkspaceRef?, query: String, limit: Int): List<ProjectFile> =
+                listOf(
+                    ProjectFile("docs/readme.md", "C:\\p\\docs\\readme.md", 2_048, "text/markdown"),
+                    ProjectFile("assets/logo.png", "C:\\p\\assets\\logo.png", 90_000_000, "image/png"),
+                ).filter { fileRank(query, it.relativePath) >= 0 }
+        },
     ) = AutocompleteComposerAssists(
         FakeToggles(toggles),
         LearnedSkillsSource(
             learningRegistry(MutableStateFlow<AgentLearningState>(AgentLearningState.Ready(instructions = skills))),
         ),
         EngineAssistsSource(facade(assists, onRead = {}, failure = failWith), FakeClock),
+        files,
     )
 
     private fun facade(
