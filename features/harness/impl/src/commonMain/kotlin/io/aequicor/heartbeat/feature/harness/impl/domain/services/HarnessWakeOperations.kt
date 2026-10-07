@@ -12,7 +12,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Instant
 
 /**
@@ -60,20 +62,25 @@ internal class HarnessWakeOperations(
         val at = submission.at
         val isSend = submission.isSend
         quotas.reserve(HarnessWakeReservation(request.id, harness, request.session, at, isSend), port::snapshot)
-        if (!isAdmitted()) {
-            quotas.rejected(request.id)
-            error("Harness wake admission was revoked")
-        }
-        origins.register(request.session, request.id.deliveryRequestId(), origin)
-        when (port.schedule(request, at)) {
-            HarnessWakeReceipt.Scheduled -> quotas.acknowledged(request.id)
+        var hasSubmissionStarted = false
+        try {
+            check(isAdmitted()) { "Harness wake admission was revoked" }
+            origins.register(request.session, request.id.deliveryRequestId(), origin)
+            check(isAdmitted()) { "Harness wake admission was revoked" }
+            hasSubmissionStarted = true
+            when (port.schedule(request, at)) {
+                HarnessWakeReceipt.Scheduled -> quotas.acknowledged(request.id)
 
-            HarnessWakeReceipt.Rejected -> {
-                quotas.rejected(request.id)
-                error("Scheduler rejected harness wake")
+                HarnessWakeReceipt.Rejected -> {
+                    quotas.rejected(request.id)
+                    error("Scheduler rejected harness wake")
+                }
+
+                HarnessWakeReceipt.Unknown -> error("Harness wake acceptance is uncertain")
             }
-
-            HarnessWakeReceipt.Unknown -> error("Harness wake acceptance is uncertain")
+        } finally {
+            // Even a lost ancestry ACK cannot mean scheduler acceptance before this boundary.
+            if (!hasSubmissionStarted) withContext(NonCancellable) { quotas.rejected(request.id) }
         }
     }
 }

@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessHookDisp
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -132,7 +133,7 @@ class HarnessSessionHookTest {
 private class HookFixture(scope: CoroutineScope, dispatcher: CoroutineDispatcher) {
     val runtime = HarnessDispatchFixture(scope, dispatcher)
     val gate = HarnessEventGate().apply { open() }
-    val origins = HarnessRequestOrigins()
+    val origins = HarnessRequestOrigins(MemoryHarnessRequestAncestry())
     var library = HarnessState.Ready(listOf(HarnessEntry(runtime.request.harness)), isRuntimeAvailable = true)
     val proofs = HarnessSessionProofs(
         { if (gate.isEnabled) library else HarnessState.Idle(isSuspended = true) },

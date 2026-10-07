@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventDispatch
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessEventGate
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessHookDispatch
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
@@ -41,7 +42,7 @@ public object HarnessEventBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun origins(): HarnessRequestOrigins = HarnessRequestOrigins()
+    internal fun origins(ancestry: HarnessRequestAncestry): HarnessRequestOrigins = HarnessRequestOrigins(ancestry)
 
     @Provides
     @SingleIn(ProfileScope::class)
