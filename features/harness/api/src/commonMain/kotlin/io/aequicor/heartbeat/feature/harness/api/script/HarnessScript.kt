@@ -53,17 +53,33 @@ public interface HarnessScriptScope {
     public val workflows: ScriptWorkflows
 }
 
-/** Constructor-injected script base; evaluation registers callbacks, while suspend work uses [script]'s scope. */
+/**
+ * Constructor-injected script base; evaluation registers callbacks, while suspend work uses [script]'s scope.
+ * DSL members are public because K2 script templates cannot resolve protected base members.
+ */
 // Kotlin scripting templates must be inherited by generated script classes, never instantiated directly.
 @Suppress("AbstractClassCanBeConcreteClass")
 public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
-    protected val events: ScriptEvents get() = script.events
-    protected val hooks: ScriptHooks get() = script.hooks
-    protected val sessions: ScriptSessions get() = script.sessions
-    protected val scheduler: ScriptScheduler get() = script.scheduler
-    protected val agent: ScriptAgent get() = script.agent
-    protected val prompts: ScriptPrompts get() = script.prompts
-    protected val workflows: ScriptWorkflows get() = script.workflows
+    /** Activation-owned events. */
+    public val events: ScriptEvents get() = script.events
+
+    /** Activation-owned hooks. */
+    public val hooks: ScriptHooks get() = script.hooks
+
+    /** Activation-filtered sessions. */
+    public val sessions: ScriptSessions get() = script.sessions
+
+    /** Activation-owned scheduling. */
+    public val scheduler: ScriptScheduler get() = script.scheduler
+
+    /** Approved agent contributions. */
+    public val agent: ScriptAgent get() = script.agent
+
+    /** Enabled prompt templates. */
+    public val prompts: ScriptPrompts get() = script.prompts
+
+    /** Approved workflow starts. */
+    public val workflows: ScriptWorkflows get() = script.workflows
 }
 
 /** Workflow evaluation only registers its definition; execution and replay belong to the workflow driver. */
@@ -71,7 +87,7 @@ public abstract class HarnessScriptBase(public val script: HarnessScriptScope) {
 @Suppress("AbstractClassCanBeConcreteClass")
 public abstract class HarnessWorkflowBase(private val registration: WorkflowRegistration) {
     /** Registers exactly one definition without invoking its body during script evaluation. */
-    protected fun workflow(definition: WorkflowDefinition): Unit = registration.register(definition)
+    public fun workflow(definition: WorkflowDefinition): Unit = registration.register(definition)
 }
 
 /** Idempotently removes an activation-owned registration; disposal never proves native work has stopped. */
