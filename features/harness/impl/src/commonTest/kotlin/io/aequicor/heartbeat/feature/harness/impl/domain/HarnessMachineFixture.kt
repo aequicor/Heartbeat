@@ -53,6 +53,7 @@ internal class MemoryLibrary : HarnessLibraryStorage {
     var snapshot = HarnessLibrarySnapshot(listOf(harness))
     var beforeLoad: suspend () -> Unit = {}
     var beforeSave: suspend () -> Unit = {}
+    var beforeRemove: suspend () -> Unit = {}
     val saved = mutableListOf<HarnessReceipt>()
     var removed = 0
     override suspend fun load(): HarnessLibrarySnapshot {
@@ -67,6 +68,7 @@ internal class MemoryLibrary : HarnessLibraryStorage {
     }
     override suspend fun remove(harness: Harness, receipt: HarnessReceipt): HarnessReceipt {
         removed++
+        beforeRemove()
         return receipt
     }
     override suspend fun saveAttachments(write: HarnessAttachmentWrite): HarnessAttachmentWrite = write
@@ -78,6 +80,7 @@ internal class RecordingRuntime : HarnessRuntimeControl {
     val activated = mutableListOf<HarnessActivationRequest>()
     val deactivated = mutableListOf<HarnessEffect.Deactivate>()
     var canRemove = true
+    var isRemovalCurrent = true
     override suspend fun activate(request: HarnessActivationRequest): Boolean {
         activated += request
         return true
@@ -86,7 +89,11 @@ internal class RecordingRuntime : HarnessRuntimeControl {
         deactivated += effect
         return true
     }
-    override suspend fun remove(harness: Harness): Boolean = canRemove
+    override suspend fun remove(effect: HarnessEffect.Remove): HarnessRemovalResult = when {
+        !isRemovalCurrent -> HarnessRemovalResult.Obsolete
+        canRemove -> HarnessRemovalResult.Ready
+        else -> HarnessRemovalResult.Retry
+    }
 }
 
 internal class RecordingFeedback : EffectScope<HarnessIntent> {

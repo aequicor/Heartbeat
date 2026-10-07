@@ -32,6 +32,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -63,10 +64,15 @@ class HarnessIntegrationTest {
         assertNull(app.machines.find(HarnessMachineKey))
         toggles.toggleControl.setOverride(HarnessEnabled, true)
         withContext(app.dispatchers.default) {
-            withTimeout(10.seconds) {
+            withTimeout(30.seconds) {
                 val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
                 machine.state.filterIsInstance<HarnessState.Ready>().first()
-                val code = HarnessItem.Script(ItemId("code"), ItemName("code"), "", "hooks {}")
+                val code = HarnessItem.Script(
+                    ItemId("code"),
+                    ItemName("code"),
+                    "",
+                    "check(script.item.value == \"code\")",
+                )
                 machine.send(
                     HarnessIntent.Public.Create(
                         RequestId("create"),
@@ -76,24 +82,34 @@ class HarnessIntegrationTest {
                         Instant.fromEpochMilliseconds(1_000),
                     ),
                 )
-                val saved = machine.state.filterIsInstance<HarnessState.Ready>().first { it.harnesses.size == 1 }
-                assertFalse(saved.isRuntimeAvailable)
-                assertEquals(ItemStatus.Unsupported, saved.harnesses.single().itemStatus[code.id])
+                val saved = machine.state.filterIsInstance<HarnessState.Ready>().first {
+                    it.harnesses.singleOrNull()?.itemStatus?.get(code.id) is ItemStatus.Active
+                }
+                assertTrue(saved.isRuntimeAvailable)
+                val generation = assertIs<ItemStatus.Active>(saved.harnesses.single().itemStatus[code.id]).generation
                 toggles.toggleControl.setOverride(HarnessEnabled, false)
                 machine.state.first { it.isSuspended }
                 toggles.toggleControl.setOverride(HarnessEnabled, true)
-                machine.state.first { !it.isSuspended }
+                val resumed = machine.state.filterIsInstance<HarnessState.Ready>().first {
+                    !it.isSuspended && it.harnesses.single().itemStatus[code.id] is ItemStatus.Active
+                }
+                val resumedGeneration = assertIs<ItemStatus.Active>(
+                    resumed.harnesses.single().itemStatus[code.id],
+                ).generation
+                assertTrue(resumedGeneration > generation)
                 assertSame(machine, app.machines.find(HarnessMachineKey))
             }
         }
         app.profileSessions.close()
         app.profileSessions.open(profileId)
         withContext(app.dispatchers.default) {
-            withTimeout(10.seconds) {
+            withTimeout(30.seconds) {
                 val machine = app.machines.observe(HarnessMachineKey).filterNotNull().first()
-                val restored = machine.state.filterIsInstance<HarnessState.Ready>().first()
+                val restored = machine.state.filterIsInstance<HarnessState.Ready>().first {
+                    it.harnesses.singleOrNull()?.itemStatus?.get(ItemId("code")) is ItemStatus.Active
+                }
                 assertEquals(HarnessName("test"), restored.harnesses.single().harness.name)
-                assertFalse(restored.isRuntimeAvailable)
+                assertTrue(restored.isRuntimeAvailable)
             }
         }
         app.profileSessions.close()
