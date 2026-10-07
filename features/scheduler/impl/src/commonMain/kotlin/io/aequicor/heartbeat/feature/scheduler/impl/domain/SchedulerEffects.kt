@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
@@ -35,6 +36,7 @@ internal class SchedulerEffects(
     // Lazy: hosts reach the engine runtime, which must not start with the profile while nothing is due.
     private val hosts: Lazy<Set<ScheduledSessionHost>>,
     private val owners: Lazy<Set<ScheduledWakeOwner>> = lazyOf(emptySet()),
+    private val eventOwners: Lazy<Set<ScheduledEventOwner>> = lazyOf(emptySet()),
 ) : EffectHandler<SchedulerEffect, SchedulerIntent> {
     private val log = Log.tag("SchedulerEffects")
 
@@ -70,13 +72,13 @@ internal class SchedulerEffects(
 
     private suspend fun deliverAttempt(delivery: WakeDelivery, machine: EffectScope<SchedulerIntent>) {
         val id = delivery.wake.id
-        var admission: OwnedWakeAdmission? = null
+        var admission: WakeDeliveryAdmission? = null
         val failure = try {
-            admission = admissionFor(delivery.wake.request)
+            admission = WakeDeliveryAdmission.create(delivery, owners, eventOwners)
             // A session busy for too long drops the wake rather than holding it undeliverable and uncancellable.
             val isDelivered = withTimeoutOrNull(SchedulerLimits.DELIVERY_TIMEOUT) {
                 checkAdmission(admission)
-                val host = hostFor(delivery.wake.request)
+                val host = hostFor(delivery.wake.request, admission != null)
                 log.i { "deliver wake $id via ${host::class.simpleName.orEmpty()}" }
                 host.wake(delivery.wake.request, wakePrompt(delivery).copy(admission = admission?.decisions))
                 true
@@ -111,7 +113,7 @@ internal class SchedulerEffects(
         }
     }
 
-    private suspend fun checkAdmission(admission: OwnedWakeAdmission?) {
+    private suspend fun checkAdmission(admission: WakeDeliveryAdmission?) {
         when (admission?.decisions?.first()) {
             ScheduledWakeAdmission.Defer -> throw ScheduledWakeDeferredException()
             ScheduledWakeAdmission.Drop -> throw ScheduledWakeDroppedException()
@@ -119,15 +121,9 @@ internal class SchedulerEffects(
         }
     }
 
-    private fun admissionFor(request: WakeRequest): OwnedWakeAdmission? {
-        val feature = request.ownerFeature ?: return null
-        val owner = owners.value.singleOrNull { it.feature == feature } ?: throw WakeOwnerUnavailableException()
-        return OwnedWakeAdmission(owner, request)
-    }
-
-    private suspend fun hostFor(request: WakeRequest): ScheduledSessionHost =
+    private suspend fun hostFor(request: WakeRequest, isAdmissionRequired: Boolean): ScheduledSessionHost =
         hosts.value.sortedByDescending { it.priority }.firstOrNull {
-            (request.ownerFeature == null || it.isWakeAdmissionSupported) && it.owns(request.session)
+            (!isAdmissionRequired || it.isWakeAdmissionSupported) && it.owns(request.session)
         }
             ?: throw SessionUnavailableException("No host owns the session")
 }
