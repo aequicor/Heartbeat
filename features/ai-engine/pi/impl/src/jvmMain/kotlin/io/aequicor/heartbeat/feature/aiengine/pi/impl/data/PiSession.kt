@@ -97,6 +97,7 @@ internal class PiSession(
     private var persistedTranscript: suspend (String) -> String? = { null }
     private var nativeRef: SessionRef? = null
     private val usage = PiSessionUsage(environment, handle)
+    val contextRevision = PiContextRevision()
 
     // Native transcript path, used only to reattach a restarted process; never logged.
     private var sessionFile: String? = null
@@ -440,6 +441,7 @@ internal class PiSession(
         ensureOpen()
         if (nativeRef != null) turnJournal.restoreForOpening()
         val current = ++generation
+        contextRevision.renewed()
         val fresh = factory(
             plan,
             { record -> withContext(dispatchers.main) { if (!isShuttingDown && current == generation) event(record) } },
@@ -573,6 +575,7 @@ internal class PiSession(
     private suspend fun event(record: JsonObject) = withContext(dispatchers.main) {
         // Events of this fresh process cannot describe the unresolved run owned by another process.
         if ((!isExecutionOwned && turn != null) || stopping.blocks(turn?.id)) return@withContext
+        contextRevision.event(record)
         usage.event(record)
         // Configuration events can arrive before get_state establishes the native identity.
         nativeRef?.let { promptResources.event(it, record) }

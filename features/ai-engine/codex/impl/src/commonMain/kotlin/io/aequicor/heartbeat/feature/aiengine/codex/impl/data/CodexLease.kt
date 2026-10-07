@@ -50,6 +50,7 @@ internal class CodexLease(private val session: CodexSession) :
     override val features: EngineFeatures = CodexFeatures(
         this,
         session.contextUsage,
+        session.contextRevision,
         object : AcceptsImages {
             override val mediaTypes: Set<String> get() = session.runtime.inputSupport(
                 session.target.model,

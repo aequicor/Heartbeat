@@ -25,6 +25,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -77,7 +78,8 @@ class ManagedActiveSession(
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
     private val hookHandle = hookContext?.let { context ->
-        SessionHookHandle(policy.hooks, context) { policy.finishUnaccepted(ref, it) }
+        val revision = (parts.native.features.resolve(SessionContextRevision) as? FeatureAccess.Available)?.feature
+        SessionHookHandle(policy.hooks, context, { revision?.state?.value }) { policy.finishUnaccepted(ref, it) }
     }
     private val currentModel = MutableStateFlow(model)
 
