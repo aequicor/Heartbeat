@@ -57,6 +57,12 @@ import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMachineKey
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseMode
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseOutput
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseState
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssistOrigin
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion
+import io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger
+import io.aequicor.heartbeat.feature.autocomplete.api.HostCommand
 import io.aequicor.heartbeat.feature.computeruse.api.ScreenBounds
 import io.aequicor.heartbeat.feature.computeruse.api.WindowId
 import io.aequicor.heartbeat.feature.computeruse.api.WindowTarget
@@ -96,6 +102,7 @@ import pro.respawn.flowmvi.dsl.collect
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 class AiStudioModelTest {
@@ -139,6 +146,106 @@ class AiStudioModelTest {
 
         fixture.subscribe()
         assertEquals(targets, fixture.machine.sent.last())
+    }
+
+    @Test
+    fun `composer suggestions follow the caret token and acceptance replaces it`() = runTest {
+        val command = ComposerSuggestion.Command(
+            "host:remember",
+            "/remember",
+            "",
+            ComposerAssistOrigin.Heartbeat,
+            "/remember ",
+        )
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(command)
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "/rem"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(listOf("/remember"), screen.states.value.suggestions(0)?.suggestions?.map { it.label })
+
+        fixture.model.store.intent(AiStudioScreenIntent.AcceptSuggestion(0))
+        runCurrent()
+        assertEquals("/remember ", screen.states.value.draft(0))
+        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
+    }
+
+    @Test
+    fun `dismissed suggestions stay hidden for the same token and return for the next one`() = runTest {
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(
+                    ComposerSuggestion.Skill("host:verify", "verify", "", ComposerAssistOrigin.Heartbeat, "verify "),
+                )
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "use @ver"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+
+        fixture.model.store.intent(AiStudioScreenIntent.DismissSuggestions(0))
+        runCurrent()
+        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
+
+        // Typing on changes the token, so the completion returns for the new query.
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "use @veri"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+    }
+
+    @Test
+    fun `a caret outside any token clears the suggestion list`() = runTest {
+        val fixture = Fixture(
+            this,
+            ready,
+            assists = object : ComposerAssists {
+                override suspend fun suggest(
+                    trigger: ComposerTrigger,
+                    scope: ComposerScope,
+                    hostCommands: List<HostCommand>,
+                ): List<ComposerSuggestion> = listOf(
+                    ComposerSuggestion.File(
+                        "file:README.md",
+                        "README.md",
+                        "2 kB",
+                        ComposerAssistOrigin.Heartbeat,
+                        "README.md",
+                        "C:\\p\\README.md",
+                        2_048,
+                        "text/markdown",
+                    ),
+                )
+            },
+        )
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "read @READ"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(1, screen.states.value.suggestions(0)?.suggestions?.size)
+
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "plain words only"))
+        advanceTimeBy(300.milliseconds)
+        runCurrent()
+        assertEquals(0, screen.states.value.suggestions(0)?.suggestions?.size ?: 0)
     }
 
     @Test
@@ -628,6 +735,14 @@ class AiStudioModelTest {
         private val scope: TestScope,
         initial: AiStudioState,
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
+        assists: io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists =
+            object : io.aequicor.heartbeat.feature.autocomplete.api.ComposerAssists {
+                override suspend fun suggest(
+                    trigger: io.aequicor.heartbeat.feature.autocomplete.api.ComposerTrigger,
+                    scope: io.aequicor.heartbeat.feature.autocomplete.api.ComposerScope,
+                    hostCommands: List<io.aequicor.heartbeat.feature.autocomplete.api.HostCommand>,
+                ): List<io.aequicor.heartbeat.feature.autocomplete.api.ComposerSuggestion> = emptyList()
+            },
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
@@ -651,6 +766,7 @@ class AiStudioModelTest {
             efforts = efforts,
             machines = efforts,
             attachmentsCatalog = catalog,
+            assists = assists,
             previews = object : StudioAttachmentPreviews {
                 override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
             },
