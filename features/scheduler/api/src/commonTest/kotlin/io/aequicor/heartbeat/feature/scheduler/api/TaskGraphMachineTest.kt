@@ -1,9 +1,14 @@
 package io.aequicor.heartbeat.feature.scheduler.api
 
 import io.aequicor.heartbeat.core.statemachine.assertIgnored
+import io.aequicor.heartbeat.core.statemachine.assertTransition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -45,6 +50,50 @@ class TaskGraphMachineTest {
     private fun TaskGraphState.finish(task: String, phase: GraphTaskPhase = GraphTaskPhase.Succeeded) = step(
         TaskGraphIntent.Internal.Finished("g1", task, task, GraphTaskResult(phase, "done")),
     )
+
+    @Test
+    fun `accepted recovery and cancellation causes persist atomically and survive restart`() {
+        val initial = RequestInitiator(owner, RequestId("initial"))
+        val retry = RequestInitiator(owner, RequestId("retry"))
+        val cancel = RequestInitiator(owner, RequestId("cancel"))
+        val run = GraphTaskRun(GraphTaskPhase.RecoveryRequired, execution = "A")
+        val graph = graph().copy(initiator = initial, runs = graph().runs + ("A" to run))
+        val before = TaskGraphState.Ready(listOf(graph), revision = 1, persisted = 1)
+        val resolution = TaskGraphIntent.Public.Resolve(
+            "g1",
+            "A",
+            "A",
+            owner,
+            TaskRecoveryDecision.Retry,
+            "checked",
+            retry,
+        )
+        val after = before.step(resolution)
+        assertEquals(setOf(retry), after.graphs.single().causes)
+        assertEquals(initial, after.graphs.single().initiator)
+        TaskGraphMachineSpec.assertTransition(
+            before,
+            resolution,
+            after,
+            effects = listOf(TaskGraphEffect.Save(after.graphs, after.revision)),
+        )
+        TaskGraphMachineSpec.assertIgnored(after, resolution.copy(cause = cancel))
+        val cancelled = after.step(TaskGraphIntent.Public.Cancel("g1", owner, cancel))
+        assertEquals(setOf(retry, cancel), cancelled.graphs.single().causes)
+        TaskGraphMachineSpec.assertIgnored(cancelled, TaskGraphIntent.Public.Cancel("g1", owner, initial))
+        val restarted = TaskGraphState.Loading.step(TaskGraphIntent.Internal.Loaded(cancelled.graphs))
+        assertEquals(initial, restarted.graphs.single().initiator)
+        assertEquals(setOf(retry, cancel), restarted.graphs.single().causes)
+    }
+
+    @Test
+    fun `legacy graph snapshot without causal fields decodes without guessed ancestry`() {
+        val encoded = Json.encodeToJsonElement(TaskGraph.serializer(), graph()).jsonObject
+        val legacy = JsonObject(encoded - setOf("initiator", "causes"))
+        val restored = Json.decodeFromString<TaskGraph>(legacy.toString())
+        assertNull(restored.initiator)
+        assertTrue(restored.causes.isEmpty())
+    }
 
     @Test
     fun `five node graph waits for both roots and releases E exactly once in every finish order`() {

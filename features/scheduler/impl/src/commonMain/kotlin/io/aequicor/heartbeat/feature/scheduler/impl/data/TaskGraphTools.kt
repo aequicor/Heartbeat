@@ -24,6 +24,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlin.time.Duration.Companion.seconds
 
@@ -131,7 +132,10 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
             return failure("Graph authorization changed")
         }
         return if (spec.name == TaskGraphToolSpecs.CANCEL) {
-            accepted(TaskGraphIntent.Public.Cancel(graph.id, context.session), "Cancellation requested")
+            accepted(
+                TaskGraphIntent.Public.Cancel(graph.id, context.session, context.initiator()),
+                "Cancellation requested",
+            )
         } else {
             resolve(context, graph, arguments)
         }
@@ -231,7 +235,15 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
         }
         val explanation = arguments.text("explanation") ?: return failure("Explain the inspected evidence")
         if (explanation.length > SchedulerLimits.MAX_PAYLOAD) return failure("Explanation is too long")
-        val intent = TaskGraphIntent.Public.Resolve(graph.id, task, execution, context.session, decision, explanation)
+        val intent = TaskGraphIntent.Public.Resolve(
+            graph.id,
+            task,
+            execution,
+            context.session,
+            decision,
+            explanation,
+            context.initiator(),
+        )
         val isSaved = withTimeoutOrNull(10.seconds) { driver.resolveInterrupted(intent) }
         return if (isSaved == true) {
             AgentToolResult("Recovery decision saved")
@@ -265,12 +277,22 @@ internal class TaskGraphTools(private val machine: TaskGraphMachine, private val
             },
         )
         require(definition.validationError() == null) { definition.validationError().orEmpty() }
-        return TaskGraph(id, context.session, context.workspace, context.target, definition, "")
+        return TaskGraph(
+            id,
+            context.session,
+            context.workspace,
+            context.target,
+            definition,
+            "",
+            initiator = context.initiator(),
+        )
     }
 
-    private fun binding(graph: TaskGraph): String = graphJson.encodeToString(
-        graph.copy(approval = "", runs = emptyMap()),
-    )
+    /** Keep the original approval bytes: causal metadata may tighten execution, never change authorization. */
+    private fun binding(graph: TaskGraph): String = JsonObject(
+        graphJson.encodeToJsonElement(TaskGraph.serializer(), graph.copy(approval = "", runs = emptyMap()))
+            .jsonObject - setOf("initiator", "causes"),
+    ).toString()
     private fun summary(graph: TaskGraph): String = "${graph.id}: " +
         graph.runs.entries.joinToString { "${it.key}=${it.value.phase}" }
     private fun failure(text: String) = AgentToolResult(text, isError = true)
