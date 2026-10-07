@@ -17,7 +17,12 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
 
 /** One attempt: every subscription refreshes current admission; any observed refusal stays terminal. */
-internal class OwnedWakeAdmission(owner: ScheduledWakeOwner, private val request: WakeRequest) {
+internal class OwnedWakeAdmission(
+    private val request: WakeRequest,
+    admissionSource: () -> Flow<ScheduledWakeAdmission>,
+) {
+    constructor(owner: ScheduledWakeOwner, request: WakeRequest) : this(request, { owner.admission(request) })
+
     private val log = Log.tag("OwnedWakeAdmission")
     private val revoked = MutableStateFlow<ScheduledWakeAdmission?>(null)
     var failure: WakeFailure = WakeFailure.OwnerRejected
@@ -29,7 +34,7 @@ internal class OwnedWakeAdmission(owner: ScheduledWakeOwner, private val request
             emit(previous)
             return@flow
         }
-        val source = owner.admission(request)
+        val source = admissionSource()
         val first = withTimeoutOrNull(INITIAL_TIMEOUT) { source.first() }
         if (first == null) {
             log.w { "Wake owner did not supply current admission" }
@@ -38,8 +43,10 @@ internal class OwnedWakeAdmission(owner: ScheduledWakeOwner, private val request
         emit(record(first ?: ScheduledWakeAdmission.Drop))
         emitAll(combine(source, revoked) { next, terminal -> terminal ?: record(next) })
     }.catch { error ->
-        if (error is CancellationException) throw error
-        log.w(error) { "Wake owner admission unavailable" }
+        if (error is CancellationException || error !is Exception) throw error
+        log.w(IllegalStateException("Wake admission failed (${error::class.simpleName.orEmpty()})")) {
+            "Wake owner admission unavailable"
+        }
         failure = WakeFailure.OwnerUnavailable
         emit(record(ScheduledWakeAdmission.Drop))
     }

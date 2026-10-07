@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTaskGraphs
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphEffect
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineSpec
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
@@ -61,10 +62,17 @@ public object SchedulerBindings {
     internal fun machine(
         launcher: MachineLauncher,
         @ForScope(ProfileScope::class) scope: ScopeHandle,
+        effects: SchedulerEffects,
+    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, effects)
+
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun effects(
         persistence: SchedulerPersistence,
         hosts: Lazy<Set<ScheduledSessionHost>>,
         owners: Lazy<Set<ScheduledWakeOwner>>,
-    ): SchedulerMachine = launcher.launch(SchedulerMachineSpec, scope, SchedulerEffects(persistence, hosts, owners))
+        eventOwners: Lazy<Set<ScheduledEventOwner>>,
+    ): SchedulerEffects = SchedulerEffects(persistence, hosts, owners, eventOwners)
 
     @Provides
     internal fun driver(
@@ -86,6 +94,10 @@ public interface SchedulerMultibindings {
     /** Feature-owned admission controllers; resolved lazily only for owned wake delivery. */
     @Multibinds(allowEmpty = true)
     public fun scheduledWakeOwners(): Set<ScheduledWakeOwner>
+
+    /** Publisher controllers and observers; resolved only for Feature or exact Session/HostTurn delivery. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledEventOwners(): Set<ScheduledEventOwner>
 
     /** Platform signal sources. */
     @Multibinds(allowEmpty = true)
