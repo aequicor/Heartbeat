@@ -40,6 +40,7 @@ internal interface StudioHelperRuns {
 internal class EngineStudioHelperChats(
     private val records: StudioHelperChatRecords,
     private val attempts: StudioHelperAttempts,
+    private val admissions: StudioHelperPromptAdmissions,
     private val runs: Lazy<StudioHelperRuns>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
 ) {
@@ -69,7 +70,11 @@ internal class EngineStudioHelperChats(
 
     private suspend fun execute(helper: HelperId, prompt: HelperPrompt, answer: CompletableDeferred<HelperSubmission>) {
         try {
-            runs.value.runHelper(helper, prompt, StudioHelperSubmission(attempts, helper, prompt.request)) {
+            runs.value.runHelper(
+                helper,
+                prompt,
+                StudioHelperSubmission(attempts, helper, prompt.request, admissions = admissions),
+            ) {
                 val receipt = checkNotNull(attempts.receipt(helper, prompt.request))
                 answer.complete(checkNotNull(receipt.submission()) { "Missing helper acceptance receipt" })
             }

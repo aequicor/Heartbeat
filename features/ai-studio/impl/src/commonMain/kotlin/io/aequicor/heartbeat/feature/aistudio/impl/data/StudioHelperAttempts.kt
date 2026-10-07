@@ -86,15 +86,41 @@ internal class StudioHelperAttempts(
         }
 
     /** A successful return owns the only permission to send R; persistence precedes any native side effect. */
-    suspend fun begin(helper: HelperId, request: RequestId): Boolean = lock.withLock {
+    suspend fun begin(helper: HelperId, request: RequestId, claim: String? = null): Boolean = lock.withLock {
         val records = read(helper)
         val receipt = records[request.value]
         if (receipt?.phase != StudioHelperPhase.Preparing) return@withLock false
         check(receipt.handoff == null || receipt.preparedSession != null) { "Helper context has no bound target" }
-        write(helper, records + (request.value to receipt.copy(phase = StudioHelperPhase.Submitting)))
+        write(
+            helper,
+            records + (request.value to receipt.copy(phase = StudioHelperPhase.Submitting, submissionClaim = claim)),
+        )
         log.v { "Journaled helper submission boundary" }
         true
     }
+
+    /**
+     * Only the exact local sender, before entering native send, may retire its own durable claim. External cancel
+     * must keep using cancelBeforeSubmission. A lost begin ACK is safe: the persisted claim identifies its owner;
+     * another sender's Submitting is never downgraded. A failed cleanup write leaves the attempt uncertain.
+     */
+    suspend fun cancelBeforeNative(helper: HelperId, request: RequestId, session: SessionRef, claim: String): Boolean =
+        lock.withLock {
+            val records = read(helper)
+            val receipt = checkNotNull(records[request.value]) { "Missing helper preparation" }
+            if (receipt.phase == StudioHelperPhase.NotSubmitted) return@withLock true
+            if ((receipt.preparedSession != null && receipt.preparedSession != session) ||
+                receipt.session != null
+            ) {
+                return@withLock false
+            }
+            val isBoundaryOwned = receipt.phase == StudioHelperPhase.Preparing ||
+                (receipt.phase == StudioHelperPhase.Submitting && receipt.submissionClaim == claim)
+            if (!isBoundaryOwned) return@withLock false
+            write(helper, records + (request.value to receipt.copy(phase = StudioHelperPhase.NotSubmitted)))
+            log.v { "Exact helper sender confirmed no native submission" }
+            true
+        }
 
     /** Unknown ids also receive a durable tombstone, so a prompt arriving later cannot enter begin. */
     suspend fun cancelBeforeSubmission(helper: HelperId, request: RequestId): StudioHelperReceipt = lock.withLock {

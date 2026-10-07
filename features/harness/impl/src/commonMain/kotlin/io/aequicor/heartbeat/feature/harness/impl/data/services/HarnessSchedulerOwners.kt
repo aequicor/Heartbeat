@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestA
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSchedulerAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessTarget
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
@@ -65,7 +66,10 @@ internal class HarnessSchedulerAdmission(
             emit(ScheduledWakeAdmission.Allow)
         }
     } else {
-        access.value.permits(owner.harness, target).transformLatest { permit ->
+        access.value.permits(
+            owner.harness,
+            target?.let { HarnessTarget(it.session, it.workspace) },
+        ).transformLatest { permit ->
             if (permit == null) {
                 emit(ScheduledWakeAdmission.Drop)
             } else {

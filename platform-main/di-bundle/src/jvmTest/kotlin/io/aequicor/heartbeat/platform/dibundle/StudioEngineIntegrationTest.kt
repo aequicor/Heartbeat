@@ -41,7 +41,6 @@ import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
 import io.aequicor.heartbeat.feature.aistudio.api.SessionEdit
 import io.aequicor.heartbeat.feature.aistudio.api.StudioEngineRuntime
-import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionSettings
 import io.aequicor.heartbeat.feature.aistudio.api.StudioSettingsVersion
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
@@ -244,21 +243,19 @@ class StudioEngineIntegrationTest {
         }
     }
 
-    private suspend fun seedHelperFullApproval(services: AiEngineTestAccessors, helper: HelperId) {
-        val store = (services as TestStorageAccessors).stores.keyValue(KeyValueSpec("ai_studio_chats"))
-        val key = jsonKey("chats", JsonArray.serializer())
-        val full = StudioSessionSettings(services.studioRuntime.defaults().modelId, approval = ApprovalMode.AutoApprove)
-        val configuration = Json.encodeToJsonElement(StudioSessionSettings.serializer(), full)
-        val records = requireNotNull(store.get(key)).map { record ->
-            if (record.jsonObject["id"] == JsonPrimitive(helper.value)) {
-                JsonObject(record.jsonObject + ("configuration" to configuration))
-            } else {
-                record
+    @Test
+    fun `helper trust lowered during admission is sent and persisted without configuration capability`() =
+        runStudioTest {
+            // This test deliberately blocks a 2s admission on real disk IO; use a serial real-time Main clock.
+            Dispatchers.setMain(Dispatchers.Default.limitedParallelism(1))
+            TestAdapter.isTrustSupported = true
+            try {
+                val services = configured()
+                assertHelperAdmissionTrust(services)
+            } finally {
+                TestAdapter.isTrustSupported = false
             }
         }
-        store.set(key, JsonArray(records))
-        services.studioRuntime.state.first { it.configurations[helper.value]?.applied == full }
-    }
 
     @Test
     fun `helper refuses native default when engine cannot enforce its trust cap`() = runStudioTest {

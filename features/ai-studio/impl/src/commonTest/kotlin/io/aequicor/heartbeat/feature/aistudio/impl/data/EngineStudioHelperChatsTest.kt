@@ -164,7 +164,13 @@ private class HelperFixture(private val scope: CoroutineScope) :
     var result: StudioHelperTerminal? = null
     var stopped: StudioHelperTerminal? = null
 
-    fun restart() = EngineStudioHelperChats(this, StudioHelperAttempts(stores), lazyOf(this), RunProfile(scope))
+    fun restart() = EngineStudioHelperChats(
+        this,
+        StudioHelperAttempts(stores),
+        emptyHelperAdmissions(),
+        lazyOf(this),
+        RunProfile(scope),
+    )
     fun terminal(request: RequestId) = StudioHelperTerminal(
         HelperSession,
         TurnId(request.value),

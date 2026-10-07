@@ -43,6 +43,92 @@ class StudioHelperAttemptsTest {
     )
 
     @Test
+    fun `lost prepared target acknowledgement is cleaned before leaving local preparation`() = runTest {
+        val stores = AttemptStores()
+        val journal = StudioHelperAttempts(stores)
+        journal.prepare(helper, prompt)
+        stores.afterWrite = {
+            stores.afterWrite = {}
+            throw CancellationException("lost binding ACK")
+        }
+        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        assertFailsWith<CancellationException> {
+            gate.withPreparation(session) { error("must not prepare") }
+        }
+        assertTrue(gate.isCancelled)
+        val receipt = assertNotNull(journal.receipt(helper, prompt.request))
+        assertEquals(session, receipt.preparedSession)
+        assertEquals(StudioHelperPhase.NotSubmitted, receipt.phase)
+    }
+
+    @Test
+    fun `only exact local claim may retire a submitting attempt after lost acknowledgement`() = runTest {
+        val stores = AttemptStores()
+        val journal = StudioHelperAttempts(stores)
+        journal.prepare(helper, prompt)
+        journal.bindSession(helper, prompt.request, session)
+        stores.afterWrite = { throw CancellationException("lost begin ACK") }
+        assertFailsWith<CancellationException> { journal.begin(helper, prompt.request, "sender") }
+        stores.afterWrite = {}
+        assertEquals(StudioHelperPhase.Submitting, journal.cancelBeforeSubmission(helper, prompt.request).phase)
+        assertFalse(journal.cancelBeforeNative(helper, prompt.request, session, "another sender"))
+        assertFalse(journal.cancelBeforeNative(helper, prompt.request, session.copy(nativeId = "wrong"), "sender"))
+        assertTrue(journal.cancelBeforeNative(helper, prompt.request, session, "sender"))
+        assertEquals(
+            StudioHelperPhase.NotSubmitted,
+            StudioHelperAttempts(stores).receipt(helper, prompt.request)?.phase,
+        )
+        assertFalse(journal.begin(helper, prompt.request, "late sender"))
+    }
+
+    @Test
+    fun `local cleanup never retires an accepted native turn`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        journal.bindSession(helper, prompt.request, session)
+        journal.begin(helper, prompt.request, "sender")
+        journal.accepted(helper, prompt.request, session, terminal.turn)
+        assertFalse(journal.cancelBeforeNative(helper, prompt.request, session, "sender"))
+        assertEquals(StudioHelperPhase.Accepted, journal.receipt(helper, prompt.request)?.phase)
+    }
+
+    @Test
+    fun `local preparation cleanup retires its persisted begin even when acknowledgement is cancelled`() = runTest {
+        val stores = AttemptStores()
+        val journal = StudioHelperAttempts(stores)
+        journal.prepare(helper, prompt)
+        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        assertFailsWith<CancellationException> {
+            gate.withPreparation(session) {
+                stores.afterWrite = {
+                    stores.afterWrite = {}
+                    throw CancellationException("lost begin ACK")
+                }
+                gate.begin()
+                error("must not enter native send")
+            }
+        }
+        assertTrue(gate.isCancelled)
+        assertEquals(StudioHelperPhase.NotSubmitted, journal.receipt(helper, prompt.request)?.phase)
+    }
+
+    @Test
+    fun `after native ownership cancellation retains uncertainty for reconciliation`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        journal.prepare(helper, prompt)
+        val gate = StudioHelperSubmission(journal, helper, prompt.request, admissions = emptyHelperAdmissions())
+        assertFailsWith<CancellationException> {
+            gate.withPreparation(session) {
+                gate.begin()
+                throw CancellationException("native ACK unknown")
+            }
+        }
+        assertFalse(gate.isCancelled)
+        assertEquals(StudioHelperPhase.Submitting, journal.receipt(helper, prompt.request)?.phase)
+        assertFalse(gate.cancel())
+    }
+
+    @Test
     fun `handoff is immutable across restart and cancellation preserves its prepared target`() = runTest {
         val stores = ChecklistTestStores()
         val journal = StudioHelperAttempts(stores)

@@ -23,7 +23,7 @@ class StudioHelperAdmissionTest {
     @Test
     fun `manual helper send journals before native begin and refuses an unresolved old request`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
-        val admission = StudioHelperAdmission(attempts)
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
         val request = runRequest("manual").copy(id = record.id)
         val admitted = admission.prepare(record, request)
         assertEquals(StudioHelperPhase.Preparing, attempts.receipt(HelperId(record.id), request.request)?.phase)
@@ -43,16 +43,16 @@ class StudioHelperAdmissionTest {
         attempts.prepare(helper, HelperPrompt(request.request, request.prompt))
         val gate = StudioHelperSubmission(attempts, helper, request.request)
         val matching = request.copy(submission = gate)
-        assertSame(matching, StudioHelperAdmission(attempts).prepare(record, matching))
+        assertSame(matching, StudioHelperAdmission(attempts, emptyHelperAdmissions()).prepare(record, matching))
         assertFailsWith<IllegalStateException> {
-            StudioHelperAdmission(attempts).prepare(record.copy(id = "foreign"), matching)
+            StudioHelperAdmission(attempts, emptyHelperAdmissions()).prepare(record.copy(id = "foreign"), matching)
         }
     }
 
     @Test
     fun `ordinary chats remain ordinary and prior scheduled admission still prevents helper native send`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
-        val admission = StudioHelperAdmission(attempts)
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
         val prior = StudioRunSubmission()
         val request = runRequest("wake").copy(id = record.id, submission = prior)
         assertSame(request, admission.prepare(record.copy(helper = null), request))
@@ -63,3 +63,8 @@ class StudioHelperAdmissionTest {
         assertEquals(StudioHelperPhase.NotSubmitted, attempts.receipt(HelperId(record.id), request.request)?.phase)
     }
 }
+
+internal fun emptyHelperAdmissions(): StudioHelperPromptAdmissions = StudioHelperPromptAdmissions(
+    lazy { error("neutral helper must not read handoff metadata") },
+    lazy { error("neutral helper must not resolve owners") },
+)

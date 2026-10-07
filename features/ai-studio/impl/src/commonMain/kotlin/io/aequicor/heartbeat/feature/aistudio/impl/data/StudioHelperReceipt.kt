@@ -55,11 +55,14 @@ internal data class StudioHelperReceipt(
     val handoff: HelperHandoff? = null,
     /** Bound before admission IO; unlike session/turn, this is not evidence of native acceptance. */
     val preparedSession: SessionRef? = null,
+    /** Unique sender claim; only that sender can prove its own native call was never entered. */
+    val submissionClaim: String? = null,
 ) {
     init {
         require(fingerprint != null || phase == StudioHelperPhase.NotSubmitted)
-        require(fingerprint != null || (handoff == null && preparedSession == null))
+        require(fingerprint != null || (handoff == null && preparedSession == null && submissionClaim == null))
         require(preparedSession == null || session == null || preparedSession == session)
+        require(submissionClaim == null || (submissionClaim.isNotBlank() && phase != StudioHelperPhase.Preparing))
         require(
             phase in setOf(StudioHelperPhase.Preparing, StudioHelperPhase.NotSubmitted) ||
                 handoff == null || preparedSession != null,
