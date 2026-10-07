@@ -27,10 +27,42 @@ import kotlin.script.experimental.host.StringScriptSource
 import kotlin.script.experimental.jvm.JvmDependency
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
 import kotlin.test.Test
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 
 class HarnessK2SpikeTest {
+    @Test
+    fun `evaluation does not turn fatal initializer failure into a script diagnostic`() = runTest {
+        val directory = Files.createTempDirectory("harness-fatal-test")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val host = JvmHarnessScriptHost(directory, "test", backgroundScope, dispatchers)
+        val compiled = assertIs<HarnessCompilationResult.Success>(
+            host.compile(
+                HarnessCompilationRequest(
+                    HarnessId("fatal"),
+                    ItemId("workflow"),
+                    HarnessCodeKind.Workflow,
+                    "workflow { input -> input }",
+                ),
+            ),
+        )
+        try {
+            val fatal = OutOfMemoryError("private detail")
+            val context = HarnessEvaluationContext.Workflow(WorkflowRegistration { throw fatal })
+            assertSame(fatal, assertFailsWith<OutOfMemoryError> { host.evaluate(compiled.code, context) })
+        } finally {
+            compiled.code.close()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `host caches workflow and immutable leases survive cache replacement and removal`() = runTest {
         val directory = Files.createTempDirectory("harness-host-test")
