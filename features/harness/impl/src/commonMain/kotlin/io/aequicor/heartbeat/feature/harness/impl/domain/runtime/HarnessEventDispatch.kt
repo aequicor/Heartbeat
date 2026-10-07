@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 internal class HarnessEventDispatch(
     private val runtime: HarnessRuntime,
     private val sessions: HarnessSessionAdmission,
+    private val epoch: () -> Long? = { 0L },
 ) {
     private val queues = MutableStateFlow<Map<HarnessInstance, Channel<Envelope>>>(emptyMap())
     private val log = Log.tag("HarnessRuntime")
@@ -30,12 +31,23 @@ internal class HarnessEventDispatch(
     @HighFrequency
     suspend fun emit(event: HarnessEvent, origin: HarnessCallOrigin = HarnessCallOrigin()) {
         log.v { "enqueue harness event" }
-        runtime.published().forEach { instance ->
-            val context = instance.runtimeContext as? HarnessScriptContext ?: return@forEach
-            if (!instance.isActive || !accepts(instance, event)) return@forEach
-            if (context.registrations.events().any { it.callback.isActive && it.type.isInstance(event) }) {
-                queue(instance).trySend(Envelope(event, origin))
-            }
+        runtime.published().forEach { instance -> enqueue(instance, event, origin) }
+    }
+
+    /** Targets one exact published generation, for lifecycle notifications without rebroadcasting to peers. */
+    @HighFrequency
+    fun emitTo(instance: HarnessInstance, event: HarnessEvent, origin: HarnessCallOrigin = HarnessCallOrigin()) {
+        log.v { "enqueue targeted harness event" }
+        enqueue(instance, event, origin)
+    }
+
+    @HighFrequency
+    private fun enqueue(instance: HarnessInstance, event: HarnessEvent, origin: HarnessCallOrigin) {
+        val admittedEpoch = epoch() ?: return
+        val context = instance.runtimeContext as? HarnessScriptContext ?: return
+        if (!instance.isActive || !accepts(instance, event)) return
+        if (context.registrations.events().any { it.callback.isActive && it.type.isInstance(event) }) {
+            queue(instance).trySend(Envelope(event, origin, admittedEpoch))
         }
     }
 
@@ -65,6 +77,7 @@ internal class HarnessEventDispatch(
 
     @HighFrequency
     private suspend fun deliver(instance: HarnessInstance, envelope: Envelope) {
+        if (epoch() != envelope.epoch) return
         val context = instance.runtimeContext as? HarnessScriptContext ?: return
         context.registrations.events().forEach { registration ->
             val callback = registration.callback
@@ -77,7 +90,9 @@ internal class HarnessEventDispatch(
                     HarnessInvocationBudget.Event,
                     HarnessInvocationOptions(origin = envelope.origin.merge(callback.origin)),
                 ) {
-                    if (accepts(instance, envelope.event)) callback.acquire()?.invoke(envelope.event)
+                    if (epoch() == envelope.epoch && accepts(instance, envelope.event)) {
+                        callback.acquire()?.invoke(envelope.event)
+                    }
                 }
             }
         }
@@ -100,7 +115,7 @@ internal class HarnessEventDispatch(
         -> true
     }
 
-    private data class Envelope(val event: HarnessEvent, val origin: HarnessCallOrigin) {
+    private data class Envelope(val event: HarnessEvent, val origin: HarnessCallOrigin, val epoch: Long) {
         override fun toString(): String = "HarnessEventEnvelope(***)"
     }
 }
