@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeFailure
+import io.aequicor.heartbeat.feature.scheduler.api.WakeReason
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
@@ -64,7 +65,7 @@ internal class SchedulerEffects(
             if (!hasSettled && deliveryContext.isActive) {
                 log.w { "Wake delivery ended without a result; refusing the attempt" }
                 withContext(NonCancellable) {
-                    machine.send(SchedulerIntent.Internal.DeliveryFailed(listOf(delivery.wake.id), WakeFailure.Unknown))
+                    machine.send(delivery.failed(WakeFailure.Unknown))
                 }
             }
         }
@@ -109,7 +110,7 @@ internal class SchedulerEffects(
         if (failure == null) {
             machine.send(SchedulerIntent.Internal.Delivered(id, delivery.reason))
         } else {
-            machine.send(SchedulerIntent.Internal.DeliveryFailed(listOf(id), failure))
+            machine.send(delivery.failed(failure))
         }
     }
 
@@ -127,3 +128,11 @@ internal class SchedulerEffects(
         }
             ?: throw SessionUnavailableException("No host owns the session")
 }
+
+/** Keep immutable trigger ancestry on every refusal, including missing gates and self-cancellation. */
+private fun WakeDelivery.failed(failure: WakeFailure): SchedulerIntent.Internal.DeliveryFailed =
+    SchedulerIntent.Internal.DeliveryFailed(
+        listOf(wake.id),
+        failure,
+        listOfNotNull((reason as? WakeReason.Event)?.event?.origin),
+    )

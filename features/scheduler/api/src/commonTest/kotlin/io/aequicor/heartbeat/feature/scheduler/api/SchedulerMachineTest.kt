@@ -79,21 +79,39 @@ class SchedulerMachineTest {
             ready,
             SchedulerIntent.Public.Schedule(request("w1"), now),
             ready,
-            outputs = listOf(SchedulerOutput.Rejected(WakeId("w1"), WakeRejection.Duplicate)),
+            outputs = listOf(
+                SchedulerOutput.Rejected(
+                    WakeId("w1"),
+                    WakeRejection.Duplicate,
+                    deliveryRequest = RequestInitiator(session, WakeId("w1").deliveryRequestId()),
+                ),
+            ),
         )
         val full = SchedulerState.Ready((1..SchedulerLimits.MAX_PER_SESSION).map { wake("w$it") })
         spec.assertTransition(
             full,
             SchedulerIntent.Public.Schedule(request("next"), now),
             full,
-            outputs = listOf(SchedulerOutput.Rejected(WakeId("next"), WakeRejection.SessionLimit)),
+            outputs = listOf(
+                SchedulerOutput.Rejected(
+                    WakeId("next"),
+                    WakeRejection.SessionLimit,
+                    deliveryRequest = RequestInitiator(session, WakeId("next").deliveryRequestId()),
+                ),
+            ),
         )
         val far = request("far", events = emptySet(), deadline = now + SchedulerLimits.HORIZON + 1.days)
         spec.assertTransition(
             ready,
             SchedulerIntent.Public.Schedule(far, now),
             ready,
-            outputs = listOf(SchedulerOutput.Rejected(WakeId("far"), WakeRejection.TooFar)),
+            outputs = listOf(
+                SchedulerOutput.Rejected(
+                    WakeId("far"),
+                    WakeRejection.TooFar,
+                    deliveryRequest = RequestInitiator(session, WakeId("far").deliveryRequestId()),
+                ),
+            ),
         )
     }
 
@@ -119,7 +137,13 @@ class SchedulerMachineTest {
             full,
             SchedulerIntent.Public.Schedule(request("next"), now),
             full,
-            outputs = listOf(SchedulerOutput.Rejected(WakeId("next"), WakeRejection.ProfileLimit)),
+            outputs = listOf(
+                SchedulerOutput.Rejected(
+                    WakeId("next"),
+                    WakeRejection.ProfileLimit,
+                    deliveryRequest = RequestInitiator(session, WakeId("next").deliveryRequestId()),
+                ),
+            ),
         )
     }
 
@@ -140,7 +164,12 @@ class SchedulerMachineTest {
             SchedulerIntent.Public.Cancel(WakeId("w1"), session),
             SchedulerState.Ready(listOf(wake("w2", target = other)), revision = 1),
             effects = listOf(SchedulerEffect.Persist(listOf(wake("w2", target = other)), 1)),
-            outputs = listOf(SchedulerOutput.Cancelled(listOf(WakeId("w1")))),
+            outputs = listOf(
+                SchedulerOutput.Cancelled(
+                    listOf(WakeId("w1")),
+                    listOf(EventOrigin.Session(session, WakeId("w1").deliveryRequestId())),
+                ),
+            ),
         )
         spec.assertIgnored(ready, SchedulerIntent.Public.Cancel(WakeId("w2"), session))
         spec.assertIgnored(ready, SchedulerIntent.Public.Cancel(WakeId("missing")))
@@ -155,7 +184,15 @@ class SchedulerMachineTest {
             SchedulerIntent.Public.CancelSession(session),
             SchedulerState.Ready(listOf(wake("w3", target = other)), revision = 1),
             effects = listOf(SchedulerEffect.Persist(listOf(wake("w3", target = other)), 1)),
-            outputs = listOf(SchedulerOutput.Cancelled(listOf(WakeId("w1"), WakeId("w2")))),
+            outputs = listOf(
+                SchedulerOutput.Cancelled(
+                    listOf(WakeId("w1"), WakeId("w2")),
+                    listOf(
+                        EventOrigin.Session(session, WakeId("w1").deliveryRequestId()),
+                        EventOrigin.Session(session, WakeId("w2").deliveryRequestId()),
+                    ),
+                ),
+            ),
         )
     }
 
@@ -178,7 +215,15 @@ class SchedulerMachineTest {
             SchedulerIntent.Public.CancelOwned("harness"),
             ready.copy(wakes = remaining, revision = 1),
             effects = listOf(SchedulerEffect.Persist(remaining, 1)),
-            outputs = listOf(SchedulerOutput.Cancelled(listOf(pending.id, otherSession.id))),
+            outputs = listOf(
+                SchedulerOutput.Cancelled(
+                    listOf(pending.id, otherSession.id),
+                    listOf(
+                        EventOrigin.Session(session, pending.id.deliveryRequestId()),
+                        EventOrigin.Session(other, otherSession.id.deliveryRequestId()),
+                    ),
+                ),
+            ),
         )
         spec.assertTransition(ready, SchedulerIntent.Public.CancelOwned("absent"), ready)
         val onlyDelivering = SchedulerState.Ready(listOf(delivering), setOf(delivering.id))
