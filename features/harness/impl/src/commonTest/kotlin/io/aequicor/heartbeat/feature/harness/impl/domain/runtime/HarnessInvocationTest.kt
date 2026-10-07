@@ -39,7 +39,7 @@ class HarnessInvocationTest {
             invocation.cancelAll()
             invocation.awaitIdle()
             runCurrent()
-            assertFailsWith<CancellationException> { waiting.await() }
+            assertEquals(HarnessInvocationResult.Cancelled(isExpected = true), waiting.await())
             assertFalse(didEnter)
             assertEquals(0, invocation.activeCount)
         } finally {
@@ -103,7 +103,7 @@ class HarnessInvocationTest {
     }
 
     @Test
-    fun `caller and callback cancellation propagate rather than become timeout or success`() = runTest {
+    fun `callback cancellation is isolated while caller cancellation propagates`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val owner = SupervisorJob(coroutineContext[Job])
         val invocation = HarnessInvocation(CoroutineScope(owner + dispatcher), dispatcher)
@@ -112,7 +112,7 @@ class HarnessInvocationTest {
                 invocation.run(dispatcher, 10.seconds) { throw CancellationException("private") }
             }
             runCurrent()
-            assertFailsWith<CancellationException> { selfCancelled.await() }
+            assertEquals(HarnessInvocationResult.Cancelled(isExpected = false), selfCancelled.await())
             val gate = CompletableDeferred<Unit>()
             val waiting = async { invocation.run(dispatcher, 10.seconds) { gate.await() } }
             runCurrent()

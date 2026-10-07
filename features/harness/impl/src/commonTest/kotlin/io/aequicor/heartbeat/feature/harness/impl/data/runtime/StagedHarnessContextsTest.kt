@@ -1,10 +1,14 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
+import io.aequicor.heartbeat.feature.harness.api.event.HarnessEvent
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.impl.domain.code
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -43,14 +47,22 @@ class StagedHarnessContextsTest {
             override val isActive = false
             override suspend fun awaitPublication() = false
         }
-        val context = StagedHarnessContexts().create(HarnessActivationRequest(harness, code, 1), access)
+        val origins = object : HarnessCallOrigins {
+            override fun current() = HarnessCallOrigin()
+            override fun context(origin: HarnessCallOrigin) = HarnessOriginContext(origin)
+        }
+        val context = StagedHarnessContexts(origins).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
         assertSame(backgroundScope, script.scope)
-        assertFailsWith<UnsupportedOperationException> { script.events }
-        assertFailsWith<UnsupportedOperationException> { script.hooks }
+        assertFailsWith<IllegalStateException> {
+            script.events.on(
+                HarnessEvent::class,
+            ) {}
+        }
+        assertFailsWith<IllegalStateException> { script.hooks.beforePrompt { _, _ -> null } }
         assertFailsWith<UnsupportedOperationException> { script.sessions }
         assertFailsWith<UnsupportedOperationException> { script.scheduler }
-        assertFailsWith<UnsupportedOperationException> { script.agent }
+        assertFailsWith<IllegalStateException> { script.agent.instructions { "" } }
         assertFailsWith<UnsupportedOperationException> { script.prompts }
         assertFailsWith<UnsupportedOperationException> { script.workflows }
         context.close()

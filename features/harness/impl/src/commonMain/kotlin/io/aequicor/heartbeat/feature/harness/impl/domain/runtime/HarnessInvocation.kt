@@ -2,12 +2,17 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.joinAll
@@ -26,6 +31,9 @@ internal sealed interface HarnessInvocationResult<out T> {
     }
 
     data object TimedOut : HarnessInvocationResult<Nothing>
+
+    /** Author cancellation is a failed callback; host/lifetime shutdown is ordinary revocation. */
+    data class Cancelled(val isExpected: Boolean) : HarnessInvocationResult<Nothing>
 }
 
 /** Fixed author-code budgets, measured by a control dispatcher outside the constrained execution lane. */
@@ -47,8 +55,9 @@ internal object HarnessInvocationBudget {
 internal class HarnessInvocation(
     private val ownerScope: CoroutineScope,
     private val controlDispatcher: CoroutineDispatcher,
+    private val origins: HarnessCallOrigins? = null,
 ) {
-    private val jobs = MutableStateFlow<Set<Job>>(emptySet())
+    private val jobs = MutableStateFlow<Map<Job, HarnessInvocationHandle>>(emptyMap())
     private val log = Log.tag("HarnessInvocation")
 
     val activeCount: Int get() = jobs.value.size
@@ -58,22 +67,50 @@ internal class HarnessInvocation(
     suspend fun <T> run(
         dispatcher: CoroutineDispatcher,
         timeout: Duration,
+        options: HarnessInvocationOptions = HarnessInvocationOptions(),
         block: suspend () -> T,
     ): HarnessInvocationResult<T> {
         require(timeout.isPositive() && timeout.isFinite())
         log.v { "invoke harness callback" }
-        val result = CompletableDeferred<HarnessInvocationResult.Completed<T>>()
+        val result = CompletableDeferred<HarnessInvocationResult<T>>()
+        val hostCancellation = MutableStateFlow(false)
         var produced: HarnessInvocationResult.Completed<T>? = null
-        val task = ownerScope.launch(dispatcher, start = CoroutineStart.LAZY) {
+        val inherited = currentCoroutineContext()[HarnessOriginContext]?.origin ?: HarnessCallOrigin()
+        val origin = inherited.merge(options.origin)
+        val context = origins?.context(origin) ?: HarnessOriginContext(origin)
+        val task = ownerScope.launch(dispatcher + context, start = CoroutineStart.LAZY) {
+            currentCoroutineContext().ensureActive()
+            if (options.lifetime?.isActive == false) throw CancellationException("Script call lifetime ended")
             produced = HarnessInvocationResult.Completed(block())
         }
         // Register before the first suspension so retirement also sees calls awaiting the control dispatcher.
-        jobs.update { it + task }
+        val handle = HarnessInvocationHandle(task) {
+            hostCancellation.value = true
+            result.complete(HarnessInvocationResult.Cancelled(isExpected = true))
+        }
+        jobs.update { it + (task to handle) }
+        val lifetime = bindLifetime(options.lifetime, task) {
+            hostCancellation.value = true
+            result.complete(HarnessInvocationResult.Cancelled(isExpected = true))
+        }
         task.invokeOnCompletion { error ->
+            lifetime?.dispose()
             jobs.update { current -> current - task }
-            if (error == null) result.complete(checkNotNull(produced)) else result.completeExceptionally(error)
+            when (error) {
+                null -> result.complete(checkNotNull(produced))
+
+                is CancellationException -> result.complete(
+                    HarnessInvocationResult.Cancelled(
+                        hostCancellation.value || options.lifetime?.isActive == false ||
+                            ownerScope.coroutineContext[Job]?.isActive == false,
+                    ),
+                )
+
+                else -> result.completeExceptionally(error)
+            }
         }
         try {
+            options.onStarted(handle)
             return withContext(controlDispatcher) {
                 task.start()
                 select {
@@ -87,17 +124,25 @@ internal class HarnessInvocation(
         }
     }
 
+    /** Cancellation-start notification avoids waiting for unrelated blocked cleanup children of the lifetime. */
+    @OptIn(InternalCoroutinesApi::class)
+    private fun bindLifetime(lifetime: Job?, task: Job, onCancelled: () -> Unit): DisposableHandle? =
+        lifetime?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) {
+            onCancelled()
+            task.cancel()
+        }
+
     @HighFrequency
     fun cancelAll() {
         log.v { "cancel owned harness callbacks" }
-        jobs.value.forEach { it.cancel() }
+        jobs.value.values.forEach { it.cancel() }
     }
 
     /** Caller first retires admission; waiting never frees a lane slot or an artifact before actual completion. */
     suspend fun awaitIdle() {
         var current = jobs.value
         while (current.isNotEmpty()) {
-            current.joinAll()
+            current.keys.toList().joinAll()
             current = jobs.value
         }
     }
