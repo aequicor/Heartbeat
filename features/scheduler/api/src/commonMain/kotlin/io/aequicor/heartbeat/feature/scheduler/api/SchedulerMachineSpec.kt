@@ -29,8 +29,10 @@ import kotlin.time.Instant
  * | Ready | DeliveryFailed | ≥1 of the wakes is delivering | Ready(−wakes) | Persist; DeliveryFailed |
  * | Ready | Observed / Tick without a match | — | ignored | — |
  *
- * Rejected preserves the request owner context. Cancelled combines removed owners and the trusted cancellation
- * cause, retaining execution restrictions for downstream callbacks without exposing wake notes.
+ * Rejected preserves owner, initiator and exact target delivery request. Cancelled combines removed owners,
+ * initiators, target delivery requests and the trusted cancellation cause. DeliveryFailed retains trigger origins
+ * even when no admission gate could register the target request.
+ * These outputs retain execution restrictions for downstream callbacks without exposing wake notes.
  *
  * Effect failures: Load → LoadFailed; Deliver → DeliveryFailed(Unknown) for its wakes; Persist is only logged.
  */
@@ -59,6 +61,7 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                         state.rejection(intent.request, intent.at) ?: WakeRejection.Duplicate,
                         intent.request.ownedOrigin(),
                         intent.request.initiator,
+                        RequestInitiator(intent.request.session, intent.request.id.deliveryRequestId()),
                     )
                 }
             }
@@ -126,6 +129,7 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                     SchedulerOutput.DeliveryFailed(
                         state.wakes.filter { it.id in intent.ids && it.id in state.delivering },
                         intent.failure,
+                        intent.origins.toList(),
                     )
                 }
             }
@@ -137,7 +141,11 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
                 is SchedulerEffect.Persist -> null
 
                 is SchedulerEffect.Deliver ->
-                    SchedulerIntent.Internal.DeliveryFailed(effect.deliveries.map { it.wake.id }, WakeFailure.Unknown)
+                    SchedulerIntent.Internal.DeliveryFailed(
+                        effect.deliveries.map { it.wake.id },
+                        WakeFailure.Unknown,
+                        effect.deliveries.mapNotNull { (it.reason as? WakeReason.Event)?.event?.origin },
+                    )
             }
         }
     }
@@ -186,5 +194,11 @@ private fun deadlineDelivery(wake: ScheduledWake): WakeDelivery =
 private fun List<ScheduledWake>.cancelledOutput(cause: EventOrigin? = null): SchedulerOutput.Cancelled =
     SchedulerOutput.Cancelled(
         map { it.id },
-        flatMap { listOfNotNull(it.request.ownedOrigin(), it.request.initiator?.origin()) } + listOfNotNull(cause),
+        flatMap {
+            listOfNotNull(
+                it.request.ownedOrigin(),
+                it.request.initiator?.origin(),
+                EventOrigin.Session(it.request.session, it.id.deliveryRequestId()),
+            )
+        } + listOfNotNull(cause),
     )

@@ -437,5 +437,9 @@ private fun persistence() = SchedulerPersistence(object : WakeStorage {
 
 private fun deliver(delivery: WakeDelivery) = SchedulerEffect.Deliver(listOf(delivery))
 private fun rejected(delivery: WakeDelivery, failure: WakeFailure): SchedulerIntent =
-    SchedulerIntent.Internal.DeliveryFailed(listOf(delivery.wake.id), failure)
+    SchedulerIntent.Internal.DeliveryFailed(
+        listOf(delivery.wake.id),
+        failure,
+        listOfNotNull((delivery.reason as? WakeReason.Event)?.event?.origin),
+    )
 private val KEY = EventKeys.custom("harness.owner.done")

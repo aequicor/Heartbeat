@@ -84,7 +84,12 @@ public sealed interface SchedulerIntent : MachineIntent {
         public data class Deferred(val id: WakeId) : Internal
 
         /** The wake prompts of [ids] could not be delivered. */
-        public data class DeliveryFailed(val ids: List<WakeId>, val failure: WakeFailure) : Internal
+        public data class DeliveryFailed(
+            val ids: List<WakeId>,
+            val failure: WakeFailure,
+            /** Trigger origins retained even when admission failed before the target request was registered. */
+            val origins: List<EventOrigin> = emptyList(),
+        ) : Internal
     }
 }
 
@@ -119,12 +124,14 @@ public sealed interface SchedulerOutput : MachineOutput {
         val origin: EventOrigin.Feature? = null,
         /** Initiating request retained even when no wake row is created. */
         val initiator: RequestInitiator? = null,
+        /** Exact attempted target, including restrictions persisted by an earlier delivery attempt. */
+        val deliveryRequest: RequestInitiator? = null,
     ) : SchedulerOutput
 
     /** Pending wakes [ids] were cancelled. */
     public data class Cancelled(
         val ids: List<WakeId>,
-        /** Immutable host ancestry of the removed wakes, without their private notes. */
+        /** Immutable owners, initiators, target delivery requests and cancellation cause, without private notes. */
         val origins: List<EventOrigin> = emptyList(),
     ) : SchedulerOutput
 
@@ -132,7 +139,12 @@ public sealed interface SchedulerOutput : MachineOutput {
     public data class Woke(val wake: ScheduledWake, val reason: WakeReason) : SchedulerOutput
 
     /** [wakes] were due but could not be delivered and were dropped. */
-    public data class DeliveryFailed(val wakes: List<ScheduledWake>, val failure: WakeFailure) : SchedulerOutput
+    public data class DeliveryFailed(
+        val wakes: List<ScheduledWake>,
+        val failure: WakeFailure,
+        /** Trusted trigger ancestry only; no event payload or wake note. */
+        val origins: List<EventOrigin> = emptyList(),
+    ) : SchedulerOutput
 }
 
 /**

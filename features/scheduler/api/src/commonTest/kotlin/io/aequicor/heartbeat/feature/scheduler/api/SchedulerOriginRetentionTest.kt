@@ -6,10 +6,27 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.time.Instant
 
 class SchedulerOriginRetentionTest {
+    @Test
+    fun `failure retains trigger ancestry before any native request exists`() {
+        val reason = WakeReason.Event(BusEvent(EventKeys.custom("done"), origin, at, "private payload"))
+        val effect = SchedulerEffect.Deliver(listOf(WakeDelivery(wake, reason)))
+        val failed = SchedulerIntent.Internal.DeliveryFailed(listOf(wake.id), WakeFailure.Unknown, listOf(origin))
+        assertEquals(failed, SchedulerMachineSpec.onEffectFailure(effect, IllegalStateException("failure")))
+        SchedulerMachineSpec.assertTransition(
+            SchedulerState.Ready(listOf(wake), delivering = setOf(wake.id)),
+            failed,
+            SchedulerState.Ready(revision = 1),
+            effects = listOf(SchedulerEffect.Persist(emptyList(), 1)),
+            outputs = listOf(SchedulerOutput.DeliveryFailed(listOf(wake), WakeFailure.Unknown, listOf(origin))),
+        )
+        assertFalse(failed.toString().contains("private"))
+    }
+
     private val at = Instant.fromEpochSeconds(100)
     private val origin = EventOrigin.Feature("harness", "private ancestry")
     private val initiator = RequestInitiator(
@@ -28,11 +45,18 @@ class SchedulerOriginRetentionTest {
         initiator = initiator,
     )
     private val wake = ScheduledWake(request, at)
+    private val target = EventOrigin.Session(request.session, request.id.deliveryRequestId())
 
     @Test
     fun `rejection keeps immutable host origin without note`() {
         val ready = SchedulerState.Ready(listOf(wake))
-        val rejected = SchedulerOutput.Rejected(request.id, WakeRejection.Duplicate, origin, initiator)
+        val rejected = SchedulerOutput.Rejected(
+            request.id,
+            WakeRejection.Duplicate,
+            origin,
+            initiator,
+            RequestInitiator(request.session, request.id.deliveryRequestId()),
+        )
         SchedulerMachineSpec.assertTransition(
             ready,
             SchedulerIntent.Public.Schedule(request, at),
@@ -50,7 +74,7 @@ class SchedulerOriginRetentionTest {
             SchedulerIntent.Public.Cancel(request.id, cause = origin),
             SchedulerState.Ready(revision = 1),
             effects = listOf(SchedulerEffect.Persist(emptyList(), 1)),
-            outputs = listOf(SchedulerOutput.Cancelled(listOf(request.id), listOf(initiator.origin(), origin))),
+            outputs = listOf(SchedulerOutput.Cancelled(listOf(request.id), listOf(initiator.origin(), target, origin))),
         )
     }
 
@@ -61,7 +85,7 @@ class SchedulerOriginRetentionTest {
             SchedulerIntent.Public.CancelSession(request.session),
             SchedulerIntent.Public.CancelOwned("harness"),
         )
-        val cancelled = SchedulerOutput.Cancelled(listOf(request.id), listOf(origin, initiator.origin()))
+        val cancelled = SchedulerOutput.Cancelled(listOf(request.id), listOf(origin, initiator.origin(), target))
         intents.forEach { intent ->
             SchedulerMachineSpec.assertTransition(
                 SchedulerState.Ready(listOf(wake)),
