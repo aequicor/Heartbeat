@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.PageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionDiscoveryReport
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionQuery
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -51,6 +52,7 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
     }
     var externalReads = 0
     var isAllowed = true
+    var allowsTarget: (HarnessTarget?) -> Boolean = { true }
     var admissionRevision = 0
     var beforePermit: suspend () -> Unit = {}
     val targets = mutableListOf<HarnessTarget?>()
@@ -62,10 +64,10 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
         targets += target
         val captured = admissionRevision
         flowOf(
-            if (isAllowed) {
+            if (isAllowed && allowsTarget(target)) {
                 HarnessDeliveryPermit {
                     beforePermit()
-                    isAllowed && admissionRevision == captured
+                    isAllowed && allowsTarget(target) && admissionRevision == captured
                 }
             } else {
                 null
@@ -78,8 +80,8 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
             BusEvent(key, origin, Instant.fromEpochMilliseconds(scope.testScheduler.currentTime), payload)
                 .also(published::add)
     }
-    private val facade = SchedulerFacadeFixture(summary)
-    private val host = EngineHarnessScheduler(
+    val facade = SchedulerFacadeFixture(summary)
+    val sessionAccess = EngineHarnessSessionAccess(
         lazy { runtime.runtime },
         lazy {
             externalReads++
@@ -91,6 +93,10 @@ internal class HarnessScriptSchedulerFixture(scope: TestScope) {
 
             facade
         },
+    )
+    val reader = EngineHarnessSessionReader(lazy { facade }, sessionAccess)
+    private val host = EngineHarnessScheduler(
+        sessionAccess,
         lazy {
             externalReads++
 
@@ -141,17 +147,35 @@ internal class SchedulerWakePortFixture : HarnessWakePort {
     }
 }
 
-private class SchedulerFacadeFixture(summary: MutableStateFlow<SessionSummary>) : EngineFacade {
-    private val session = object : EngineSession {
+internal class SchedulerFacadeFixture(summary: MutableStateFlow<SessionSummary>) : EngineFacade {
+    val summaries = mutableMapOf(summary.value.ref to summary)
+    val pageRequests = mutableListOf<PageRequest>()
+    var history: SessionHistory? = null
+    var page: suspend (PageRequest) -> SessionPage = {
+        SessionPage(summaries.values.map { it.value }, null, emptyList())
+    }
+    var beforeGet: suspend () -> Unit = {}
+    private fun session(summary: MutableStateFlow<SessionSummary>) = object : EngineSession {
         override val summary = summary
         override val features = object : EngineFeatures {
+            @Suppress("UNCHECKED_CAST")
             override fun <F : EngineFeature> resolve(key: EngineFeatureKey<F>): FeatureAccess<F> =
-                FeatureAccess.Unsupported
+                if (key == SessionHistory) {
+                    history?.let { FeatureAccess.Available(it as F) } ?: FeatureAccess.Unsupported
+                } else {
+                    FeatureAccess.Unsupported
+                }
         }
     }
     override val sessions = object : SessionCatalog {
-        override suspend fun get(ref: SessionRef): EngineSession = session
-        override suspend fun page(query: SessionQuery, request: PageRequest): SessionPage = error("Unexpected listing")
+        override suspend fun get(ref: SessionRef): EngineSession {
+            beforeGet()
+            return session(summaries[ref] ?: error("Unknown session"))
+        }
+        override suspend fun page(query: SessionQuery, request: PageRequest): SessionPage {
+            pageRequests += request
+            return page(request)
+        }
         override suspend fun refresh(query: SessionQuery): SessionDiscoveryReport = error("Unexpected refresh")
     }
     override val engines: EngineCatalog get() = error("Unexpected engine lookup")
