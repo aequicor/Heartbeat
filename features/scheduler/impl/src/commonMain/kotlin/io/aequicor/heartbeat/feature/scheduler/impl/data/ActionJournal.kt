@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -34,6 +35,7 @@ internal data class ActionRecord(
     val helper: HelperId? = null,
     val parent: SessionRef? = null,
     val request: RequestId? = null,
+    val initiator: RequestInitiator? = null,
 ) {
     override fun toString(): String = "ActionRecord(id=$id, kind=$kind, completed=${payload != null})"
 }

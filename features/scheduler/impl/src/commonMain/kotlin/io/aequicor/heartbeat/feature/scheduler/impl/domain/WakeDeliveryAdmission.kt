@@ -80,7 +80,8 @@ internal class WakeDeliveryAdmission private constructor(private val gates: List
                 emptyList()
             }
             val hasExactRequest = delivery.wake.request.initiator != null || origin is EventOrigin.HostTurn ||
-                (origin is EventOrigin.Session && origin.request != null)
+                (origin is EventOrigin.Session && origin.request != null) ||
+                (origin is EventOrigin.Action && origin.initiator != null)
             val observers = if (hasExactRequest) publishers.value.filter { it.isSessionOriginObserver } else emptyList()
             return (featureOwners + observers).distinct()
         }

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
@@ -38,6 +39,26 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class EventWakeAdmissionTest {
+    @Test
+    fun `action completion preserves provenance while its initiator is observed`() = runTest {
+        val origin = EventOrigin.Action(ActionId("action"), RequestInitiator(SESSION, RequestId("source")))
+        val delivery = eventDelivery().copy(reason = WakeReason.Event(BusEvent(KEY, origin, START)))
+        val observer = object : ScheduledEventOwner {
+            override val feature = "observer"
+            override val isSessionOriginObserver = true
+            override fun admission(delivery: WakeDelivery): Flow<ScheduledWakeAdmission> {
+                assertEquals(origin, (delivery.reason as WakeReason.Event).event.origin)
+                return flowOf(ScheduledWakeAdmission.Drop)
+            }
+        }
+        val result = RecordingScope()
+        effects(
+            lazy { error("Denied action origin must not resolve host") },
+            setOf(observer),
+        ).handle(deliver(delivery), result)
+        assertEquals(listOf(rejected(delivery, WakeFailure.OwnerRejected)), result.sent)
+    }
+
     @Test
     fun `initiating request is checked for deadline and system event delivery`() = runTest {
         val initiator = RequestInitiator(SESSION, RequestId("original"))

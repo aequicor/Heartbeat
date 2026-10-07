@@ -17,6 +17,19 @@ import kotlin.time.Instant
 
 class WakeOwnershipTest {
     @Test
+    fun `action origin retains initiator while legacy action still decodes`() {
+        val origin = EventOrigin.Action(ActionId("action"), RequestInitiator(request().session, RequestId("source")))
+        val encoded = Json.encodeToString(EventOrigin.serializer(), origin)
+        assertEquals(origin, Json.decodeFromString(EventOrigin.serializer(), encoded))
+        val legacy = JsonObject(Json.parseToJsonElement(encoded).jsonObject - "initiator")
+        assertEquals(
+            EventOrigin.Action(ActionId("action")),
+            Json.decodeFromJsonElement(EventOrigin.serializer(), legacy),
+        )
+        assertFalse(origin.toString().contains("source"))
+    }
+
+    @Test
     fun `legacy persisted wakes decode with hidden note and no owner context`() {
         val serializer = WakeRequest.serializer()
         val json = Json { encodeDefaults = true }

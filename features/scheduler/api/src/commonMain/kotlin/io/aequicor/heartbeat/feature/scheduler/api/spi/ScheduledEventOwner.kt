@@ -17,6 +17,7 @@ public interface ScheduledEventOwner {
     /**
      * Also observes [EventOrigin.Session] deliveries carrying an exact request identity and trusted
      * [EventOrigin.HostTurn] notifications and wakes carrying a trusted initiating request, including deadlines.
+     * Action results with an exact initiator are observed too.
      * All opted-in observers intersect; an observer must allow ancestry it
      * does not own. Defaults to publisher-only admission.
      * Reading this property must not construct a runtime or start feature work.

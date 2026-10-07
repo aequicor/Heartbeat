@@ -53,7 +53,11 @@ public sealed interface EventOrigin {
 
     /** A background action. */
     @Serializable
-    public data class Action(val action: ActionId) : EventOrigin
+    public data class Action(
+        val action: ActionId,
+        /** Trusted request that started this action; retained by the result outbox across restart. */
+        val initiator: RequestInitiator? = null,
+    ) : EventOrigin
 }
 
 /**

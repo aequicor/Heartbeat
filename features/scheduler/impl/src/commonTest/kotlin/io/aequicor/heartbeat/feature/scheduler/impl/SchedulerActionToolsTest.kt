@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
@@ -30,7 +31,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SchedulerActionToolsTest {
-    private val inProject = AgentToolContext(SESSION, PROJECT, TurnId("t1"), target = TARGET)
+    private val inProject = AgentToolContext(
+        SESSION,
+        PROJECT,
+        TurnId("t1"),
+        request = RequestId("source"),
+        target = TARGET,
+    )
 
     private fun TestScope.tools(
         fixture: ActionsFixture,
@@ -87,6 +94,9 @@ class SchedulerActionToolsTest {
         val action = fixture.journal.records.single().id
         assertEquals(setOf(EventKeys.actionFinished(action)), wake.request.condition.events)
         assertEquals("read results", wake.request.note)
+        val initiator = RequestInitiator(SESSION, RequestId("source"))
+        assertEquals(initiator, wake.request.initiator)
+        assertEquals(initiator, fixture.journal.records.single().initiator)
         assertTrue("end your turn" in result.text)
     }
 
