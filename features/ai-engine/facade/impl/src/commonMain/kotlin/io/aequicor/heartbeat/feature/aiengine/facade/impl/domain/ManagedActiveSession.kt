@@ -34,6 +34,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 
 /**
  * Parts of one handle: the adapter's native handle, the machine that owns its lifecycle, its effects and the
@@ -155,8 +157,14 @@ class ManagedActiveSession(
             fail(result.failure())
         }
         when (val outcome = untilStopped { answer.await() }) {
-            is ActiveSessionOutput.Accepted -> turn.id
+            is ActiveSessionOutput.Accepted -> {
+                // Finish the exact receipt enqueue before exclusive(ref) admits another preparation.
+                withContext(NonCancellable) { hookHandle?.accepted(outcome.turn) }
+                turn.id
+            }
+
             is ActiveSessionOutput.SubmissionFailed -> fail(outcome.failure)
+
             is ActiveSessionOutput.Finished -> error("filtered out")
         }
     }

@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionLifecycle
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptAddition
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptPreparation
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
@@ -67,6 +69,18 @@ internal class ProfileSessionHooks(
     override suspend fun beforePrompt(context: SessionHookContext, text: String): String? {
         if (!sessions.isOpen(context)) return null
         return parallel<String?>(PROMPT_MILLIS, null) { it.beforePrompt(context, text) }.joined(PROMPT_CHARS)
+    }
+
+    @HighFrequency
+    override suspend fun preparePrompt(
+        context: SessionHookContext,
+        text: String,
+        contextRevision: String?,
+    ): SessionPromptPreparation? {
+        if (!sessions.isOpen(context)) return null
+        return composeSessionPrompt(
+            parallel<SessionPromptAddition?>(PROMPT_MILLIS, null) { it.preparePrompt(context, text, contextRevision) },
+        )
     }
 
     @HighFrequency

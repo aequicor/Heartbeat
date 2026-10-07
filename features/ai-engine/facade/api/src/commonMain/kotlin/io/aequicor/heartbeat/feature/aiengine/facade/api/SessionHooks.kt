@@ -90,6 +90,16 @@ public interface SessionHook {
     /** Additional context appended to the prompt, never a replacement of the user's text. */
     public suspend fun beforePrompt(context: SessionHookContext, text: String): String? = null
 
+    /**
+     * Receipt-aware prompt preparation. [contextRevision] is a trusted native context revision, or null when
+     * unsupported. The default preserves legacy hooks. Only complete included text can produce an acknowledgement.
+     */
+    public suspend fun preparePrompt(
+        context: SessionHookContext,
+        text: String,
+        contextRevision: String?,
+    ): SessionPromptAddition? = beforePrompt(context, text)?.let { SessionPromptAddition(it) }
+
     /** Additional constraint applied before the ordinary authorization gate. */
     public suspend fun beforeTool(call: HookedToolCall): ToolHookVerdict = ToolHookVerdict.Continue
 
