@@ -57,15 +57,17 @@ internal class StudioConfiguredSubmission(
         } else {
             request.copy(directives = request.directives + HELPER_DIRECTIVE)
         }
-        val turn = send(active, constrained, effort, trust)
+        val submitted = send(active, constrained, effort) {
+            helperPolicy.trust(record, trust, configurations)
+        }
         confirmConfiguration(
             access,
             id,
             active,
             target,
-            SessionConfiguration(target.model, effort, trust),
+            SessionConfiguration(target.model, effort, submitted.trust),
         )
-        return turn
+        return submitted.turn
     }
 
     private suspend fun confirmConfiguration(
@@ -100,11 +102,29 @@ internal class StudioConfiguredSubmission(
         active: ActiveSession,
         request: StudioTurnRequest,
         reasoningEffort: String?,
-        trust: TrustLevel?,
-    ): TurnId {
+        trust: suspend () -> TrustLevel?,
+    ): SubmittedPrompt {
         log.i { "Send the reserved native request" }
-        val prompt = learning.prompt(request.id, request.prompt, request.directives)
-        request.submission?.begin()
-        return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
+        val helper = request.submission as? StudioHelperSubmission
+        val submit: suspend () -> SubmittedPrompt = {
+            val prompt = learning.prompt(request.id, request.prompt, request.directives)
+            val finalTrust = if (helper != null) {
+                helper.begin(trust)
+            } else {
+                request.submission?.begin()
+                trust()
+            }
+            val turn = active.submitStudioPrompt(
+                prompt,
+                reasoningEffort,
+                finalTrust,
+                request.attachments,
+                request.request,
+            )
+            SubmittedPrompt(turn, finalTrust)
+        }
+        return if (helper == null) submit() else helper.withPreparation(active.ref, submit)
     }
+
+    private data class SubmittedPrompt(val turn: TurnId, val trust: TrustLevel?)
 }

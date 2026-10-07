@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphEffect
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphMachineSpec
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledEventOwner
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledHelperPromptOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeOwner
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SchedulerEventSource
@@ -98,6 +99,10 @@ public interface SchedulerMultibindings {
     /** Publisher controllers and observers; resolved only for Feature or exact Session/HostTurn delivery. */
     @Multibinds(allowEmpty = true)
     public fun scheduledEventOwners(): Set<ScheduledEventOwner>
+
+    /** Helper prompt context owners; the host resolves these only for explicit handoff or exact initiators. */
+    @Multibinds(allowEmpty = true)
+    public fun scheduledHelperPromptOwners(): Set<ScheduledHelperPromptOwner>
 
     /** Platform signal sources. */
     @Multibinds(allowEmpty = true)
