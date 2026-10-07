@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphEffect
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphPersistence
@@ -24,7 +26,15 @@ class TaskGraphPersistenceTest {
             }
         }
         val f = GraphFixture(this)
-        val graphs = listOf(f.graph(listOf(f.command("A"))))
+        val graphs = listOf(
+            f.graph(listOf(f.command("A"))).copy(
+                initiator = RequestInitiator(SESSION, RequestId("create-R")),
+                causes = setOf(
+                    RequestInitiator(SESSION, RequestId("retry-R")),
+                    RequestInitiator(SESSION, RequestId("cancel-R")),
+                ),
+            ),
+        )
         val writer = TaskGraphPersistence(stores)
         writer.handle(TaskGraphEffect.Save(graphs, 2), effects)
         writer.handle(TaskGraphEffect.Save(emptyList(), 1), effects)

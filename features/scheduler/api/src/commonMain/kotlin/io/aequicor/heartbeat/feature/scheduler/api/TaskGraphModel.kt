@@ -166,6 +166,10 @@ public data class TaskGraph(
     val runs: Map<String, GraphTaskRun> = definition.tasks.associate { it.id to GraphTaskRun() },
     val isCancelled: Boolean = false,
     val isCompletionNotified: Boolean = false,
+    /** Exact host-stamped request that created the graph; absent in legacy records. Never reconstructed from text. */
+    val initiator: RequestInitiator? = null,
+    /** Additional accepted recovery/cancellation requests. These only add restrictions and survive every retry. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     /** All branches settled, including those not needed by an AnyOf successor. */
     public val isFinished: Boolean get() = runs.values.all { it.phase.isTerminal }
