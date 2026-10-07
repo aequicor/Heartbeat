@@ -37,6 +37,9 @@ internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: Coroutin
     var isCompilationSuccessful = true
     var isEvaluationSuccessful = true
     var isContextReady = true
+    var isPublicationCommitAllowed = true
+    var publicationCommits = 0
+    var onPublicationCommit: (HarnessInstanceAccess) -> Unit = {}
     var beforeCompile: suspend (HarnessCompilationRequest) -> Unit = {}
     var beforeEvaluation: suspend () -> Unit = {}
     var onCreate: (HarnessInstanceAccess) -> Unit = {}
@@ -92,6 +95,11 @@ internal class HarnessRuntimeFixture(scope: CoroutineScope, dispatcher: Coroutin
         object : HarnessRuntimeContext {
             override val evaluation = HarnessEvaluationContext.Workflow(WorkflowRegistration {})
             override val isReadyForPublication: Boolean get() = isContextReady
+            override fun tryCommitPublication(): Boolean {
+                publicationCommits++
+                onPublicationCommit(access)
+                return isPublicationCommitAllowed
+            }
             override fun close() {
                 contextCloses++
             }

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,50 @@ class HarnessRuntimeLifecycleTest {
         assertEquals(2L, replacement.request.generation)
         assertTrue(old.isClosed)
         assertEquals(listOf(1, 1, 0), fixture.code.map { it.closes })
+    }
+
+    @Test
+    fun `quota commit rejection preserves published generation and closes rejected candidate`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val old = fixture.activate()
+        fixture.desired = runtimeRequest(2)
+        fixture.isPublicationCommitAllowed = false
+        val publication = CompletableDeferred<Boolean>()
+        fixture.onCreate = { access ->
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                publication.complete(access.awaitPublication())
+            }
+        }
+        fixture.onPublicationCommit = { access ->
+            assertFalse(access.isActive)
+            assertFalse(access.isRegistrationAllowed)
+            assertFalse(publication.isCompleted)
+        }
+        assertFalse(fixture.runtime.activate(fixture.desired))
+        runCurrent()
+        assertSame(old, fixture.runtime.publishedInstances.value.single())
+        assertEquals(2, fixture.publicationCommits)
+        assertFalse(publication.await())
+        assertTrue(old.isActive)
+        assertFalse(fixture.accesses.last().isActive)
+        assertEquals(listOf(0, 1), fixture.code.map { it.closes })
+        fixture.isPublicationCommitAllowed = true
+        fixture.onPublicationCommit = { access -> assertFalse(access.isActive) }
+        val replacement = fixture.activate()
+        runCurrent()
+        assertSame(replacement, fixture.runtime.publishedInstances.value.single())
+        assertTrue(old.isClosed)
+    }
+
+    @Test
+    fun `failed sealing never commits shared publication quotas`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        fixture.isContextReady = false
+        assertFalse(fixture.runtime.activate(fixture.desired))
+        runCurrent()
+        assertEquals(0, fixture.publicationCommits)
+        assertEquals(1, fixture.contextCloses)
+        assertTrue(fixture.runtime.publishedInstances.value.isEmpty())
     }
 
     @Test

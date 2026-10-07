@@ -71,8 +71,9 @@ internal class HarnessInstance(
     internal val isPreparing: Boolean
         get() = root.isActive && phase.value == HarnessInstancePhase.Preparing
 
-    override suspend fun awaitPublication(): Boolean =
-        phase.first { it != HarnessInstancePhase.Preparing } == HarnessInstancePhase.Active && isActive
+    override suspend fun awaitPublication(): Boolean = phase.first {
+        it != HarnessInstancePhase.Preparing && it != HarnessInstancePhase.Committing
+    } == HarnessInstancePhase.Active && isActive
 
     /** Called inside owned evaluation; a cancelled profile must never construct a fresh service context. */
     internal fun prepareContext(): HarnessEvaluationContext {
@@ -83,11 +84,17 @@ internal class HarnessInstance(
     }
 
     internal fun publish(): Boolean {
-        val isAllowed = isPreparing && context?.sealForPublication() == true &&
-            phase.compareAndSet(HarnessInstancePhase.Preparing, HarnessInstancePhase.Active)
-        if (isAllowed) {
-            log.v { "publish instance code" }
+        if (!isPreparing || context?.sealForPublication() != true ||
+            !phase.compareAndSet(HarnessInstancePhase.Preparing, HarnessInstancePhase.Committing)
+        ) {
+            return false
         }
+        if (context?.tryCommitPublication() != true) {
+            phase.compareAndSet(HarnessInstancePhase.Committing, HarnessInstancePhase.PreparationFailed)
+            return false
+        }
+        val isAllowed = phase.compareAndSet(HarnessInstancePhase.Committing, HarnessInstancePhase.Active)
+        if (isAllowed) log.v { "publish instance code" }
         return isAllowed
     }
 
@@ -117,4 +124,4 @@ internal class HarnessInstance(
     }
 }
 
-private enum class HarnessInstancePhase { Preparing, PreparationFailed, Active, Retiring, Closed }
+private enum class HarnessInstancePhase { Preparing, Committing, PreparationFailed, Active, Retiring, Closed }
