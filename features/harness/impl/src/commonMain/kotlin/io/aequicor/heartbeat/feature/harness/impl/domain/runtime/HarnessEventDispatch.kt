@@ -29,21 +29,30 @@ internal class HarnessEventDispatch(
     private val log = Log.tag("HarnessRuntime")
 
     @HighFrequency
-    suspend fun emit(event: HarnessEvent, origin: HarnessCallOrigin = HarnessCallOrigin()) {
+    suspend fun emit(
+        event: HarnessEvent,
+        origin: HarnessCallOrigin = HarnessCallOrigin(),
+        admittedEpoch: Long? = epoch(),
+    ) {
         log.v { "enqueue harness event" }
-        runtime.published().forEach { instance -> enqueue(instance, event, origin) }
+        runtime.published().forEach { instance -> enqueue(instance, event, origin, admittedEpoch) }
     }
 
     /** Targets one exact published generation, for lifecycle notifications without rebroadcasting to peers. */
     @HighFrequency
     fun emitTo(instance: HarnessInstance, event: HarnessEvent, origin: HarnessCallOrigin = HarnessCallOrigin()) {
         log.v { "enqueue targeted harness event" }
-        enqueue(instance, event, origin)
+        enqueue(instance, event, origin, epoch())
     }
 
     @HighFrequency
-    private fun enqueue(instance: HarnessInstance, event: HarnessEvent, origin: HarnessCallOrigin) {
-        val admittedEpoch = epoch() ?: return
+    private fun enqueue(
+        instance: HarnessInstance,
+        event: HarnessEvent,
+        origin: HarnessCallOrigin,
+        admittedEpoch: Long?,
+    ) {
+        if (admittedEpoch == null || epoch() != admittedEpoch) return
         val context = instance.runtimeContext as? HarnessScriptContext ?: return
         if (!instance.isActive || !accepts(instance, event)) return
         if (context.registrations.events().any { it.callback.isActive && it.type.isInstance(event) }) {

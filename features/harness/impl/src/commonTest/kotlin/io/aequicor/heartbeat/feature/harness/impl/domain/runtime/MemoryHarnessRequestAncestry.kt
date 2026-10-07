@@ -11,6 +11,7 @@ internal class MemoryHarnessRequestAncestry : HarnessRequestAncestry {
     private val entries = mutableMapOf<Pair<SessionRef, RequestId>, HarnessCallOrigin>()
     var failure: Exception? = null
     var beforeRestrict: suspend () -> Unit = {}
+    var beforeLookup: suspend () -> Unit = {}
     override suspend fun restrict(session: SessionRef, request: RequestId, origin: HarnessCallOrigin) {
         beforeRestrict()
         failure?.let { throw it }
@@ -20,6 +21,7 @@ internal class MemoryHarnessRequestAncestry : HarnessRequestAncestry {
         }
     }
     override suspend fun lookup(session: SessionRef, request: RequestId): HarnessCallOrigin? {
+        beforeLookup()
         failure?.let { throw it }
         return mutex.withLock { entries[session to request] }
     }

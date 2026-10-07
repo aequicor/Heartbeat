@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventInputFactory
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSourcePorts
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventSources
@@ -82,8 +83,11 @@ public object HarnessEventBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun enabledWork(factory: HarnessEventInputFactory, ports: HarnessEventSourcePorts): HarnessEnabledWork =
-        HarnessEventSources(factory::create, ports)
+    internal fun enabledWork(
+        factory: HarnessEventInputFactory,
+        ports: HarnessEventSourcePorts,
+        ancestry: HarnessEventAncestry,
+    ): HarnessEnabledWork = HarnessEventSources(factory::create, ports, ancestry)
 
     @Provides
     @SingleIn(ProfileScope::class)
