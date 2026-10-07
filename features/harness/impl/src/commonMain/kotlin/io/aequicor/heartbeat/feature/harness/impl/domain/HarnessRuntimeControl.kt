@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain
 
-import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 
@@ -19,6 +18,9 @@ internal interface HarnessRuntimeControl {
     /** Applies item and harness generation fences, preserving the effect's stopping versus pausing semantics. */
     suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean
 
-    /** Revokes this immutable harness identity and confirms its entire owned-work removal barrier. */
-    suspend fun remove(harness: Harness): Boolean
+    /** Revokes this exact deletion attempt; obsolete effects must stop without touching storage or feedback. */
+    suspend fun remove(effect: HarnessEffect.Remove): HarnessRemovalResult
 }
+
+/** Ready proves cleanup only for the exact still-pending receipt; Retry retains the same generation fence. */
+internal enum class HarnessRemovalResult { Ready, Retry, Obsolete }

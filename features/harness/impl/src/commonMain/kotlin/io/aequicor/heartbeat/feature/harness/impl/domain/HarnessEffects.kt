@@ -35,10 +35,7 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
                 ),
             )
 
-            is HarnessEffect.Remove -> {
-                awaitCleanup { durable { runtime.remove(effect.harness) } }
-                machine.send(HarnessIntent.Internal.Removed(durable { storage.remove(effect.harness, effect.receipt) }))
-            }
+            is HarnessEffect.Remove -> remove(effect, machine)
 
             is HarnessEffect.SaveAttachments -> machine.send(
                 HarnessIntent.Internal.AttachmentsSaved(
@@ -71,8 +68,19 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
                 machine.send(feedback)
             }
 
-            is HarnessEffect.Deactivate -> awaitCleanup { runtime.deactivate(effect) }
+            is HarnessEffect.Deactivate -> awaitCleanup { durable { runtime.deactivate(effect) } }
         }
+    }
+
+    private suspend fun remove(effect: HarnessEffect.Remove, machine: EffectScope<HarnessIntent>) {
+        val removed = durable {
+            if (awaitRemoval(effect) == HarnessRemovalResult.Ready) {
+                storage.remove(effect.harness, effect.receipt)
+            } else {
+                null
+            }
+        }
+        if (removed != null) machine.send(HarnessIntent.Internal.Removed(removed))
     }
 
     private suspend fun <T> durable(block: suspend () -> T): T {
@@ -91,6 +99,16 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
             log.w { "runtime cleanup unconfirmed; retaining owned-work barrier for retry" }
             delay(RETRY_DELAY)
         }
+    }
+
+    private suspend fun awaitRemoval(effect: HarnessEffect.Remove): HarnessRemovalResult {
+        var result = runtime.remove(effect)
+        while (result == HarnessRemovalResult.Retry) {
+            log.w { "runtime removal unconfirmed; retaining exact operation for retry" }
+            delay(RETRY_DELAY)
+            result = runtime.remove(effect)
+        }
+        return result
     }
 }
 
