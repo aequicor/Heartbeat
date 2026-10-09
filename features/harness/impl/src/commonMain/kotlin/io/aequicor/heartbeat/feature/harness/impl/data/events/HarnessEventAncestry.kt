@@ -2,10 +2,13 @@ package io.aequicor.heartbeat.feature.harness.impl.data.events
 
 import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.feature.harness.impl.data.services.HarnessOwnedContext
+import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestAncestry
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerOutput
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
@@ -19,7 +22,10 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperPromptAttempt
  * request of a session are never consulted. Corruption and IO propagate so dispatch cannot become neutral.
  */
 @Inject
-internal class HarnessEventAncestry(private val requests: Lazy<HarnessRequestAncestry>) {
+internal class HarnessEventAncestry(
+    private val requests: Lazy<HarnessRequestAncestry>,
+    private val runs: Lazy<HarnessRunStorage>,
+) {
     private val ownership = HarnessOwnedContext()
 
     suspend fun origin(origin: EventOrigin): HarnessCallOrigin = when (origin) {
@@ -28,7 +34,7 @@ internal class HarnessEventAncestry(private val requests: Lazy<HarnessRequestAnc
 
         is EventOrigin.HostTurn -> request(RequestInitiator(origin.session, origin.request))
 
-        is EventOrigin.Action -> request(origin.initiator)
+        is EventOrigin.Action -> request(origin.initiator).merge(workflowAction(origin.action, isRequired = false))
 
         is EventOrigin.Feature -> if (origin.name == HARNESS_WAKE_OWNER) {
             checkNotNull(ownership.decode(origin.context)) { "Invalid harness event ancestry" }.origin()
@@ -37,6 +43,21 @@ internal class HarnessEventAncestry(private val requests: Lazy<HarnessRequestAnc
         }
 
         EventOrigin.Host, EventOrigin.System -> HarnessCallOrigin()
+    }
+
+    /** Completion callbacks carry the same captured ancestry as helper prompts, including after restart. */
+    suspend fun workflow(run: RunId): HarnessCallOrigin = workflowAction(run.action, isRequired = true)
+
+    private suspend fun workflowAction(action: ActionId, isRequired: Boolean): HarnessCallOrigin {
+        if (!isRequired && !action.value.startsWith("wf_")) return HarnessCallOrigin()
+        val run = runs.value.load().singleOrNull { it.id.action == action }
+        if (run == null && !isRequired) return HarnessCallOrigin()
+        val stored = checkNotNull(run) { "Workflow event journal is unavailable" }
+        val handoff = checkNotNull(stored.routing?.handoff) { "Workflow event ancestry is unavailable" }
+        check(handoff.ownerFeature == HARNESS_WAKE_OWNER) { "Workflow event has no owner" }
+        val owner = checkNotNull(ownership.decode(handoff.ownerContext)) { "Invalid workflow event ancestry" }
+        check(owner.harness == stored.harness) { "Workflow event owner changed" }
+        return owner.origin().merge(request(handoff.initiator))
     }
 
     suspend fun wake(wake: WakeRequest): HarnessCallOrigin {

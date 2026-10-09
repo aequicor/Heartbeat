@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -79,7 +80,7 @@ class HarnessScheduledHelperPromptOwnerTest {
             },
         ),
         lazyOf(access),
-        HarnessEventAncestry(lazyOf(storage)),
+        HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
         lazyOf(storage),
     )
 
@@ -115,7 +116,7 @@ class HarnessScheduledHelperPromptOwnerTest {
             lazyOf(bindings),
             lazyOf(MachineHarnessHelperAttachments(registry, toggles)),
             lazyOf(MachineHarnessSchedulerAccess(registry, toggles, HarnessProjectSnapshots(), gate)),
-            HarnessEventAncestry(lazyOf(storage)),
+            HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(storage),
         )
         val result = async { realOwner.admission(attempt.copy(workspace = null)).first() }
@@ -217,7 +218,7 @@ class HarnessScheduledHelperPromptOwnerTest {
             lazy { error("must not resolve helper binding") },
             lazy { error("must not attach") },
             lazy { error("must not start feature authority") },
-            HarnessEventAncestry(lazyOf(storage)),
+            HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(storage),
         )
         assertTrue(relay.admission(attempt.copy(handoff = HelperHandoff(initiator = source))).first())

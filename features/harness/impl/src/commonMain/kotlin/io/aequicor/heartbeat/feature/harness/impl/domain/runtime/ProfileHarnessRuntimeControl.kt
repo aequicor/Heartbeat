@@ -2,20 +2,21 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
-import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnLifecycle
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessWorkflowLifecycle
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.UndrivenWorkflowLifecycle
 
 /**
- * Library adapter for executable code. No workflow driver or durable wake is admitted by this implementation.
- * Existing Running journals still forbid acknowledging a complete pause/stop/removal: a later driver must
- * supply that barrier. Code fences always precede storage reads and are retained across an uncertain read.
+ * Library adapter for executable code, script helpers and pinned workflows. Every independent owner is revoked
+ * before checking its drain barrier. Code fences precede storage reads and survive uncertain outcomes.
  */
 internal class ProfileHarnessRuntimeControl(
     private val runtime: HarnessRuntime,
-    private val runs: HarnessRunStorage,
+    runs: HarnessRunStorage,
+    private val workflows: HarnessWorkflowLifecycle = UndrivenWorkflowLifecycle(runs),
     private val spawns: HarnessSpawnLifecycle,
 ) : HarnessRuntimeControl {
     override val isAvailable: Boolean get() = runtime.isAvailable
@@ -26,11 +27,8 @@ internal class ProfileHarnessRuntimeControl(
         val isCodeDrained = runtime.deactivate(effect)
         // A callback still in flight must not delay revoking its independently owned native helpers.
         val areHelpersDrained = spawns.deactivate(effect)
-        val isQuiescent = isCodeDrained && areHelpersDrained && (
-            effect.harnesses.isEmpty() || runs.load().none {
-                it.harness in effect.harnesses && it.status == WorkflowStatus.Running
-            }
-        )
+        val areWorkflowsDrained = workflows.deactivate(effect)
+        val isQuiescent = isCodeDrained && areHelpersDrained && areWorkflowsDrained
         return isQuiescent && runtime.removeObsoleteCache(effect.items)
     }
 
@@ -40,14 +38,14 @@ internal class ProfileHarnessRuntimeControl(
         val areHelpersDrained = spawns.deactivate(
             HarnessEffect.Deactivate(emptyList(), true, setOf(effect.harness.id), generation),
         )
+        val areWorkflowsDrained = workflows.deactivate(
+            HarnessEffect.Deactivate(emptyList(), true, setOf(effect.harness.id), generation),
+        )
         val status = runtime.removalStatus(effect)
         if (status != HarnessRemovalResult.Ready) return status
-        if (!areHelpersDrained) return HarnessRemovalResult.Retry
-        val isRunning = runs.load().any {
-            it.harness == effect.harness.id && it.status == WorkflowStatus.Running
-        }
+        if (!areHelpersDrained || !areWorkflowsDrained) return HarnessRemovalResult.Retry
         return when (val latest = runtime.removalStatus(effect)) {
-            HarnessRemovalResult.Ready -> if (isRunning) HarnessRemovalResult.Retry else runtime.removeCached(effect)
+            HarnessRemovalResult.Ready -> runtime.removeCached(effect)
             HarnessRemovalResult.Retry, HarnessRemovalResult.Obsolete -> latest
         }
     }

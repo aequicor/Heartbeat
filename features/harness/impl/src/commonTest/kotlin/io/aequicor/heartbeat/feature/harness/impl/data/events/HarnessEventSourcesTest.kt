@@ -335,7 +335,7 @@ private class SourcesFixture(private val test: TestScope) {
             },
             RegistrationTestOrigins(),
         ),
-        HarnessEventAncestry(lazyOf(ancestry)),
+        HarnessEventAncestry(lazyOf(ancestry), lazyOf(EmptyHarnessEventRuns)),
     )
 
     init {

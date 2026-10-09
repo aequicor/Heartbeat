@@ -58,7 +58,7 @@ internal inline fun <reified T> decodeRunRecord(raw: String): T = try {
 internal fun WorkflowRun.hasSameIdentity(other: WorkflowRun): Boolean =
     id == other.id && harness == other.harness && workflow == other.workflow && pinned == other.pinned &&
         input == other.input && caller == other.caller && origin == other.origin && startedAt == other.startedAt &&
-        deadline == other.deadline && wake == other.wake
+        deadline == other.deadline && wake == other.wake && routing == other.routing
 
 internal val RUN_RETENTION = 30.days
 private const val TERMINAL_RUNS_PER_HARNESS = 20

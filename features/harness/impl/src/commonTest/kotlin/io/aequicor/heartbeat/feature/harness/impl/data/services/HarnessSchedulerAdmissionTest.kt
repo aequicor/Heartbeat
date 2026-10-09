@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
+import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
@@ -48,7 +49,7 @@ class HarnessSchedulerAdmissionTest {
     }
     private val admission = HarnessSchedulerAdmission(
         lazyOf(access),
-        HarnessEventAncestry(lazyOf(storage)),
+        HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
         lazyOf(storage),
     )
     private val request = WakeRequest(
@@ -113,7 +114,7 @@ class HarnessSchedulerAdmissionTest {
         storage.restrict(source.session, source.request, origin)
         val detached = HarnessSchedulerAdmission(
             lazy { error("disabled feature must stay lazy") },
-            HarnessEventAncestry(lazyOf(storage)),
+            HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns)),
             lazyOf(storage),
         )
         val ordinary = request.copy(ownerFeature = null, ownerContext = null, initiator = source)

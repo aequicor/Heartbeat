@@ -19,6 +19,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntimeE
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.ProfileHarnessRuntimeControl
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessSpawnOperations
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessWorkflowLifecycle
 
 /** Constructs execution without starting it; lazy machine access breaks the library/runtime feedback cycle. */
 @ContributesTo(ProfileScope::class)
@@ -40,8 +41,15 @@ public object HarnessRuntimeBindings {
 
     @Provides
     @SingleIn(ProfileScope::class)
-    internal fun runtime(host: HarnessScriptHost, environment: HarnessRuntimeEnvironment): HarnessRuntime =
-        HarnessRuntime(host, HarnessExecutionLane(environment.dispatchers.io), environment)
+    internal fun lane(dispatchers: DispatcherProvider): HarnessExecutionLane = HarnessExecutionLane(dispatchers.io)
+
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun runtime(
+        host: HarnessScriptHost,
+        lane: HarnessExecutionLane,
+        environment: HarnessRuntimeEnvironment,
+    ): HarnessRuntime = HarnessRuntime(host, lane, environment)
 
     @Provides
     @SingleIn(ProfileScope::class)
@@ -49,5 +57,8 @@ public object HarnessRuntimeBindings {
         runtime: HarnessRuntime,
         runs: HarnessRunStorage,
         spawns: HarnessSpawnOperations,
-    ): HarnessRuntimeControl = ProfileHarnessRuntimeControl(runtime, runs, spawns)
+        workflows: Lazy<HarnessWorkflowLifecycle>,
+    ): HarnessRuntimeControl = ProfileHarnessRuntimeControl(
+        runtime, runs, HarnessWorkflowLifecycle { workflows.value.deactivate(it) }, spawns,
+    )
 }

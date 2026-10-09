@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.workflowTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.schedulerTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.unusedScriptSessions
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
@@ -60,6 +61,7 @@ class StagedHarnessContextsTest {
         val context = StagedHarnessContexts(
             origins,
             schedulers,
+            workflowTestFactory(origins),
             { request, owner -> unusedScriptSessions(HarnessInstanceTarget(request, owner), origins) },
         ).create(HarnessActivationRequest(harness, code, 1), access)
         val script = assertIs<HarnessEvaluationContext.Script>(context.evaluation).scope
@@ -74,7 +76,7 @@ class StagedHarnessContextsTest {
         assertFailsWith<IllegalStateException> { script.scheduler.every(30.seconds) {} }
         assertFailsWith<IllegalStateException> { script.agent.instructions { "" } }
         assertFailsWith<IllegalStateException> { script.prompts.render(ItemName("missing")) }
-        assertFailsWith<UnsupportedOperationException> { script.workflows }
+        assertFailsWith<IllegalStateException> { script.workflows.start(ItemName("missing")) }
         context.close()
     }
 }

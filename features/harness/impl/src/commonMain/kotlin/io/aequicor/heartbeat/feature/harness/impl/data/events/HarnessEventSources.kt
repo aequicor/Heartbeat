@@ -91,7 +91,7 @@ internal class HarnessEventSources(
         }
         observeEngines(owned, streams)
         streams.workflows.subscribe(owned) {
-            if (ports.gate.isEnabled) ports.dispatch.emit(it, HarnessCallOrigin())
+            if (ports.gate.isEnabled) forward(it) { ancestry.workflow(it.run) }
         }
         observePublished(owned)
         observeStarted(owned, scheduling)
