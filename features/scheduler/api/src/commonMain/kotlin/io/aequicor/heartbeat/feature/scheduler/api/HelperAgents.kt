@@ -152,6 +152,9 @@ public interface HelperAgents {
     /** Confirmed result of exactly [request]; null proves neither completion nor absence of native work. */
     public suspend fun result(helper: HelperId, request: RequestId): HelperResult?
 
+    /** Live accepted-turn snapshot. Null means no observation, never proof of absence or completion. */
+    public suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? = null
+
     /** Cancels exactly [request], reporting a barrier rather than merely successful command dispatch. */
     public suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation
 
