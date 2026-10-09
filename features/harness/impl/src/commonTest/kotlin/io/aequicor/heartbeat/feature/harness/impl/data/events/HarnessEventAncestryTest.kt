@@ -30,7 +30,7 @@ import kotlin.time.Instant
 
 class HarnessEventAncestryTest {
     private val storage = MemoryHarnessRequestAncestry()
-    private val mapper = HarnessEventAncestry(lazyOf(storage))
+    private val mapper = HarnessEventAncestry(lazyOf(storage), lazyOf(EmptyHarnessEventRuns))
     private val owner = HarnessId("owner")
     private val other = HarnessId("other")
     private val at = Instant.fromEpochMilliseconds(1000)

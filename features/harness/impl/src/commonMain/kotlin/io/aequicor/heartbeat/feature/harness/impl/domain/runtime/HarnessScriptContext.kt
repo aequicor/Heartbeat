@@ -20,6 +20,7 @@ internal class HarnessScriptContext(
     access: HarnessInstanceAccess,
     origins: HarnessCallOrigins,
     private val scheduler: HarnessScriptScheduler,
+    private val workflows: ScriptWorkflows,
     private val sessions: HarnessScriptSessions,
 ) : HarnessRuntimeContext {
     val registrations = HarnessScriptRegistrations(request.harness.name, access, origins)
@@ -36,7 +37,7 @@ internal class HarnessScriptContext(
         override val sessions: ScriptSessions get() = this@HarnessScriptContext.sessions
         override val scheduler: ScriptScheduler get() = this@HarnessScriptContext.scheduler
         override val prompts: ScriptPrompts get() = this@HarnessScriptContext.prompts
-        override val workflows: ScriptWorkflows get() = unavailable()
+        override val workflows: ScriptWorkflows get() = this@HarnessScriptContext.workflows
     })
 
     override fun sealForPublication(): Boolean {
@@ -52,5 +53,3 @@ internal class HarnessScriptContext(
         sessions.close()
     }
 }
-
-private fun unavailable(): Nothing = throw UnsupportedOperationException("Harness service unavailable")

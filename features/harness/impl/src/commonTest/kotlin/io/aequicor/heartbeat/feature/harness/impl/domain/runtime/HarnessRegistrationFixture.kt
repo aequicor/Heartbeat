@@ -45,6 +45,7 @@ internal class HarnessRegistrationFixture(
             access,
             origins,
             schedulers.create(request, access),
+            workflowTestFactory(origins).create(request, access),
             sessionServices(HarnessInstanceTarget(request, access), origins),
         )
     }
