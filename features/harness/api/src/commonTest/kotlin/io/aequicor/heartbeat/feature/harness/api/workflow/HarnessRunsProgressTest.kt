@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonObject
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
@@ -15,6 +16,25 @@ class HarnessRunsProgressTest {
     private val run = workflowRun()
     private val ready = HarnessRunsState.Ready(listOf(run))
     private val step = preparedStep().copy(helper = HelperId("helper"), request = Request)
+
+    @Test
+    fun `durable terminal receipt repairs feedback lost to cancellation or suspension exactly once`() {
+        val status = WorkflowStatus.Completed(JsonPrimitive("durable result"))
+        val saved = run.copy(status = status, finishedAt = Now)
+        val projected = run.copy(driverGeneration = 2, cancellation = WorkflowFailure.Cancelled)
+        val state = HarnessRunsState.Ready(listOf(projected), isSuspended = true)
+        val done = HarnessRunsState.Ready(listOf(saved), isSuspended = true)
+        spec.assertTransition(
+            state, HarnessRunsIntent.Internal.TerminalRestored(saved, 2), done,
+            outputs = listOf(HarnessRunsOutput.RunFinished(saved.id, status)),
+        )
+        spec.assertIgnored(done, HarnessRunsIntent.Internal.TerminalRestored(saved, 2))
+        spec.assertIgnored(state, HarnessRunsIntent.Internal.TerminalRestored(saved, 1))
+        spec.assertIgnored(state, HarnessRunsIntent.Internal.TerminalRestored(run, 2))
+        spec.assertIgnored(state, HarnessRunsIntent.Internal.TerminalRestored(saved.copy(driverGeneration = 3), 2))
+        val changed = saved.copy(input = JsonObject(mapOf("changed" to JsonPrimitive(true))))
+        spec.assertIgnored(state, HarnessRunsIntent.Internal.TerminalRestored(changed, 2))
+    }
 
     @Test
     fun `preparation native observation terminal result and typed failure preserve exact correlation`() {

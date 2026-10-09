@@ -27,6 +27,7 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Ready | PermissionsChanged | current executing driver | stay, transient permissions | none |
  * | Ready | Recovered | next generation and attempt, previous driver revoked | stay, fence generation | Drive |
  * | Ready | Finished/Failed | current proof, matching cancellation | stay, terminal + retention | RunFinished |
+ * | Ready | TerminalRestored | current projection, same invocation, committed terminal | stay, restore durable outcome | RunFinished |
  * | Ready | Suspended | enabled | stay, fence generations | Pause running drivers |
  * | Ready | Resumed | suspended | stay, advance generations | Drive running records |
  * | Any | stale/duplicate internal feedback or duplicate suspension | unmatched | ignored | none |

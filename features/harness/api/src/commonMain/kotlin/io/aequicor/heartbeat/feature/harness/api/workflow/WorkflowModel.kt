@@ -99,6 +99,7 @@ public data class WorkflowRun(
     val wake: WakeId? = null,
     val cancellation: WorkflowFailure? = null,
     val finishedAt: Instant? = null,
+    val routing: WorkflowRouting? = null,
 ) {
     init {
         require(deadline > startedAt && deadline - startedAt <= HarnessLimits.RUN_TIME)

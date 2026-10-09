@@ -8,7 +8,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
-/** Structural path: zero or more parallel branch indices followed by the sequential step index. */
+/** Structural path: zero or more memo/group/parallel branch positions followed by the sequential step index. */
 @Serializable
 public data class StepKey(val value: String) {
     init {

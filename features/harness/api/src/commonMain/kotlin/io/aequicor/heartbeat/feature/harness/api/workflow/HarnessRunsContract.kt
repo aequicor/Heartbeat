@@ -93,6 +93,13 @@ public sealed interface HarnessRunsIntent : MachineIntent {
             Internal
 
         /**
+         * A newly fenced owner read this immutable terminal record from storage. Handles a terminal commit
+         * whose feedback raced with suspension/cancellation. [generation] identifies the current projection;
+         * the saved record may have an older generation. Only the storage-owning driver may send this receipt.
+         */
+        public data class TerminalRestored(val run: WorkflowRun, val generation: Long) : Internal
+
+        /**
          * The previous driver was revoked and the next generation/attempt reserved durably. The machine
          * accepts exactly generation + 1 and launches replay. Retrying a helper inside one driver instead
          * uses StepStarted with a new request/step attempt; it does not restart the driver.
