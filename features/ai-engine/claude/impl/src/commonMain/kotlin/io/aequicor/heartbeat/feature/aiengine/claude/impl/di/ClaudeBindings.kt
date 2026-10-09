@@ -70,6 +70,7 @@ public object ClaudeBindings {
                 ),
                 isLocalWorkspaceSupported = true,
                 nativeTools = ClaudeNativeCatalog,
+                areInstructionsRefreshedPerTurn = true,
                 declaredFeatures = setOf(
                     ReportsProviderUsage.id,
                     SessionContextUsage.id,

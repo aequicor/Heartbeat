@@ -118,7 +118,12 @@ internal class DefaultAgentTools(
         val declarations = declarations(scope)
         val allowed = declarations.map { it.second.name }.toSet()
         val scoped = scope.copy(declared = allowed)
-        return declarations.mapTo(linkedSetOf()) { it.first }.map { it.instructions(scoped) }.joined()
+        val owners = declarations.mapTo(linkedSetOf()) { it.first }
+        owners += contributions.filter {
+            it.hasIndependentInstructions && !it.isAdapterOperated &&
+                (scope.workspace != null || it.isDetachedSupported)
+        }
+        return owners.map { it.instructions(scoped) }.joined()
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =

@@ -127,6 +127,13 @@ public interface AgentToolContribution {
      */
     public val isDetachedSupported: Boolean get() = false
 
+    /**
+     * Provides session content even when this contribution has no allowed tool declarations. The scoped
+     * instructions override must honor the effective declared set and its own availability toggle. This does
+     * not expose any tool or bypass detached-session opt-in; it serves independent knowledge such as harnesses.
+     */
+    public val hasIndependentInstructions: Boolean get() = false
+
     /** Currently available declarations; duplicate names across contributions are an error. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
 
