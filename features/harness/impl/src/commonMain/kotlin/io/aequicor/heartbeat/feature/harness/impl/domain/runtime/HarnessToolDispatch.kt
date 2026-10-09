@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolCall
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
 import kotlinx.coroutines.async
@@ -43,14 +44,24 @@ internal class HarnessToolDispatch(
     private val log = Log.tag("HarnessTools")
 
     @HighFrequency
-    suspend fun bindings(session: SessionRef): List<HarnessToolBinding> = runtime.published().flatMap { instance ->
+    suspend fun bindings(session: SessionRef): List<HarnessToolBinding> = bindingsWhere {
+        sessions.allows(it, session)
+    }
+
+    /** Declarations may precede a native session id; host-resolved permanent scopes determine that initial set. */
+    @HighFrequency
+    suspend fun bindings(harnesses: Set<HarnessId>): List<HarnessToolBinding> = bindingsWhere { it in harnesses }
+
+    @HighFrequency
+    private suspend fun bindingsWhere(allows: (HarnessId) -> Boolean): List<HarnessToolBinding> =
+        runtime.published().flatMap { instance ->
         val context = instance.runtimeContext as? HarnessScriptContext
-        if (context == null || !sessions.allows(instance.request.harness.id, session)) {
+        if (context == null || !allows(instance.request.harness.id)) {
             emptyList()
         } else {
             context.registrations.tools().filter { it.callback.isActive }.map { HarnessToolBinding(instance, it) }
         }
-    }
+        }
 
     @HighFrequency
     suspend fun execute(binding: HarnessToolBinding, call: ScriptToolCall): ScriptToolResult {

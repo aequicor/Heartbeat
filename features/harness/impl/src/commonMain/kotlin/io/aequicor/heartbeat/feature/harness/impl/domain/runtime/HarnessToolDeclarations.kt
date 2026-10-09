@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * Profile-lifetime names retain their first published declaration, including after deletion or slug reuse.
@@ -11,8 +12,11 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
  * published candidate commits. Active quotas exclude the replaced instance and already disposed registrations.
  */
 internal class HarnessToolDeclarations {
-    private val published = mutableMapOf<String, AgentToolSpec>()
+    private val published = MutableStateFlow<Map<String, AgentToolSpec>>(emptyMap())
     private val log = Log.tag("HarnessToolDeclarations")
+
+    /** Catalog reads are lock-free immutable snapshots; names survive disable and runtime replacement. */
+    val specifications: List<AgentToolSpec> get() = published.value.values.sortedBy { it.name }
 
     @HighFrequency
     fun accepts(candidate: HarnessInstance, current: Collection<HarnessInstance>): Boolean {
@@ -29,13 +33,13 @@ internal class HarnessToolDeclarations {
         val names = entries.map { it.second.name } + declarations.map { it.name }
         val count = entries.count { it.first == candidate.request.harness.id } + declarations.size
         return count <= HarnessLimits.SCRIPT_TOOLS && names.distinct().size == names.size &&
-            declarations.all { published[it.name]?.let { previous -> previous == it } != false }
+            declarations.all { published.value[it.name]?.let { previous -> previous == it } != false }
     }
 
     @HighFrequency
     fun published(instance: HarnessInstance) {
         log.v { "commit published tool declarations" }
-        instance.scriptRegistrations()?.sealTools().orEmpty().forEach { published[it.name] = it }
+        published.value += instance.scriptRegistrations()?.sealTools().orEmpty().associateBy { it.name }
     }
 }
 

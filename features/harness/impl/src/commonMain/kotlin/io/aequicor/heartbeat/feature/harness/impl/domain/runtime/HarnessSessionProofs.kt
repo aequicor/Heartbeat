@@ -32,12 +32,18 @@ internal class HarnessSessionProofs(
     /** A conflicting route remains ambiguous; another late callback cannot silently overwrite that conflict. */
     @HighFrequency
     fun remember(context: SessionHookContext) {
+        remember(context.session, context.workspace)
+    }
+
+    /** Hosted scopes are also trusted adapter metadata; model arguments never enter this method. */
+    @HighFrequency
+    fun remember(session: SessionRef, workspace: WorkspaceRef?) {
         log.v { "remember trusted session route" }
-        val proposed = SessionWorkspaceProof.Known(context.workspace)
+        val proposed = SessionWorkspaceProof.Known(workspace)
         sessions.update { previous ->
-            val existing = previous[context.session]
+            val existing = previous[session]
             previous + (
-                context.session to when {
+                session to when {
                     existing == null || existing == proposed -> proposed
                     else -> SessionWorkspaceProof.Conflicting
                 }

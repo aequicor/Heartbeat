@@ -20,5 +20,9 @@ internal class HarnessRequestOrigins(private val ancestry: HarnessRequestAncestr
     }
 
     suspend fun origin(context: SessionHookContext): HarnessCallOrigin =
-        context.request?.let { ancestry.lookup(context.session, it) } ?: HarnessCallOrigin()
+        origin(context.session, context.request)
+
+    /** Exact adapter/host request identity; a missing request never borrows the session's latest turn. */
+    suspend fun origin(session: SessionRef, request: RequestId?): HarnessCallOrigin =
+        request?.let { ancestry.lookup(session, it) } ?: HarnessCallOrigin()
 }

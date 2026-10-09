@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
  * Bare names must identify exactly one enabled item across that snapshot, even across different content kinds.
  * Code and skill/template bodies never enter the context index; explicit reads return only the requested body.
  */
-internal class HarnessContent(active: List<Harness>) {
+internal class HarnessContent(active: List<Harness>, private val canReadFullContext: Boolean = true) {
     private val harnesses = active.filter { it.isEnabled }.sortedBy { it.name.value }
     private val entries = harnesses.flatMap { harness ->
         harness.items.asSequence().filter { it.isEnabled }.sortedBy { it.name.value }
@@ -39,14 +39,18 @@ internal class HarnessContent(active: List<Harness>) {
         HarnessDeliveryMarker(it.id, it.name, it.revision)
     }
 
+    /** Explicit context reads return the whole instruction/index projection rather than its prompt prefix. */
+    fun fullText(): String = lines().joinToString("\n")
+
     /** Complete canonical projection and renderer version for hashing, never only revisions or a truncated prefix. */
     fun canonical(contextRevision: String?, instructions: String): String = Json.encodeToString(
         listOf(
-            "harness-context-v1",
+            "harness-context-v2",
             contextRevision,
             Json.encodeToString(markers),
             lines().joinToString("\n"),
             instructions,
+            canReadFullContext.toString(),
         ),
     )
 
@@ -55,8 +59,9 @@ internal class HarnessContent(active: List<Harness>) {
         val lines = before + lines() + instructions.takeIf { it.isNotBlank() }?.lines().orEmpty()
         val complete = prefix(lines, HARNESS_CONTEXT_CHARS)
         val isTruncated = complete.size != lines.size
+        val more = if (canReadFullContext) MORE_CONTEXT else "… Контекст усечён."
         val text = if (isTruncated) {
-            (prefix(lines, HARNESS_CONTEXT_CHARS - MORE_CONTEXT.length - 1) + MORE_CONTEXT).joinToString("\n")
+            (prefix(lines, HARNESS_CONTEXT_CHARS - more.length - 1) + more).joinToString("\n")
         } else {
             complete.joinToString("\n")
         }
