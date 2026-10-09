@@ -38,24 +38,25 @@ class HarnessToolPolicyProviderTest {
     }
 
     @Test
-    fun `trusted workspace and session reach resolver and unavailable evidence never becomes an empty policy`() = runTest {
-        val workspace = WorkspaceRef("workspace")
-        val scope = ToolPolicyScope(workspace = workspace, session = dispatchSession)
-        val provider = HarnessToolPolicyProvider(
-            lazy {
-                HarnessActiveAccess { actualWorkspace, actualSession ->
-                    assertEquals(workspace, actualWorkspace)
-                    assertEquals(dispatchSession, actualSession)
-                    emptyList()
-                }
-            },
-        )
-        assertNull(provider.policy(scope))
-        val failed = HarnessToolPolicyProvider(lazy { HarnessActiveAccess { _, _ -> error("Unavailable") } })
-        assertFailsWith<IllegalStateException> { failed.policy(scope) }
-        val cancelled = HarnessToolPolicyProvider(
-            lazy { HarnessActiveAccess { _, _ -> throw CancellationException("Stopped") } },
-        )
-        assertFailsWith<CancellationException> { cancelled.policy(scope) }
-    }
+    fun `trusted workspace and session reach resolver and unavailable evidence never becomes an empty policy`() =
+        runTest {
+            val workspace = WorkspaceRef("workspace")
+            val scope = ToolPolicyScope(workspace = workspace, session = dispatchSession)
+            val provider = HarnessToolPolicyProvider(
+                lazy {
+                    HarnessActiveAccess { actualWorkspace, actualSession ->
+                        assertEquals(workspace, actualWorkspace)
+                        assertEquals(dispatchSession, actualSession)
+                        emptyList()
+                    }
+                },
+            )
+            assertNull(provider.policy(scope))
+            val failed = HarnessToolPolicyProvider(lazy { HarnessActiveAccess { _, _ -> error("Unavailable") } })
+            assertFailsWith<IllegalStateException> { failed.policy(scope) }
+            val cancelled = HarnessToolPolicyProvider(
+                lazy { HarnessActiveAccess { _, _ -> throw CancellationException("Stopped") } },
+            )
+            assertFailsWith<CancellationException> { cancelled.policy(scope) }
+        }
 }

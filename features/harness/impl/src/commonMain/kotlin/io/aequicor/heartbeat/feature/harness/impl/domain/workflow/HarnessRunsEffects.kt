@@ -27,8 +27,11 @@ internal class HarnessRunsEffects(
                 runs.forEach { execution.publish(it) }
                 machine.send(HarnessRunsIntent.Internal.Restored(runs, clock.now()))
             }
+
             is HarnessRunsEffect.Drive -> effect.runs.forEach { drivers.drive(it) }
+
             is HarnessRunsEffect.StopRun -> drivers.drive(effect.run)
+
             is HarnessRunsEffect.Pause -> effect.runs.forEach { drivers.pause(it) }
         }
     }

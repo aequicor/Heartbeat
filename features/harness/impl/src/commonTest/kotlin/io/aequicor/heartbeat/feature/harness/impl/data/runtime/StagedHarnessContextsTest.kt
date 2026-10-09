@@ -11,9 +11,9 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrig
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInstanceTarget
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessOriginContext
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.workflowTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.schedulerTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.unusedScriptSessions
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.workflowTestFactory
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationContext
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest

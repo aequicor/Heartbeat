@@ -52,6 +52,7 @@ internal class WorkflowEngine(
 
     suspend fun execute(definition: WorkflowDefinition): JsonElement {
         check(started.compareAndSet(false, true)) { "A replay engine executes once" }
+        log.v { "Workflow replay started" }
         val result = withContext(WorkflowFrame(this, "")) { author { definition(input) } }
         if (diverged.value || journal.steps.any { it.key !in visited.value }) divergence()
         return bounded(result)
@@ -136,6 +137,7 @@ internal class WorkflowEngine(
         val place = frame.enter() ?: divergence()
         return try {
             visited.update { it + place.key }
+            log.v { "Workflow step visited" }
             if (visited.value.size > HarnessLimits.STEPS) throw WorkflowStepFailed(WorkflowFailure.Error)
             block(place)
         } finally {
@@ -148,7 +150,9 @@ internal class WorkflowEngine(
     }
 
     private fun visitChildren(place: WorkflowPosition) {
-        visited.update { keys -> keys + journal.steps.filter { it.key.value.startsWith(place.children) }.map { it.key } }
+        val children = journal.steps.filter { it.key.value.startsWith(place.children) }.map { it.key }
+        visited.update { it + children }
+        log.v { "Workflow memoized subtree replayed" }
     }
 
     private suspend fun <T> recordFailure(key: StepKey, body: suspend () -> T): T = try {
@@ -177,6 +181,7 @@ internal class WorkflowEngine(
 
     private fun divergence(): Nothing {
         diverged.value = true
+        log.v { "Workflow replay diverged" }
         throw WorkflowStepFailed(WorkflowFailure.Diverged)
     }
 }

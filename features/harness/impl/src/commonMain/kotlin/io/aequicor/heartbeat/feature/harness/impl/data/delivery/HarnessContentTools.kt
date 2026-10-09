@@ -61,10 +61,12 @@ internal class HarnessContentTools(
                     require(arguments.isEmpty()) { "Context takes no arguments" }
                     content.fullText().ifBlank { "No active harnesses" }
                 }
+
                 HarnessTools.SKILL_LOAD -> {
                     require(arguments.keys == setOf("name")) { "Only name is accepted" }
                     content.skill(arguments.string("name"))
                 }
+
                 HarnessTools.PROMPT_GET -> {
                     require(arguments.keys.all { it == "name" || it == "args" }) { "Unexpected arguments" }
                     val values = arguments["args"]?.let {
@@ -76,6 +78,7 @@ internal class HarnessContentTools(
                     }.orEmpty()
                     content.render(arguments.string("name"), values)
                 }
+
                 else -> return unavailable()
             }
             AgentToolResult(text)

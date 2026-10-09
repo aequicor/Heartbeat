@@ -6,8 +6,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
-import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolCall
 import io.aequicor.heartbeat.feature.harness.api.script.ScriptToolResult
 import kotlinx.coroutines.async
@@ -55,12 +55,12 @@ internal class HarnessToolDispatch(
     @HighFrequency
     private suspend fun bindingsWhere(allows: (HarnessId) -> Boolean): List<HarnessToolBinding> =
         runtime.published().flatMap { instance ->
-        val context = instance.runtimeContext as? HarnessScriptContext
-        if (context == null || !allows(instance.request.harness.id)) {
-            emptyList()
-        } else {
-            context.registrations.tools().filter { it.callback.isActive }.map { HarnessToolBinding(instance, it) }
-        }
+            val context = instance.runtimeContext as? HarnessScriptContext
+            if (context == null || !allows(instance.request.harness.id)) {
+                emptyList()
+            } else {
+                context.registrations.tools().filter { it.callback.isActive }.map { HarnessToolBinding(instance, it) }
+            }
         }
 
     @HighFrequency

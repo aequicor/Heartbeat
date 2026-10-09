@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.services
 
-import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.core.statemachine.SendResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -9,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessAttachmentWrite
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.impl.data.events.EmptyHarnessEventRuns
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessEventAncestry
 import io.aequicor.heartbeat.feature.harness.impl.data.events.HarnessProjectSnapshots
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin

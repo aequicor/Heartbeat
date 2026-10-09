@@ -52,14 +52,18 @@ internal class ProfileWorkflowDrivers(
         if (!isProjectionCurrent(request.run.id, request.run.driverGeneration)) return@withLock
         val slot = slots.value[request.run.id] ?: WorkflowDriverSlot().also { created ->
             slots.update { it + (request.run.id to created) }
+            log.v { "Workflow driver slot created" }
             scope.launch { follow(created) }
         }
         slot.request.update { old ->
             when {
                 old == null -> request
+
                 old.run.driverGeneration > request.run.driverGeneration -> old
+
                 old.run.driverGeneration == request.run.driverGeneration &&
                     old.run.cancellation != null && request.run.cancellation == null -> old
+
                 else -> request
             }
         }
@@ -68,30 +72,38 @@ internal class ProfileWorkflowDrivers(
     private suspend fun follow(slot: WorkflowDriverSlot) {
         slot.request.filterNotNull().collectLatest { request ->
             var hasReportedFailure = false
-            while (true) {
-                currentCoroutineContext().ensureActive()
-                try {
-                    if (request.isPause) {
-                        execution.pause(request.run)
-                    } else {
-                        execution.execute(request.run) {
-                            slot.request.value == request &&
-                                isProjectionCurrent(request.run.id, request.run.driverGeneration)
-                        }
-                    }
-                    slot.settled.value = request.run.driverGeneration
-                    break
-                } catch (error: WorkflowExecutionUnavailable) {
-                    if (!hasReportedFailure) log.w(error) { "Workflow driver awaits reconciliation" }
-                    hasReportedFailure = true
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (error: Exception) {
-                    if (!hasReportedFailure) log.w(harnessScriptFailure(error)) { "Workflow driver awaits durable IO" }
-                    hasReportedFailure = true
-                }
+            while (!attempt(slot, request, hasReportedFailure)) {
+                hasReportedFailure = true
                 delay(1.seconds)
             }
+            slot.settled.value = request.run.driverGeneration
+        }
+    }
+
+    /** One pass of the exact request; false keeps the same owner retrying after an uncertain outcome. */
+    private suspend fun attempt(
+        slot: WorkflowDriverSlot,
+        request: WorkflowDriverRequest,
+        isReported: Boolean,
+    ): Boolean {
+        currentCoroutineContext().ensureActive()
+        return try {
+            if (request.isPause) {
+                execution.pause(request.run)
+            } else {
+                execution.execute(request.run) {
+                    slot.request.value == request && isProjectionCurrent(request.run.id, request.run.driverGeneration)
+                }
+            }
+            true
+        } catch (error: WorkflowExecutionUnavailable) {
+            if (!isReported) log.w(error) { "Workflow driver awaits reconciliation" }
+            false
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (!isReported) log.w(harnessScriptFailure(error)) { "Workflow driver awaits durable IO" }
+            false
         }
     }
 }

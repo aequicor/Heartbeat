@@ -39,7 +39,10 @@ class WorkflowRunJournalTest {
         val feedback = mutableListOf<WorkflowStep>()
         val journal = WorkflowRunJournal(fixture.initial, storage) { feedback += it }
         val engine = WorkflowEngine(
-            fixture.initial, journal, WorkflowAgentSteps { _, _, _, _ -> error("No helper") }, fixture.clock,
+            fixture.initial,
+            journal,
+            WorkflowAgentSteps { _, _, _, _ -> error("No helper") },
+            fixture.clock,
         ) { it.encodeUtf8().sha256().hex() }
         var calls = 0
         val running = async {

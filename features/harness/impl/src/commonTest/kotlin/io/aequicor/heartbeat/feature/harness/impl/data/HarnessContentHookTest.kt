@@ -20,7 +20,11 @@ import kotlin.test.assertTrue
 
 class HarnessContentHookTest {
     private val context = SessionHookContext(
-        dispatchSession, null, RequestId("request"), TurnId("turn"), SessionOwner("owner"),
+        dispatchSession,
+        null,
+        RequestId("request"),
+        TurnId("turn"),
+        SessionOwner("owner"),
     )
 
     @Test
@@ -30,7 +34,10 @@ class HarnessContentHookTest {
         val delivery = HarnessContextDelivery(storage, backgroundScope) { it.encodeUtf8().sha256().hex() }
         var active = listOf(harness)
         val hook = HarnessContentHook(
-            { true }, { false }, lazy { HarnessActiveAccess { _, _ -> active } }, lazy { delivery },
+            { true },
+            { false },
+            lazy { HarnessActiveAccess { _, _ -> active } },
+            lazy { delivery },
         )
         val first = assertNotNull(hook.preparePrompt(context, "hello", "retained"))
         assertNull(storage.snapshot(context.session).activeSetSha)
@@ -48,7 +55,8 @@ class HarnessContentHookTest {
         var refreshed = false
         var reads = 0
         val hook = HarnessContentHook(
-            { enabled }, { refreshed },
+            { enabled },
+            { refreshed },
             lazy {
                 HarnessActiveAccess { _, _ ->
                     reads++

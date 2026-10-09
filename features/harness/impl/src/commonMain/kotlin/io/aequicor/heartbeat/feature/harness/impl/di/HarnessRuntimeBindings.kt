@@ -59,6 +59,9 @@ public object HarnessRuntimeBindings {
         spawns: HarnessSpawnOperations,
         workflows: Lazy<HarnessWorkflowLifecycle>,
     ): HarnessRuntimeControl = ProfileHarnessRuntimeControl(
-        runtime, runs, HarnessWorkflowLifecycle { workflows.value.deactivate(it) }, spawns,
+        runtime,
+        runs,
+        HarnessWorkflowLifecycle { workflows.value.deactivate(it) },
+        spawns,
     )
 }

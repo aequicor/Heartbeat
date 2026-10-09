@@ -102,7 +102,10 @@ private class CodeExecutionFixture(dispatcher: CoroutineDispatcher) {
             requests += request
             return HarnessCompilationResult.Success(artifact, emptyList())
         }
-        override suspend fun evaluate(code: CompiledHarnessCode, context: HarnessEvaluationContext): HarnessEvaluationResult {
+        override suspend fun evaluate(
+            code: CompiledHarnessCode,
+            context: HarnessEvaluationContext,
+        ): HarnessEvaluationResult {
             val registration = (context as HarnessEvaluationContext.Workflow).registration
             registration.register(definition)
             afterRegister(registration)
@@ -119,7 +122,12 @@ private class CodeExecutionFixture(dispatcher: CoroutineDispatcher) {
     suspend fun execute(selected: WorkflowRun = run, origin: HarnessCallOrigin = HarnessCallOrigin()): JsonElement {
         workflow.storage.save(selected, null)
         val journal = WorkflowRunJournal(selected, workflow.storage) {}
-        return executor.execute(selected, journal, WorkflowAgentSteps { _, _, _, _ -> error("No helper expected") }, origin)
+        return executor.execute(
+            selected,
+            journal,
+            WorkflowAgentSteps { _, _, _, _ -> error("No helper expected") },
+            origin,
+        )
     }
 }
 

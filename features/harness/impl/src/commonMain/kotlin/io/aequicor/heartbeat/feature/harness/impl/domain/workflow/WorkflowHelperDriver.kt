@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
-import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionRequest
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.workflow.AgentOptions
@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
@@ -67,24 +68,8 @@ internal class WorkflowHelperDriver(
             progress.record(step)
         }
         try {
-            var current = checkNotNull(step)
-            current = if (prepared.second) submit(current, prompt, false) else reconcile(current, prompt)
-            while (true) {
-                admitted()
-                current = observe(current)
-                val result = helpers.result(helper, checkNotNull(current.request))
-                if (result != null) {
-                    check(result.request == current.request) { "Helper result identity changed" }
-                    if (result.outcome == HelperOutcome.Unknown) {
-                        current = recover(current, prompt)
-                    } else {
-                        return@host finish(current, result)
-                    }
-                }
-                delay(POLL_INTERVAL)
-            }
-            @Suppress("UNREACHABLE_CODE") // The loop returns only after durable terminal progress.
-            error("Unreachable helper state")
+            val current = checkNotNull(step)
+            await(if (prepared.second) submit(current, prompt, false) else reconcile(current, prompt), prompt)
         } finally {
             permissions(checkNotNull(step), emptyList())
             val phase = progress.steps.singleOrNull { it.key == key }?.phase
@@ -95,14 +80,33 @@ internal class WorkflowHelperDriver(
         }
     }
 
+    /** Polls the exact request until its terminal result is durable; unknown outcomes are recovered. */
+    private suspend fun await(step: WorkflowStep, prompt: String): String {
+        val helper = checkNotNull(step.helper)
+        var current = step
+        while (true) {
+            admitted()
+            current = observe(current)
+            val result = helpers.result(helper, checkNotNull(current.request))
+            if (result != null) {
+                check(result.request == current.request) { "Helper result identity changed" }
+                if (result.outcome != HelperOutcome.Unknown) return finish(current, result)
+                current = recover(current, prompt)
+            }
+            delay(POLL_INTERVAL)
+        }
+    }
+
     private suspend fun observe(step: WorkflowStep): WorkflowStep {
         val observed = helpers.progress(checkNotNull(step.helper), checkNotNull(step.request))
         if (observed == null) {
             permissions(step, emptyList())
             return step
         }
-        check(observed.request == step.request && (step.session == null || observed.session == step.session) &&
-            (step.turn == null || observed.turn == step.turn)) { "Helper observation identity changed" }
+        check(
+            observed.request == step.request && (step.session == null || observed.session == step.session) &&
+                (step.turn == null || observed.turn == step.turn),
+        ) { "Helper observation identity changed" }
         val current = step.copy(session = observed.session, turn = observed.turn, phase = StepPhase.Running)
         progress.record(current)
         permissions(current, observed.permissions)
@@ -116,17 +120,8 @@ internal class WorkflowHelperDriver(
         step: WorkflowStep?,
         options: AgentOptions,
     ): Pair<WorkflowHelperResource, Boolean> {
-        val pending = resources.records(run.id).singleOrNull { it.key == key }
-        if (pending != null) {
-            if (pending.digest != digest || pending.harness != run.harness || pending.parent != run.caller ||
-                (step?.helper != null && pending.helper != null && step.helper != pending.helper)
-            ) throw WorkflowStepFailed(WorkflowFailure.Diverged)
-            val resource = resources.acquire(pending)
-            if (resource.grant.helper != null && !resource.isClosing && !resource.isReleased) {
-                persistGrant(resource)
-                return resource to false
-            }
-            while (!resources.release(resource)) delay(POLL_INTERVAL)
+        resources.records(run.id).singleOrNull { it.key == key }?.let { pending ->
+            reuse(pending, digest, step)?.let { return it to false }
         }
         admitted()
         val attachment = step?.helper?.let { helper ->
@@ -135,8 +130,14 @@ internal class WorkflowHelperDriver(
             binding.attachRequest
         } ?: RequestId(nextId())
         val grant = WorkflowHelperGrant(
-            ActionId("wf_slot_" + nextId()), run.id, run.harness, key, digest, run.caller,
-            step?.request ?: RequestId(nextId()), attachment,
+            ActionId("wf_slot_" + nextId()),
+            run.id,
+            run.harness,
+            key,
+            digest,
+            run.caller,
+            step?.request ?: RequestId(nextId()),
+            attachment,
         )
         val resource = resources.acquire(grant, step?.helper)
         persistGrant(resource)
@@ -145,6 +146,24 @@ internal class WorkflowHelperDriver(
         resource.bind(helper)
         persistGrant(resource)
         return resource to (step == null)
+    }
+
+    /** A live journaled slot of this step is reused; a closing or released one is drained first. */
+    private suspend fun reuse(
+        pending: WorkflowHelperGrant,
+        digest: String,
+        step: WorkflowStep?,
+    ): WorkflowHelperResource? {
+        val isSameHelper = step?.helper == null || pending.helper == null || step.helper == pending.helper
+        val isSameStep = pending.digest == digest && pending.harness == run.harness && pending.parent == run.caller
+        if (!isSameStep || !isSameHelper) throw WorkflowStepFailed(WorkflowFailure.Diverged)
+        val resource = resources.acquire(pending)
+        if (resource.grant.helper != null && !resource.isClosing && !resource.isReleased) {
+            persistGrant(resource)
+            return resource
+        }
+        while (!resources.release(resource)) delay(POLL_INTERVAL)
+        return null
     }
 
     private suspend fun persistGrant(resource: WorkflowHelperResource) {
@@ -161,6 +180,7 @@ internal class WorkflowHelperDriver(
             is HelperSubmission.Accepted -> step.copy(session = result.session, phase = StepPhase.Running).also {
                 progress.record(it)
             }
+
             is HelperSubmission.NotSubmitted -> {
                 progress.fail(step.key, WorkflowFailure.Interrupted)
                 throw WorkflowStepFailed(WorkflowFailure.Interrupted)
@@ -171,51 +191,46 @@ internal class WorkflowHelperDriver(
     private suspend fun reconcile(step: WorkflowStep, prompt: String): WorkflowStep {
         val helper = checkNotNull(step.helper)
         val request = checkNotNull(step.request)
-        while (true) {
+        var outcome: HelperOutcome? = null
+        while (outcome == null) {
             admitted()
-            val result = helpers.result(helper, request)
-            if (result != null) {
-                check(result.request == request) { "Helper result identity changed" }
-                return if (result.outcome == HelperOutcome.Unknown || result.outcome == HelperOutcome.Cancelled) {
-                    recover(step, prompt)
-                } else {
-                    step
-                }
-            }
-            // Null is not permission to send. The exact cancellation must confirm that old work cannot run.
-            when (val stopped = helpers.cancel(helper, request)) {
-                is HelperCancellation.NotSubmitted -> {
-                    check(stopped.request == request)
-                    return recover(step, prompt)
-                }
-                is HelperCancellation.Terminal -> {
-                    check(stopped.result.request == request)
-                    return if (stopped.result.outcome == HelperOutcome.Unknown ||
-                        stopped.result.outcome == HelperOutcome.Cancelled
-                    ) recover(step, prompt) else step
-                }
-                is HelperCancellation.Unconfirmed -> {
-                    check(stopped.request == request)
-                    delay(POLL_INTERVAL)
-                }
-            }
+            outcome = settledOutcome(helper, request)
+            if (outcome == null) delay(POLL_INTERVAL)
+        }
+        val isLost = outcome == HelperOutcome.Unknown || outcome == HelperOutcome.Cancelled
+        return if (isLost) recover(step, prompt) else step
+    }
+
+    /**
+     * The exact request's terminal outcome, or null while it may still run. Null is not permission to send: the
+     * exact cancellation must confirm that old work cannot run. NotSubmitted counts as lost work.
+     */
+    private suspend fun settledOutcome(helper: HelperId, request: RequestId): HelperOutcome? {
+        helpers.result(helper, request)?.let { result ->
+            check(result.request == request) { "Helper result identity changed" }
+            return result.outcome
+        }
+        return when (val stopped = helpers.cancel(helper, request)) {
+            is HelperCancellation.NotSubmitted -> HelperOutcome.Unknown.also { check(stopped.request == request) }
+            is HelperCancellation.Terminal -> stopped.result.outcome.also { check(stopped.result.request == request) }
+            is HelperCancellation.Unconfirmed -> null.also { check(stopped.request == request) }
         }
     }
 
     private suspend fun recover(step: WorkflowStep, prompt: String): WorkflowStep {
         admitted()
         val next = step.copy(
-            request = RequestId(nextId()), attempt = step.attempt + 1, session = null, turn = null,
+            request = RequestId(nextId()),
+            attempt = step.attempt + 1,
+            session = null,
+            turn = null,
             phase = StepPhase.Prepared,
         )
         progress.record(next)
         return submit(next, RECOVERY_PREFIX + prompt, true)
     }
 
-    private suspend fun finish(
-        step: WorkflowStep,
-        result: HelperResult,
-    ): String {
+    private suspend fun finish(step: WorkflowStep, result: HelperResult): String {
         check(result.request == step.request) { "Helper result identity changed" }
         check(result.turn == null || step.turn == null || result.turn == step.turn) { "Helper terminal turn changed" }
         val value = JsonPrimitive(result.answer)
@@ -228,7 +243,8 @@ internal class WorkflowHelperDriver(
             step.copy(
                 turn = step.turn ?: result.turn.takeIf { step.session != null },
                 phase = if (failure == null) StepPhase.Completed else StepPhase.Failed,
-                result = value.takeIf { failure == null }, failure = failure,
+                result = value.takeIf { failure == null },
+                failure = failure,
             ),
         )
         if (failure != null) throw WorkflowStepFailed(failure)

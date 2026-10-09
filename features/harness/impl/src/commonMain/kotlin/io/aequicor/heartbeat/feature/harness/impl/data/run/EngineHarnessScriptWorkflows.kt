@@ -27,7 +27,14 @@ internal class EngineHarnessScriptWorkflows(
     ): RunId {
         check(!origin.isHookRestricted && sessions.isCurrent(owner)) { "Script workflow launch is unavailable" }
         val candidate = launches.value.prepare(
-            owner.request.harness.id, name, input, null, null, null, origin, WorkflowOrigin.Script,
+            owner.request.harness.id,
+            name,
+            input,
+            null,
+            null,
+            null,
+            origin,
+            WorkflowOrigin.Script,
         )
         return launches.value.start(candidate) { sessions.isCurrent(owner) }.run
     }

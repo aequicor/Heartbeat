@@ -47,7 +47,8 @@ class HarnessActiveSnapshotTest {
     fun `restored worktree mapping takes precedence over promoted checkout`() {
         val scoped = profile.copy(scope = HarnessScope.Projects(setOf(project)))
         val promoted = scoped.copy(
-            id = HarnessId("promoted"), name = HarnessName("promoted"),
+            id = HarnessId("promoted"),
+            name = HarnessName("promoted"),
             scope = HarnessScope.Projects(setOf(checkout)),
         )
         val pending = snapshot.copy(

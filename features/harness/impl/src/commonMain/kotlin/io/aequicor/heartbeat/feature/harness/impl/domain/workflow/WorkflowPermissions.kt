@@ -16,6 +16,11 @@ internal class WorkflowPermissions(private val publish: suspend (Map<SessionRef,
         val next = step.session?.takeIf { permissions.isNotEmpty() }?.let { it to permissions.toList() }
         if (steps[step.key] == next) return@withLock
         if (next == null) steps.remove(step.key) else steps[step.key] = next
-        publish(steps.values.groupBy({ it.first }, { it.second }).mapValues { (_, lists) -> lists.flatten().distinctBy { it.id } })
+        publish(
+            steps.values.groupBy(
+                { it.first },
+                { it.second },
+            ).mapValues { (_, lists) -> lists.flatten().distinctBy { it.id } },
+        )
     }
 }

@@ -67,7 +67,13 @@ internal class WorkflowHelperJournalTest {
     }
 
     private fun grant(): WorkflowHelperGrant = WorkflowHelperGrant(
-        ActionId("slot"), RunId("wf_test"), HarnessId("harness"), StepKey("s0"), "a".repeat(64), null,
-        RequestId("request"), RequestId("attach"),
+        ActionId("slot"),
+        RunId("wf_test"),
+        HarnessId("harness"),
+        StepKey("s0"),
+        "a".repeat(64),
+        null,
+        RequestId("request"),
+        RequestId("attach"),
     )
 }

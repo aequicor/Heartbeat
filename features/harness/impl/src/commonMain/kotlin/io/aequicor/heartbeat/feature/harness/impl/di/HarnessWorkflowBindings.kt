@@ -65,7 +65,14 @@ public object HarnessWorkflowBindings {
         clock: Clock,
         machine: Lazy<HarnessRunsMachine>,
     ): WorkflowRunExecution = WorkflowRunExecution(
-        storage, code, grants, resources, helpers, bindings, access, clock,
+        storage,
+        code,
+        grants,
+        resources,
+        helpers,
+        bindings,
+        access,
+        clock,
     ) { machine.value.send(it) }
 
     @Provides
@@ -89,5 +96,9 @@ public object HarnessWorkflowBindings {
         drivers: ProfileWorkflowDrivers,
         execution: WorkflowRunExecution,
         clock: Clock,
-    ): HarnessRunsMachine = launcher.launch(HarnessRunsMachineSpec, scope, HarnessRunsEffects(storage, drivers, execution, clock))
+    ): HarnessRunsMachine = launcher.launch(
+        HarnessRunsMachineSpec,
+        scope,
+        HarnessRunsEffects(storage, drivers, execution, clock),
+    )
 }

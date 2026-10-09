@@ -25,7 +25,9 @@ internal class WorkflowFixture {
     val initial = WorkflowRun(
         RunId("wf_test"), HarnessId("harness"), ItemId("workflow"),
         PinnedWorkflow(
-            "workflow-source", "a".repeat(64), 1,
+            "workflow-source",
+            "a".repeat(64),
+            1,
             mapOf(ItemName("greeting") to "Hello {{name}}", ItemName("guide") to "Pinned skill"),
         ),
         JsonObject(emptyMap()), null, WorkflowOrigin.Script, clock.now(), clock.now() + 1.hours,

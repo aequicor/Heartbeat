@@ -167,8 +167,14 @@ private class WorkflowHelpersFixture {
     ) { "id_${sequence++}" }
 
     fun grant(): WorkflowHelperGrant = WorkflowHelperGrant(
-        ActionId("old-slot"), workflow.initial.id, workflow.initial.harness, KEY, DIGEST, null,
-        RequestId("old-request"), RequestId("old-attach"),
+        ActionId("old-slot"),
+        workflow.initial.id,
+        workflow.initial.harness,
+        KEY,
+        DIGEST,
+        null,
+        RequestId("old-request"),
+        RequestId("old-attach"),
     )
 
     suspend fun restore(progress: WorkflowRunJournal): WorkflowHelperGrant {

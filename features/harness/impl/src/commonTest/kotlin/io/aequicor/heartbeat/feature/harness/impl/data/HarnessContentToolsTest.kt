@@ -28,7 +28,11 @@ class HarnessContentToolsTest {
     private val instruction = HarnessItem.Instruction(ItemId("note"), ItemName("note"), "Private instruction")
     private val skill = HarnessItem.Skill(ItemId("skill"), ItemName("skill"), "Load when needed", "Private body")
     private val template = HarnessItem.Template(
-        ItemId("template"), ItemName("template"), "Greeting", "Hello {{name}}", setOf("name"),
+        ItemId("template"),
+        ItemName("template"),
+        "Greeting",
+        "Hello {{name}}",
+        setOf("name"),
     )
     private var active = listOf(harness.copy(items = listOf(instruction, skill, template)))
     private var reads = 0
@@ -93,9 +97,11 @@ class HarnessContentToolsTest {
     @Test
     fun `explicit context includes all instructions while system guidance respects declared tools`() = runTest {
         active = listOf(
-            harness.copy(items = (0..8).map {
-                instruction.copy(id = ItemId("n$it"), name = ItemName("n$it"), text = "$it".repeat(2_000))
-            }),
+            harness.copy(
+                items = (0..8).map {
+                    instruction.copy(id = ItemId("n$it"), name = ItemName("n$it"), text = "$it".repeat(2_000))
+                },
+            ),
         )
         val limited = scope.copy(isRefreshedPerTurn = true, declared = setOf(HarnessTools.SKILL_LOAD))
         val system = tools.instructions(limited)

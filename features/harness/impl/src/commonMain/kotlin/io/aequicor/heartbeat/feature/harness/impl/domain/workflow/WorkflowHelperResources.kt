@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
+import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.harness.api.workflow.RunId
 import io.aequicor.heartbeat.feature.harness.api.workflow.StepKey
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.update
  */
 internal class WorkflowHelperResources(private val helpers: HelperAgents, private val journal: WorkflowHelperJournal) {
     private val live = MutableStateFlow<Map<ActionId, WorkflowHelperResource>>(emptyMap())
+    private val log = Log.tag("HarnessWorkflow")
 
     fun find(run: RunId, key: StepKey): WorkflowHelperResource? =
         live.value.values.singleOrNull { it.grant.run == run && it.grant.key == key }
@@ -36,6 +38,7 @@ internal class WorkflowHelperResources(private val helpers: HelperAgents, privat
             check(grant.reservation !in old) { "Workflow helper has concurrent owners" }
             old + (grant.reservation to resource)
         }
+        log.v { "Workflow helper slot owned" }
         return resource
     }
 
@@ -51,12 +54,14 @@ internal class WorkflowHelperResources(private val helpers: HelperAgents, privat
         }
         journal.settled(resource.grant)
         live.update { it - resource.grant.reservation }
+        log.v { "Workflow helper slot settled" }
         return true
     }
 }
 
 /** Mutable only by its owning step or a later fenced cleanup owner; never shared across active drivers. */
 internal class WorkflowHelperResource(initial: WorkflowHelperGrant, val lease: HelperLease) {
+    private val log = Log.tag("HarnessWorkflow")
     private val snapshot = MutableStateFlow(initial)
     private val released = MutableStateFlow(false)
     private val closing = MutableStateFlow(false)
@@ -67,13 +72,16 @@ internal class WorkflowHelperResource(initial: WorkflowHelperGrant, val lease: H
     fun bind(helper: HelperId) {
         check(grant.helper == null || grant.helper == helper)
         snapshot.value = grant.copy(helper = helper)
+        log.v { "Workflow helper slot bound" }
     }
 
     fun markReleased() {
         released.value = true
+        log.v { "Workflow helper slot released" }
     }
 
     fun markClosing() {
         closing.value = true
+        log.v { "Workflow helper slot closing" }
     }
 }

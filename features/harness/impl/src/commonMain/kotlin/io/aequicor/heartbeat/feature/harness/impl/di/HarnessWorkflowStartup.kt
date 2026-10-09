@@ -13,12 +13,13 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsState
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
-import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.ProfileWorkflowDrivers
+import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.WorkflowHelperJournal
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -41,37 +42,28 @@ internal class HarnessWorkflowStartup(
     override fun start() {
         profile.coroutineScope.launch {
             toggles.observe(HarnessEnabled).distinctUntilChanged().collectLatest { enabled ->
-                if (!enabled) {
-                    followSuspended()
-                    return@collectLatest
-                }
-                val runs = machine.value
-                try {
-                    runs.send(HarnessRunsIntent.Internal.Resumed)
-                    if (runs.state.value is HarnessRunsState.Idle || runs.state.value is HarnessRunsState.Failed) {
-                        runs.send(HarnessRunsIntent.Internal.Start)
-                    }
-                    combine(runs.state, library.value.state) { current, content -> current to content }
-                        .collect { (current, content) ->
-                            val state = current as? HarnessRunsState.Ready ?: return@collect
-                            val ready = content as? HarnessState.Ready ?: return@collect
-                            if (ready.isSuspended || state.isSuspended) return@collect
-                            state.runs.filter { run ->
-                                run.status == WorkflowStatus.Running && run.cancellation == null &&
-                                    (ready.harnesses.none { it.harness.id == run.harness && it.harness.isEnabled } ||
-                                        ready.pending[run.harness] is HarnessMutation.Remove)
-                            }.forEach { run ->
-                                runs.send(
-                                    HarnessRunsIntent.Public.Cancel(
-                                        RequestId(Uuid.random().toHexString()), run.id, WorkflowViewer.User,
-                                    ),
-                                )
-                            }
-                        }
-                } finally {
-                    withContext(NonCancellable) { runs.send(HarnessRunsIntent.Internal.Suspended) }
-                }
+                if (enabled) followEnabled() else followSuspended()
             }
+        }
+    }
+
+    /** Resumes the journal and cancels late runs of harnesses that were disabled or are being deleted. */
+    private suspend fun followEnabled() {
+        val runs = machine.value
+        try {
+            runs.send(HarnessRunsIntent.Internal.Resumed)
+            if (runs.state.value is HarnessRunsState.Idle || runs.state.value is HarnessRunsState.Failed) {
+                runs.send(HarnessRunsIntent.Internal.Start)
+            }
+            combine(runs.state, library.value.state) { current, content -> orphaned(current, content) }
+                .collect { orphans ->
+                    orphans.forEach { run ->
+                        val request = RequestId(Uuid.random().toHexString())
+                        runs.send(HarnessRunsIntent.Public.Cancel(request, run.id, WorkflowViewer.User))
+                    }
+                }
+        } finally {
+            withContext(NonCancellable) { runs.send(HarnessRunsIntent.Internal.Suspended) }
         }
     }
 
@@ -85,9 +77,21 @@ internal class HarnessWorkflowStartup(
         }
         runs.state.collect { state ->
             val ready = state as? HarnessRunsState.Ready ?: return@collect
-            if (ready.isSuspended) ready.runs.filter { it.status == WorkflowStatus.Running }.forEach {
-                drivers.value.pauseCurrent(it)
+            if (ready.isSuspended) {
+                ready.runs.filter { it.status == WorkflowStatus.Running }.forEach {
+                    drivers.value.pauseCurrent(it)
+                }
             }
         }
     }
+}
+
+/** Running, not yet cancelled runs whose harness is disabled, missing or being removed. */
+private fun orphaned(runs: HarnessRunsState, library: HarnessState): List<WorkflowRun> {
+    val state = (runs as? HarnessRunsState.Ready)?.takeUnless { it.isSuspended } ?: return emptyList()
+    val ready = (library as? HarnessState.Ready)?.takeUnless { it.isSuspended } ?: return emptyList()
+    val live = ready.harnesses.map { it.harness }
+        .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
+        .map { it.id }.toSet()
+    return state.runs.filter { it.status == WorkflowStatus.Running && it.cancellation == null && it.harness !in live }
 }

@@ -58,9 +58,10 @@ internal class StoredWorkflowHelperJournal(private val store: KeyValueStore, clo
     override suspend fun bind(reservation: ActionId, helper: HelperId): WorkflowHelperGrant {
         var bound: WorkflowHelperGrant? = null
         update { records ->
-            val old = records.singleOrNull { it.reservation == reservation } ?: throw HarnessStorageConflict()
-            if (old.helper != null && old.helper != helper) throw HarnessStorageConflict()
-            if (records.any { it.reservation != reservation && it.helper == helper }) throw HarnessStorageConflict()
+            val old = records.singleOrNull { it.reservation == reservation }
+            val isReused = records.any { it.reservation != reservation && it.helper == helper }
+            val isRebound = old?.helper?.let { it != helper } ?: false
+            if (old == null || isRebound || isReused) throw HarnessStorageConflict()
             val next = old.copy(helper = helper)
             bound = next
             records.map { if (it.reservation == reservation) next else it }
@@ -100,7 +101,9 @@ internal class StoredWorkflowHelperJournal(private val store: KeyValueStore, clo
         return try {
             Json.decodeFromString<List<WorkflowHelperGrant>>(raw).also(::validate)
         } catch (error: IllegalArgumentException) {
-            log.w(HarnessStorageCorrupt()) { "Invalid workflow capacity journal (${error::class.simpleName.orEmpty()})" }
+            log.w(
+                HarnessStorageCorrupt(),
+            ) { "Invalid workflow capacity journal (${error::class.simpleName.orEmpty()})" }
             throw HarnessStorageCorrupt()
         }
     }
@@ -120,7 +123,9 @@ internal class StoredWorkflowHelperJournal(private val store: KeyValueStore, clo
         } catch (error: HarnessStorageException) {
             throw error
         } catch (error: Exception) {
-            log.w(HarnessStorageUncertain()) { "Workflow capacity storage unavailable (${error::class.simpleName.orEmpty()})" }
+            log.w(
+                HarnessStorageUncertain(),
+            ) { "Workflow capacity storage unavailable (${error::class.simpleName.orEmpty()})" }
             throw HarnessStorageUncertain()
         }
     }

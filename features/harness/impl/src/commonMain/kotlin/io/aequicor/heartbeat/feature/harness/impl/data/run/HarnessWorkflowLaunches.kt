@@ -120,7 +120,8 @@ internal class HarnessWorkflowLaunches(
         val item = current.items.singleOrNull { it.name == workflow && it.isEnabled } as? HarnessItem.Workflow
             ?: error("Workflow is unavailable")
         require(isWorkflowInput(item.input, input)) { "Workflow input does not match its schema" }
-        val launch = WorkflowLaunch(current, item, input, caller, workspace, initiator, origin, kind, state.activationGeneration)
+        val launch =
+            WorkflowLaunch(current, item, input, caller, workspace, initiator, origin, kind, state.activationGeneration)
         check(isCurrent(launch)) { "Workflow admission changed" }
         return launch
     }
@@ -162,8 +163,10 @@ internal class HarnessWorkflowLaunches(
                 ownerFeature = HARNESS_WAKE_OWNER, ownerContext = context, initiator = launch.initiator,
             )
         }
-        if (wake != null) wakes.value.schedule(HarnessWakeSubmission(launch.harness.id, wake, launch.origin, false)) {
-            isCallerCurrent() && isCurrent(launch)
+        if (wake != null) {
+            wakes.value.schedule(HarnessWakeSubmission(launch.harness.id, wake, launch.origin, false)) {
+                isCallerCurrent() && isCurrent(launch)
+            }
         }
         if (!isCallerCurrent() || !isCurrent(launch)) {
             if (wake != null) wakePort.value.cancel(wake)
@@ -174,7 +177,10 @@ internal class HarnessWorkflowLaunches(
             pinWorkflow(launch.harness, launch.workflow) { it.encodeUtf8().sha256().hex() },
             launch.input, launch.caller, launch.kind, at, at + HarnessLimits.RUN_TIME, wake = wake?.id,
             routing = WorkflowRouting(
-                launch.workspace, HelperHandoff(launch.initiator, HARNESS_WAKE_OWNER, context), epoch.value, launch.generation,
+                launch.workspace,
+                HelperHandoff(launch.initiator, HARNESS_WAKE_OWNER, context),
+                epoch.value,
+                launch.generation,
             ),
         )
         val accepted = admit(run)
@@ -213,7 +219,12 @@ internal class HarnessWorkflowLaunches(
         val state = library.value.state.value as? HarnessState.Ready ?: return false
         if (state.isSuspended || state.pending[launch.harness.id] is HarnessMutation.Remove ||
             state.harnesses.none { it.harness == launch.harness }
-        ) return false
-        return launch.caller == null || active.value.active(launch.workspace, launch.caller).any { it.id == launch.harness.id }
+        ) {
+            return false
+        }
+        return launch.caller == null || active.value.active(
+            launch.workspace,
+            launch.caller,
+        ).any { it.id == launch.harness.id }
     }
 }

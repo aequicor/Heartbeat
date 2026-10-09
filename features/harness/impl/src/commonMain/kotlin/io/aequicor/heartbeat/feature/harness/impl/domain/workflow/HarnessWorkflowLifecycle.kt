@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
-import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
+import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 
 /** Pinned workflow barrier, separate from unload/replacement of a script or workflow definition. */
 internal fun interface HarnessWorkflowLifecycle {

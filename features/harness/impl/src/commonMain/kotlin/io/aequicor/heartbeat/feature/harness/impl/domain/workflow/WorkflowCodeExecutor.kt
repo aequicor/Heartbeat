@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.workflow
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowDefinition
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowFailure
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
@@ -42,9 +43,9 @@ internal class WorkflowCodeExecutor(
         origin: HarnessCallOrigin,
     ): JsonElement {
         check(!origin.isHookRestricted) { "Hooks cannot execute workflows" }
-        if (digest(run.pinned.source) != run.pinned.sourceSha) throw WorkflowStepFailed(WorkflowFailure.Diverged)
+        if (digest(run.pinned.source) != run.pinned.sourceSha) failWith(WorkflowFailure.Diverged)
         val remaining = run.deadline - clock.now()
-        if (!remaining.isPositive()) throw WorkflowStepFailed(WorkflowFailure.Timeout)
+        if (!remaining.isPositive()) failWith(WorkflowFailure.Timeout)
         return withTimeoutOrNull(remaining) {
             val compilation = host.compile(
                 HarnessCompilationRequest(run.harness, run.workflow, HarnessCodeKind.Workflow, run.pinned.source),
@@ -52,26 +53,32 @@ internal class WorkflowCodeExecutor(
             when (compilation) {
                 is HarnessCompilationResult.Success -> try {
                     withContext(lane.instanceDispatcher() + origins.context(origin)) {
-                        val capture = WorkflowDefinitionCapture()
-                        val context = HarnessEvaluationContext.Workflow(capture)
-                        val evaluated = capturePlatformHarnessFailure { host.evaluate(compilation.code, context) }
-                            .getOrElse { error ->
-                                log.w(harnessScriptFailure(error)) { "Pinned workflow evaluation failed" }
-                                throw WorkflowStepFailed(WorkflowFailure.Error)
-                            }
-                        val definition = capture.seal()
-                        if (evaluated != HarnessEvaluationResult.Success || definition == null) {
-                            throw WorkflowStepFailed(WorkflowFailure.Error)
-                        }
-                        WorkflowEngine(run, progress, agents, clock, digest).execute(checkNotNull(definition))
+                        WorkflowEngine(run, progress, agents, clock, digest).execute(definition(compilation))
                     }
                 } finally {
                     compilation.code.close()
                 }
-                HarnessCompilationResult.TimedOut -> throw WorkflowStepFailed(WorkflowFailure.Timeout)
+
+                HarnessCompilationResult.TimedOut -> failWith(WorkflowFailure.Timeout)
+
                 is HarnessCompilationResult.Failure, HarnessCompilationResult.Unsupported ->
-                    throw WorkflowStepFailed(WorkflowFailure.Error)
+                    failWith(WorkflowFailure.Error)
             }
-        } ?: throw WorkflowStepFailed(WorkflowFailure.Timeout)
+        } ?: failWith(WorkflowFailure.Timeout)
+    }
+
+    /** Evaluates the pinned source on the caller's lane and returns its single registered definition. */
+    private suspend fun definition(compilation: HarnessCompilationResult.Success): WorkflowDefinition {
+        val capture = WorkflowDefinitionCapture()
+        val context = HarnessEvaluationContext.Workflow(capture)
+        val evaluated = capturePlatformHarnessFailure { host.evaluate(compilation.code, context) }
+            .getOrElse { error ->
+                log.w(harnessScriptFailure(error)) { "Pinned workflow evaluation failed" }
+                failWith(WorkflowFailure.Error)
+            }
+        val definition = capture.seal()
+        return definition.takeIf { evaluated == HarnessEvaluationResult.Success } ?: failWith(WorkflowFailure.Error)
     }
 }
+
+private fun failWith(reason: WorkflowFailure): Nothing = throw WorkflowStepFailed(reason)

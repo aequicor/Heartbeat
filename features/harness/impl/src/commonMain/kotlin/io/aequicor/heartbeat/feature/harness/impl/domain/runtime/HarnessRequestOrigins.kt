@@ -19,8 +19,7 @@ internal class HarnessRequestOrigins(private val ancestry: HarnessRequestAncestr
         if (origin.isHookRestricted || origin.sendChain.isNotEmpty()) ancestry.restrict(session, request, origin)
     }
 
-    suspend fun origin(context: SessionHookContext): HarnessCallOrigin =
-        origin(context.session, context.request)
+    suspend fun origin(context: SessionHookContext): HarnessCallOrigin = origin(context.session, context.request)
 
     /** Exact adapter/host request identity; a missing request never borrows the session's latest turn. */
     suspend fun origin(session: SessionRef, request: RequestId?): HarnessCallOrigin =

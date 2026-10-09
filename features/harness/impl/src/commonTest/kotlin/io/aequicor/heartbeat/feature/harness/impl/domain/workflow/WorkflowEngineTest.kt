@@ -78,11 +78,8 @@ class WorkflowEngineTest {
         }
         val changed = assertFailsWith<WorkflowStepFailed> {
             fixture.engine().execute {
-                try {
-                    agent("changed", AgentOptions("Helper"))
-                } catch (failure: WorkflowStepFailed) {
-                    assertEquals(WorkflowFailure.Diverged, failure.reason)
-                }
+                val failure = assertFailsWith<WorkflowStepFailed> { agent("changed", AgentOptions("Helper")) }
+                assertEquals(WorkflowFailure.Diverged, failure.reason)
                 JsonNull
             }
         }
@@ -99,15 +96,14 @@ class WorkflowEngineTest {
         val fixture = WorkflowFixture()
         var evaluations = 0
         val definition: WorkflowDefinition = {
-            try {
+            val failure = assertFailsWith<WorkflowStepFailed> {
                 step("fails") {
                     evaluations++
                     throw WorkflowStepFailed(WorkflowFailure.Timeout)
                 }
-            } catch (failure: WorkflowStepFailed) {
-                assertEquals(WorkflowFailure.Timeout, failure.reason)
-                JsonPrimitive("recovered")
             }
+            assertEquals(WorkflowFailure.Timeout, failure.reason)
+            JsonPrimitive("recovered")
         }
         assertEquals(JsonPrimitive("recovered"), fixture.engine().execute(definition))
         assertEquals(JsonPrimitive("recovered"), fixture.engine().execute(definition))

@@ -28,9 +28,11 @@ private fun schema(hasName: Boolean = false, hasArguments: Boolean = false): Jso
     put("additionalProperties", false)
     putJsonObject("properties") {
         if (hasName) putJsonObject("name") { put("type", "string") }
-        if (hasArguments) putJsonObject("args") {
-            put("type", "object")
-            putJsonObject("additionalProperties") { put("type", "string") }
+        if (hasArguments) {
+            putJsonObject("args") {
+                put("type", "object")
+                putJsonObject("additionalProperties") { put("type", "string") }
+            }
         }
     }
     put("required", buildJsonArray { if (hasName) add(JsonPrimitive("name")) })

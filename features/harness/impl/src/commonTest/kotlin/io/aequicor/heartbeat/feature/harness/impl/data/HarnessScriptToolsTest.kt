@@ -94,7 +94,8 @@ private fun tools(
     lazy {
         HarnessSessionProofs(
             { HarnessState.Ready(listOf(HarnessEntry(fixture.request.harness)), isRuntimeAvailable = true) },
-            { null }, { null },
+            { null },
+            { null },
         )
     },
     lazy { HarnessRequestOrigins(ancestry) },

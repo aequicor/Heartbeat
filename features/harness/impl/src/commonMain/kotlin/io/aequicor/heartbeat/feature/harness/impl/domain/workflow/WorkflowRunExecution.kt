@@ -114,8 +114,11 @@ internal class WorkflowRunExecution(
             is WorkflowStatus.Failed -> "Workflow failed: ${status.reason}"
             WorkflowStatus.Running -> return
         }
-        val bounded = if (payload.length <= SchedulerLimits.MAX_PAYLOAD) payload else
+        val bounded = if (payload.length <= SchedulerLimits.MAX_PAYLOAD) {
+            payload
+        } else {
             payload.take(SchedulerLimits.MAX_PAYLOAD - RESULT_SUFFIX.length) + RESULT_SUFFIX
+        }
         helpers.finish(run.id.action, bounded)
     }
 
@@ -125,8 +128,7 @@ internal class WorkflowRunExecution(
             check(requested.steps.isEmpty() && requested.attempt == 0) { "Workflow journal is missing" }
             // A start can be suspended before its first effect runs; its immutable admitted input remains valid.
             val initial = requested.copy(driverGeneration = 0, attempt = 0, steps = emptyList(), awaiting = emptyMap())
-            if (!storage.save(initial, null)) throw WorkflowExecutionUnavailable()
-            initial
+            commit(initial, null)
         }
         if (stored.status != WorkflowStatus.Running) return stored
         if (stored.driverGeneration > requested.driverGeneration) throw WorkflowExecutionUnavailable()
@@ -137,15 +139,18 @@ internal class WorkflowRunExecution(
                 cancellation = stored.cancellation ?: requested.cancellation,
                 awaiting = emptyMap(),
             )
-            if (!storage.save(proposed, stored.driverGeneration)) throw WorkflowExecutionUnavailable()
-            stored = proposed
+            stored = commit(proposed, stored.driverGeneration)
         }
         if (stored.cancellation == null && requested.cancellation != null) {
             val proposed = stored.copy(cancellation = requested.cancellation)
-            if (!storage.save(proposed, stored.driverGeneration)) throw WorkflowExecutionUnavailable()
-            stored = proposed
+            stored = commit(proposed, stored.driverGeneration)
         }
         return stored
+    }
+
+    private suspend fun commit(proposed: WorkflowRun, expected: Long?): WorkflowRun {
+        if (!storage.save(proposed, expected)) throw WorkflowExecutionUnavailable()
+        return proposed
     }
 
     private suspend fun fail(progress: WorkflowRunJournal, reason: WorkflowFailure, projection: Long) {
@@ -174,8 +179,14 @@ internal class WorkflowRunExecution(
                 val binding = checkNotNull(bindings.lookup(checkNotNull(step.helper))) { "Missing helper ownership" }
                 check(binding.owner == run.id.action && binding.harness == run.harness)
                 val grant = WorkflowHelperGrant(
-                    ActionId("wf_slot_" + Uuid.random().toHexString()), run.id, run.harness, step.key, step.promptSha,
-                    run.caller, checkNotNull(step.request), binding.attachRequest,
+                    ActionId("wf_slot_" + Uuid.random().toHexString()),
+                    run.id,
+                    run.harness,
+                    step.key,
+                    step.promptSha,
+                    run.caller,
+                    checkNotNull(step.request),
+                    binding.attachRequest,
                 )
                 val resource = resources.acquire(grant, step.helper)
                 resource.bind(checkNotNull(step.helper))

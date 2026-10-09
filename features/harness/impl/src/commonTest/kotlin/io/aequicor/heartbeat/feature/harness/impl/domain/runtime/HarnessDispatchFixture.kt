@@ -79,7 +79,11 @@ internal class HarnessDispatchFixture(
             scope,
             dispatchers,
             admission,
-            StagedHarnessContexts(origins, schedulerTestFactory(origins, dispatcher) { runtime }, workflowTestFactory(origins)) { request, access ->
+            StagedHarnessContexts(
+                origins,
+                schedulerTestFactory(origins, dispatcher) { runtime },
+                workflowTestFactory(origins),
+            ) { request, access ->
                 unusedScriptSessions(HarnessInstanceTarget(request, access), origins)
             },
         ) { feedback += it },

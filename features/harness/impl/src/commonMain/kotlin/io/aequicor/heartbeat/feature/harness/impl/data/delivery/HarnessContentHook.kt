@@ -1,7 +1,7 @@
 package io.aequicor.heartbeat.feature.harness.impl.data.delivery
 
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHook
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionPromptAddition
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef

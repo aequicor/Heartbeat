@@ -6,8 +6,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertFalse
 
@@ -25,7 +25,9 @@ class HarnessRunsProgressTest {
         val state = HarnessRunsState.Ready(listOf(projected), isSuspended = true)
         val done = HarnessRunsState.Ready(listOf(saved), isSuspended = true)
         spec.assertTransition(
-            state, HarnessRunsIntent.Internal.TerminalRestored(saved, 2), done,
+            state,
+            HarnessRunsIntent.Internal.TerminalRestored(saved, 2),
+            done,
             outputs = listOf(HarnessRunsOutput.RunFinished(saved.id, status)),
         )
         spec.assertIgnored(done, HarnessRunsIntent.Internal.TerminalRestored(saved, 2))
