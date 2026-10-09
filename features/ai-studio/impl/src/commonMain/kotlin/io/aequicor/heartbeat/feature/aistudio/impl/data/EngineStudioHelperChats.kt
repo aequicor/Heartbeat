@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import kotlinx.coroutines.CancellationException
@@ -32,6 +33,7 @@ internal interface StudioHelperRuns {
 
     suspend fun helperTerminal(helper: HelperId, request: RequestId): StudioHelperTerminal?
     suspend fun stopHelper(helper: HelperId, request: RequestId): StudioHelperTerminal?
+    suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
 }
 
 /** One profile owns attempts even when the caller stops awaiting acceptance. Durable receipts prevent replay. */
@@ -139,6 +141,17 @@ internal class EngineStudioHelperChats(
                         checkNotNull(attempts.receipt(helper, request)?.terminal).result(request),
                     )
                 }
+            }
+        }
+    }
+
+    suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? {
+        val metadata = checkNotNull(records.helperMetadata(helper)) { "Unknown helper" }
+        val receipt = attempts.receipt(helper, request) ?: return null
+        if (receipt.phase != StudioHelperPhase.Accepted) return null
+        return runs.value.helperProgress(helper, request)?.also {
+            check(it.request == request && it.session == receipt.session && it.session == metadata.session) {
+                "Helper progress does not match its accepted receipt"
             }
         }
     }

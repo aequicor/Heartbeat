@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
@@ -99,6 +100,9 @@ public interface ScheduledSessionHost : ScheduledHelperCatalog {
 
     /** Terminal result of the exact request, never the latest unrelated turn. */
     public suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? = null
+
+    /** Current accepted-turn state only; this read must never open/resume a native session. */
+    public suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
 
     /**
      * Revokes preparation or waits for confirmed terminal native work for this request. An accepted cancel command

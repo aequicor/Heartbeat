@@ -5,10 +5,12 @@ import dev.zacsweers.metro.Inject
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSession
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ActiveSessionState
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 
 /** Uses the repository's existing handle locks and fixed route; does not own another session registry. */
@@ -71,5 +73,20 @@ internal class EngineStudioHelperRuns(
         val record = access.value.helperRecord(helper)
         log.v { "Stop exact helper request" }
         return native.stop(record, request, access.value.liveHelper(helper))
+    }
+
+    override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? {
+        val active = access.value.liveHelper(helper) ?: return null
+        val state = active.state.value
+        val turn = when (state) {
+            is ActiveSessionState.Running -> state.turn
+            is ActiveSessionState.AwaitingUserAction -> state.turn
+            is ActiveSessionState.Interrupting -> state.turn
+            is ActiveSessionState.Unavailable -> state.activeTurn
+            is ActiveSessionState.Ready -> state.lastTurn
+            is ActiveSessionState.Submitting, is ActiveSessionState.Closing, ActiveSessionState.Closed -> null
+        }?.takeIf { it.request == request } ?: return null
+        val permissions = (state as? ActiveSessionState.AwaitingUserAction)?.requests.orEmpty()
+        return HelperProgress(request, active.ref, turn.id, permissions)
     }
 }

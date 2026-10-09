@@ -17,6 +17,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
@@ -119,6 +120,9 @@ internal class StudioScheduledSessionHost(
 
     override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? =
         helpers.value.result(helper, request)
+
+    override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? =
+        helpers.value.progress(helper, request)
 
     override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
         helpers.value.cancel(helper, request)

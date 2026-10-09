@@ -21,6 +21,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperLease
 import io.aequicor.heartbeat.feature.scheduler.api.HelperMetadataLimits
 import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
@@ -205,6 +206,14 @@ internal class ProfileHelperAgents(
 
     override suspend fun cancel(helper: HelperId, request: RequestId): HelperCancellation =
         bound(helper).cancel(helper, request)
+
+    @HighFrequency
+    override suspend fun progress(helper: HelperId, request: RequestId): HelperProgress? {
+        val (host, metadata) = resolve(helper)
+        return host.helperProgress(helper, request)?.also {
+            check(it.request == request && it.session == metadata.session) { "Helper progress identity changed" }
+        }
+    }
 
     override suspend fun isHelper(session: SessionRef): Boolean = hosts.value.any { it.isHelper(session) }
 
