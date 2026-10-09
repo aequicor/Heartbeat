@@ -161,5 +161,4 @@ private data class DeliveryToken(
 private class DeliveryFailure(type: String) : Exception(type)
 
 internal const val HARNESS_CONTEXT_PROTOCOL =
-    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы. " +
-        "Скиллы загружай через harness_skill_load, шаблоны через harness_prompt_get; полный контекст — harness_context."
+    "Этот блок заменяет все прежние инструкции харнесса. Действуют только перечисленные ниже харнессы."

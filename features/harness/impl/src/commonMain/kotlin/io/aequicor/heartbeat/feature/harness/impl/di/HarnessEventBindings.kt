@@ -26,6 +26,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestA
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRuntime
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessSessionProofs
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessToolDispatch
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import kotlin.time.Clock
 
@@ -70,6 +71,11 @@ public object HarnessEventBindings {
     @SingleIn(ProfileScope::class)
     internal fun hooks(runtime: HarnessRuntime, proofs: HarnessSessionProofs): HarnessHookDispatch =
         HarnessHookDispatch(runtime, proofs)
+
+    @Provides
+    @SingleIn(ProfileScope::class)
+    internal fun tools(runtime: HarnessRuntime, proofs: HarnessSessionProofs): HarnessToolDispatch =
+        HarnessToolDispatch(runtime, proofs)
 
     @Provides
     @SingleIn(ProfileScope::class)

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
@@ -54,6 +55,9 @@ internal class HarnessRuntime(
     private val log = Log.tag("HarnessRuntime")
 
     val isAvailable: Boolean get() = host.isAvailable
+
+    /** Published script names remain catalogued after disable, without loading or evaluating author code. */
+    val declaredTools: List<AgentToolSpec> get() = declarations.specifications
 
     /**
      * Exact published generations, ordered by harness and item. Updates share the runtime mutation mutex.
