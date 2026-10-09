@@ -40,6 +40,8 @@ public data class EngineDescriptor(
     val isLocalWorkspaceSupported: Boolean = false,
     /** Native tool metadata, including tools disabled by default; platform-specific in the registration. */
     val nativeTools: List<NativeToolSpec> = emptyList(),
+    /** The adapter rebuilds hosted instructions on every turn, including after native context compaction. */
+    val areInstructionsRefreshedPerTurn: Boolean = false,
 ) {
     init {
         require(nativeTools.map { it.name }.distinct().size == nativeTools.size) { "Duplicate native tool name" }

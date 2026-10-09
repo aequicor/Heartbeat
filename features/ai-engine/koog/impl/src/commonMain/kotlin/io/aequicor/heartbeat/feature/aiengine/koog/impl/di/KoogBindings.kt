@@ -84,6 +84,7 @@ public object KoogBindings {
             EnginePlatform.entries.toSet(),
             KoogEngineEnabled,
             isLocalWorkspaceSupported = true,
+            areInstructionsRefreshedPerTurn = true,
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(
                     ConnectionMethodId("openai"),
