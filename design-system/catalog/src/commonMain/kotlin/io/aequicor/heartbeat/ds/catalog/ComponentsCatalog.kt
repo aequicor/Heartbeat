@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.ds.catalog
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,6 +18,7 @@ import io.aequicor.heartbeat.ds.components.HbChatMessage
 import io.aequicor.heartbeat.ds.components.HbChatMessageBubble
 import io.aequicor.heartbeat.ds.components.HbChatRole
 import io.aequicor.heartbeat.ds.components.HbChoiceRow
+import io.aequicor.heartbeat.ds.components.HbCodeEditor
 import io.aequicor.heartbeat.ds.components.HbCopyButton
 import io.aequicor.heartbeat.ds.components.HbDiffView
 import io.aequicor.heartbeat.ds.components.HbDivider
@@ -36,6 +38,7 @@ import io.aequicor.heartbeat.ds.layouts.HbLazyColumn
 import io.aequicor.heartbeat.ds.resources.HbString
 import io.aequicor.heartbeat.ds.resources.hbString
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import kotlinx.collections.immutable.persistentSetOf
 
 @Composable
 internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifier) {
@@ -133,6 +136,7 @@ internal fun ComponentsCatalog(state: SandboxState, modifier: Modifier = Modifie
                 }
             }
         }
+        item { CodeEditorExample(modifier = Modifier.fillMaxWidth()) }
         item { DiffExample(modifier = Modifier.fillMaxWidth()) }
         item { MessageExamples(modifier = Modifier.fillMaxWidth()) }
         item { NavigationExample(modifier = Modifier.fillMaxWidth()) }
@@ -152,6 +156,52 @@ private fun PanelExample(modifier: Modifier = Modifier) {
             HbText(hbString(HbString.SeedPrompt), modifier = Modifier.padding(HbTheme.spacing.l))
         }
     }
+}
+
+/** Editable Kotlin, read-only text, an error with marked lines and a long source with long lines. */
+@Composable
+private fun CodeEditorExample(modifier: Modifier = Modifier) {
+    var source by remember { mutableStateOf(CODE_SAMPLE) }
+    val label = hbString(HbString.Inputs)
+    HbCard(modifier = modifier) {
+        HbText(label, style = HbTheme.typography.title)
+        HbCodeEditor(
+            source,
+            { source = it },
+            label,
+            Modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorCompactHeight).testTag("catalog-code-editor"),
+            language = "kotlin",
+        )
+        HbCodeEditor(
+            "# Skill\n\nUse design tokens only.",
+            {},
+            label,
+            Modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorCompactHeight),
+            isReadOnly = true,
+        )
+        HbCodeEditor(
+            CODE_SAMPLE,
+            {},
+            label,
+            Modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorCompactHeight),
+            language = "kotlin",
+            isError = true,
+            errorLines = persistentSetOf(2),
+        )
+        HbCodeEditor(
+            LONG_CODE_SAMPLE,
+            {},
+            label,
+            Modifier.fillMaxWidth().height(HbTheme.dimensions.codeEditorCompactHeight),
+            language = "kotlin",
+        )
+    }
+}
+
+private const val CODE_SAMPLE = "hooks.beforeTool { call ->\n    ToolHookVerdict.Continue\n}"
+
+private val LONG_CODE_SAMPLE = (1..60).joinToString("\n") { line ->
+    "val value$line = listOf(${(1..12).joinToString { "\"элемент $it\"" }})"
 }
 
 @Composable

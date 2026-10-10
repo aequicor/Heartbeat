@@ -62,6 +62,7 @@ class HbContrastTest {
                 "success tone" to colors.successContainer,
                 "warning tone" to colors.warningContainer,
                 "danger tone" to colors.errorContainer,
+                "code editor" to colors.inputFill,
             )
             syntax.forEach { (role, foreground) ->
                 surfaces.forEach { (surface, background) ->
