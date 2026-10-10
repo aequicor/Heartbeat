@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aistudio.api.StudioSessionConfiguration
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.DefaultRunSettings
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.LearningAction
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEnvironment
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModel
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioModels
@@ -19,6 +20,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.ToolRunStatus
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
@@ -298,3 +300,18 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
         )
     },
 )
+
+/**
+ * Harnesses of the "+" menu: enabled [options], committed connections by chat id and choices kept on the panes
+ * of chats that have no session yet.
+ */
+@Immutable
+data class HarnessChoicesUi(
+    val options: ImmutableList<StudioHarness> = persistentListOf(),
+    val chats: ImmutableMap<String, ImmutableSet<String>> = persistentMapOf(),
+    val panes: ImmutableMap<Int, ImmutableSet<String>> = persistentMapOf(),
+)
+
+/** One harness of a pane's "+" menu; [isPermanent] ones are active by scope and cannot be toggled. */
+@Immutable
+data class HarnessChoiceUi(val id: String, val title: String, val isSelected: Boolean, val isPermanent: Boolean)

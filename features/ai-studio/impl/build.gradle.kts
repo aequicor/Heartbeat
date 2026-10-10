@@ -12,6 +12,7 @@ kotlin {
             implementation(projects.features.aiStudio.api)
             implementation(projects.features.scheduler.api)
             implementation(projects.features.agentLearning.api)
+            implementation(projects.features.harness.api)
             implementation(projects.features.computerUse.api)
             implementation(projects.features.attachments.api)
             implementation(projects.features.worktreeMode.api)

@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.platform.dibundle
 
 import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.createGraphFactory
+import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
+import io.aequicor.heartbeat.core.navigation.RouteEntry
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
@@ -14,15 +16,20 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolHookVerdict
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
+import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessDraft
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
+import io.aequicor.heartbeat.feature.harness.api.HarnessItemRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessName
+import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.HarnessToolsRoute
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
@@ -69,6 +76,26 @@ class HarnessIntegrationTest {
         app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
+    }
+
+    @Test
+    fun `settings section routes of the library are registered in the profile registry`() = runTest {
+        val profile = app.profileSessions.open(ProfileId("harness-routes"))
+        try {
+            val graph = profile.graph as TestHarnessHookAccessors
+            val routes = graph.harnessProfileRoutes.map { it.routeClass }
+            val expected = listOf(
+                HarnessRoute::class,
+                HarnessDetailRoute::class,
+                HarnessItemRoute::class,
+                HarnessToolsRoute::class,
+            )
+            assertTrue(routes.containsAll(expected), "registered: $routes")
+            // The studio's "+" menu is backed by the harness library, not by the no-op default.
+            assertTrue(graph.studioHarnesses != StudioHarnesses.None)
+        } finally {
+            app.profileSessions.close()
+        }
     }
 
     @Test
@@ -187,4 +214,8 @@ class HarnessIntegrationTest {
 interface TestHarnessHookAccessors {
     val harnessSessionHooks: Set<SessionHook>
     val harnessSchedulerBus: SchedulerBus
+
+    @ForScope(ProfileScope::class)
+    val harnessProfileRoutes: Set<RouteEntry<*>>
+    val studioHarnesses: StudioHarnesses
 }

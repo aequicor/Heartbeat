@@ -317,6 +317,7 @@ private fun AiStudioScreenState.auditIntent(intent: AiStudioScreenIntent): AiStu
     is AiStudioScreenIntent.Composer,
     is AiStudioScreenIntent.SessionAction,
     is AiStudioScreenIntent.Organism,
+    is AiStudioScreenIntent.SelectHarness,
     -> this
 }
 

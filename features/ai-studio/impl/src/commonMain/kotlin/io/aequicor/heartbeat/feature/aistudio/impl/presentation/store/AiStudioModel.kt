@@ -23,6 +23,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.di.scope.AiStudioScope
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
@@ -96,8 +97,10 @@ class AiStudioModel(
     private val machines: MachineRegistry,
     private val attachmentsCatalog: AttachmentsCatalog,
     previews: StudioAttachmentPreviews,
+    private val harnesses: StudioHarnesses = StudioHarnesses.None,
 ) {
     private val log = Log.tag("AiStudioModel")
+    private val harnessSelection = StudioHarnessSelection(harnesses, backend)
 
     /** Navigation is executed by the lifecycle component, never by a retained IO scope. */
     val attachmentNavigation = MutableSharedFlow<StudioAttachmentNavigation>(extraBufferCapacity = 8)
@@ -125,24 +128,31 @@ class AiStudioModel(
         }
         reflect(machine, onOutput = { output ->
             when (output) {
-                is AiStudioOutput.SubmitFailed -> updateState {
-                    if (output.submissionId.isEmpty()) {
-                        restoreDraft(output, machine.state.value)
-                    } else {
-                        rejectSubmission(output.submissionId)
+                is AiStudioOutput.SubmitFailed -> {
+                    harnesses.release(output.submissionId)
+                    updateState {
+                        if (output.submissionId.isEmpty()) {
+                            restoreDraft(output, machine.state.value)
+                        } else {
+                            rejectSubmission(output.submissionId)
+                        }
                     }
                 }
 
-                is AiStudioOutput.SubmitPrepared -> updateState {
-                    prepareSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitPrepared -> {
+                    // A new chat's claimed harness choice now belongs to the created chat.
+                    harnesses.bindSubmission(output.submissionId, output.sessionId)
+                    updateState { prepareSubmission(output.submissionId, output.sessionId) }
                 }
 
-                is AiStudioOutput.SubmitAccepted -> updateState {
-                    acceptSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitAccepted -> {
+                    harnesses.release(output.submissionId)
+                    updateState { acceptSubmission(output.submissionId, output.sessionId) }
                 }
 
-                is AiStudioOutput.SubmitRejected -> updateState {
-                    rejectSubmission(output.submissionId, output.sessionId)
+                is AiStudioOutput.SubmitRejected -> {
+                    harnesses.release(output.submissionId)
+                    updateState { rejectSubmission(output.submissionId, output.sessionId) }
                 }
 
                 // Delivery results of engine questions are handled by the question bridge.
@@ -158,6 +168,7 @@ class AiStudioModel(
                 }
                 launch { entries.showsRemember.collect { updateState { copy(isRememberEnabled = it) } } }
                 launch { entries.showsOrganism.collect { updateState { copy(isOrganismEnabled = it) } } }
+                launch { harnessSelection.observe(pipeline) }
                 launch { organisms.observe(pipeline) }
                 launch {
                     machines.observe(AttachmentsMachineKey).collectLatest { ref ->
@@ -411,6 +422,7 @@ class AiStudioModel(
             is AiStudioScreenIntent.SessionAction -> act(pipeline, intent)
             is AiStudioScreenIntent.Sidebar -> updateState { copy(sidebar = sidebar.reduce(intent)) }
             is AiStudioScreenIntent.Organism -> organisms.handle(pipeline, intent)
+            is AiStudioScreenIntent.SelectHarness -> harnessSelection.select(pipeline, intent)
         }
     }
 
@@ -454,7 +466,7 @@ class AiStudioModel(
 
             is AiStudioScreenIntent.DraftChanged -> updateState { withDraft(intent.paneId, intent.text) }
 
-            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, intent.paneId)
+            is AiStudioScreenIntent.Submit -> submitStudioDraft(pipeline, machine, harnesses, intent.paneId)
 
             is AiStudioScreenIntent.Attachment -> attach(pipeline, intent)
 

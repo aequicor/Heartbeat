@@ -258,4 +258,6 @@
     <string name="session_sleeping">Спит</string>
     <string name="session_waiting_event">Ожидание события</string>
     <string name="session_checklist_ready">Готово</string>
+    <string name="harness_menu_section">Харнессы</string>
+    <string name="harness_menu_permanent">Активен в этом чате по области</string>
 </resources>

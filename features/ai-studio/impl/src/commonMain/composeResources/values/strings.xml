@@ -258,4 +258,6 @@
     <string name="session_sleeping">Sleeping</string>
     <string name="session_waiting_event">Waiting for an event</string>
     <string name="session_checklist_ready">Ready</string>
+    <string name="harness_menu_section">Harnesses</string>
+    <string name="harness_menu_permanent">Active by its scope in this chat</string>
 </resources>
