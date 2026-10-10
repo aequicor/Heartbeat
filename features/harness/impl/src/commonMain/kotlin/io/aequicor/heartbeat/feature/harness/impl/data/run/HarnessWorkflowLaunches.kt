@@ -183,13 +183,13 @@ internal class HarnessWorkflowLaunches(
                 launch.generation,
             ),
         )
-        val accepted = admit(run)
-        if (accepted == false) {
+        val isAccepted = admit(run)
+        if (isAccepted == false) {
             if (wake != null) wakePort.value.cancel(wake)
             error("Workflow start was rejected")
         }
         log.i { "Workflow start submitted" }
-        return WorkflowLaunchResult(id, wake != null, accepted == true)
+        return WorkflowLaunchResult(id, wake != null, isAccepted == true)
     }
 
     /** Null preserves an uncertain Start; its existing run/wake identities must never be resubmitted as new work. */

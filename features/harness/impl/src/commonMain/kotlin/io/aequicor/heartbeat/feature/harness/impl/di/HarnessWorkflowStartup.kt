@@ -90,7 +90,7 @@ internal class HarnessWorkflowStartup(
 private fun orphaned(runs: HarnessRunsState, library: HarnessState): List<WorkflowRun> {
     val state = (runs as? HarnessRunsState.Ready)?.takeUnless { it.isSuspended } ?: return emptyList()
     val ready = (library as? HarnessState.Ready)?.takeUnless { it.isSuspended } ?: return emptyList()
-    val live = ready.harnesses.map { it.harness }
+    val live = ready.harnesses.asSequence().map { it.harness }
         .filter { it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove }
         .map { it.id }.toSet()
     return state.runs.filter { it.status == WorkflowStatus.Running && it.cancellation == null && it.harness !in live }

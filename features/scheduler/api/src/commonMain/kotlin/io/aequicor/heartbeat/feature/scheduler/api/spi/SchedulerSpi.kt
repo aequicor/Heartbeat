@@ -8,8 +8,8 @@ import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
-import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator

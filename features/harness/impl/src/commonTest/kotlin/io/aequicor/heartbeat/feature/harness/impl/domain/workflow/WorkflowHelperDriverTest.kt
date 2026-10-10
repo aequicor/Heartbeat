@@ -163,7 +163,12 @@ private class WorkflowHelpersFixture {
     private val resources = WorkflowHelperResources(helpers, grants)
 
     fun driver(progress: WorkflowRunJournal): WorkflowHelperDriver = WorkflowHelperDriver(
-        workflow.initial, progress, grants, resources, helpers, bindings, null, HelperHandoff(), { true },
+        workflow.initial,
+        progress,
+        WorkflowHelperPorts(grants, resources, helpers, bindings),
+        null,
+        HelperHandoff(),
+        { true },
     ) { "id_${sequence++}" }
 
     fun grant(): WorkflowHelperGrant = WorkflowHelperGrant(

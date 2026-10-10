@@ -38,7 +38,7 @@ internal data class ItemDraft(
     val input: JsonObject = JsonObject(emptyMap()),
 ) {
     /** Template arguments are exactly the placeholders of its body. */
-    val arguments: Set<String> get() = TEMPLATE_ARGUMENT.findAll(body).map { it.groupValues[1] }.toSortedSet()
+    val arguments: Set<String> get() = TEMPLATE_ARGUMENT.findAll(body).map { it.groupValues[1] }.sorted().toSet()
 
     fun toItem(id: ItemId, isEnabled: Boolean): HarnessItem = when (kind) {
         ItemKind.Skill -> HarnessItem.Skill(id, name, description, body, isEnabled)
@@ -197,7 +197,7 @@ internal fun parseToolsSet(arguments: JsonObject): Parsed<AuthoringCommand.SetTo
     only(arguments, "harness", "hosted_off", "native")
     val hosted = when (val value = arguments["hosted_off"]) {
         null -> emptyList()
-        is JsonArray -> value.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content ?: "" }
+        is JsonArray -> value.map { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content.orEmpty() }
         else -> invalid("hosted_off must be an array of tool names")
     }.map { hostedToolName(it.trim()) }
     require(hosted.none(String::isBlank)) { "hosted_off must contain tool names" }
@@ -217,7 +217,7 @@ internal fun parseToolsSet(arguments: JsonObject): Parsed<AuthoringCommand.SetTo
 
         else -> invalid("native must be an object")
     }
-    AuthoringCommand.SetTools(harnessName(arguments.text("harness")), hosted.toSortedSet(), native)
+    AuthoringCommand.SetTools(harnessName(arguments.text("harness")), hosted.sorted().toSet(), native)
 }
 
 /** Lexical heuristic over code; the desktop compiler validator additionally checks tokens. */

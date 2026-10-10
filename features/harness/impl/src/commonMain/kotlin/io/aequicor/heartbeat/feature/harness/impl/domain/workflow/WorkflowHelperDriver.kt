@@ -15,9 +15,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessStorageUncertain
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBinding
-import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
-import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperHandoff
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
@@ -26,9 +24,12 @@ import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
@@ -41,10 +42,7 @@ import kotlin.uuid.Uuid
 internal class WorkflowHelperDriver(
     private val run: WorkflowRun,
     private val progress: WorkflowRunJournal,
-    private val grants: WorkflowHelperJournal,
-    private val resources: WorkflowHelperResources,
-    private val helpers: HelperAgents,
-    private val bindings: HarnessHelperBindings,
+    ports: WorkflowHelperPorts,
     private val workspace: WorkspaceRef?,
     private val handoff: HelperHandoff,
     private val isAdmitted: suspend () -> Boolean,
@@ -52,10 +50,15 @@ internal class WorkflowHelperDriver(
     private val nextId: () -> String = { Uuid.random().toHexString() },
 ) : WorkflowAgentSteps {
     private val log = Log.tag("HarnessWorkflow")
+    private val grants = ports.grants
+    private val resources = ports.resources
+    private val helpers = ports.helpers
+    private val bindings = ports.bindings
 
     override suspend fun execute(key: StepKey, digest: String, prompt: String, options: AgentOptions): String = host {
+        val owner = currentCoroutineContext()[Job]
         admitted()
-        var step = progress.steps.singleOrNull { it.key == key }
+        val step = progress.steps.singleOrNull { it.key == key }
         if (step != null && (step.promptSha != digest || step.helper == null)) {
             throw WorkflowStepFailed(WorkflowFailure.Diverged)
         }
@@ -63,20 +66,25 @@ internal class WorkflowHelperDriver(
         val resource = prepared.first
         val helper = checkNotNull(resource.grant.helper)
         bindings.bind(HarnessHelperBinding(helper, ActionId(run.id.value), run.harness, resource.grant.attachRequest))
-        if (step == null) {
-            step = WorkflowStep(key, digest, helper = helper, request = resource.grant.request)
-            progress.record(step)
+        val current = step ?: WorkflowStep(key, digest, helper = helper, request = resource.grant.request).also {
+            progress.record(it)
         }
         try {
-            val current = checkNotNull(step)
             await(if (prepared.second) submit(current, prompt, false) else reconcile(current, prompt), prompt)
         } finally {
-            permissions(checkNotNull(step), emptyList())
-            val phase = progress.steps.singleOrNull { it.key == key }?.phase
-            if (phase == StepPhase.Completed || phase == StepPhase.Failed) {
-                // Cancellation can leave this for the next owner; the terminal memo is already durable.
-                while (!resources.release(resource)) delay(POLL_INTERVAL)
-            }
+            withContext(NonCancellable) { settle(current, resource, owner) }
+        }
+    }
+
+    /**
+     * Clears the step's permission requests and frees a terminal step's slot. A cancelled [owner] tries once:
+     * the next owner releases the rest, since the terminal memo is already durable.
+     */
+    private suspend fun settle(step: WorkflowStep, resource: WorkflowHelperResource, owner: Job?) {
+        permissions(step, emptyList())
+        val phase = progress.steps.singleOrNull { it.key == step.key }?.phase
+        if (phase == StepPhase.Completed || phase == StepPhase.Failed) {
+            while (!resources.release(resource) && owner?.isActive != false) delay(POLL_INTERVAL)
         }
     }
 
@@ -120,9 +128,9 @@ internal class WorkflowHelperDriver(
         step: WorkflowStep?,
         options: AgentOptions,
     ): Pair<WorkflowHelperResource, Boolean> {
-        resources.records(run.id).singleOrNull { it.key == key }?.let { pending ->
-            reuse(pending, digest, step)?.let { return it to false }
-        }
+        val pending = resources.records(run.id).singleOrNull { it.key == key }
+        val reused = pending?.let { reuse(it, digest, step) }
+        if (reused != null) return reused to false
         admitted()
         val attachment = step?.helper?.let { helper ->
             val binding = checkNotNull(bindings.lookup(helper)) { "Workflow helper binding is missing" }
@@ -258,13 +266,13 @@ internal class WorkflowHelperDriver(
 
     /** Retry only an identical journal write, never a helper side effect. */
     private suspend fun <T> durable(block: suspend () -> T): T {
-        var reported = false
+        var isReported = false
         while (true) {
             try {
                 return block()
             } catch (error: HarnessStorageUncertain) {
-                if (!reported) log.w(error) { "Workflow capacity write awaits confirmation" }
-                reported = true
+                if (!isReported) log.w(error) { "Workflow capacity write awaits confirmation" }
+                isReported = true
                 delay(POLL_INTERVAL)
             }
         }

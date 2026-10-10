@@ -31,6 +31,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.api.workflow.isVisibleTo
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
 import io.aequicor.heartbeat.feature.harness.impl.domain.workflow.HarnessRunsMachine
 import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
@@ -78,9 +79,9 @@ internal class HarnessWorkflowTools(
         if (spec.name != HarnessTools.WORKFLOW_START) return AgentToolApproval(spec.name, spec.description)
         val target = target(arguments) ?: return AgentToolApproval(spec.name, spec.description, binding = "invalid")
         val (harness, workflow) = target
-        val canHost = helpers.value.canHost(context.session)
+        val isHostable = helpers.value.canHost(context.session)
         val text = buildString {
-            if (!canHost) append("Helper chats cannot be hosted for this chat; the start will fail.\n\n")
+            if (!isHostable) append("Helper chats cannot be hosted for this chat; the start will fail.\n\n")
             append("Workflow ").append(harness.name.value).append('/').append(workflow.name.value)
             if (workflow.description.isNotEmpty()) append(" — ").append(workflow.description)
             append("\nIt starts helper chats with Ask trust and wakes this chat with the result.")
@@ -198,7 +199,8 @@ internal class HarnessWorkflowTools(
                 },
             )
 
-            else -> failure("Cancellation is not confirmed yet; check harness_workflow_status")
+            is HarnessRunsOutput.Started, is HarnessRunsOutput.RunFinished, null ->
+                failure("Cancellation is not confirmed yet; check harness_workflow_status")
         }
     }
 

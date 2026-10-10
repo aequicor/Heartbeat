@@ -38,7 +38,7 @@ internal class HarnessContentHook(
             AgentToolScope(context.workspace, declared = emptySet(), session = context.session),
         )
         if (!enabled()) return null
-        val canReadFullContext = active.none { HarnessTools.CONTEXT in it.tools.hostedOff }
-        return delivery.value.prepare(context, contextRevision, HarnessContent(active, canReadFullContext), dynamic)
+        val isFullContextReadable = active.none { HarnessTools.CONTEXT in it.tools.hostedOff }
+        return delivery.value.prepare(context, contextRevision, HarnessContent(active, isFullContextReadable), dynamic)
     }
 }

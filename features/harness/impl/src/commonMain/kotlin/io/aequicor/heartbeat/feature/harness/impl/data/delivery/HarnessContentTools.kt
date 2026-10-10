@@ -45,10 +45,10 @@ internal class HarnessContentTools(
         val active = access.value.active(scope.workspace, scope.session)
         if (!toggles.get(HarnessEnabled)) return ""
         val declared = scope.declared
-        val canReadFullContext = declared == null || HarnessTools.CONTEXT in declared
+        val isFullContextReadable = declared == null || HarnessTools.CONTEXT in declared
         val dynamic = scripts.value.instructions(scope)
         if (!toggles.get(HarnessEnabled)) return ""
-        return HarnessContent(active, canReadFullContext).block(guide, dynamic).text
+        return HarnessContent(active, isFullContextReadable).block(guide, dynamic).text
     }
 
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {

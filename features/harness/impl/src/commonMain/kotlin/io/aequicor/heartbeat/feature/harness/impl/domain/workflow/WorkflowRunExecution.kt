@@ -10,9 +10,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStep
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStepFailed
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
-import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessHelperBindings
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
-import io.aequicor.heartbeat.feature.scheduler.api.HelperAgents
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -36,15 +34,15 @@ internal interface WorkflowRunAccess {
 internal class WorkflowRunExecution(
     private val storage: HarnessRunStorage,
     private val code: WorkflowCodeExecutor,
-    private val grants: WorkflowHelperJournal,
-    private val resources: WorkflowHelperResources,
-    private val helpers: HelperAgents,
-    private val bindings: HarnessHelperBindings,
+    private val ports: WorkflowHelperPorts,
     private val access: WorkflowRunAccess,
     private val clock: Clock,
     private val feedback: suspend (HarnessRunsIntent.Internal) -> Unit,
 ) {
     private val log = Log.tag("HarnessWorkflow")
+    private val resources = ports.resources
+    private val helpers = ports.helpers
+    private val bindings = ports.bindings
 
     /** Revoked author work has joined. Stop native work but preserve Running replay state and its requests. */
     suspend fun pause(requested: WorkflowRun) {
@@ -91,7 +89,11 @@ internal class WorkflowRunExecution(
             feedback(HarnessRunsIntent.Internal.PermissionsChanged(run.id, run.driverGeneration, it))
         }
         val agents = WorkflowHelperDriver(
-            run, progress, grants, resources, helpers, bindings, routing.workspace, routing.handoff,
+            run,
+            progress,
+            ports,
+            routing.workspace,
+            routing.handoff,
             { isCurrent() && access.isAdmitted(run) },
             permissions::update,
         )

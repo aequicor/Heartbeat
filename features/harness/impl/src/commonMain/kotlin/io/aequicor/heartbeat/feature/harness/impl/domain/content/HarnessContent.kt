@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
  * Bare names must identify exactly one enabled item across that snapshot, even across different content kinds.
  * Code and skill/template bodies never enter the context index; explicit reads return only the requested body.
  */
-internal class HarnessContent(active: List<Harness>, private val canReadFullContext: Boolean = true) {
+internal class HarnessContent(active: List<Harness>, private val isFullContextReadable: Boolean = true) {
     private val harnesses = active.filter { it.isEnabled }.sortedBy { it.name.value }
     private val entries = harnesses.flatMap { harness ->
         harness.items.asSequence().filter { it.isEnabled }.sortedBy { it.name.value }
@@ -50,7 +50,7 @@ internal class HarnessContent(active: List<Harness>, private val canReadFullCont
             Json.encodeToString(markers),
             lines().joinToString("\n"),
             instructions,
-            canReadFullContext.toString(),
+            isFullContextReadable.toString(),
         ),
     )
 
@@ -59,7 +59,7 @@ internal class HarnessContent(active: List<Harness>, private val canReadFullCont
         val lines = before + lines() + instructions.takeIf { it.isNotBlank() }?.lines().orEmpty()
         val complete = prefix(lines, HARNESS_CONTEXT_CHARS)
         val isTruncated = complete.size != lines.size
-        val more = if (canReadFullContext) MORE_CONTEXT else "… Контекст усечён."
+        val more = if (isFullContextReadable) MORE_CONTEXT else "… Контекст усечён."
         val text = if (isTruncated) {
             (prefix(lines, HARNESS_CONTEXT_CHARS - more.length - 1) + more).joinToString("\n")
         } else {

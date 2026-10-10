@@ -30,8 +30,9 @@ internal data class HarnessActiveSnapshot(
             it.isEnabled && ready.pending[it.id] !is HarnessMutation.Remove
         }
         val attached = session?.let { ready.attachments[it] }.orEmpty()
-        val needsProject = workspace != null && enabled.any { it.scope is HarnessScope.Projects && it.id !in attached }
-        val source = if (needsProject) sourceOf(checkNotNull(workspace)) else SourceProject(null)
+        val isProjectScoped = enabled.any { it.scope is HarnessScope.Projects && it.id !in attached }
+        val projectWorkspace = workspace?.takeIf { isProjectScoped }
+        val source = if (projectWorkspace != null) sourceOf(projectWorkspace) else SourceProject(null)
         return source?.let { known ->
             enabled.asSequence().filter { it.isActive(attached, known.ref) }
                 .sortedBy { it.name.value }.take(HarnessLimits.ACTIVE_PER_SESSION).toList()

@@ -28,7 +28,7 @@ internal val HarnessApproval.key: String
 internal fun newlyEnabled(current: ToolPolicySpec, next: ToolPolicySpec): Map<String, Set<String>> =
     next.native.mapValues { (engine, tools) ->
         tools.filterValues { it == ToolSwitch.On }.keys.filter { current.native[engine]?.get(it) != ToolSwitch.On }
-            .toSortedSet()
+            .sorted().toSet()
     }.filterValues { it.isNotEmpty() }
 
 /**

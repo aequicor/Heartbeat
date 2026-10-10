@@ -9,8 +9,8 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
 import io.aequicor.heartbeat.feature.scheduler.api.HelperId
-import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
 import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
 import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import kotlinx.coroutines.CancellationException
