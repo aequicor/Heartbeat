@@ -13,8 +13,11 @@ import io.aequicor.heartbeat.core.navigation.NavComponent
 import io.aequicor.heartbeat.core.navigation.Navigator
 import io.aequicor.heartbeat.core.navigation.ProfileRouteBinding
 import io.aequicor.heartbeat.core.navigation.RouteEntry
+import io.aequicor.heartbeat.feature.harness.api.HarnessDetailRoute
 import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
+import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessDetailComponent
 import io.aequicor.heartbeat.feature.harness.impl.presentation.HarnessLibraryComponent
+import io.aequicor.heartbeat.feature.harness.impl.ui.HarnessDetailUiComponent
 import io.aequicor.heartbeat.feature.harness.impl.ui.HarnessLibraryUiComponent
 
 /** The harness library, reachable as a profile route from the settings window. */
@@ -28,5 +31,19 @@ internal class HarnessRouteEntry(
     override fun create(route: HarnessRoute, context: ComponentContext, navigator: Navigator): NavComponent {
         val screen = context.retainedScope(scopes, profile, name = "harness")
         return HarnessLibraryUiComponent(factory.create(context, navigator, screen), route.isEmbedded)
+    }
+}
+
+/** One harness of the library. */
+@ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())
+@Inject
+internal class HarnessDetailRouteEntry(
+    private val factory: HarnessDetailComponent.Factory,
+    private val scopes: ScopeFactory,
+    @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+) : RouteEntry<HarnessDetailRoute>(HarnessDetailRoute::class, HarnessDetailRoute.serializer()) {
+    override fun create(route: HarnessDetailRoute, context: ComponentContext, navigator: Navigator): NavComponent {
+        val screen = context.retainedScope(scopes, profile, name = "harness-detail")
+        return HarnessDetailUiComponent(factory.create(context, navigator, screen, route.harness))
     }
 }
