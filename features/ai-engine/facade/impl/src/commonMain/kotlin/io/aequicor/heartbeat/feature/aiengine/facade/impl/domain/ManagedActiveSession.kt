@@ -25,7 +25,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationChange
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfigurationUpdate
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SwitchesModels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
@@ -33,6 +35,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -42,6 +45,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.withContext
 
 /**
  * Parts of one handle: the adapter's native handle, the machine that owns its lifecycle, its effects and the
@@ -69,9 +73,14 @@ class ManagedActiveSession(
     model: ModelId,
     private val parts: SessionParts,
     private val policy: SessionPolicy,
+    hookContext: SessionHookContext? = null,
 ) : ActiveSession {
     private val log = Log.tag("ActiveSession")
     private val machine = parts.machine
+    private val hookHandle = hookContext?.let { context ->
+        val revision = (parts.native.features.resolve(SessionContextRevision) as? FeatureAccess.Available)?.feature
+        SessionHookHandle(policy.hooks, context, { revision?.state?.value }) { policy.finishUnaccepted(ref, it) }
+    }
     private val currentModel = MutableStateFlow(model)
 
     override val state: StateFlow<ActiveSessionState> get() = machine.state
@@ -94,9 +103,11 @@ class ManagedActiveSession(
 
     /** Starts the native bridge and the closing watcher in the handle [scope]. */
     fun start(scope: CoroutineScope, onClosed: () -> Unit) {
+        hookHandle?.start(scope, machine)
         scope.launch { bridge() }
         scope.launch {
             machine.state.first { it == ActiveSessionState.Closed }
+            hookHandle?.closed()
             policy.registry.remove(this@ManagedActiveSession)
             onClosed()
         }
@@ -144,11 +155,18 @@ class ManagedActiveSession(
         val result = machine.send(ActiveSessionIntent.Public.Submit(request, turn))
         if (result != SendResult.Accepted) {
             answer.cancel()
+            hookHandle?.refused(turn.id)
             fail(result.failure())
         }
         when (val outcome = untilStopped { answer.await() }) {
-            is ActiveSessionOutput.Accepted -> turn.id
+            is ActiveSessionOutput.Accepted -> {
+                // Finish the exact receipt enqueue before exclusive(ref) admits another preparation.
+                withContext(NonCancellable) { hookHandle?.accepted(outcome.turn) }
+                turn.id
+            }
+
             is ActiveSessionOutput.SubmissionFailed -> fail(outcome.failure)
+
             is ActiveSessionOutput.Finished -> error("filtered out")
         }
     }
@@ -195,7 +213,8 @@ class ManagedActiveSession(
                 }
                 val turn = Turn(policy.newTurnId(), request.id, EngineTarget(route.engine, route.binding, model))
                 policy.bindTurn(ref, request.id, turn)
-                submit(request, turn)
+                val prepared = hookHandle?.prepare(request, turn) ?: request
+                submit(prepared, turn)
             }
         }
     }

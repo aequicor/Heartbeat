@@ -17,8 +17,10 @@ import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.logging.LogLevel
 import io.aequicor.heartbeat.core.logging.LogSink
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -112,7 +114,11 @@ class KeyValueStoreTest {
         val store = env.registry().attach(StorageOwner.App, env.app).keyValue(settings) as LoggingKeyValueStore
         val key = stringKey("draft")
         val observed = mutableListOf<String?>()
-        backgroundScope.launch(env.dispatcher) { store.observe(key).take(3).toList(observed) }
+        val initialSnapshot = CompletableDeferred<Unit>()
+        backgroundScope.launch(env.dispatcher) {
+            store.observe(key).onEach { initialSnapshot.complete(Unit) }.take(3).toList(observed)
+        }
+        initialSnapshot.await()
 
         store.set(key, "v1", Retention.expiring(Expiry.After(1.hours)))
         runCurrent()

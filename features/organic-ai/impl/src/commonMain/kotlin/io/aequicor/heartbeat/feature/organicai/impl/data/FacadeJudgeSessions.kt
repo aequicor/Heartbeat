@@ -20,8 +20,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
+import io.aequicor.heartbeat.feature.aiengine.facade.api.answerOf
+import io.aequicor.heartbeat.feature.organicai.api.OrganismBounds
 import io.aequicor.heartbeat.feature.organicai.impl.domain.JudgeSessions
-import io.aequicor.heartbeat.feature.organicai.impl.domain.answerOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -59,7 +60,11 @@ internal class FacadeJudgeSessions(private val facade: EngineFacade) : JudgeSess
             // A stopped or unconfirmed deliberation may break off mid-sentence: no verdict is read from it.
             if (outcome != TurnOutcome.Completed) return ""
             val history = session.features.resolve(SessionHistory).orThrow()
-            return answerOf(history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items, turn).orEmpty()
+            return answerOf(
+                history.page(HistoryPageRequest(limit = ANSWER_ITEMS)).items,
+                turn,
+                maxChars = OrganismBounds.MAX_RESULT,
+            ).orEmpty()
         } finally {
             withContext(NonCancellable) { dismiss(session) }
         }

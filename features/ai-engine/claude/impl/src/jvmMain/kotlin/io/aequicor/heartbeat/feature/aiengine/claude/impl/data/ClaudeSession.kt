@@ -38,6 +38,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOrigin
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSummary
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
@@ -282,18 +283,11 @@ internal class ClaudeSession(
             log.i { "Submitting Claude prompt effort=${submission.request.reasoningEffort ?: "default"}" }
             val tools = hosted.prepare()
             val isResume = launch != ClaudeLaunch.Prepared
+            val plan = promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled)
             launch = ClaudeLaunch.Attempted
             persist()
             isTransportInvoked = true
-            val exit = transport.run(
-                promptArguments(submission.request, isResume, submission.areDetachedToolsEnabled),
-                submission.text,
-                route.workspace,
-                hosted = tools,
-            ) {
-                receive(observer, it)
-                false
-            }
+            val exit = executePlan(plan, submission, observer, hosted, tools)
             log.i { "Claude prompt process ended exit=$exit" }
             if (observer.isFinished) {
                 finishObserved(observer, isConfirmed = exit == 0)
@@ -318,6 +312,41 @@ internal class ClaudeSession(
             if (observer.hasMatchingSession) launch = ClaudeLaunch.Confirmed
             hasNativeSession = hasNativeSession || observer.hasMatchingSession
             withContext(NonCancellable) { persist() }
+        }
+    }
+
+    private suspend fun executePlan(
+        plan: ClaudeTurnPlan,
+        submission: Submission,
+        observer: ClaudeTurnObserver,
+        hosted: ClaudeHostedTurn,
+        tools: ClaudeHostedTools?,
+    ): Int = if (plan.native != null) {
+        val gate = ClaudeNativeGate(
+            ref.nativeId,
+            plan.gated,
+            plan.native,
+            environment.tools,
+            hosted::toolContext,
+        )
+        try {
+            transport.duplex(plan.arguments, route.workspace, tools) { duplex ->
+                ClaudeControlExchange(
+                    duplex,
+                    gate::handle,
+                    { receive(observer, it.toString()) },
+                    gate::validate,
+                    gate::close,
+                    gate::initialized,
+                ).run(gate.initialization(), claudeUserFrame(submission.request, submission.text))
+            }
+        } finally {
+            gate.close()
+        }
+    } else {
+        transport.run(plan.arguments, submission.text, route.workspace, hosted = tools) {
+            receive(observer, it)
+            false
         }
     }
 
@@ -364,21 +393,47 @@ internal class ClaudeSession(
         request: PromptRequest,
         isResume: Boolean,
         detachedTools: Boolean,
-    ): List<String> {
+    ): ClaudeTurnPlan {
+        val policy = environment.tools.nativeTools(ToolPolicyScope(ref.engine, route.workspace, ref, target))
+        val isSearchEnabled = toggles.get(SearchEngineTools)
+        val requestedFlags = claudeToolFlags(
+            policy,
+            isSearchEnabled,
+            subagents = (route.workspace != null || detachedTools) &&
+                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            providerSearch = route.workspace == null,
+        )
+        val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
+        val workspace = route.workspace
+        val isGateRequested = gated.isNotEmpty() &&
+            toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools)
+        val native = if (isGateRequested && workspace != null &&
+            supportsClaudeNativeGate(transport.version())
+        ) {
+            environment.native.open(workspace)
+        } else {
+            null
+        }
+        val flags = if (native == null) requestedFlags.copy(native = requestedFlags.native - gated) else requestedFlags
         val arguments = claudeArguments(
             target.model,
             ref.nativeId,
             isResume,
-            search = toggles.get(SearchEngineTools),
+            search = flags.allowed.any { it in ClaudeSearchTools.values },
             effort = request.reasoningEffort,
-            subagents = (route.workspace != null || detachedTools) &&
-                toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.EngineSubagentsEnabled),
+            tools = flags,
         )
-        return if (request.parts.any { it !is ContentPart.Text }) {
-            arguments + listOf("--input-format", "stream-json")
+        val inputFlags = if (native != null || request.parts.any { it !is ContentPart.Text }) {
+            listOf("--input-format", "stream-json")
         } else {
-            arguments
+            emptyList()
         }
+        val gateFlags = if (native != null) {
+            listOf("--permission-prompt-tool=stdio", "--permission-mode=default")
+        } else {
+            emptyList()
+        }
+        return ClaudeTurnPlan(arguments + inputFlags + gateFlags, native, gated)
     }
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {
@@ -728,6 +783,7 @@ internal data class ClaudeSessionEnvironment(
     val catalog: ClaudeCatalog,
     val tools: ProfileAgentTools,
     val bridge: AgentToolBridge,
+    val native: ClaudeNativeSupport = MissingClaudeNativeSupport,
     /** Called outside session locks when a session may have become released (last handle closed or turn ended). */
     val onReleased: (ClaudeSession) -> Unit = {},
     /** Native account-level quota events are shared across sessions of this runtime. */

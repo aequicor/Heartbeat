@@ -5,6 +5,7 @@ import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 import org.jetbrains.compose.desktop.application.tasks.AbstractCheckNativeDistributionRuntime
 import org.jetbrains.compose.desktop.application.tasks.AbstractJvmToolOperationTask
 import org.jetbrains.compose.reload.gradle.ComposeHotRun
+import java.time.Duration
 
 plugins {
     alias(libs.plugins.kotlinJvm)
@@ -33,6 +34,7 @@ val desktopRuntime = javaToolchains.launcherFor {
     vendor.set(JvmVendorSpec.JETBRAINS)
 }
 val desktopJavaHome = desktopRuntime.map { it.metadata.installationPath.asFile.absolutePath }
+val heartbeatApplicationVersion = "1.0.0"
 
 // SHA-256 of each Pi release asset for the version pinned as `pi` in gradle/libs.versions.toml.
 val piChecksums = mapOf(
@@ -89,6 +91,7 @@ preparePiRuntime?.let { task -> tasks.named("processResources") { dependsOn(task
 compose.desktop {
     application {
         mainClass = "io.aequicor.heartbeat.platform.desktop.MainKt"
+        jvmArgs("-Dheartbeat.app.version=$heartbeatApplicationVersion")
         buildTypes.release.proguard {
             configurationFiles.from(
                 layout.projectDirectory.file("compose-desktop.pro"),
@@ -104,14 +107,16 @@ compose.desktop {
             // the app's JVM options to that worker, which refuses to draw with an -Xmx above its own cap.
             modules(
                 "java.instrument",
+                "java.compiler",
                 "java.management",
                 "java.prefs",
                 "java.scripting",
                 "jdk.httpserver",
+                "jdk.compiler",
                 "jdk.unsupported",
             )
             packageName = "io.aequicor"
-            packageVersion = "1.0.0"
+            packageVersion = heartbeatApplicationVersion
             description = "Heartbeat AI Studio"
             vendor = "Aequicor"
             macOS {
@@ -144,6 +149,24 @@ tasks.withType<ComposeHotRun>().configureEach {
 // The default Compose build is development; release tasks retain the protected MainKt entry point.
 // Configure after Compose has registered and initialized its tasks, without an environment/property escape hatch.
 afterEvaluate {
+    val releaseImage = tasks.named<AbstractJPackageTask>("createReleaseDistributable")
+    tasks.register<Exec>("verifyReleaseHarnessCompiler") {
+        group = "verification"
+        description = "Compiles, evaluates and reloads harness scripts in the packaged release runtime."
+        dependsOn(releaseImage)
+        val launcher = releaseImage.flatMap { image ->
+            image.destinationDir.file(image.packageName.map { name ->
+                when (piOs) {
+                    "darwin" -> "$name.app/Contents/MacOS/$name"
+                    "windows" -> "$name/$name.exe"
+                    else -> "$name/bin/$name"
+                }
+            })
+        }
+        executable(launcher.get().asFile)
+        args("--heartbeat-harness-probe")
+        timeout.set(Duration.ofMinutes(5))
+    }
     tasks.withType<AbstractJvmToolOperationTask>().configureEach {
         javaHome.set(desktopJavaHome)
     }

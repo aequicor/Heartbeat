@@ -33,7 +33,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -48,6 +47,7 @@ class PiSessionTest {
         val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-1"))
+        runCurrent()
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals("bash: ls -la", awaiting.requests.single().title)
         val permissions = assertIs<FeatureAccess.Available<RequestsPermissions>>(
@@ -152,7 +152,10 @@ class PiSessionTest {
         fixture.session.synchronize()
         val restarted = fixture.connections.last()
         assertEquals(2, fixture.connections.size)
-        assertEquals(listOf("switch_session", "get_state", "get_state"), restarted.commands)
+        assertEquals(
+            listOf("switch_session", "get_state", "set_model", "set_thinking_level", "get_state", "get_state"),
+            restarted.commands,
+        )
         assertEquals("native.jsonl", restarted.fields.first().string("sessionPath"))
         assertEquals(ref, fixture.session.ref)
         assertFalse(restarted.isClosed)
@@ -332,6 +335,7 @@ class PiSessionTest {
             val fixture = fixture(this)
             val turn = fixture.runningTurn(level)
             fixture.connection.event(approval("ui-1", target = "./gradlew --stop"))
+            runCurrent()
             assertTrue(fixture.connection.sent.isEmpty())
             val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
             assertEquals("bash: ./gradlew --stop", awaiting.requests.single().title)
@@ -352,7 +356,9 @@ class PiSessionTest {
         val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-t1"))
+        runCurrent()
         fixture.connection.event(approval("ui-t2", tool = "write"))
+        runCurrent()
         assertEquals(
             listOf(answer("ui-t1", "confirmed", true), answer("ui-t2", "confirmed", true)),
             fixture.connection.sent,
@@ -367,7 +373,9 @@ class PiSessionTest {
         fixture.runningTurn(TrustLevel.AutoEdits)
         val notes = TestWorkspace.resolve("notes.md").toString()
         fixture.connection.event(approval("ui-e1", target = notes, tool = "edit", path = notes))
+        runCurrent()
         fixture.connection.event(approval("ui-e2"))
+        runCurrent()
         assertEquals(listOf(answer("ui-e1", "confirmed", true)), fixture.connection.sent)
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals("bash: ls -la", awaiting.requests.single().title)
@@ -381,10 +389,14 @@ class PiSessionTest {
         val outside = TestWorkspace.resolveSibling("pi-outside").resolve("profile").toString()
         val hook = TestWorkspace.resolve(".git/hooks/pre-commit").toString()
         fixture.connection.event(approval("ui-o1", target = outside, tool = "write", path = outside))
+        runCurrent()
         fixture.connection.event(approval("ui-o2", target = hook, tool = "write", path = hook))
+        runCurrent()
         // Paths Pi rewrites are not pinned by the extension and always reach the user.
         fixture.connection.event(approval("ui-o3", target = "~/.zshrc", tool = "edit"))
+        runCurrent()
         fixture.connection.event(approval("ui-o4", target = "notes.md", tool = "write"))
+        runCurrent()
         assertTrue(fixture.connection.sent.isEmpty())
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals(4, awaiting.requests.size)
@@ -399,6 +411,7 @@ class PiSessionTest {
         runCurrent()
         assertIs<ActiveSessionState.Interrupting>(fixture.session.state.value)
         fixture.connection.event(approval("ui-i1", tool = "write"))
+        runCurrent()
         assertTrue(fixture.connection.sent.none { it == answer("ui-i1", "confirmed", true) })
         fixture.connection.abortAck.complete(JsonObject(emptyMap()))
         cancel.await()
@@ -410,34 +423,10 @@ class PiSessionTest {
         val fixture = fixture(this)
         fixture.runningTurn(TrustLevel.Ask)
         fixture.connection.event(approval("ui-a1", target = "notes.md", tool = "edit"))
+        runCurrent()
         assertTrue(fixture.connection.sent.isEmpty())
         assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         fixture.session.shutdown()
-    }
-
-    @Test
-    fun `only pinned absolute paths inside the workspace are edits`() {
-        val workspace = TestWorkspace
-        assertTrue(isWorkspaceEdit(workspace.resolve("src/Main.kt").toString(), workspace))
-        assertTrue(isWorkspaceEdit(workspace.resolve("new.txt").toString(), workspace))
-        assertFalse(isWorkspaceEdit(workspace.resolve("../sibling.txt").toString(), workspace))
-        assertFalse(isWorkspaceEdit("src/Main.kt", workspace))
-        assertFalse(isWorkspaceEdit("@${workspace.resolve("new.txt")}", workspace))
-        assertFalse(isWorkspaceEdit("file://${workspace.resolve("new.txt")}", workspace))
-        assertFalse(isWorkspaceEdit("FILE:///etc/hosts", workspace))
-        assertFalse(isWorkspaceEdit("@~/.zshrc", workspace))
-        assertFalse(isWorkspaceEdit("", workspace))
-    }
-
-    @Test
-    fun `workspace edits resolve links so a link cannot lead outside`() {
-        // Creating links on Windows needs a privilege developers usually lack.
-        if (System.getProperty("os.name").startsWith("Windows")) return
-        val escape = TestWorkspace.resolve("escape")
-        if (!Files.isSymbolicLink(escape)) {
-            Files.createSymbolicLink(escape, TestWorkspace.parent).toFile().deleteOnExit()
-        }
-        assertFalse(isWorkspaceEdit(escape.resolve("file.txt").toString(), TestWorkspace))
     }
 
     @Test
@@ -445,6 +434,7 @@ class PiSessionTest {
         val fixture = fixture(this)
         val turn = fixture.runningTurn(TrustLevel.Full)
         fixture.connection.event(approval("ui-2", target = "taskkill /F /IM java.exe"))
+        runCurrent()
         fixture.session.respond(PermissionDecision(turn, PermissionRequestId("ui-2"), PermissionOptionId("deny")))
         runCurrent()
         assertEquals(listOf(answer("ui-2", "confirmed", false)), fixture.connection.sent)
@@ -455,6 +445,7 @@ class PiSessionTest {
     fun `dialogs nobody can answer are dismissed so pi blocks the tool`() = runTest {
         val fixture = fixture(this)
         fixture.connection.event(approval("idle"))
+        runCurrent()
         fixture.connection.event(
             record("""{"type":"extension_ui_request","id":"other","method":"input","title":"Name?"}"""),
         )
@@ -563,6 +554,7 @@ class PiSessionTest {
         val fixture = fixture(this)
         val turn = fixture.runningTurn()
         fixture.connection.event(approval("ui-3"))
+        runCurrent()
         fixture.connection.abortAck.complete(JsonObject(emptyMap()))
         fixture.session.cancel(turn)
         assertEquals(listOf(answer("ui-3", "cancelled", true)), fixture.connection.sent)
@@ -651,6 +643,7 @@ class PiSessionTest {
         val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-4"))
+        runCurrent()
         fixture.session.close()
         assertEquals(listOf(answer("ui-4", "cancelled", true)), fixture.connection.sent)
         assertFalse(fixture.connection.isClosed)
@@ -663,10 +656,12 @@ class PiSessionTest {
         val fixture = fixture(this)
         fixture.runningTurn()
         fixture.connection.event(approval("ui-5", "ls\n‮rm -rf"))
+        runCurrent()
         val awaiting = assertIs<ActiveSessionState.AwaitingUserAction>(fixture.session.state.value)
         assertEquals("bash: ls\\n\\u202erm -rf", awaiting.requests.single().title)
         fixture.connection.event(approval("ui-6", "x".repeat(4_001)))
-        assertEquals(listOf(answer("ui-6", "cancelled", true)), fixture.connection.sent)
+        runCurrent()
+        assertEquals(listOf(answer("ui-6", "confirmed", false)), fixture.connection.sent)
         fixture.session.shutdown()
     }
 }

@@ -30,9 +30,9 @@ complexity:
   CognitiveComplexMethod:
     active: true
   LongParameterList:
-    # Composables and DI constructors naturally take many params
+    # Composables, DI constructors and DI provider functions naturally take many params
     ignoreDefaultParameters: true
-    ignoreAnnotated: ['Composable', 'Inject', 'AssistedInject']
+    ignoreAnnotated: ['Composable', 'Inject', 'AssistedInject', 'Provides']
   LongMethod:
     ignoreAnnotated: ['Composable', 'Preview']
   NestedScopeFunctions:

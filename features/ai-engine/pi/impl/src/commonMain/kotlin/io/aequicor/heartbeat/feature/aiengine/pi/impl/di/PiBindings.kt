@@ -6,6 +6,7 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.SingleIn
+import io.aequicor.heartbeat.core.common.PlatformInfo
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -16,6 +17,7 @@ import io.aequicor.heartbeat.feature.aiengine.pi.api.PiEngine
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiAdapter
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiEngineManager
 import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.PiManagementSpec
+import io.aequicor.heartbeat.feature.aiengine.pi.impl.data.piNativeCatalog
 
 /** Registers the built-in toggle without instantiating a profile or starting Pi. */
 @BindingContainer
@@ -42,15 +44,18 @@ public object PiRegistrationBindings {
     @Provides
     @IntoSet
     @SingleIn(ProfileScope::class)
-    internal fun registration(adapter: Lazy<PiAdapter>, manager: Lazy<PiEngineManager>): EngineRegistration =
-        EngineRegistration(
-            PiDescriptor,
-            PiAuthOwner,
-            adapter,
-            modelCatalogRevision = PI_MODEL_CATALOG_REVISION,
-            management = PiManagementSpec,
-            manager = lazy { manager.value },
-        )
+    internal fun registration(
+        adapter: Lazy<PiAdapter>,
+        manager: Lazy<PiEngineManager>,
+        platform: PlatformInfo,
+    ): EngineRegistration = EngineRegistration(
+        PiDescriptor.copy(nativeTools = piNativeCatalog(platform.host)),
+        PiAuthOwner,
+        adapter,
+        modelCatalogRevision = PI_MODEL_CATALOG_REVISION,
+        management = PiManagementSpec,
+        manager = lazy { manager.value },
+    )
 
     /** Exposes only the configuration contract of the profile's adapter; the SPI stays internal. */
     @Provides

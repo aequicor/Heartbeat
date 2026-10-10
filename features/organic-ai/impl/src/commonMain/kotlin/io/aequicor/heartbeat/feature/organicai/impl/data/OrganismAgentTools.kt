@@ -10,7 +10,9 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.organicai.api.CellId
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase
 import io.aequicor.heartbeat.feature.organicai.api.ImmuneCase
@@ -53,6 +55,10 @@ internal class OrganismAgentTools(
     private val machine: Lazy<OrganicAiMachine>,
     private val toggles: FeatureToggles,
 ) : AgentToolContribution {
+    override val group: String = "organic"
+    override val title: String = "Организмы"
+    override val catalog: List<ToolCatalogEntry> get() = organismToolSpecs.toolCatalog()
+
     private val log = Log.tag("OrganismAgentTools")
 
     override val isDetachedSupported: Boolean get() = true

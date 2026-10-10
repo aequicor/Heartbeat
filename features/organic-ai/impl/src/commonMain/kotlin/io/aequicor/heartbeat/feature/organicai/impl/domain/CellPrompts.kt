@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.organicai.impl.domain
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.cut
 import io.aequicor.heartbeat.feature.aiengine.facade.api.withHostDirectives
 import io.aequicor.heartbeat.feature.organicai.api.Cell
 import io.aequicor.heartbeat.feature.organicai.api.CellPhase

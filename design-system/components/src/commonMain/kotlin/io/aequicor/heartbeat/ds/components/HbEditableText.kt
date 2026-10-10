@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.ds.components
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.foundation.text.BasicSecureTextField
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.InputTransformation
+import androidx.compose.foundation.text.input.OutputTransformation
 import androidx.compose.foundation.text.input.TextFieldBuffer
 import androidx.compose.foundation.text.input.TextFieldDecorator
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -34,11 +36,14 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.semantics.editableText
 import androidx.compose.ui.semantics.inputText
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.KeyboardType
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.ds.layouts.hbScrollbars
@@ -60,6 +65,12 @@ private const val REJECTION_GRACE_FRAMES = 2
  * [isSecret] switches to a secure single-line editor: the text is obfuscated, cut and copy are disabled,
  * the keyboard is a password keyboard without autocorrect, and the text is never written to saved state.
  * Accessibility receives the same hidden text as the screen, even on bridges that expose password values.
+ *
+ * Code editors customise the plain multi-line editor: [textStyle] replaces the prose style (also used by the
+ * placeholder), [isReadOnly] keeps text selectable and focusable without edits, [outputTransformation] styles the
+ * displayed text without changing it, and [onPreviewKey] may edit the live [TextFieldState] in place; such edits are
+ * reported through [onValueChange] like typing. A caller-supplied vertical [scrollState] is also drawn by the caller,
+ * so it can share the state with neighbours (a line-number gutter) and place the scrollbar on its own viewport.
  */
 @Composable
 internal fun HbEditableText(
@@ -74,6 +85,11 @@ internal fun HbEditableText(
     isSecret: Boolean = false,
     leadingContent: (@Composable () -> Unit)? = null,
     trailingContent: (@Composable () -> Unit)? = null,
+    textStyle: TextStyle = editorTextStyle(),
+    isReadOnly: Boolean = false,
+    outputTransformation: OutputTransformation? = null,
+    scrollState: ScrollState? = null,
+    onPreviewKey: ((KeyEvent, TextFieldState) -> Boolean)? = null,
 ) {
     val state = rememberEditorState(value, isSecret)
     val bridge = remember(state) { ControlledEditorBridge(value, state.selection) }
@@ -90,12 +106,13 @@ internal fun HbEditableText(
     }
     val inputTransformation = InputTransformation { bridge.observeInput(this, onValueChange) }
     val decorator = placeholderDecorator(
-        placeholder,
+        EditorPlaceholder(placeholder, textStyle),
         editingText.isEmpty(),
         singleLine || isSecret,
         contentPadding,
         EditorAdornments(leadingContent, trailingContent),
     )
+    val keyModifier = if (onPreviewKey == null) modifier else modifier.onPreviewKeyEvent { onPreviewKey(it, state) }
     val colors = HbTheme.colors
     val selectionColors = remember(colors) {
         TextSelectionColors(handleColor = colors.focusAccent, backgroundColor = colors.selectionHighlight)
@@ -105,13 +122,13 @@ internal fun HbEditableText(
             val hiddenText = AnnotatedString("•".repeat(editingText.length))
             BasicSecureTextField(
                 state = state,
-                modifier = modifier.semantics {
+                modifier = keyModifier.semantics {
                     editableText = hiddenText
                     inputText = hiddenText
                 },
                 enabled = enabled,
                 inputTransformation = inputTransformation,
-                textStyle = editorTextStyle(),
+                textStyle = textStyle,
                 keyboardOptions = SecretKeyboard,
                 interactionSource = interactionSource,
                 cursorBrush = editorCursor(),
@@ -121,12 +138,11 @@ internal fun HbEditableText(
         } else {
             PlainEditor(
                 state,
-                enabled,
-                singleLine,
+                PlainEditorOptions(enabled, isReadOnly, singleLine, textStyle, outputTransformation, scrollState),
                 inputTransformation,
                 interactionSource,
                 decorator,
-                modifier,
+                keyModifier,
             )
         }
     }
@@ -137,13 +153,15 @@ internal fun HbEditableText(
 private fun rememberEditorState(value: String, isSecret: Boolean): TextFieldState =
     if (isSecret) remember { TextFieldState(value) } else rememberTextFieldState(value)
 
+private data class EditorPlaceholder(val text: String, val style: TextStyle)
+
 private data class EditorAdornments(
     val leadingContent: (@Composable () -> Unit)?,
     val trailingContent: (@Composable () -> Unit)?,
 )
 
 private fun placeholderDecorator(
-    placeholder: String,
+    placeholder: EditorPlaceholder,
     isEmpty: Boolean,
     isSingleLine: Boolean,
     contentPadding: PaddingValues,
@@ -166,42 +184,58 @@ private fun placeholderDecorator(
 
 @Composable
 private fun PlaceholderContent(
-    placeholder: String,
+    placeholder: EditorPlaceholder,
     isEmpty: Boolean,
     isSingleLine: Boolean,
     innerTextField: @Composable () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier, contentAlignment = if (isSingleLine) Alignment.CenterStart else Alignment.TopStart) {
-        if (isEmpty) HbText(placeholder, color = HbTheme.colors.textSecondary)
+        if (isEmpty) HbText(placeholder.text, style = placeholder.style, color = HbTheme.colors.textSecondary)
         innerTextField()
     }
 }
 
+/** Behaviour of the plain editor; a non-null [callerScroll] belongs to a caller that draws its scrollbar. */
+private data class PlainEditorOptions(
+    val enabled: Boolean,
+    val isReadOnly: Boolean,
+    val singleLine: Boolean,
+    val textStyle: TextStyle,
+    val outputTransformation: OutputTransformation?,
+    val callerScroll: ScrollState?,
+)
+
 @Composable
 private fun PlainEditor(
     state: TextFieldState,
-    enabled: Boolean,
-    singleLine: Boolean,
+    options: PlainEditorOptions,
     inputTransformation: InputTransformation,
     interactionSource: MutableInteractionSource,
     decorator: TextFieldDecorator,
     modifier: Modifier = Modifier,
 ) {
-    val scrollState = rememberScrollState()
+    val ownScroll = rememberScrollState()
+    val scrollState = options.callerScroll ?: ownScroll
     BasicTextField(
         state = state,
-        modifier = modifier.hbScrollbars(
-            scrollState,
-            orientation = if (singleLine) Orientation.Horizontal else Orientation.Vertical,
-        ),
-        enabled = enabled,
+        modifier = if (options.callerScroll != null) {
+            modifier
+        } else {
+            modifier.hbScrollbars(
+                scrollState,
+                orientation = if (options.singleLine) Orientation.Horizontal else Orientation.Vertical,
+            )
+        },
+        enabled = options.enabled,
+        readOnly = options.isReadOnly,
         inputTransformation = inputTransformation,
-        lineLimits = if (singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,
+        lineLimits = if (options.singleLine) TextFieldLineLimits.SingleLine else TextFieldLineLimits.Default,
         scrollState = scrollState,
         interactionSource = interactionSource,
-        textStyle = editorTextStyle(),
+        textStyle = options.textStyle,
         cursorBrush = editorCursor(),
+        outputTransformation = options.outputTransformation,
         decorator = decorator,
     )
 }

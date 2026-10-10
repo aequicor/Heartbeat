@@ -66,6 +66,7 @@ internal class StudioWorkspaceProjection(
                         isWorktree = record.worktreeTaskId != null,
                         isOrganism = record.organismId != null,
                         nativeSession = record.ref,
+                        parentChatId = record.helper?.parentChatId,
                         isAwaitingChecklist = record.checklistReadiness(checklistEvents).first,
                         isReady = record.checklistReadiness(checklistEvents).second,
                         treeAccess = record.target?.let {

@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.scheduler.impl
 
 import io.aequicor.heartbeat.core.statemachine.SendResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.DependencyOutcome
 import io.aequicor.heartbeat.feature.scheduler.api.GraphAction
@@ -8,6 +9,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.GraphTask
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskRun
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.TaskDependencies
 import io.aequicor.heartbeat.feature.scheduler.api.TaskDependency
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphIntent
@@ -15,7 +17,9 @@ import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphOutput
 import io.aequicor.heartbeat.feature.scheduler.api.TaskGraphState
 import io.aequicor.heartbeat.feature.scheduler.api.TaskProcess
 import io.aequicor.heartbeat.feature.scheduler.api.TaskRecoveryDecision
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.impl.data.BackgroundActionSlots
+import io.aequicor.heartbeat.feature.scheduler.impl.data.ProfileBackgroundCapacity
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphDriver
 import io.aequicor.heartbeat.feature.scheduler.impl.data.TaskGraphMachine
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -32,6 +37,74 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TaskGraphDriverTest {
+    @Test
+    fun `cancelled graph notifies with legacy request identity all causes and live toggle admission`() = runTest {
+        val f = GraphFixture(this)
+        val first = RequestInitiator(SESSION, RequestId("first"))
+        val cancelled = RequestInitiator(SESSION, RequestId("cancel"))
+        val graph = f.graph(listOf(f.command("A"))).copy(initiator = first)
+        f.machine.send(TaskGraphIntent.Public.Create(graph))
+        f.machine.send(TaskGraphIntent.Public.Cancel(graph.id, SESSION, cancelled))
+        f.driver.start()
+        runCurrent()
+        val prompt = f.host.woken.single()
+        assertEquals(RequestId("done_graph"), prompt.request)
+        assertTrue(prompt.isDeduplicationRequired)
+        assertEquals(setOf(first, cancelled), prompt.causes)
+        assertEquals(ScheduledWakeAdmission.Allow, prompt.admission!!.first())
+        f.toggles.isEnabled.value = false
+        assertEquals(ScheduledWakeAdmission.Defer, prompt.admission!!.first())
+    }
+
+    @Test
+    fun `graph notification cannot use a host without atomic wake admission`() = runTest {
+        val f = GraphFixture(this)
+        f.host.isWakeAdmissionSupported = false
+        f.machine.send(TaskGraphIntent.Public.Create(f.graph(listOf(f.command("A")))))
+        f.machine.send(TaskGraphIntent.Public.Cancel("graph", SESSION))
+        f.driver.start()
+        runCurrent()
+        assertTrue(f.host.woken.isEmpty())
+        assertFalse(f.machine.graph().isCompletionNotified)
+    }
+
+    @Test
+    fun `initial and restored helper submissions carry every saved graph cause`() = runTest {
+        val first = RequestInitiator(SESSION, RequestId("first"))
+        val retry = RequestInitiator(SESSION, RequestId("retry"))
+        for (isRecovering in listOf(false, true)) {
+            val f = GraphFixture(this)
+            val graph = f.graph(listOf(GraphTask("A", GraphAction.Agent("task")))).copy(
+                initiator = first,
+                causes = setOf(retry),
+            )
+            if (isRecovering) {
+                f.machine.state.value = TaskGraphState.Loading
+                f.machine.send(
+                    TaskGraphIntent.Internal.Loaded(
+                        listOf(
+                            graph.copy(
+                                runs = mapOf(
+                                    "A" to GraphTaskRun(
+                                        GraphTaskPhase.Running,
+                                        execution = "old",
+                                        hostTask = "chat",
+                                        hasStarted = true,
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            } else {
+                f.machine.send(TaskGraphIntent.Public.Create(graph))
+            }
+            f.driver.start()
+            runCurrent()
+            assertEquals(setOf(first, retry), f.host.requests.single().second.causes)
+        }
+    }
+
     @Test
     fun `profile cancellation during storage retry cannot keep pumping cancelled jobs`() = runTest {
         val profile = SupervisorJob(backgroundScope.coroutineContext[Job])
@@ -53,7 +126,9 @@ class TaskGraphDriverTest {
         }
         val driver = TaskGraphDriver(
             machine,
-            BackgroundActionSlots(),
+            BackgroundActionSlots(
+                ProfileBackgroundCapacity(CapacitySpecMachine(), TestScopeHandle(backgroundScope), MemoryJournal()),
+            ),
             GraphCommands(),
             Projects(),
             lazyOf(emptySet()),

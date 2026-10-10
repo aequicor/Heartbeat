@@ -58,11 +58,22 @@ internal interface ClaudeTransport {
         line: suspend (String) -> Boolean,
     ): Int
 
+    /** Owns a bidirectional operation until [session] ends. The caller decides when stdin should close. */
+    suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef? = null,
+        hosted: ClaudeHostedTools? = null,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+
     /**
      * This transport bound to [launch], or to the profile's current launch context when null. A runtime keeps its
      * pinned transport for life, so its sessions never move to another executable or native history mid-way.
      */
     suspend fun pinned(launch: LaunchContext? = null): ClaudeTransport = this
+
+    /** Version of this transport's captured executable, without consulting later launch settings. */
+    suspend fun version(): String? = null
 
     /** The executable [launch] would start and its version; never signs in or starts a session. */
     suspend fun locate(launch: LaunchContext): Installation = Installation(InstallSource.Missing)
@@ -95,6 +106,31 @@ internal class ProcessClaudeTransport(
         line: suspend (String) -> Boolean,
     ): Int = run(startup(null), arguments, input, workspace, closeInput, hosted, line)
 
+    override suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = duplex(startup(null), arguments, workspace, hosted, session)
+
+    suspend fun duplex(
+        startup: ClaudeStartup,
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = withContext(dispatchers.io) {
+        try {
+            withProcess(startup, arguments, workspace, hosted) { communicateDuplex(it, session) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: IOException) {
+            ensureActive()
+            log.w(e.redacted()) { "Claude duplex process IO failed" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        }
+    }
+
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = PinnedClaudeTransport(this, startup(launch))
 
     override suspend fun locate(launch: LaunchContext): Installation {
@@ -109,7 +145,9 @@ internal class ProcessClaudeTransport(
         resolveClaudeStartup(launch ?: launches.context(ClaudeEngine.Id), configuration)
 
     /** `claude --version`, bounded; an executable that does not answer has no known version. */
-    private suspend fun version(startup: ClaudeStartup): String? = try {
+    override suspend fun version(): String? = version(startup(null))
+
+    suspend fun version(startup: ClaudeStartup): String? = try {
         var version: String? = null
         withProbeTimeout {
             run(startup, listOf("--version"), "", null, true, null) { line ->
@@ -137,7 +175,7 @@ internal class ProcessClaudeTransport(
     ): Int = withContext(dispatchers.io) {
         log.d { "Starting Claude CLI operation" }
         try {
-            execute(startup, arguments, input, workspace, closeInput, hosted, line)
+            withProcess(startup, arguments, workspace, hosted) { communicate(it, input, closeInput, line) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: IOException) {
@@ -148,15 +186,12 @@ internal class ProcessClaudeTransport(
         }
     }
 
-    @Suppress("LongParameterList") // The run contract's parameters, resolved to one startup.
-    private suspend fun execute(
+    private suspend fun withProcess(
         startup: ClaudeStartup,
         arguments: List<String>,
-        input: String,
         workspace: WorkspaceRef?,
-        closeInput: Boolean,
         hosted: ClaudeHostedTools?,
-        line: suspend (String) -> Boolean,
+        operation: suspend (Process) -> Int,
     ): Int {
         val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
         val bridgeConfig = when {
@@ -175,15 +210,14 @@ internal class ProcessClaudeTransport(
                     arguments,
                     checkNotNull(bridgeConfig),
                     checkNotNull(instructionFile),
-                    isSearchEnabled,
-                    isProviderSearchKept = !hosted.isProject,
+                    claudeToolFlags(arguments),
                 )
             } else {
-                bridgeConfig?.let { claudeSearchArguments(arguments, it) } ?: arguments
+                bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) } ?: arguments
             }
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
-                return communicate(process, input, closeInput, line)
+                return operation(process)
             } finally {
                 process.destroyTree()
                 closeInput(process)
@@ -244,6 +278,29 @@ internal class ProcessClaudeTransport(
         log.d { "MCP config directory ready" }
         return directory
     }
+
+    private suspend fun communicateDuplex(process: Process, session: suspend (ClaudeDuplex) -> Unit): Int =
+        coroutineScope {
+            val pipe = ClaudeDuplexPipe(
+                this,
+                process.outputStream.bufferedWriter(Charsets.UTF_8),
+                process.inputStream.bufferedReader(Charsets.UTF_8),
+            )
+            val exchange = async { session(pipe) }
+            val exit = async { process.waitFor() }
+            try {
+                exchange.await()
+                pipe.closeInput()
+                pipe.reader.await()
+                pipe.writer.await()
+                exit.await()
+            } finally {
+                pipe.revoke()
+                // Do this before coroutineScope joins the reader/writer: either may be blocked in native IO.
+                process.destroyTree()
+                closeInput(process)
+            }
+        }
 
     private suspend fun communicate(
         process: Process,
@@ -360,9 +417,18 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
         line: suspend (String) -> Boolean,
     ): Int = base.run(startup, arguments, input, workspace, closeInput, hosted, line)
 
+    override suspend fun duplex(
+        arguments: List<String>,
+        workspace: WorkspaceRef?,
+        hosted: ClaudeHostedTools?,
+        session: suspend (ClaudeDuplex) -> Unit,
+    ): Int = base.duplex(startup, arguments, workspace, hosted, session)
+
     override suspend fun pinned(launch: LaunchContext?): ClaudeTransport = launch?.let { base.pinned(it) } ?: this
 
     override suspend fun locate(launch: LaunchContext): Installation = base.locate(launch)
+
+    override suspend fun version(): String? = base.version(startup)
 }
 
 /**
@@ -377,36 +443,20 @@ internal data class ClaudeHostedTools(
     override fun toString(): String = "ClaudeHostedTools(***)"
 }
 
-/**
- * Native coding tools remain disabled. CLI approval covers only the host, which applies its own trust gate.
- * [isProviderSearchKept] keeps the provider-side `WebSearch` a session without a project has without hosted
- * tools, so attaching detached tools does not take web search away from a plain chat.
- */
+/** Adds host preapproval without changing the native set selected by the turn policy. */
 internal fun claudeHostedArguments(
     arguments: List<String>,
     config: Path,
     instructions: Path,
-    search: Boolean,
-    isProviderSearchKept: Boolean = false,
-): List<String> {
-    val isProviderSearch = search && isProviderSearchKept
-    val allowed = buildList {
-        addAll(nativeAgentTools(arguments))
-        add("mcp__${HOSTED_TOOLS_SERVER}__*")
-        if (search) add("mcp__heartbeat_search__*")
-        if (isProviderSearch) add(CLAUDE_PROVIDER_SEARCH)
-    }
-    val native = nativeAgentTools(arguments) + listOfNotNull(CLAUDE_PROVIDER_SEARCH.takeIf { isProviderSearch })
-    return withoutToolOptions(arguments) + listOf("--tools=" + native.joinToString(",")) +
-        listOf(
-            "--permission-mode=dontAsk",
-            "--allowedTools=${allowed.joinToString(",")}",
-            "--mcp-config",
-            config.toString(),
-            "--append-system-prompt-file",
-            instructions.toString(),
-        )
-}
+    tools: ClaudeToolFlags,
+): List<String> = withoutToolOptions(arguments).filterNot { it.startsWith("--permission-mode=") } +
+    tools.copy(allowed = tools.allowed + "mcp__${HOSTED_TOOLS_SERVER}__*").arguments() + listOf(
+        if ("--permission-prompt-tool=stdio" in arguments) "--permission-mode=default" else "--permission-mode=dontAsk",
+        "--mcp-config",
+        config.toString(),
+        "--append-system-prompt-file",
+        instructions.toString(),
+    )
 
 /** Hosted coding and optional public web search share one strict MCP configuration. */
 internal fun claudeHostedConfig(
@@ -439,13 +489,8 @@ private fun mcpServer(origin: String, token: String) = buildJsonObject {
  * The CLI's own `WebSearch` runs at the provider and stays available next to the bridge tools. Its `WebFetch`
  * would fetch from this device without the bridge's public-host check, so pages are read only through the bridge.
  */
-internal fun claudeSearchArguments(arguments: List<String>, config: Path): List<String> =
-    withoutToolOptions(arguments) + listOf(
-        "--tools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
-        "--allowedTools=" + (nativeAgentTools(arguments) + CLAUDE_SEARCH_TOOLS).joinToString(","),
-        "--mcp-config",
-        config.toString(),
-    )
+internal fun claudeSearchArguments(arguments: List<String>, config: Path, tools: ClaudeToolFlags): List<String> =
+    withoutToolOptions(arguments) + tools.arguments() + listOf("--mcp-config", config.toString())
 
 internal fun claudeSearchConfig(endpoint: SearchBridgeEndpoint, directory: Path): Path {
     val config = buildJsonObject {
@@ -497,7 +542,7 @@ internal fun restrictToOwner(path: Path, directory: Boolean) {
 private const val MCP_CONFIG_DIRECTORY = "heartbeat-mcp"
 private const val STALE_CONFIG_MILLIS = 24L * 60 * 60 * 1000
 
-private fun BufferedReader.readFrame(): String? {
+internal fun BufferedReader.readFrame(): String? {
     val result = StringBuilder()
     var next = read()
     while (next != -1 && next != '\n'.code) {
@@ -508,16 +553,10 @@ private fun BufferedReader.readFrame(): String? {
     return if (next == -1 && result.isEmpty()) null else result.toString().trimEnd('\r')
 }
 
-private const val MAX_FRAME_CHARS = 2 * 1024 * 1024
+internal const val MAX_FRAME_CHARS = 2 * 1024 * 1024
 
-private const val CLAUDE_PROVIDER_SEARCH = "WebSearch"
-
-private const val CLAUDE_SEARCH_TOOLS =
-    "WebSearch,mcp__heartbeat_search__web_search,mcp__heartbeat_search__web_fetch"
-
-/** Rebuild one exact allowlist; neither inherited native tools nor duplicate CLI options are admitted. */
-private fun nativeAgentTools(arguments: List<String>): List<String> =
-    if ("--tools=$CLAUDE_AGENT_TOOLS" in arguments) CLAUDE_AGENT_TOOLS.split(',') else emptyList()
-
-private fun withoutToolOptions(arguments: List<String>): List<String> =
-    arguments.filterNot { it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") }
+/** Replace the complete generated tool selection; no earlier native permission list can survive rebuilding. */
+private fun withoutToolOptions(arguments: List<String>): List<String> = arguments.filterNot {
+    it == SEARCH_BRIDGE_MARKER || it.startsWith("--tools=") || it.startsWith("--allowedTools=") ||
+        it.startsWith("--disallowedTools=")
+}

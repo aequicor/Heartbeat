@@ -5,7 +5,6 @@ import dev.zacsweers.metro.ContributesTo
 import dev.zacsweers.metro.IntoSet
 import dev.zacsweers.metro.Provides
 import dev.zacsweers.metro.createGraphFactory
-import io.aequicor.heartbeat.core.di.OwnedScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.featuretoggles.FeatureToggle
 import io.aequicor.heartbeat.core.profilefacade.ProfileId
@@ -53,6 +52,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HistoryPageRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ItemInfo
+import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.MessageRole
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelInfo
@@ -90,6 +90,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.RuntimeIdentity
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EnginePreferences
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -119,6 +120,8 @@ interface AiEngineTestAccessors {
     val engineAuthSources: AuthSources
     val studioRepository: StudioRepository
     val studioRuntime: StudioRuntime
+    val scheduledSessionHosts: Set<ScheduledSessionHost>
+    val localWorkspaces: LocalWorkspaces
     val modelSelections: ModelSelections
     val engineRegistrations: Set<EngineRegistration>
     val enginePreferences: EnginePreferences
@@ -147,6 +150,7 @@ object TestAdapter {
     val runtimes = mutableListOf<TestRuntime>()
     private val nativeIds = AtomicInteger()
     var reasoningEfforts: List<String> = emptyList()
+    var isLocalWorkspaceSupported = false
     var isTrustSupported = false
     var isConfigurationFailureEnabled = false
 
@@ -160,6 +164,7 @@ object TestAdapter {
             declaredFeatures = setOf(CreatesSessions.id, AttachesSessions.id) +
                 (if (isTrustSupported) setOf(AppliesTrustLevels.id) else emptySet()) +
                 (if (isConfigurationFailureEnabled) setOf(ChangesSessionConfiguration.id) else emptySet()),
+            isLocalWorkspaceSupported = isLocalWorkspaceSupported,
             connectionMethods = listOf(
                 ConnectionMethod.ApiKey(
                     ConnectionMethodId("key"),
@@ -205,6 +210,7 @@ class TestRuntime(
     isConfigurationFailureEnabled: Boolean = false,
 ) : EngineRuntime {
     val natives = mutableListOf<TestNative>()
+    val createdRequests = mutableListOf<CreateSessionRequest>()
 
     /** Close calls; the profile releases runtimes asynchronously on the app scope. */
     val closes = MutableStateFlow(0)
@@ -216,6 +222,7 @@ class TestRuntime(
                 isTrustSupported,
                 isConfigurationFailureEnabled,
             ).also {
+                createdRequests += request
                 natives += it
             }
         },
@@ -411,8 +418,8 @@ class AiEngineFacadeIntegrationTest {
     }
 
     @AfterTest
-    fun tearDown() {
-        (app.appScope as OwnedScope).close()
+    fun tearDown() = runTest {
+        app.closeAndAwaitStorages()
         Dispatchers.resetMain()
         File(persisted.storageRoot).deleteRecursively()
     }

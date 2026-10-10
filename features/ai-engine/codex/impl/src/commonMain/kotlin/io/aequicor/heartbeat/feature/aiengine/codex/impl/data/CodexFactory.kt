@@ -108,12 +108,13 @@ internal class CodexFactory(private val environment: CodexRuntimeEnvironment, pr
             isSearchToolsChangeLogged = false
             runtime?.close()
             runtime = null
-            val rpc = CodexRpc(transport.open(), profile.coroutineScope)
+            val launch = transport.prepare()
+            val rpc = CodexRpc(launch.open(), profile.coroutineScope)
             val startup = profile.onClose(rpc::close)
             try {
                 // Hosted coding tools also require experimental negotiation, independently of web search.
                 rpc.initialize(experimentalApi = true)
-                val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled)
+                val owner = CodexRuntime(identity, rpc, environment, isSearchToolsEnabled, launch)
                 owner.checkAccount()
                 runtime = owner
                 log.i { "Codex runtime ready" }

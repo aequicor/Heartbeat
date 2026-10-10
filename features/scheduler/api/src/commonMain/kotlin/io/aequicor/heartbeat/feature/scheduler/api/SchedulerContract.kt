@@ -41,11 +41,27 @@ public sealed interface SchedulerIntent : MachineIntent {
          */
         public data class Schedule(val request: WakeRequest, val at: Instant) : Public
 
-        /** Cancels a pending wake; when [session] is set, only a wake of that session. */
-        public data class Cancel(val id: WakeId, val session: SessionRef? = null) : Public
+        /**
+         * Cancels a pending wake; [session] and [expectedRequest], when supplied, must still match at transition
+         * time. An immutable expected request prevents a delayed cancellation from removing a reused id.
+         */
+        public data class Cancel(
+            val id: WakeId,
+            val session: SessionRef? = null,
+            /** Trusted caller ancestry, retained together with the removed wake's origin. Never tool payload. */
+            val cause: EventOrigin? = null,
+            val expectedRequest: WakeRequest? = null,
+        ) : Public
 
         /** Cancels every pending wake of [session] (its chat was deleted or it no longer wants to sleep). */
         public data class CancelSession(val session: SessionRef) : Public
+
+        /**
+         * Cancels pending wakes belonging to [feature]. Delivering wakes are settled by their live owner admission:
+         * this command never claims to revoke an already submitted native turn. Accepted as a no-op when none match;
+         * ignored while Loading, so callers must wait for Ready before sending it.
+         */
+        public data class CancelOwned(val feature: String) : Public
     }
 
     /** Effect results, bus events and timer ticks. */
@@ -72,7 +88,12 @@ public sealed interface SchedulerIntent : MachineIntent {
         public data class Deferred(val id: WakeId) : Internal
 
         /** The wake prompts of [ids] could not be delivered. */
-        public data class DeliveryFailed(val ids: List<WakeId>, val failure: WakeFailure) : Internal
+        public data class DeliveryFailed(
+            val ids: List<WakeId>,
+            val failure: WakeFailure,
+            /** Trigger origins retained even when admission failed before the target request was registered. */
+            val origins: List<EventOrigin> = emptyList(),
+        ) : Internal
     }
 }
 
@@ -100,16 +121,34 @@ public sealed interface SchedulerOutput : MachineOutput {
     public data class Scheduled(val wake: ScheduledWake) : SchedulerOutput
 
     /** The request [id] was not scheduled. */
-    public data class Rejected(val id: WakeId, val rejection: WakeRejection) : SchedulerOutput
+    public data class Rejected(
+        val id: WakeId,
+        val rejection: WakeRejection,
+        /** Host ancestry retained even when no pending wake was created. Contains no note. */
+        val origin: EventOrigin.Feature? = null,
+        /** Initiating request retained even when no wake row is created. */
+        val initiator: RequestInitiator? = null,
+        /** Exact attempted target, including restrictions persisted by an earlier delivery attempt. */
+        val deliveryRequest: RequestInitiator? = null,
+    ) : SchedulerOutput
 
     /** Pending wakes [ids] were cancelled. */
-    public data class Cancelled(val ids: List<WakeId>) : SchedulerOutput
+    public data class Cancelled(
+        val ids: List<WakeId>,
+        /** Immutable owners, initiators, target delivery requests and cancellation cause, without private notes. */
+        val origins: List<EventOrigin> = emptyList(),
+    ) : SchedulerOutput
 
     /** [wake]'s session accepted its wake prompt. */
     public data class Woke(val wake: ScheduledWake, val reason: WakeReason) : SchedulerOutput
 
     /** [wakes] were due but could not be delivered and were dropped. */
-    public data class DeliveryFailed(val wakes: List<ScheduledWake>, val failure: WakeFailure) : SchedulerOutput
+    public data class DeliveryFailed(
+        val wakes: List<ScheduledWake>,
+        val failure: WakeFailure,
+        /** Trusted trigger ancestry only; no event payload or wake note. */
+        val origins: List<EventOrigin> = emptyList(),
+    ) : SchedulerOutput
 }
 
 /**

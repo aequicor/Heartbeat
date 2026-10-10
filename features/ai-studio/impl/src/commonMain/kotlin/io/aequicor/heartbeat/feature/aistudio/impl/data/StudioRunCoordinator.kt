@@ -7,7 +7,9 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDroppedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
@@ -56,20 +58,27 @@ internal class StudioRunCoordinator(
         cancelBeforeSubmission: Boolean = false,
         beforeExecute: suspend () -> Unit = {},
         onCancelledBeforeSubmission: suspend () -> Unit = {},
-        isExecutionEnabled: Flow<Boolean>? = null,
+        admission: Flow<ScheduledWakeAdmission>? = null,
     ): RunOutcome {
         log.i { "Reserve profile-owned execution" }
-        val submission = if (cancelBeforeSubmission || isExecutionEnabled != null) {
-            StudioRunSubmission(isExecutionEnabled)
+        require(request.submission == null || admission == null) {
+            "A supplied submission gate must own its admission policy"
+        }
+        val submission = request.submission ?: if (cancelBeforeSubmission || admission != null) {
+            StudioRunSubmission(admission)
         } else {
             null
         }
         val reserved = submission?.let { request.copy(submission = it) } ?: request
         while (true) {
-            awaitAdmission(request.id, waitForIdle, isExecutionEnabled)
+            awaitAdmission(request.id, waitForIdle, admission)
             val job = lock.withLock {
                 // A disabled background request waits without reserving the chat or changing its visible state.
-                if (isExecutionEnabled?.first() == false) throw ScheduledWakeDeferredException()
+                when (admission?.first()) {
+                    ScheduledWakeAdmission.Defer -> throw ScheduledWakeDeferredException()
+                    ScheduledWakeAdmission.Drop -> throw ScheduledWakeDroppedException()
+                    ScheduledWakeAdmission.Allow, null -> Unit
+                }
                 check(!profile.isClosed) { "Profile is closed" }
                 if (waitForIdle && request.id in busy.value) return@withLock null
                 check(request.id !in busy.value) { "Session is busy" }
@@ -81,8 +90,14 @@ internal class StudioRunCoordinator(
                         beforeExecute()
                         host.executeRun(reserved)
                     } finally {
+                        // An owner/source may cancel preparation itself. Settle its receipt before leaving the job.
+                        // Only the short journal barrier and reservation cleanup survive caller cancellation.
                         withContext(NonCancellable) {
-                            finishRun(host, request.id, submission, onCancelledBeforeSubmission)
+                            try {
+                                submission?.cancel()
+                            } finally {
+                                finishRun(host, request.id, submission, onCancelledBeforeSubmission)
+                            }
                         }
                     }
                 }
@@ -91,10 +106,10 @@ internal class StudioRunCoordinator(
         }
     }
 
-    private suspend fun awaitAdmission(id: String, waitForIdle: Boolean, isExecutionEnabled: Flow<Boolean>?) {
-        if (isExecutionEnabled != null) {
-            combine(busy, isExecutionEnabled) { occupied, enabled ->
-                !enabled || !waitForIdle || id !in occupied
+    private suspend fun awaitAdmission(id: String, waitForIdle: Boolean, admission: Flow<ScheduledWakeAdmission>?) {
+        if (admission != null) {
+            combine(busy, admission) { occupied, decision ->
+                decision != ScheduledWakeAdmission.Allow || !waitForIdle || id !in occupied
             }.first { it }
         } else if (waitForIdle) {
             busy.first { id !in it }
@@ -104,7 +119,7 @@ internal class StudioRunCoordinator(
     private suspend fun finishRun(
         host: StudioRunHost,
         id: String,
-        submission: StudioRunSubmission?,
+        submission: StudioSubmissionGate?,
         onCancelledBeforeSubmission: suspend () -> Unit,
     ) {
         try {
@@ -123,14 +138,18 @@ internal class StudioRunCoordinator(
         }
     }
 
-    private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioRunSubmission?): RunOutcome =
+    private suspend fun awaitRun(job: Deferred<RunOutcome>, submission: StudioSubmissionGate?): RunOutcome =
         coroutineScope {
             val caller = currentCoroutineContext()
             val gate = launch(start = CoroutineStart.UNDISPATCHED) {
-                if (submission?.awaitDeferral() == true) job.cancel(StudioPreparationDeferred())
+                submission?.awaitRevocation()?.let { job.cancel(it) }
             }
             try {
                 job.await()
+            } catch (e: StudioPreparationDropped) {
+                caller.ensureActive()
+                log.v { "Scheduled preparation dropped before native submission" }
+                throw ScheduledWakeDroppedException().also { it.addSuppressed(e) }
             } catch (e: StudioPreparationDeferred) {
                 // This cancellation belongs to the admission gate; cancellation of the caller still propagates.
                 caller.ensureActive()
@@ -138,9 +157,13 @@ internal class StudioRunCoordinator(
                 throw ScheduledWakeDeferredException().also { it.addSuppressed(e) }
             } finally {
                 gate.cancel()
-                if (!caller.isActive && submission?.cancel() == true) {
-                    log.i { "Cancel scheduled preparation before native submission" }
-                    job.cancel()
+                if (!caller.isActive) {
+                    withContext(NonCancellable) {
+                        if (submission?.cancel() == true) {
+                            log.i { "Cancel scheduled preparation before native submission" }
+                            job.cancel()
+                        }
+                    }
                 }
             }
         }
@@ -149,19 +172,20 @@ internal class StudioRunCoordinator(
 /**
  * A scheduled caller may revoke preparation until native submission begins. The atomic handoff preserves profile
  * ownership when cancellation races a send: once submitted, even an unknown native outcome must be reconciled.
- * The owning feature may defer Preparing, but cannot revoke Submitted. Begin checks admission again after preparation.
+ * The owning feature may defer or drop Preparing, but cannot revoke Submitted. Begin checks admission again
+ * after preparation.
  */
-internal class StudioRunSubmission(private val executionEnabled: Flow<Boolean>? = null) {
+internal class StudioRunSubmission(private val admission: Flow<ScheduledWakeAdmission>? = null) :
+    StudioSubmissionGate {
     private val log = Log.tag("StudioRunSubmission")
     private val phase = MutableStateFlow(Phase.Preparing)
 
-    val isCancelled: Boolean get() = phase.value == Phase.Cancelled || phase.value == Phase.Deferred
+    override val isCancelled: Boolean get() = phase.value in setOf(Phase.Cancelled, Phase.Deferred, Phase.Dropped)
 
-    suspend fun begin() {
-        if (executionEnabled?.first() == false) defer()
+    override suspend fun begin() {
+        admission?.first()?.let(::revoke)
         if (!phase.compareAndSet(Phase.Preparing, Phase.Submitted)) {
-            if (phase.value == Phase.Deferred) throw StudioPreparationDeferred()
-            throw CancellationException("Scheduled preparation was cancelled before native submission")
+            throw revocation() ?: CancellationException("Scheduled preparation was cancelled before native submission")
         }
         log.v { "Native submission took ownership of the scheduled run" }
     }
@@ -172,26 +196,41 @@ internal class StudioRunSubmission(private val executionEnabled: Flow<Boolean>? 
         log.v { "Recovered native turn retained profile ownership" }
     }
 
-    fun cancel(): Boolean {
+    override suspend fun cancel(): Boolean {
         val isCancelled = phase.compareAndSet(Phase.Preparing, Phase.Cancelled)
         log.v { "Scheduled preparation cancellation accepted=$isCancelled" }
         return isCancelled
     }
 
-    suspend fun awaitDeferral(): Boolean {
-        val enabled = executionEnabled ?: return false
-        combine(phase, enabled) { current, isEnabled -> current != Phase.Preparing || !isEnabled }.first { it }
-        return defer()
+    override suspend fun awaitRevocation(): CancellationException? {
+        val decisions = admission ?: return null
+        val decision = combine(phase, decisions) { current, next -> current to next }
+            .first { (current, next) -> current != Phase.Preparing || next != ScheduledWakeAdmission.Allow }.second
+        revoke(decision)
+        return revocation()
     }
 
-    private fun defer(): Boolean {
-        val isDeferred = phase.compareAndSet(Phase.Preparing, Phase.Deferred)
-        log.v { "Scheduled preparation deferral accepted=$isDeferred" }
-        return isDeferred
+    private fun revoke(decision: ScheduledWakeAdmission) {
+        val next = when (decision) {
+            ScheduledWakeAdmission.Allow -> return
+            ScheduledWakeAdmission.Defer -> Phase.Deferred
+            ScheduledWakeAdmission.Drop -> Phase.Dropped
+        }
+        val isRevoked = phase.compareAndSet(Phase.Preparing, next)
+        log.v { "Scheduled preparation revocation accepted=$isRevoked" }
     }
 
-    private enum class Phase { Preparing, Submitted, Cancelled, Deferred }
+    private fun revocation(): CancellationException? = when (phase.value) {
+        Phase.Deferred -> StudioPreparationDeferred()
+        Phase.Dropped -> StudioPreparationDropped()
+        Phase.Preparing, Phase.Submitted, Phase.Cancelled -> null
+    }
+
+    private enum class Phase { Preparing, Submitted, Cancelled, Deferred, Dropped }
 }
 
 /** Internal admission cancellation, translated to the scheduler's retriable deferral after cleanup. */
 private class StudioPreparationDeferred : CancellationException("Scheduled preparation deferred")
+
+/** Internal owner cancellation, translated to permanent rejection after cleanup. */
+private class StudioPreparationDropped : CancellationException("Scheduled preparation dropped")

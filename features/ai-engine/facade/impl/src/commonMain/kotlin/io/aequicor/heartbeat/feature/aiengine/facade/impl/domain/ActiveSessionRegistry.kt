@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionObservationSnaps
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Turn
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.NoSessionHooks
+import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.SessionHooks
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -185,10 +188,20 @@ class SessionPolicy(
     val registry: ActiveSessionRegistry,
     private val context: FacadeContext,
     private val tools: ProfileAgentTools = NoAgentTools,
+    val hooks: SessionHooks = NoSessionHooks,
 ) {
     /** Registers the canonical identity before the native adapter can call hosted tools. */
     suspend fun bindTurn(session: SessionRef, request: RequestId, turn: Turn) {
         tools.bindTurn(session, request, turn.id, turn.target)
+    }
+
+    /** Completes tool cleanup for a submission whose final outcome was recovered before send returned an id. */
+    fun finishUnaccepted(session: SessionRef, turn: TurnId) {
+        // Like accepted native work, cleanup survives closing the handle that observed the outcome.
+        context.scope.launch {
+            tools.finishTurn(session, turn)
+            hooks.releaseTurn(session, turn, isRejected = true)
+        }
     }
 
     /** Rechecks toggles, binding, ownership and source revision before a turn or model change. */

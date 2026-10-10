@@ -34,7 +34,12 @@ public sealed interface TaskGraphIntent : MachineIntent {
         public data class Create(val graph: TaskGraph) : Public
 
         /** Revokes all future launches and requests interruption of the graph's active tasks. */
-        public data class Cancel(val graph: String, val owner: SessionRef) : Public
+        public data class Cancel(
+            val graph: String,
+            val owner: SessionRef,
+            /** Host-stamped causal request, persisted atomically with cancellation. */
+            val cause: RequestInitiator? = null,
+        ) : Public
 
         /** Resolves exactly one interrupted attempt, after the executor confirmed it cannot still be running. */
         public data class Resolve(
@@ -44,6 +49,8 @@ public sealed interface TaskGraphIntent : MachineIntent {
             val owner: SessionRef,
             val decision: TaskRecoveryDecision,
             val explanation: String,
+            /** Host-stamped causal request, persisted before any resulting retry or notification. */
+            val cause: RequestInitiator? = null,
         ) : Public {
             override fun toString(): String = "Resolve(graph=$graph, task=$task, decision=$decision)"
         }
@@ -142,14 +149,16 @@ public object TaskGraphMachineKey :
  * | Ready | Claim ready pending/recovering node | Running(new attempt); Save |
  * | Ready | Bound / Starting / ProcessBound | retain execution identity; Save |
  * | Ready | Finished current attempt | settle result and impossible dependencies; Save |
- * | Ready | Cancel owned graph | cancel pending, request active cancellation; Save |
- * | Ready | Resolve checked interrupted attempt | Pending or terminal; Save |
+ * | Ready | Cancel owned graph | cancel pending, request active cancellation, retain cause; Save |
+ * | Ready | Resolve checked interrupted attempt | Pending or terminal, retain cause; Save |
  * | Ready | RecoveryNotified / RecoveryChecked | record recovery progress; Save |
  * | Ready | Saved | acknowledge revision |
  * | Ready | SaveFailed / RetrySave | inhibit execution / retry Save |
  *
  * Recovery claims retain the original submission lineage across repeated restarts; explicit retries start a new one.
- * Duplicate, stale, foreign-owner and invalid operations are ignored. Storage errors cannot start work.
+ * The initial request and additive accepted mutation causes survive recovery. Rejected/stale mutations cannot
+ * alter this metadata; it never grants approval. Duplicate, stale, foreign-owner and invalid operations are ignored.
+ * Storage errors cannot start work.
  */
 public val TaskGraphMachineSpec: MachineSpec<TaskGraphState, TaskGraphIntent, TaskGraphEffect, TaskGraphOutput> =
     machineSpec(
@@ -290,6 +299,7 @@ private fun TaskGraphState.Ready.cancel(intent: TaskGraphIntent.Public.Cancel): 
 ) { graph ->
     graph.takeIf { it.owner == intent.owner && !it.isCancelled && !it.isFinished }?.copy(
         isCancelled = true,
+        causes = graph.causes + listOfNotNull(intent.cause),
         runs = graph.runs.mapValues { (_, run) ->
             when {
                 run.phase.isTerminal -> run
@@ -317,6 +327,7 @@ private fun TaskGraphState.Ready.resolve(intent: TaskGraphIntent.Public.Resolve)
             TaskRecoveryDecision.Failed -> GraphTaskPhase.Failed
         }
         graph.copy(
+            causes = graph.causes + listOfNotNull(intent.cause),
             runs = graph.runs + (
                 intent.task to checkNotNull(run).copy(
                     phase = phase,

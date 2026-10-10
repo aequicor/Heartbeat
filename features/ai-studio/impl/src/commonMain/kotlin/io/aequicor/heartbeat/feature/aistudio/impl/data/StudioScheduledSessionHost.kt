@@ -8,11 +8,21 @@ import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
+import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperCreateRequest
+import io.aequicor.heartbeat.feature.scheduler.api.spi.HelperMetadata
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledSessionHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledTaskHost
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeDeferredException
@@ -80,11 +90,42 @@ internal class StudioScheduledSessionHost(
     // Lazy: the studio runtime depends on the hosted tools, whose background actions depend on these hosts.
     private val scheduledChats: Lazy<StudioScheduledChats>,
     @ForScope(ProfileScope::class) private val profile: ScopeHandle,
+    private val helperRecords: Lazy<StudioHelperChatRecords>,
+    private val helpers: Lazy<EngineStudioHelperChats>,
 ) : ScheduledTaskHost {
     private val log = Log.tag("StudioScheduledSessionHost")
     private val chats: StudioScheduledChats get() = scheduledChats.value
 
     override val priority: Int = STUDIO_HOST_PRIORITY
+    override val isWakeAdmissionSupported: Boolean = true
+
+    override suspend fun canHostHelper(parent: SessionRef?): Boolean =
+        !profile.isClosed && (parent == null || chats.chatOf(parent) != null)
+
+    override suspend fun createHelper(request: HelperCreateRequest): HelperId =
+        helperRecords.value.createHelper(request)
+
+    override suspend fun helperMetadata(helper: HelperId): HelperMetadata? = helperRecords.value.helperMetadata(helper)
+
+    override suspend fun helperMetadata(session: SessionRef): HelperMetadata? =
+        helperRecords.value.helperMetadata(session)
+
+    override suspend fun ownedHelpers(owner: ActionId, after: HelperId?, limit: Int): List<HelperMetadata> =
+        helperRecords.value.ownedHelpers(owner, after, limit)
+
+    override suspend fun isHelper(session: SessionRef): Boolean = helperRecords.value.isHelper(session)
+
+    override suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission =
+        helpers.value.prompt(helper, prompt)
+
+    override suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? =
+        helpers.value.result(helper, request)
+
+    override suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? =
+        helpers.value.progress(helper, request)
+
+    override suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
+        helpers.value.cancel(helper, request)
 
     override suspend fun owns(session: SessionRef): Boolean = chats.chatOf(session) != null
 
@@ -100,7 +141,12 @@ internal class StudioScheduledSessionHost(
         val chat = chats.createHelperChat(projectId, request.title)
         log.i { "start a helper conversation hasProject=${projectId != null}" }
         // The helper never gets more trust than the chat that started it.
-        submit(chat, request.prompt, request.target, approvalFrom = parent.id)
+        submit(
+            chat,
+            request.prompt.copy(causes = request.prompt.causes + request.causes),
+            request.target,
+            approvalFrom = parent.id,
+        )
         return checkNotNull(chats.sessionOf(chat)) { "The helper conversation has no session" }
     }
 

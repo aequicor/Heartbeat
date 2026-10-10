@@ -266,12 +266,11 @@ class ClaudeHostedTest {
                 claudeArguments(search = true),
                 config,
                 config.resolveSibling("prompt.txt"),
-                search = true,
-                isProviderSearchKept = true,
+                claudeToolFlags(claudeArguments(search = true)),
             )
             assertFalse("--tools=" in args)
             assertTrue("--tools=WebSearch" in args)
-            assertTrue("--allowedTools=mcp__heartbeat_tools__*,mcp__heartbeat_search__*,WebSearch" in args)
+            assertEquals(ClaudeSearchTools.values.toSet() + "mcp__heartbeat_tools__*", claudeToolFlags(args).allowed)
             assertTrue("--strict-mcp-config" in args)
         } finally {
             Files.deleteIfExists(config)
@@ -552,12 +551,12 @@ class ClaudeHostedTest {
                 claudeArguments(search = true),
                 config,
                 directory.resolve("prompt.txt"),
-                true,
+                ClaudeToolFlags(allowed = ClaudeSearchTools.values.toSet()),
             )
             assertTrue("--tools=" in args)
             assertTrue("--strict-mcp-config" in args)
             assertTrue("--permission-mode=dontAsk" in args)
-            assertTrue("--allowedTools=mcp__heartbeat_tools__*,mcp__heartbeat_search__*" in args)
+            assertEquals(ClaudeSearchTools.values.toSet() + "mcp__heartbeat_tools__*", claudeToolFlags(args).allowed)
             assertFalse(args.any { "dangerously-skip-permissions" in it || "WebSearch" in it || "host-token" in it })
         } finally {
             Files.deleteIfExists(config)

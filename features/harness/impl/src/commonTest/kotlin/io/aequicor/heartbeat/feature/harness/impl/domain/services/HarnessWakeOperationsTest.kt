@@ -1,0 +1,280 @@
+package io.aequicor.heartbeat.feature.harness.impl.domain.services
+
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHookContext
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionOwner
+import io.aequicor.heartbeat.feature.harness.api.HarnessId
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.MemoryHarnessRequestAncestry
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
+import io.aequicor.heartbeat.feature.scheduler.api.SchedulerState
+import io.aequicor.heartbeat.feature.scheduler.api.WakeCondition
+import io.aequicor.heartbeat.feature.scheduler.api.WakeId
+import io.aequicor.heartbeat.feature.scheduler.api.WakeOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
+import io.aequicor.heartbeat.feature.scheduler.api.deliveryRequestId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.time.Clock
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
+
+class HarnessWakeOperationsTest {
+    private var now = AT
+    private val clock = object : Clock {
+        override fun now(): Instant = now
+    }
+
+    @Test
+    fun `suspending admission is checked again after ancestry before scheduler handoff`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val entered = CompletableDeferred<Unit>()
+        val released = CompletableDeferred<Unit>()
+        var hasStoredOrigin = false
+        var isAllowed = true
+        val storage = MemoryHarnessRequestAncestry().apply { beforeRestrict = { hasStoredOrigin = true } }
+        val operations = HarnessWakeOperations(backgroundScope, port, quota, HarnessRequestOrigins(storage), clock)
+        val attempt = async {
+            assertFailsWith<IllegalStateException> {
+                operations.schedule(HarnessWakeSubmission(OWNER, wake("revoked"), HarnessCallOrigin(true), false)) {
+                    if (hasStoredOrigin) {
+                        entered.complete(Unit)
+                        released.await()
+                    }
+                    isAllowed
+                }
+            }
+        }
+        entered.await()
+        assertEquals(0, port.calls)
+        assertFalse(attempt.isCompleted)
+        isAllowed = false
+        released.complete(Unit)
+        attempt.await()
+        assertEquals(0, port.calls)
+        quota.reserve(HarnessWakeReservation(WakeId("free1"), OWNER, dispatchSession, false), port::snapshot)
+        quota.reserve(HarnessWakeReservation(WakeId("free2"), OWNER, dispatchSession, false), port::snapshot)
+    }
+
+    @Test
+    fun `scheduler timestamp is read after delayed ancestry while deadline stays unchanged`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val storage = MemoryHarnessRequestAncestry().apply {
+            beforeRestrict = {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        val operations = HarnessWakeOperations(backgroundScope, port, quota, HarnessRequestOrigins(storage), clock)
+        val request = wake("delayed")
+        val caller = async {
+            operations.schedule(HarnessWakeSubmission(OWNER, request, HarnessCallOrigin(true), true)) { true }
+        }
+        entered.await()
+        now += 2.minutes
+        port.receipt.complete(HarnessWakeReceipt.Scheduled)
+        release.complete(Unit)
+        assertEquals(request.id, caller.await())
+        assertEquals(ScheduledWake(request, now), port.state.wakes.single())
+        assertEquals(AT, port.state.wakes.single().request.condition.deadline)
+    }
+
+    @Test
+    fun `failed ancestry write returns capacity before scheduler is called`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val storage = MemoryHarnessRequestAncestry().apply { failure = IllegalStateException("IO failed") }
+        val operations = HarnessWakeOperations(backgroundScope, port, quota, HarnessRequestOrigins(storage), clock)
+        repeat(3) { index ->
+            assertFailsWith<IllegalStateException> {
+                operations.schedule(
+                    HarnessWakeSubmission(OWNER, wake("failed$index"), HarnessCallOrigin(true), false),
+                ) { true }
+            }
+        }
+        quota.reserve(HarnessWakeReservation(WakeId("free1"), OWNER, dispatchSession, false), port::snapshot)
+        quota.reserve(HarnessWakeReservation(WakeId("free2"), OWNER, dispatchSession, false), port::snapshot)
+        assertEquals(0, port.calls)
+    }
+
+    @Test
+    fun `cancelled ancestry write returns reservation with cancelled profile job`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val entered = CompletableDeferred<Unit>()
+        val storage = MemoryHarnessRequestAncestry().apply {
+            beforeRestrict = {
+                entered.complete(Unit)
+                awaitCancellation()
+            }
+        }
+        val job = Job()
+        val owner = CoroutineScope(coroutineContext + job)
+        val operations = HarnessWakeOperations(owner, port, quota, HarnessRequestOrigins(storage), clock)
+        val caller = async {
+            assertFailsWith<CancellationException> {
+                operations.schedule(
+                    HarnessWakeSubmission(OWNER, wake("cancelled-write"), HarnessCallOrigin(true), false),
+                ) { true }
+            }
+        }
+        entered.await()
+        job.cancelAndJoin()
+        caller.await()
+        quota.reserve(HarnessWakeReservation(WakeId("free1"), OWNER, dispatchSession, false), port::snapshot)
+        quota.reserve(HarnessWakeReservation(WakeId("free2"), OWNER, dispatchSession, false), port::snapshot)
+        assertEquals(0, port.calls)
+    }
+
+    @Test
+    fun `cancelled profile rejects a live caller without submitting or hanging`() = runTest {
+        val port = WakePortFixture()
+        val job = Job().also { it.cancel() }
+        val owner = CoroutineScope(coroutineContext + job)
+        val operations = HarnessWakeOperations(
+            owner,
+            port,
+            HarnessWakeQuotas(clock),
+            HarnessRequestOrigins(MemoryHarnessRequestAncestry()),
+            clock,
+        )
+        assertFailsWith<CancellationException> {
+            operations.schedule(
+                HarnessWakeSubmission(OWNER, wake("closed-profile"), HarnessCallOrigin(), false),
+            ) { true }
+        }
+        assertEquals(0, port.calls)
+    }
+
+    @Test
+    fun `cancelled waiter leaves owned submission and reservation alive until receipt`() = runTest {
+        val port = WakePortFixture()
+        val origins = HarnessRequestOrigins(MemoryHarnessRequestAncestry())
+        val quota = HarnessWakeQuotas(clock)
+        val operations = HarnessWakeOperations(backgroundScope, port, quota, origins, clock)
+        val request = wake("first")
+        val origin = HarnessCallOrigin(sendChain = mapOf(OWNER to 2))
+        val waiter = async { operations.schedule(HarnessWakeSubmission(OWNER, request, origin, true)) { true } }
+        runCurrent()
+        val context = SessionHookContext(
+            dispatchSession,
+            null,
+            request.id.deliveryRequestId(),
+            null,
+            SessionOwner("host"),
+        )
+        assertEquals(origin, origins.origin(context))
+        waiter.cancel()
+        runCurrent()
+        assertTrue(port.isWaiting)
+        quota.reserve(HarnessWakeReservation(WakeId("second"), OWNER, dispatchSession, false), port::snapshot)
+        assertFailsWith<IllegalStateException> {
+            quota.reserve(HarnessWakeReservation(WakeId("third"), OWNER, dispatchSession, false), port::snapshot)
+        }
+        port.receipt.complete(HarnessWakeReceipt.Scheduled)
+        runCurrent()
+        assertEquals(listOf(request), port.state.wakes.map { it.request })
+        assertEquals(1, port.calls)
+    }
+
+    @Test
+    fun `unknown receipt retains capacity while definitive rejection returns it`() = runTest {
+        val port = WakePortFixture()
+        val quota = HarnessWakeQuotas(clock)
+        val operations = HarnessWakeOperations(
+            backgroundScope,
+            port,
+            quota,
+            HarnessRequestOrigins(MemoryHarnessRequestAncestry()),
+            clock,
+        )
+        port.receipt.complete(HarnessWakeReceipt.Unknown)
+        assertFailsWith<IllegalStateException> {
+            operations.schedule(HarnessWakeSubmission(OWNER, wake("unknown"), HarnessCallOrigin(), false)) { true }
+        }
+        port.receipt = CompletableDeferred<HarnessWakeReceipt>().also { it.complete(HarnessWakeReceipt.Rejected) }
+        repeat(3) { index ->
+            assertFailsWith<IllegalStateException> {
+                operations.schedule(
+                    HarnessWakeSubmission(OWNER, wake("rejected$index"), HarnessCallOrigin(), false),
+                ) { true }
+            }
+        }
+        quota.reserve(HarnessWakeReservation(WakeId("second"), OWNER, dispatchSession, false), port::snapshot)
+        assertFailsWith<IllegalStateException> {
+            quota.reserve(HarnessWakeReservation(WakeId("third"), OWNER, dispatchSession, false), port::snapshot)
+        }
+        assertEquals(4, port.calls)
+    }
+
+    @Test
+    fun `revoked admission never reaches scheduler`() = runTest {
+        val port = WakePortFixture()
+        val operations = HarnessWakeOperations(
+            backgroundScope,
+            port,
+            HarnessWakeQuotas(clock),
+            HarnessRequestOrigins(MemoryHarnessRequestAncestry()),
+            clock,
+        )
+        var isAdmitted = true
+        val waiter = async {
+            assertFailsWith<IllegalStateException> {
+                operations.schedule(
+                    HarnessWakeSubmission(OWNER, wake("revoked"), HarnessCallOrigin(), false),
+                ) { isAdmitted }
+            }
+        }
+        isAdmitted = false
+        waiter.await()
+        assertEquals(0, port.calls)
+    }
+}
+
+private class WakePortFixture : HarnessWakePort {
+    var state = SchedulerState.Ready()
+    var receipt = CompletableDeferred<HarnessWakeReceipt>()
+    var calls = 0
+    var isWaiting = false
+    override fun snapshot(): SchedulerState.Ready = state
+    override suspend fun schedule(request: WakeRequest, at: Instant): HarnessWakeReceipt {
+        calls++
+        isWaiting = true
+        val result = receipt.await()
+        if (result == HarnessWakeReceipt.Scheduled) state = state.copy(wakes = state.wakes + ScheduledWake(request, at))
+        isWaiting = false
+        return result
+    }
+    override suspend fun cancel(request: WakeRequest, cause: EventOrigin?): Boolean = false
+}
+
+private fun wake(id: String): WakeRequest = WakeRequest(
+    WakeId(id),
+    dispatchSession,
+    null,
+    WakeCondition(deadline = AT),
+    "private note",
+    WakeOrigin.Feature(HARNESS_WAKE_OWNER),
+    ownerFeature = HARNESS_WAKE_OWNER,
+)
+
+private val AT = Instant.fromEpochMilliseconds(1_000)
+private val OWNER = HarnessId("owner")

@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeAttachme
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolBridgeEndpoint
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContext
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCallId
@@ -74,15 +75,20 @@ internal class DesktopAgentToolBridge(
     override suspend fun attach(
         workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = attach(AgentToolScope(workspace), context)
+
+    override suspend fun attach(
+        scope: AgentToolScope,
+        context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment {
         check(!profile.isClosed) { "Agent tools profile is closed" }
         val token = Base64.getUrlEncoder().withoutPadding().encodeToString(ByteArray(32).also(random::nextBytes))
-        val scope = CoroutineScope(
+        val lifetime = CoroutineScope(
             profile.coroutineScope.coroutineContext + SupervisorJob(
                 profile.coroutineScope.coroutineContext[kotlinx.coroutines.Job],
             ),
         )
-        val capability = Capability(workspace, context, scope)
+        val capability = Capability(scope, context, lifetime)
         capabilities[token] = capability
         var isStarted = false
         val running = try {
@@ -90,7 +96,7 @@ internal class DesktopAgentToolBridge(
         } finally {
             if (!isStarted) {
                 capabilities.remove(token)
-                scope.cancel()
+                lifetime.cancel()
             }
         }
         log.i { "Attached agent tool capability" }
@@ -98,7 +104,7 @@ internal class DesktopAgentToolBridge(
             override val endpoint = AgentToolBridgeEndpoint("http://127.0.0.1:${running.address.port}", token)
             override fun close() {
                 if (capabilities.remove(token, capability)) {
-                    scope.cancel()
+                    lifetime.cancel()
                     log.i { "Revoked agent tool capability" }
                 }
             }
@@ -188,10 +194,10 @@ internal class DesktopAgentToolBridge(
     }
 
     private suspend fun execute(capability: Capability, request: JsonObject, context: AgentToolContext?): JsonObject {
-        val result = if (context == null || context.workspace != capability.workspace) {
+        val name = (request["name"] as? JsonPrimitive)?.content.orEmpty()
+        val result = if (context == null || !capability.accepts(context, name)) {
             AgentToolResult("No active turn for this capability", isError = true)
         } else {
-            val name = (request["name"] as? JsonPrimitive)?.content.orEmpty()
             val arguments = request["arguments"] as? JsonObject ?: JsonObject(emptyMap())
             val call = (request["callId"] as? JsonPrimitive)?.content?.takeIf { it.isNotBlank() }
                 ?: Uuid.random().toString()
@@ -215,6 +221,12 @@ internal class DesktopAgentToolBridge(
         }
     }
 
+    private fun Capability.accepts(context: AgentToolContext, name: String): Boolean {
+        if (context.workspace != toolScope.workspace) return false
+        if (toolScope.session != null && context.session != toolScope.session) return false
+        return toolScope.declared?.contains(name) != false
+    }
+
     private suspend fun mcp(capability: Capability, request: JsonObject, context: AgentToolContext?): JsonObject {
         val method = (request["method"] as? JsonPrimitive)?.content.orEmpty()
         val params = request["params"] as? JsonObject ?: JsonObject(emptyMap())
@@ -229,7 +241,7 @@ internal class DesktopAgentToolBridge(
                         put("version", "1")
                     },
                 )
-                put("instructions", tools.instructions(capability.workspace))
+                put("instructions", tools.instructions(capability.toolScope))
             }
 
             "ping" -> buildJsonObject {}
@@ -238,7 +250,7 @@ internal class DesktopAgentToolBridge(
                 put(
                     "tools",
                     JsonArray(
-                        tools.specifications(capability.workspace).map { spec ->
+                        tools.specifications(capability.toolScope).map { spec ->
                             buildJsonObject {
                                 put("name", spec.name)
                                 put("description", spec.description)
@@ -300,7 +312,7 @@ internal class DesktopAgentToolBridge(
     }
 
     private data class Capability(
-        val workspace: WorkspaceRef?,
+        val toolScope: AgentToolScope,
         val context: suspend () -> AgentToolContext?,
         val scope: CoroutineScope,
     )

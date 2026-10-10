@@ -20,11 +20,48 @@ import kotlinx.serialization.json.contentOrNull
 /** Internal wire boundary. Implementations serialize writes and sanitize failures before crossing it. */
 internal interface CodexWire : AutoCloseable {
     val messages: Flow<JsonObject>
+
+    /** Read-only ownership snapshot; unsupported transports cannot supply evidence for a stored stop. */
+    suspend fun processOwner(): CodexExecutionOwner? = null
+
     suspend fun write(message: JsonObject)
     override fun close()
 }
 
+/** Immutable launch selection shared by a runtime's metadata and execution processes. Never logs settings. */
+internal interface PreparedCodexLaunch {
+    /** Starts the captured executable with the captured home, arguments and environment. */
+    suspend fun open(): CodexWire
+
+    /** Applies only the typed restrictions after validating the captured executable's protocol version. */
+    suspend fun open(off: CodexNativeOff): CodexWire {
+        if (off.isRestricted) unsupported()
+        return open()
+    }
+
+    /**
+     * Stops only identity-checked stored processes, without opening a thread. Newly observed descendants are
+     * recorded before signalling; the returned owner includes concurrent observations. Null aborts signalling.
+     * [beginInspection] durably marks discovery pending before enumerating new children; [record] clears it only
+     * after a complete snapshot. An interrupted inspection must never be retried as an empty complete snapshot.
+     * True proves exit of those observed processes only, not containment of unobserved descendants.
+     */
+    suspend fun stop(
+        owner: CodexExecutionOwner,
+        beginInspection: suspend () -> Boolean,
+        record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
+    ): Boolean = false
+
+    /** Reads the version of that same executable; an unknown version cannot authorize native policy support. */
+    suspend fun version(): String? = null
+}
+
 internal interface CodexTransport {
+    /** Captures process settings once. Immutable/mobile transports can use the default implementation. */
+    suspend fun prepare(): PreparedCodexLaunch = object : PreparedCodexLaunch {
+        override suspend fun open(): CodexWire = this@CodexTransport.open()
+    }
+
     /** Opens an app-server started with the profile's current launch context. */
     suspend fun open(): CodexWire
 

@@ -8,7 +8,8 @@ import io.aequicor.heartbeat.core.datastore.KeyValueSpec
 import io.aequicor.heartbeat.core.datastore.KeyValueStore
 import io.aequicor.heartbeat.core.datastore.StorageOwner
 import io.aequicor.heartbeat.core.di.ScopeHandle
-import io.aequicor.heartbeat.core.logging.Log
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 
 /** [DataStores] of one owner: its open stores and databases, closed with [scope] (see [StoreRegistry.attach]). */
 internal class OwnerStores(
@@ -16,6 +17,11 @@ internal class OwnerStores(
     private val scope: ScopeHandle,
     private val registry: StoreRegistry,
 ) : DataStores {
+
+    private val closed = CompletableDeferred<Unit>()
+    private val openGate = StorageOpenGate(::closeAfterConstructions)
+    private val ownerJob = checkNotNull(scope.coroutineScope.coroutineContext[Job])
+    val isClosed: Boolean get() = scope.isClosed
 
     private val keyValues = ConcurrentCache<String, LoggingKeyValueStore>()
     private val databases = ConcurrentCache<String, OpenDatabase>()
@@ -25,22 +31,22 @@ internal class OwnerStores(
         return registry.filesDirectory(owner, name)
     }
 
-    override fun keyValue(spec: KeyValueSpec): KeyValueStore {
+    override fun keyValue(spec: KeyValueSpec): KeyValueStore = openGate.open {
         checkOpen()
         val store = keyValues.getOrPut(spec.name) { registry.openKeyValue(owner, spec, scope) }
         check(store.spec == spec) { "${owner.label}: kv ${spec.name} is already open as ${store.spec}, not $spec" }
         checkStillOpen()
-        return store
+        store
     }
 
     // The instance was created by the same spec (checked below), so it is a T.
     @Suppress("UNCHECKED_CAST")
-    override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T {
+    override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = openGate.open {
         checkOpen()
         val open = databases.getOrPut(spec.name) { registry.openDatabase(owner, spec, scope) }
         check(open.spec === spec) { "${owner.label}: db ${spec.name} is already open with another DatabaseSpec" }
         checkStillOpen()
-        return open.db as T
+        open.db as T
     }
 
     override suspend fun fire(event: DataEvent) {
@@ -53,13 +59,20 @@ internal class OwnerStores(
         databases.values().forEach { it.retention.purgeEvent(it.db, event, firedAt) }
     }
 
-    /** Closes the databases; the Preferences files stay with the registry. Called when [scope] closes. */
-    fun close() {
+    /** Revokes new factories immediately; physical close waits for factories and every owner-bound query. */
+    fun close() = openGate.close()
+
+    /** Cancelling a waiter does not cancel physical cleanup or weaken the wipe barrier. */
+    suspend fun awaitClosed() = closed.await()
+
+    fun onClosed(action: () -> Unit) {
+        closed.invokeOnCompletion { failure -> if (failure == null) action() }
+    }
+
+    private fun closeAfterConstructions() {
         keyValues.removeAll { true }
-        databases.removeAll { true }.forEach { open ->
-            open.db.close()
-            Log.tag(DB_LOG_TAG).i { "${open.label}: closed" }
-        }
+        val opened = databases.removeAll { true }
+        ownerJob.invokeOnCompletion { registry.closeDatabases(opened, closed) }
     }
 
     private fun checkOpen() {

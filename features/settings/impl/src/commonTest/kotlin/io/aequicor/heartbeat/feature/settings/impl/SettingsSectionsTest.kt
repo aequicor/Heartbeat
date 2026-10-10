@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.feature.settings.impl
 
 import io.aequicor.heartbeat.feature.agentlearning.api.AgentLearningRoute
 import io.aequicor.heartbeat.feature.computeruse.api.ComputerUseRoute
+import io.aequicor.heartbeat.feature.harness.api.HarnessRoute
 import io.aequicor.heartbeat.feature.settings.api.SettingsSection
+import io.aequicor.heartbeat.feature.settings.api.deepLinkName
 import io.aequicor.heartbeat.feature.settings.impl.domain.availableSections
 import io.aequicor.heartbeat.feature.settings.impl.presentation.component.route
 import io.aequicor.heartbeat.feature.settings.impl.presentation.store.SettingsScreenState
@@ -28,6 +30,7 @@ class SettingsSectionsTest {
                 hasProfile = true,
                 isComputerUseEnabled = true,
                 isLearningEnabled = true,
+                isHarnessEnabled = true,
             ),
         )
         assertEquals(
@@ -60,6 +63,18 @@ class SettingsSectionsTest {
             }
         }
         assertEquals(AgentLearningRoute(isEmbedded = true), SettingsSection.AgentLearning.route())
+    }
+
+    @Test
+    fun `harnesses are offered only with their toggle and an active profile and open embedded`() {
+        for (enabled in listOf(false, true)) {
+            for (profile in listOf(false, true)) {
+                val sections = availableSections(false, false, profile, isHarnessEnabled = enabled)
+                assertEquals(enabled && profile, SettingsSection.Harness in sections)
+            }
+        }
+        assertEquals(HarnessRoute(isEmbedded = true), SettingsSection.Harness.route())
+        assertEquals("harness", SettingsSection.Harness.deepLinkName)
     }
 
     private val allUi = all.map { it.toUi() }

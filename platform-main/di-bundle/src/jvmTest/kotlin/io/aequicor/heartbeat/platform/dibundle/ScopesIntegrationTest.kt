@@ -41,6 +41,7 @@ class ScopesIntegrationTest {
         // Cancellation may still resume IO continuations on Main; join them before resetting the test dispatcher.
         processes.forEach { (it.appScope as OwnedScope).close() }
         processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
+        processes.forEach { it.storageMaintenance.awaitClosed() }
         Dispatchers.resetMain()
     }
 
@@ -48,6 +49,7 @@ class ScopesIntegrationTest {
         // Process death releases app-owned DataStore files without signing out the persisted profile.
         processes.forEach { (it.appScope as OwnedScope).close() }
         processes.forEach { it.appScope.coroutineScope.coroutineContext[Job]?.join() }
+        processes.forEach { it.storageMaintenance.awaitClosed() }
         return createGraphFactory<TestAppGraph.Factory>().create(persisted).also { processes += it }
     }
 

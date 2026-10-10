@@ -37,7 +37,9 @@ public interface DataStores {
 
     /**
      * The Room database [spec] of this owner, configured by the core (bundled SQLite driver, IO dispatcher,
-     * migrations with logs, retention of rows with [RecordRetention]). One instance per name; closed with the owner.
+     * migrations with logs, retention of rows with [RecordRetention]). One instance per name. Closing the owner
+     * cancels its Room operations; physical close follows their completion. [StorageMaintenance.awaitClosed]
+     * confirms physical cleanup before external file operations. Never close the returned database manually.
      * Never build a Room database directly.
      */
     public fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T
@@ -65,6 +67,14 @@ public sealed interface StorageOwner {
 
 /** Maintenance of storages beyond one owner. App-scoped. */
 public interface StorageMaintenance {
+    /**
+     * Waits for the snapshot of owners already closing at invocation, including actual database close. Does not
+     * close scopes or wait for active owners or later closures. Failures propagate; cancellation of this wait
+     * does not cancel cleanup. Before deleting an entire storage root, close the app scope and join its jobs
+     * first (including app-owned Preferences jobs), then await this barrier. [wipeProfile] does this for its owner.
+     */
+    public suspend fun awaitClosed()
+
     /**
      * Deletes every storage of the profile [id] (e.g. when the account is removed from the device).
      * Fails with [IllegalStateException] if the profile is active — close the session first.

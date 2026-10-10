@@ -37,6 +37,7 @@
     <string name="sidebar_collapsed">Collapsed</string>
     <string name="sidebar_project_empty">No sessions yet</string>
 
+    <string name="session_awaiting_permission">Waiting for permission</string>
     <string name="session_running">Agent is working</string>
     <string name="session_unread">Unread</string>
     <string name="session_branch">Branch %1$s</string>
@@ -257,4 +258,6 @@
     <string name="session_sleeping">Sleeping</string>
     <string name="session_waiting_event">Waiting for an event</string>
     <string name="session_checklist_ready">Ready</string>
+    <string name="harness_menu_section">Harnesses</string>
+    <string name="harness_menu_permanent">Active by its scope in this chat</string>
 </resources>

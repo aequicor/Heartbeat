@@ -27,6 +27,28 @@ import kotlin.test.assertTrue
 
 class DefaultAgentToolsScopeTest {
     @Test
+    fun `independent instructions survive an empty declaration set while preserving detached boundaries`() = runTest {
+        val seen = mutableListOf<AgentToolScope>()
+        val owner = object : AgentToolContribution {
+            override val hasIndependentInstructions = true
+            override suspend fun specifications(workspace: WorkspaceRef?) = emptyList<AgentToolSpec>()
+            override suspend fun instructions(scope: AgentToolScope): String {
+                seen += scope
+                return "Independent knowledge"
+            }
+            override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) =
+                error("No tools")
+        }
+        val tools = DefaultAgentTools(setOf(owner))
+        val scope = AgentToolScope(PROJECT, TARGET, declared = emptySet())
+        assertEquals("Independent knowledge", tools.instructions(scope))
+        assertEquals(listOf(scope), seen)
+        assertEquals("", tools.instructions(AgentToolScope(null)))
+        assertEquals(1, seen.size)
+        assertTrue(tools.specifications(scope).isEmpty())
+    }
+
+    @Test
     fun `session without a project sees only detached contributions`() = runTest {
         val project = ScopedOwner("project_tool", isDetached = false)
         val detached = ScopedOwner("detached_tool", isDetached = true)

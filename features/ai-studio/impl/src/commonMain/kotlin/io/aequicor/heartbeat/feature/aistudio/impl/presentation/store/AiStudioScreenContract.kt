@@ -45,9 +45,15 @@ data class SessionUi(
     val isAwaitingChecklist: Boolean = false,
     val isReady: Boolean = false,
     val scheduledWait: SessionWaitUi? = null,
+    val parentChatId: String? = null,
+    /** Sidebar-only indentation, derived after filtering and grouping the visible helper tree. */
+    val depth: Int = 0,
+    val isAwaitingPermission: Boolean = false,
+    /** A real parent exists outside the search filter; nested chats inherit that root's sidebar section. */
+    val isNestedInSidebar: Boolean = false,
 ) {
     /** Work is pending even when no engine turn is currently executing. */
-    val isWaiting: Boolean get() = scheduledWait != null || isAwaitingChecklist
+    val isWaiting: Boolean get() = isAwaitingPermission || scheduledWait != null || isAwaitingChecklist
 }
 
 /** Title being edited inline; [origin] is the list row or pane header hosting the field. */
@@ -110,6 +116,8 @@ data class AiStudioScreenState(
     val isRememberEnabled: Boolean = false,
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
+    /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */
+    val harnessChoices: HarnessChoicesUi = HarnessChoicesUi(),
     /** Organisms of organism chats, by chat id. */
     val organisms: ImmutableMap<String, OrganismUi> = persistentMapOf(),
     /** The sub-session each organism chat shows, by chat id; the zygote when absent. */
@@ -156,6 +164,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
+
+    /** Connects a harness to the chat of [paneId], or remembers the choice for a new chat. */
+    data class SelectHarness(val paneId: Int, val harness: String, val isSelected: Boolean) : AiStudioScreenIntent
 
     /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
     sealed interface Organism : AiStudioScreenIntent

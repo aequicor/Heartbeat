@@ -236,7 +236,7 @@ class KoogCodingSessionTest {
         val f = fixture()
         f.isSearchEnabled = false
         f.hostedTools = object : ProfileAgentTools by DetachedTools() {
-            override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> =
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> =
                 error("Contribution failed")
         }
         val chat = f.runtime().create(CreateSessionRequest(f.target, areDetachedToolsEnabled = true))

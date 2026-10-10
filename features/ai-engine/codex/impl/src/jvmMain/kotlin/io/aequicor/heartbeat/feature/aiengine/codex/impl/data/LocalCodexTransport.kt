@@ -20,6 +20,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.LaunchSettings
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineLaunchConfig
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.LaunchContext
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runInterruptible
@@ -60,19 +61,75 @@ internal class LocalCodexTransport(
         }
     }
 
-    override suspend fun open(): CodexWire = open(launches.context(CodexEngine.Id))
+    override suspend fun prepare(): PreparedCodexLaunch {
+        val context = launches.context(CodexEngine.Id)
+        return withContext(dispatchers.io) {
+            val resolved = resolveCodexLaunch(context, config).let {
+                it.copy(overrides = it.overrides.toList(), environment = it.environment.toList())
+            }
+            val environment = capturedCodexEnvironment(resolved)
+            object : PreparedCodexLaunch {
+                override suspend fun open(): CodexWire = openResolved(resolved, environment)
+                override suspend fun open(off: CodexNativeOff): CodexWire {
+                    if (off.isRestricted) off.requireVersion(version())
+                    return openResolved(resolved, environment, off)
+                }
 
-    override suspend fun open(launch: LaunchContext): CodexWire = withContext(dispatchers.io) {
-        val resolved = resolveCodexLaunch(launch, config)
+                override suspend fun stop(
+                    owner: CodexExecutionOwner,
+                    beginInspection: suspend () -> Boolean,
+                    record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
+                ): Boolean = CodexProcessStop(dispatchers).stop(owner, beginInspection, record)
+
+                override suspend fun version(): String? = withContext(dispatchers.io) {
+                    if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
+                        version(resolved, environment)
+                    } else {
+                        null
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun open(): CodexWire = prepare().open()
+
+    override suspend fun open(launch: LaunchContext): CodexWire {
+        val resolved = withContext(dispatchers.io) { resolveCodexLaunch(launch, config) }
+        return openResolved(resolved, capturedCodexEnvironment(resolved))
+    }
+
+    /** Cancellation during dispatcher handoff still closes the newly started process. */
+    private suspend fun openResolved(
+        resolved: CodexLaunch,
+        environment: Map<String, String>,
+        off: CodexNativeOff = CodexNativeOff(),
+    ): CodexWire {
+        var owned: CodexWire? = null
+        var isTransferred = false
+        return try {
+            val wire = withContext(dispatchers.io) {
+                startResolved(resolved, environment, off).also { owned = it }
+            }
+            isTransferred = true
+            wire
+        } finally {
+            if (!isTransferred) owned?.close()
+        }
+    }
+
+    /** Blocking process creation; callers dispatch it to IO before entering. */
+    private fun startResolved(resolved: CodexLaunch, environment: Map<String, String>, off: CodexNativeOff): CodexWire {
         log.i { "Starting local Codex app-server source=${resolved.source}" }
-        try {
+        return try {
             require(resolved.isRunnable && resolved.source != InstallSource.Missing) {
                 "Codex executable cannot be started safely"
             }
             resolved.home?.let { require(File(it).isAbsolute) { "Codex home must be absolute" } }
-            val builder = ProcessBuilder(codexProcessArguments(codexCommand(resolved)))
+            val builder = ProcessBuilder(codexProcessArguments(codexCommand(resolved, off)))
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
-            applyCodexEnvironment(builder.environment(), resolved)
+            builder.environment().clear()
+            builder.environment().putAll(environment)
             val process = builder.start()
             var cleanup: (() -> Unit)? = null
             val wire = ProcessCodexWire(process, dispatchers) { cleanup?.invoke() }
@@ -80,7 +137,7 @@ internal class LocalCodexTransport(
             cleanup = { handle.dispose() }
             wire
         } catch (e: IOException) {
-            // Starting a local process failed (missing executable, permissions or format), not a network request.
+            // Installation failures are distinct from network failures.
             // Do not retain native diagnostics: they can contain the user's executable path.
             val failure = EngineException(EngineFailure.Engine(EngineFailureReason.RequirementsNotMet))
             log.w(e.sanitized()) { "Codex executable could not be started" }
@@ -109,9 +166,13 @@ internal class LocalCodexTransport(
     override fun releaseTarget(): CodexTarget? = codexReleaseTarget()
 
     /** `codex --version`, bounded and cancellable; an executable that does not answer has no known version. */
-    private suspend fun version(launch: CodexLaunch): String? = try {
+    private suspend fun version(
+        launch: CodexLaunch,
+        environment: Map<String, String> = capturedCodexEnvironment(launch),
+    ): String? = try {
         val builder = ProcessBuilder(launch.executable, "--version").redirectErrorStream(true)
-        applyCodexEnvironment(builder.environment(), launch)
+        builder.environment().clear()
+        builder.environment().putAll(environment)
         val process = builder.start()
         try {
             process.outputStream.close()
@@ -170,6 +231,11 @@ internal class ProcessCodexWire(
     private val isClosed = AtomicBoolean(false)
     private val writer = process.outputStream.bufferedWriter(Charsets.UTF_8)
     private val writes = Mutex()
+    private val ownership = CodexProcessOwnership(process::toHandle, dispatchers)
+
+    override suspend fun processOwner(): CodexExecutionOwner? =
+        if (isClosed.get()) null else ownership.capture().takeUnless { isClosed.get() }
+
     override val messages = flow {
         try {
             val input = process.inputStream.bufferedReader(Charsets.UTF_8)
@@ -201,19 +267,26 @@ internal class ProcessCodexWire(
                 }
             }
         } finally {
-            // A close that raced this write could not take the lock; the write releases stdin once it is done.
-            if (isClosed.get()) closeStdin()
+            // The exit callback may have missed the writer lock. Retry cleanup on IO after this write releases it.
+            if (isClosed.get()) closeAfterExit()
         }
     }
 
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) return
         log.i { "Stopping local Codex app-server" }
-        // Destroy first: blocked pipe IO must unblock before stdin can be closed.
-        destroyDescendants()
-        process.destroyForcibly()
-        closeStdin()
-        release()
+        try {
+            destroyDescendants()
+            // Process.destroyForcibly also closes Java stdin synchronously and can block on a pending writer.
+            process.toHandle().destroyForcibly()
+        } catch (error: SecurityException) {
+            log.w(error.sanitized()) { "Codex app-server stop signal denied" }
+        } catch (error: UnsupportedOperationException) {
+            log.w(error.sanitized()) { "Codex app-server stop signal unsupported" }
+        } finally {
+            release()
+            closeAfterExit()
+        }
     }
 
     /**
@@ -222,7 +295,7 @@ internal class ProcessCodexWire(
      */
     private fun destroyDescendants() {
         try {
-            process.descendants().toList().forEach { it.destroyForcibly() }
+            process.descendants().use { children -> children.forEach { it.destroyForcibly() } }
         } catch (e: SecurityException) {
             log.w(e) { "Codex app-server descendants unavailable" }
         } catch (e: UnsupportedOperationException) {
@@ -230,11 +303,12 @@ internal class ProcessCodexWire(
         }
     }
 
-    /**
-     * Closing flushes under the writer lock. Process death does not release the pipe while a descendant still holds
-     * it, so when an in-flight write holds the lock, that write closes stdin after releasing it: [isClosed] is set
-     * before this lock attempt, and [write] re-checks it after unlocking, so one of them always closes the writer.
-     */
+    /** No flushing/closing on the caller's thread: a surviving descendant may still hold the pipe. */
+    private fun closeAfterExit() {
+        process.onExit().thenRunAsync(::closeStdin, dispatchers.io.asExecutor())
+    }
+
+    /** A missed lock is retried by write's finally block after the writer unlocks. */
     private fun closeStdin() {
         if (!writes.tryLock()) return
         try {
@@ -257,3 +331,7 @@ private fun Exception.sanitized(): EngineException = EngineException(
         },
     ),
 )
+
+/** Captures inherited entries as well as overrides; subsequent launches cannot drift with profile settings. */
+private fun capturedCodexEnvironment(launch: CodexLaunch): Map<String, String> =
+    System.getenv().toMutableMap().apply { applyCodexEnvironment(this, launch) }.toMap()

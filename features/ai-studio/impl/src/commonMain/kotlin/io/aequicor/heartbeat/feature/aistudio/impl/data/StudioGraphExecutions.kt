@@ -25,11 +25,14 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRuntime
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskPhase
 import io.aequicor.heartbeat.feature.scheduler.api.GraphTaskResult
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
+import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.scheduler.api.spi.SpawnRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeRunKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
@@ -43,6 +46,7 @@ internal data class GraphChatAttempt(
     val result: GraphTaskResult? = null,
     val checkpoint: String? = null,
     val recoveryRoot: String? = null,
+    val causes: Set<RequestInitiator> = emptySet(),
 )
 
 /** Native graph submissions and results survive a crash between studio completion and scheduler acknowledgement. */
@@ -80,16 +84,11 @@ internal class StudioGraphExecutions(
         }
         val settings = settings(chatId, request)
         val execution = request.prompt.request.value
-        val recover = if (previousExecution != null && record.ref != null) {
-            (known.recoveryLineage(chatId, previousExecution).keys + previousExecution).map(::RequestId)
-        } else {
-            emptyList()
-        }
+        val recover = previousExecution?.takeIf { record.ref != null }?.let {
+            (known.recoveryLineage(chatId, it).keys + it).map(::RequestId)
+        }.orEmpty()
         val checkpoint = recovered?.checkpoint
-        record(
-            execution,
-            GraphChatAttempt(chatId, checkpoint = checkpoint, recoveryRoot = previousExecution ?: execution),
-        )
+        val bound = record(execution, request.graphAttempt(chatId, checkpoint, previousExecution))
         log.i { "run graph assignment in a studio chat recovery=${recover.isNotEmpty()}" }
         runs.run(
             host,
@@ -110,6 +109,7 @@ internal class StudioGraphExecutions(
                 },
                 recoveryRequests = recover,
                 recoveryCheckpoint = checkpoint,
+                causes = bound.causes,
                 onTurnAccepted = { active ->
                     val inspector = (active.features.resolve(RestoresSessionTurns) as? FeatureAccess.Available)?.feature
                     val receipt = inspector?.checkpoint(request.prompt.request)
@@ -122,7 +122,7 @@ internal class StudioGraphExecutions(
             ),
             waitForIdle = true,
             cancelBeforeSubmission = true,
-            isExecutionEnabled = admission,
+            admission = admission.map { if (it) ScheduledWakeAdmission.Allow else ScheduledWakeAdmission.Defer },
         )
         return lock.withLock { read()[execution]?.result }
             ?: GraphTaskResult(GraphTaskPhase.RecoveryRequired, "Native task outcome is not confirmed")
@@ -204,8 +204,11 @@ internal class StudioGraphExecutions(
         journal.set(ATTEMPTS, Json.encodeToString(records + (execution to change(records.getValue(execution)))))
     }
 
-    private suspend fun record(execution: String, attempt: GraphChatAttempt) = lock.withLock {
-        journal.set(ATTEMPTS, Json.encodeToString(read() + (execution to attempt)))
+    private suspend fun record(execution: String, attempt: GraphChatAttempt): GraphChatAttempt = lock.withLock {
+        val records = read()
+        val bound = retainGraphAttempt(execution, records[execution], attempt)
+        journal.set(ATTEMPTS, Json.encodeToString(records + (execution to bound)))
+        bound
     }
 
     private suspend fun read(): Map<String, GraphChatAttempt> {
@@ -281,3 +284,27 @@ internal fun Map<String, GraphChatAttempt>.recoveryLineage(
 ): Map<String, GraphChatAttempt> = filter { (execution, attempt) ->
     attempt.chat == chatId && (attempt.recoveryRoot ?: execution) == root
 }
+
+/** An exact execution cannot switch chats or recovery roots; replay may only add causal restrictions. */
+internal fun retainGraphAttempt(
+    execution: String,
+    previous: GraphChatAttempt?,
+    incoming: GraphChatAttempt,
+): GraphChatAttempt {
+    if (previous == null) return incoming
+    check(
+        previous.chat == incoming.chat &&
+            (previous.recoveryRoot ?: execution) == (incoming.recoveryRoot ?: execution),
+    ) {
+        "Graph execution identity changed"
+    }
+    return previous.copy(causes = previous.causes + incoming.causes)
+}
+
+private fun SpawnRequest.graphAttempt(chat: String, checkpoint: String?, previousExecution: String?): GraphChatAttempt =
+    GraphChatAttempt(
+        chat,
+        checkpoint = checkpoint,
+        recoveryRoot = previousExecution ?: prompt.request.value,
+        causes = causes + prompt.causes,
+    )

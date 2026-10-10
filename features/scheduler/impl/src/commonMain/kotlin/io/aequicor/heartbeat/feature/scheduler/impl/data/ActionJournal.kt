@@ -9,7 +9,11 @@ import io.aequicor.heartbeat.core.datastore.stringKey
 import io.aequicor.heartbeat.core.di.ForScope
 import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -17,13 +21,21 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlin.time.Instant
 
-/** A started action; [payload] keeps its completed result until the matching wakes settle. Never logged. */
+/**
+ * A started action; [payload] keeps its confirmed terminal result until matching wakes settle. Never logged.
+ * New helpers persist [parent]/[request] before creation and [helper] before prompting. Legacy records lacking
+ * these identities retain quota after restart: absence of identity cannot prove native termination.
+ */
 @Serializable
 internal data class ActionRecord(
     val id: ActionId,
     val kind: String,
     val startedAt: Instant,
     val payload: String? = null,
+    val helper: HelperId? = null,
+    val parent: SessionRef? = null,
+    val request: RequestId? = null,
+    val initiator: RequestInitiator? = null,
 ) {
     override fun toString(): String = "ActionRecord(id=$id, kind=$kind, completed=${payload != null})"
 }

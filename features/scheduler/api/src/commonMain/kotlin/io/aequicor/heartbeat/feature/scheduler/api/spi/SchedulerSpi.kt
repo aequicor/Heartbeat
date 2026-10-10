@@ -6,6 +6,13 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.scheduler.api.EventKey
 import io.aequicor.heartbeat.feature.scheduler.api.EventNamespace
+import io.aequicor.heartbeat.feature.scheduler.api.HelperCancellation
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
+import io.aequicor.heartbeat.feature.scheduler.api.HelperProgress
+import io.aequicor.heartbeat.feature.scheduler.api.HelperPrompt
+import io.aequicor.heartbeat.feature.scheduler.api.HelperResult
+import io.aequicor.heartbeat.feature.scheduler.api.HelperSubmission
+import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerLimits
 import io.aequicor.heartbeat.feature.scheduler.api.WakeRequest
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +30,10 @@ public data class WakePrompt(
     val isDeduplicationRequired: Boolean = false,
     /** Optional host-owned workflow; never supplied by the scheduler signal tool. */
     val ownerFeature: String? = null,
+    /** Live owner decision for this attempt; hosts must check it again immediately before native submission. */
+    val admission: Flow<ScheduledWakeAdmission>? = null,
+    /** Host-stamped exact causes, durably relayed to [request] before hooks and native submission. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     override fun toString(): String = "WakePrompt(request=$request)"
 }
@@ -34,6 +45,8 @@ public data class SpawnRequest(
     val target: EngineTarget,
     val title: String,
     val prompt: WakePrompt,
+    /** Exact saved causal requests, relayed before each initial or recovery native prompt. */
+    val causes: Set<RequestInitiator> = emptySet(),
 ) {
     override fun toString(): String = "SpawnRequest(target=$target, hasWorkspace=${workspace != null})"
 }
@@ -44,9 +57,15 @@ public data class SpawnRequest(
  * resumed turn. Without an owning host the wake fails as unavailable; there is no unattended engine fallback.
  * Used only by `scheduler:impl`, hosts that own sessions and `platform-main:di-bundle`.
  */
-public interface ScheduledSessionHost {
+public interface ScheduledSessionHost : ScheduledHelperCatalog {
     /** Higher wins among hosts that own a session. */
     public val priority: Int
+
+    /**
+     * Whether this host enforces live admission through an atomic pre-submission handoff and awaits
+     * [ScheduledRequestOriginObserver] for nonempty [WakePrompt.causes] before hooks and that handoff.
+     */
+    public val isWakeAdmissionSupported: Boolean get() = false
 
     /** Whether this host keeps the transcript of [session]. */
     public suspend fun owns(session: SessionRef): Boolean
@@ -54,6 +73,8 @@ public interface ScheduledSessionHost {
     /**
      * Submits [prompt] as the next turn of the session of [request], waiting while the session is busy. Returns once
      * the engine accepted the turn; the turn itself belongs to the profile. Throws when the prompt was not accepted.
+     * [WakePrompt.admission] must gate waiting and preparation until the native submission boundary; a Defer or Drop
+     * revokes this attempt permanently. Once submission begins, owner changes cannot cancel profile-owned work.
      */
     public suspend fun wake(request: WakeRequest, prompt: WakePrompt)
 
@@ -62,6 +83,36 @@ public interface ScheduledSessionHost {
      * null when this host does not create sessions.
      */
     public suspend fun spawn(request: SpawnRequest): SessionRef? = null
+
+    /** Whether this host can create supervised helpers for [parent], including null for parentless helpers. */
+    public suspend fun canHostHelper(parent: SessionRef?): Boolean = false
+
+    /** Persists an empty marked chat without submitting native work; never falls back to [spawn]. */
+    public suspend fun createHelper(request: HelperCreateRequest): HelperId =
+        throw UnsupportedOperationException("Helper creation is unavailable")
+
+    /**
+     * Submits exactly this immutable attempt, durably correlating acceptance with its request. Repeating the same
+     * request cannot submit another native turn. Exceptions are uncertain, never proof of rejection.
+     */
+    public suspend fun promptHelper(helper: HelperId, prompt: HelperPrompt): HelperSubmission =
+        throw UnsupportedOperationException("Helper submission is unavailable")
+
+    /** Terminal result of the exact request, never the latest unrelated turn. */
+    public suspend fun helperResult(helper: HelperId, request: RequestId): HelperResult? = null
+
+    /** Current accepted-turn state only; this read must never open/resume a native session. */
+    public suspend fun helperProgress(helper: HelperId, request: RequestId): HelperProgress? = null
+
+    /**
+     * Revokes preparation or waits for confirmed terminal native work for this request. An accepted cancel command
+     * alone must return Unconfirmed. A NotSubmitted response also prevents any delayed submission of this request.
+     */
+    public suspend fun cancelHelper(helper: HelperId, request: RequestId): HelperCancellation =
+        throw UnsupportedOperationException("Helper cancellation is unavailable")
+
+    /** Reads a durable helper marker; parentless helpers must also be recognised. */
+    public suspend fun isHelper(session: SessionRef): Boolean = false
 }
 
 /** A platform signal; its key must be in [EventNamespace.System]. */

@@ -15,7 +15,10 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelCatalog
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnAccess
+import io.aequicor.heartbeat.feature.aiengine.facade.api.OwnedTurnStop
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderUsageCatalog
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionCatalog
@@ -28,6 +31,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTimes
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTreeSnapshot
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
 import kotlinx.coroutines.NonCancellable
@@ -57,7 +62,7 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val creator = pool.runtime(resolved).features.resolve(CreatesSessions).orFail()
         val native = adapterCall(log, "create") { creator.create(request) }
-        return open(native, resolved.route, target.model) {
+        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref.engine != target.engine) fail(EngineFailure.Unknown())
             val now = context.clock.now()
             record(
@@ -80,7 +85,7 @@ class SessionLauncher(
         val resolved = routes.resolve(target.engine, target.binding, request.workspace, target.model)
         val attacher = pool.runtime(resolved).features.resolve(AttachesSessions).orFail()
         val native = adapterCall(log, "attach") { attacher.attach(ref, request) }
-        return open(native, resolved.route, target.model) {
+        return open(native, resolved.route, target.model, request.areSessionHooksEnabled) {
             if (native.ref != ref) fail(EngineFailure.Unknown())
             val known = sessions.indexed(ref) ?: SessionSummary(ref)
             record(known.copy(workspace = request.workspace ?: known.workspace, lastRoute = resolved.route))
@@ -95,16 +100,38 @@ class SessionLauncher(
         return pool.runtime(resolved).features.resolve(SessionTrees).orFail()
     }
 
+    /** Cancels stored work through its explicit route without opening a session or recording provenance. */
+    suspend fun stop(ref: SessionRef, request: RequestId, access: OwnedTurnAccess): OwnedTurnStop {
+        val target = access.target
+        if (ref.engine != target.engine) fail(InvalidRequest)
+        log.i { "stop owned turn engine=${ref.engine.value} binding=${target.binding.value}" }
+        val resolved = routes.resolve(target.engine, target.binding, access.workspace)
+        val stopper = pool.runtime(resolved).features.resolve(StopsOwnedTurns).orFail()
+        // Starting a metadata runtime may suspend while a binding is disabled or its source changes.
+        routes.recheck(resolved.route, null)
+        val result = adapterCall(log, "stop owned turn") { stopper.stop(ref, request, access) }
+        if (result is OwnedTurnStop.Confirmed) {
+            val isExpectedTurn = access.expectedTurn == null || result.turn.id == access.expectedTurn
+            val isExpectedRoute = result.turn.target.engine == target.engine &&
+                result.turn.target.binding == target.binding
+            if (result.turn.request != request || !isExpectedRoute || !isExpectedTurn) {
+                fail(EngineFailure.Transport(TransportFailureReason.ProtocolViolation))
+            }
+        }
+        return result
+    }
+
     private suspend fun open(
         native: ActiveSession,
         route: ExecutionRoute,
         model: ModelId,
+        areSessionHooksEnabled: Boolean,
         prepare: suspend () -> Unit,
     ): ActiveSession {
         var isOpened = false
         try {
             prepare()
-            return host.open(native, route, model).also { isOpened = true }
+            return host.open(native, route, model, areSessionHooksEnabled).also { isOpened = true }
         } finally {
             if (!isOpened) {
                 log.w { "handle not opened, releasing native handle engine=${route.engine.value}" }
@@ -169,6 +196,14 @@ class FacadeCapabilities(
                 ): SessionHistory {
                     if (root.engine != engine || ref.engine != engine || ref.source != root.source) fail(InvalidRequest)
                     return launcher.value.trees(root, access).history(root, ref, access)
+                }
+            })
+        }
+        if (StopsOwnedTurns.id in registration.descriptor.declaredFeatures) {
+            entries[StopsOwnedTurns.id] = available(object : StopsOwnedTurns {
+                override suspend fun stop(ref: SessionRef, request: RequestId, access: OwnedTurnAccess): OwnedTurnStop {
+                    if (ref.engine != engine || access.target.engine != engine) fail(InvalidRequest)
+                    return launcher.value.stop(ref, request, access)
                 }
             })
         }

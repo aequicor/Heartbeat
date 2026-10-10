@@ -73,6 +73,9 @@ public data class AgentToolScope(
     val workspace: WorkspaceRef?,
     val target: EngineTarget? = null,
     val declared: Set<String>? = null,
+    val session: SessionRef? = null,
+    /** Whether the adapter rebuilds declarations at every turn instead of freezing them at session creation. */
+    val isRefreshedPerTurn: Boolean = false,
 )
 
 /** Bounded tool output returned to the engine; diagnostics must not expose host credentials. */
@@ -100,6 +103,23 @@ public data class AgentToolImage(val mimeType: String, val data: String) {
  */
 public interface AgentToolContribution {
     /**
+     * Adapter-operated host tools publish policy metadata here but execute through their existing transport.
+     * They are excluded from generic hosted declarations and execute; adapters must call
+     * [ProfileAgentTools.authorizeHosted] immediately before using their own transport. This flag is trusted
+     * contribution metadata, never selected by model arguments. Search is an adapter-operated host tool.
+     */
+    public val isAdapterOperated: Boolean get() = false
+
+    /** Stable settings group key, independent of feature availability. */
+    public val group: String get() = "other"
+
+    /** User-facing group title. Contributions sharing a group must use the same title. */
+    public val title: String get() = "Другие"
+
+    /** All owned tool names, including disabled ones. Reading it performs no IO. */
+    public val catalog: List<ToolCatalogEntry> get() = emptyList()
+
+    /**
      * Whether the tools also serve sessions without a project. Others are never asked about a null workspace,
      * so enabling hosted tools for such sessions does not expose project or desktop tools there. The dispatcher
      * answers any request without a workspace with these; adapters attach them only to sessions opened with
@@ -107,17 +127,36 @@ public interface AgentToolContribution {
      */
     public val isDetachedSupported: Boolean get() = false
 
+    /**
+     * Provides session content even when this contribution has no allowed tool declarations. The scoped
+     * instructions override must honor the effective declared set and its own availability toggle. This does
+     * not expose any tool or bypass detached-session opt-in; it serves independent knowledge such as harnesses.
+     */
+    public val hasIndependentInstructions: Boolean get() = false
+
     /** Currently available declarations; duplicate names across contributions are an error. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
+
+    /** Session-aware declarations; the compatibility default delegates to the workspace form. */
+    public suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = specifications(scope.workspace)
 
     /** Additional workflow instructions, without execution tokens. */
     public suspend fun instructions(workspace: WorkspaceRef?): String = ""
 
     /**
      * Instructions for a concrete session; adapters building a system prompt call this form. The default ignores
-     * the target. The workspace-only form remains for transports announcing the server (MCP `initialize`).
+     * the target. Legacy text is omitted when only part of this contribution is declared, since it may instruct
+     * the model to call an unavailable tool. Overrides must honor [AgentToolScope.declared] themselves.
      */
-    public suspend fun instructions(scope: AgentToolScope): String = instructions(scope.workspace)
+    public suspend fun instructions(scope: AgentToolScope): String =
+        if (scope.declared != null && specifications(scope.copy(declared = null)).any {
+                it.name !in scope.declared
+            }
+        ) {
+            ""
+        } else {
+            instructions(scope.workspace)
+        }
 
     /**
      * Requires an explicit user decision beyond the [AgentToolAction] × [TrustLevel] table. It can only add a
@@ -161,9 +200,18 @@ public interface AgentToolContribution {
      * turn; the dispatcher only isolates failures, it does not time contributions out.
      */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
+
+    /**
+     * Same lifecycle barrier with the trusted request of this exact turn, when known. A null request preserves
+     * legacy external-turn cleanup; implementations must not substitute another or the latest session request.
+     */
+    public suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?): Unit =
+        finishTurn(session, turn)
 }
 
 /** Profile-owned dispatcher shared by native, hosted and MCP adapters. */
+// Declaration, invocation and turn cleanup share one profile capability; adapters must use the same instance.
+@Suppress("TooManyFunctions")
 public interface ProfileAgentTools {
     /**
      * Binds a trusted request to its facade turn before native submission can invoke any hosted tools.
@@ -179,6 +227,23 @@ public interface ProfileAgentTools {
     /** Available tool declarations for a session's immutable execution workspace. */
     public suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec>
 
+    /** Session-aware declarations. Adapters with a session identity must use this form. */
+    public suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = specifications(scope.workspace)
+
+    /** Static hosted metadata, independent of workspace and toggle availability. */
+    public fun catalog(): List<ToolGroup> = emptyList()
+
+    /** Effective native tool policy. Declaration failures fall back to adapter defaults. */
+    public suspend fun nativeTools(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
+
+    /**
+     * Strict policy snapshot before an adapter starts a turn with native tools outside per-call authorization.
+     * Null means the lookup is unavailable and execution must not start. Declaration fallback from [nativeTools]
+     * must never replace this result: it could remove an existing Off restriction. Cancellation propagates.
+     * This snapshot does not grant trust or replace [prepareNative] for tools requiring individual authorization.
+     */
+    public suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy? = null
+
     /** Workflow instructions for the same workspace. */
     public suspend fun instructions(workspace: WorkspaceRef?): String
 
@@ -189,14 +254,56 @@ public interface ProfileAgentTools {
     public suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult
 
     /**
+     * Authorizes an adapter-classified native call under the same turn barrier as hosted calls. Checks policy,
+     * then hooks, then adapter trust coverage and permission; rechecks policy after the decision. Cancellation
+     * revokes the decision. Adapters must recheck their captured turn before answering the native process.
+     */
+    public suspend fun prepareNative(context: AgentToolContext, call: NativeToolCall): NativePreparation =
+        NativePreparation.Deny("Native authorization is unavailable")
+
+    /** Performs the noninteractive preflight and, when necessary, its one-shot interactive continuation. */
+    public suspend fun authorizeNative(context: AgentToolContext, call: NativeToolCall): NativeVerdict =
+        NativeVerdict.Deny("Native authorization is unavailable")
+
+    /**
+     * Authorizes a declared [AgentToolContribution.isAdapterOperated] tool, without executing it. Applies the
+     * contribution's availability, action, approval, hooks and hosted Off policy under the turn barrier; ordinary
+     * hosted tools cannot use this route. Original [arguments] reach the hook and the approval unchanged.
+     * The adapter must preserve the captured turn lifetime through its subsequent transport operation.
+     */
+    public suspend fun authorizeHosted(context: AgentToolContext, name: String, arguments: JsonObject): NativeVerdict =
+        NativeVerdict.Deny("Adapter tool authorization is unavailable")
+
+    /**
+     * Returns bounded hook context for a completed adapter-operated tool. The adapter calls this only after an
+     * authorized operation, under its captured turn lifetime, and prepends the note without replacing the result.
+     * Ordinary hosted tools already dispatch afterTool during [execute]. Ended turns return no note.
+     */
+    public suspend fun afterHosted(
+        context: AgentToolContext,
+        name: String,
+        arguments: JsonObject,
+        result: AgentToolResult,
+    ): String? = null
+
+    /**
      * Host lifecycle barrier: revoke and await outstanding calls before releasing a turn's resources.
      * [turn] is the facade id registered by [bindTurn], or the native id of an unbound external turn.
      */
     public suspend fun finishTurn(session: SessionRef, turn: TurnId): Unit = Unit
+
+    /**
+     * Same lifecycle barrier with the trusted request of this exact turn, when known. A null request preserves
+     * legacy external-turn cleanup; implementations must not substitute another or the latest session request.
+     */
+    public suspend fun finishTurn(session: SessionRef, turn: TurnId, request: RequestId?): Unit =
+        finishTurn(session, turn)
 }
 
 /** Optional adapter dependency used when hosted tools are not installed. */
 public object NoAgentTools : ProfileAgentTools {
+    // This implementation has no policy providers; adapters keep their native defaults.
+    override suspend fun nativeToolsForExecution(scope: ToolPolicyScope): ResolvedToolPolicy = ResolvedToolPolicy()
     override suspend fun specifications(workspace: WorkspaceRef?): List<AgentToolSpec> = emptyList()
     override suspend fun instructions(workspace: WorkspaceRef?): String = ""
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult =
@@ -236,6 +343,15 @@ public interface AgentToolBridge {
         workspace: WorkspaceRef?,
         context: suspend () -> AgentToolContext?,
     ): AgentToolBridgeAttachment
+
+    /**
+     * Creates a capability whose handshake and declarations use this immutable trusted scope. Implementations
+     * with scoped policy support also verify the session identity on each call when [AgentToolScope.session] is set.
+     */
+    public suspend fun attach(
+        scope: AgentToolScope,
+        context: suspend () -> AgentToolContext?,
+    ): AgentToolBridgeAttachment = attach(scope.workspace, context)
 }
 
 /** Mobile/default bridge rejects local process access. */

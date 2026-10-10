@@ -12,9 +12,12 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolContribution
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolResult
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.toolCatalog
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.EventKeys
+import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerActions
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEnabled
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerIntent
@@ -69,6 +72,10 @@ internal class SchedulerActionTools(
     private val toggles: FeatureToggles,
     private val clock: Clock,
 ) : AgentToolContribution {
+    override val group: String = "scheduler"
+    override val title: String = "Планировщик"
+    override val catalog: List<ToolCatalogEntry> get() = listOf(START_ACTION_SPEC).toolCatalog()
+
     private val log = Log.tag("SchedulerActionTools")
     private val actions: BackgroundActions get() = backgroundActions.value
 
@@ -115,6 +122,7 @@ internal class SchedulerActionTools(
                 note,
                 WakeOrigin.Agent(context.turn),
                 context.target,
+                initiator = context.initiator(),
             )
             val outcome = scheduleWake(request, context)
             if (outcome == ScheduleOutcome.Unconfirmed) cancelWake(request.id, context)
@@ -139,9 +147,15 @@ internal class SchedulerActionTools(
 
     private suspend fun startAction(start: ActionStart, context: AgentToolContext): String? = when (start) {
         is ActionStart.Command ->
-            actions.startCommand(start.id, context.session, start.workspace, start.command, start.timeout)
+            actions.startCommand(
+                start.id,
+                BackgroundActionCaller(context.session, context.request),
+                start.workspace,
+                start.command,
+                start.timeout,
+            )
 
-        is ActionStart.Agent -> actions.startAgent(start.id, start.request)
+        is ActionStart.Agent -> actions.startAgent(start.id, start.request, context.initiator())
     }
 
     private suspend fun scheduleWake(request: WakeRequest, context: AgentToolContext): ScheduleOutcome {
@@ -157,7 +171,13 @@ internal class SchedulerActionTools(
         if (wake == null) return
         withContext(NonCancellable) {
             try {
-                machine.send(SchedulerIntent.Public.Cancel(wake, context.session))
+                machine.send(
+                    SchedulerIntent.Public.Cancel(
+                        wake,
+                        context.session,
+                        EventOrigin.Session(context.session, context.request),
+                    ),
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

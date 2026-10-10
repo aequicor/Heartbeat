@@ -14,6 +14,7 @@ import io.aequicor.heartbeat.feature.checklist.api.ChecklistStatus
 import io.aequicor.heartbeat.feature.checklist.api.event
 import io.aequicor.heartbeat.feature.scheduler.api.BusEvent
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.RunStartedEvent
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerEvents
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runCurrent
@@ -45,6 +46,20 @@ class StudioChecklistsTest {
         lastRunRequest = request,
         hasLastRunSucceeded = true,
     )
+
+    @Test
+    fun `published generation carries host authenticated exact request provenance`() = runTest {
+        val bus = ChecklistTestBus()
+        val projection = StudioChecklists(ChecklistTestStores(), bus, ChecklistTestToggles())
+        projection.publishGeneration(record)
+        val published = bus.published.single()
+        assertEquals(SchedulerEvents.RunStarted, published.key)
+        assertEquals(EventOrigin.HostTurn(session, request), published.origin)
+        assertEquals(
+            RunStartedEvent(session, request, record.runRevision),
+            Json.decodeFromString<RunStartedEvent>(checkNotNull(published.payload)),
+        )
+    }
 
     @Test
     fun `save before acknowledgement failed write retries and duplicates preserve latest revision`() = runTest {

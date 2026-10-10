@@ -12,6 +12,7 @@ import io.aequicor.heartbeat.feature.aiengine.authenticator.api.EndpointOrigin
 import io.aequicor.heartbeat.feature.aiengine.authenticator.api.ProviderId
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexEngine
 import io.aequicor.heartbeat.feature.aiengine.codex.api.CodexLocalConfiguration
+import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolAction
 import io.aequicor.heartbeat.feature.aiengine.facade.api.AppliesTrustLevels
 import io.aequicor.heartbeat.feature.aiengine.facade.api.CancelsTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ConnectionMethod
@@ -21,6 +22,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineRequirement
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReportsProviderUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
@@ -28,6 +30,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SendsPrompts
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionContextUsage
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionTrees
+import io.aequicor.heartbeat.feature.aiengine.facade.api.StopsOwnedTurns
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.AttachesSessions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineFactory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -62,6 +65,10 @@ public object CodexBindings {
             setOf(EnginePlatform.DesktopMacOs, EnginePlatform.DesktopWindows),
             CodexEngine.Enabled,
             isLocalWorkspaceSupported = true,
+            nativeTools = listOf(
+                NativeToolSpec("shell", AgentToolAction.Command, isEnabledByDefault = true, isGated = false),
+                NativeToolSpec("web_search", AgentToolAction.Read, isEnabledByDefault = true, isGated = false),
+            ),
             requirements = listOf(
                 EngineRequirement("codex.app_server", "Установленный Codex CLI с поддержкой app-server"),
             ),
@@ -81,6 +88,7 @@ public object CodexBindings {
                 AttachesSessions.id,
                 SendsPrompts.id,
                 CancelsTurns.id,
+                StopsOwnedTurns.id,
                 RequestsPermissions.id,
                 AppliesTrustLevels.id,
                 SessionHistory.id,

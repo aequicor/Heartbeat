@@ -36,6 +36,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineUsageEnabled
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ModelId
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeVerdict
+import io.aequicor.heartbeat.feature.aiengine.facade.api.NoAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.PromptRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
@@ -66,6 +68,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.job
 import kotlinx.coroutines.test.TestScope
+import kotlinx.serialization.json.JsonObject
 
 internal class KoogTestFixture(test: TestScope) {
     val source = AuthSource.NoAuth(
@@ -162,6 +165,10 @@ internal class KoogTestFixture(test: TestScope) {
         reasoning,
         KoogContextWindows(),
         ResourceResolver { resources[it.id] },
+        tools = object : ProfileAgentTools by NoAgentTools {
+            override suspend fun authorizeHosted(context: AgentToolContext, name: String, arguments: JsonObject) =
+                NativeVerdict.Allow
+        },
     )
     var searchResults = emptyList<SearchResult>()
     var fetchedResource: ResourceContent? = null

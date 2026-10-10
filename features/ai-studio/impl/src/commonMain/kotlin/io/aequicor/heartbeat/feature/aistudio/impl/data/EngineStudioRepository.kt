@@ -37,7 +37,6 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResourceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumesSessions
-import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionConfiguration
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionHistory
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionItem
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
@@ -71,8 +70,8 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelTarget
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortChoicesView
 import io.aequicor.heartbeat.feature.effortconfiguration.api.EffortConfigurationState
-import io.aequicor.heartbeat.feature.effortconfiguration.api.effectiveEffort
 import io.aequicor.heartbeat.feature.feedback.api.FeedbackAnchor
+import io.aequicor.heartbeat.feature.scheduler.api.HelperId
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeActionRequest
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -133,6 +132,8 @@ internal data class StudioChatRecord(
     val configuration: StudioSessionSettings? = null,
     /** Set for a conversation run as the organic AI organism of the same id. */
     val organismId: String? = null,
+    /** Durable helper marker, also present for helpers with no caller. */
+    val helper: StudioHelperIdentity? = null,
 )
 
 /** The profile owns accepted turns, handles and transcript projection; screens only observe. */
@@ -143,6 +144,8 @@ internal data class StudioChatRecord(
 @ContributesBinding(ProfileScope::class, binding = binding<StudioRunHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioTurnHost>())
 @ContributesBinding(ProfileScope::class, binding = binding<StudioChatResolver>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioHelperChatWriter>())
+@ContributesBinding(ProfileScope::class, binding = binding<StudioHelperAccess>())
 @Inject
 internal class EngineStudioRepository(
     private val facade: EngineFacade,
@@ -164,14 +167,18 @@ internal class EngineStudioRepository(
     learning: StudioLearningPrompts,
     private val checklists: StudioChecklists,
     private val organisms: StudioOrganisms,
+    private val configuredSubmission: StudioConfiguredSubmission,
+    private val helperAdmission: StudioHelperAdmission,
 ) : StudioRepository,
     StudioRuntime,
     StudioTurnHost,
     StudioRunHost,
     StudioConfigurationAccess,
-    StudioChatResolver {
+    StudioChatResolver,
+    StudioHelperChatWriter,
+    StudioHelperAccess {
     private val log = Log.tag("EngineStudio")
-    private val nativeSession = StudioNativeSessionOperations(configurations, learning)
+    private val nativeSession = StudioNativeSessionOperations(learning)
     private val store = stores.keyValue(ChatSpec)
     private val lock = Mutex()
     private val deliveringActions = mutableSetOf<String>()
@@ -308,10 +315,7 @@ internal class EngineStudioRepository(
         organism: OrganismRequest?,
         executionWorkspace: WorkspaceRef?,
     ): StudioSession {
-        require(executionWorkspace == null || (projectId != null && !isWorktree && organism == null))
-        if (executionWorkspace != null) {
-            requireNotNull(workspaces.resolve(executionWorkspace)) { "The execution folder is unavailable" }
-        }
+        workspaces.requireExecutionWorkspace(executionWorkspace, projectId != null && !isWorktree && organism == null)
         log.i { "Create studio conversation worktree=$isWorktree organism=${organism != null}" }
         if (projectId != null) {
             requireNotNull(workspaces.resolve(WorkspaceRef(projectId))) { "The project folder is unavailable" }
@@ -330,6 +334,12 @@ internal class EngineStudioRepository(
         val record = conversations.create(pending, ::saveConversation)
         log.i { "Created studio conversation" }
         return StudioSession(record.id, record.projectId, title, record.updatedAt, isOrganism = organism != null)
+    }
+
+    override suspend fun saveHelper(record: StudioChatRecord) {
+        check(record.helper != null && record.ref == null && record.lastRunRequest == null)
+        log.v { "Persist empty helper identity" }
+        saveConversation(record)
     }
 
     private suspend fun saveConversation(changed: StudioChatRecord) = lock.withLock {
@@ -412,13 +422,34 @@ internal class EngineStudioRepository(
 
     override suspend fun executeRun(request: StudioTurnRequest): RunOutcome {
         log.i { "Execute the reserved native request" }
-        update(
-            request.id,
-        ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
-        val result = turns.execute(this, request)
-        update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
-        releaseArchived(request.id)
-        return result
+        val admitted = helperAdmission.prepare(record(request.id), request)
+        try {
+            update(
+                request.id,
+            ) { copy(lastRunRequest = request.request, hasLastRunSucceeded = false, runRevision = runRevision + 1) }
+            val result = turns.execute(this, admitted)
+            update(request.id) { copy(hasLastRunSucceeded = result == RunOutcome.Completed) }
+            releaseArchived(request.id)
+            return result
+        } finally {
+            withContext(NonCancellable) { (admitted.submission as? StudioHelperSubmission)?.cancel() }
+        }
+    }
+
+    override suspend fun helperRecord(helper: HelperId): StudioChatRecord {
+        log.v { "Read conversation for helper supervision" }
+        return record(helper.value)
+    }
+
+    override suspend fun openHelper(record: StudioChatRecord): ActiveSession {
+        log.v { "Open the helper's existing native session" }
+        checkNotNull(record.ref) { "Helper has no native session" }
+        return open(record.id, checkNotNull(record.target))
+    }
+
+    override suspend fun liveHelper(helper: HelperId): ActiveSession? = handlesLock.withLock {
+        log.v { "Read existing helper handle" }
+        handles.live(helper.value)
     }
 
     override suspend fun finishedRun(id: String) {
@@ -459,7 +490,14 @@ internal class EngineStudioRepository(
         log.i { "Submit the reserved native request" }
         val target = checkNotNull(record(request.id).target)
         checklists.publishGeneration(record(request.id).copy(ref = active.ref))
-        return submitConfigured(request.id, active, target, request)
+        return configuredSubmission.submit(
+            this,
+            active,
+            target,
+            request,
+            { offeredModels.value },
+            { state.value.configurations },
+        )
     }
 
     override suspend fun shouldStop(id: String): Boolean {
@@ -472,32 +510,6 @@ internal class EngineStudioRepository(
         val kind = (error as? EngineException)?.failure.toRunFailureKind()
         update(id) { copy(hasFailed = true, failureKind = kind) }
         return RunOutcome.Failed
-    }
-
-    /** Initial defaults are used once; accepted execution keeps the session's confirmed values. */
-    private suspend fun submitConfigured(
-        id: String,
-        active: ActiveSession,
-        target: EngineTarget,
-        request: StudioTurnRequest,
-    ): TurnId {
-        val stored = state.value.configurations[id]?.applied ?: record(id).configuration
-        val trust = (stored?.approval ?: request.settings.approval).trustFor(offeredModels.value, target)
-        val effort = if (stored != null) {
-            stored.reasoningEffort
-        } else {
-            efforts.state.value.effectiveEffort(target, offeredModels.value.reasoningEfforts(target))
-        }
-        log.i { "Submitting prompt length=${request.prompt.length} trust=${trust ?: "default"}" }
-        val turn = nativeSession.submit(active, request, effort, trust)
-        nativeSession.confirmConfiguration(
-            this,
-            id,
-            active,
-            target,
-            SessionConfiguration(target.model, effort, trust),
-        )
-        return turn
     }
 
     private suspend fun target(id: String, settings: RunSettings): EngineTarget {
@@ -560,19 +572,11 @@ internal class EngineStudioRepository(
         mutableState.update { it.copy(configurations = it.configurations + (id to state)) }
     }
 
-    override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome = when (outcome) {
-        TurnOutcome.Completed -> RunOutcome.Completed
-
-        TurnOutcome.Cancelled -> RunOutcome.Stopped
-
-        TurnOutcome.Unknown, null, is TurnOutcome.Failed -> {
-            log.w {
-                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()} " +
-                    "code=${(outcome as? TurnOutcome.Failed)?.failure?.code.orEmpty()}"
-            }
+    override suspend fun outcome(id: String, outcome: TurnOutcome?): RunOutcome {
+        log.v { "Map native turn outcome" }
+        return nativeSession.outcome(outcome) {
             val kind = (outcome as? TurnOutcome.Failed)?.failure.toRunFailureKind()
             update(id) { copy(hasFailed = true, failureKind = kind) }
-            RunOutcome.Failed
         }
     }
 
@@ -601,7 +605,7 @@ internal class EngineStudioRepository(
         check(record.worktreeTaskId == null || record.executionWorkspace != null) {
             "The conversation worktree is not ready"
         }
-        val workspace = record.projectId?.let { projectId ->
+        val workspace = record.resolvedExecutionWorkspace()?.let { ref ->
             check(
                 facade.engines.state.value.any {
                     it.descriptor.id == target.engine &&
@@ -610,7 +614,6 @@ internal class EngineStudioRepository(
             ) {
                 "Choose a model with local project access"
             }
-            val ref = record.executionWorkspace ?: WorkspaceRef(projectId)
             checkNotNull(workspaces.resolve(ref)) { "The project folder is unavailable" }
             ref
         }
@@ -628,13 +631,13 @@ internal class EngineStudioRepository(
         }
         val active = if (record.ref == null) {
             facade.engines.features(target.engine).requireFeature(CreatesSessions)
-                .create(CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+                .create(studioCreateRequest(target, workspace))
         } else {
             check(
                 record.target?.engine == target.engine && record.target.binding == target.binding,
             ) { "The stored session uses another connection" }
             facade.sessions.get(record.ref).features.requireFeature(ResumesSessions)
-                .resume(ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true))
+                .resume(studioResumeRequest(target, workspace))
         }
         // Register before persisting: the stored ref recomputes continuability, which must see the live handle.
         handlesLock.withLock { handles[id] = active }
@@ -797,50 +800,22 @@ internal class EngineStudioRepository(
 }
 
 /** Native IO reports failures while the repository owns conversation identity and UI state. */
-private class StudioNativeSessionOperations(
-    private val controller: StudioConfigurationController,
-    private val learning: StudioLearningPrompts,
-) {
+private class StudioNativeSessionOperations(private val learning: StudioLearningPrompts) {
     private val log = Log.tag("StudioNativeSessionOperations")
 
-    suspend fun confirmConfiguration(
-        access: StudioConfigurationAccess,
-        id: String,
-        active: ActiveSession,
-        target: EngineTarget,
-        fallback: SessionConfiguration,
-    ) {
-        log.v { "Reflect accepted native configuration" }
-        try {
-            val capability = active.features.resolve(ChangesSessionConfiguration) as? FeatureAccess.Available
-            val confirmed = capability?.feature?.configuration?.value ?: fallback
-            access.configurationState(id, StudioSessionConfiguration(confirmed.studio(target)))
-            try {
-                access.saveConfiguration(id, confirmed.studio(target))
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                log.e(e) { "Accepted turn configuration could not be saved; continue native observation" }
-            }
-            controller.observe(access, id, active, target)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Native acceptance owns the turn even when configuration reflection is unavailable.
-            log.e(e) { "Accepted turn configuration could not be reflected; continue native observation" }
-        }
-    }
+    suspend fun outcome(outcome: TurnOutcome?, onFailure: suspend () -> Unit): RunOutcome = when (outcome) {
+        TurnOutcome.Completed -> RunOutcome.Completed
 
-    suspend fun submit(
-        active: ActiveSession,
-        request: StudioTurnRequest,
-        reasoningEffort: String?,
-        trust: TrustLevel?,
-    ): TurnId {
-        log.i { "Send the reserved native request" }
-        val prompt = learning.prompt(request.id, request.prompt, request.directives)
-        request.submission?.begin()
-        return active.submitStudioPrompt(prompt, reasoningEffort, trust, request.attachments, request.request)
+        TurnOutcome.Cancelled -> RunOutcome.Stopped
+
+        TurnOutcome.Unknown, null, is TurnOutcome.Failed -> {
+            log.w {
+                "Native turn did not complete successfully type=${outcome?.let { it::class.simpleName }.orEmpty()} " +
+                    "code=${(outcome as? TurnOutcome.Failed)?.failure?.code.orEmpty()}"
+            }
+            onFailure()
+            RunOutcome.Failed
+        }
     }
 
     /** Mirrors native history; after the final refresh the finished turn read by [finished] is checked for hints. */
@@ -928,4 +903,17 @@ internal fun ApprovalMode.toTrust(): TrustLevel = when (this) {
     ApprovalMode.Ask -> TrustLevel.Ask
     ApprovalMode.AutoEdits -> TrustLevel.AutoEdits
     ApprovalMode.AutoApprove -> TrustLevel.Full
+}
+
+/** Studio presents tool calls and permissions, so its own sessions opt into profile instructions and hooks. */
+private fun studioCreateRequest(target: EngineTarget, workspace: WorkspaceRef?): CreateSessionRequest =
+    CreateSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+
+/** Resuming another segment retains the same Studio ownership contract. */
+private fun studioResumeRequest(target: EngineTarget, workspace: WorkspaceRef?): ResumeSessionRequest =
+    ResumeSessionRequest(target, workspace, areDetachedToolsEnabled = true, areSessionHooksEnabled = true)
+
+private suspend fun LocalWorkspaces.requireExecutionWorkspace(workspace: WorkspaceRef?, isSupported: Boolean) {
+    require(workspace == null || isSupported)
+    if (workspace != null) requireNotNull(resolve(workspace)) { "The execution folder is unavailable" }
 }

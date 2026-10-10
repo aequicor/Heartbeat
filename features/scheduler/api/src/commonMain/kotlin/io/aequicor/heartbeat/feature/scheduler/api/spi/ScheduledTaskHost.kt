@@ -13,7 +13,11 @@ public interface ScheduledTaskHost : ScheduledSessionHost {
     /** Creates an empty helper chat without submitting a turn. */
     public suspend fun prepareTask(request: SpawnRequest): String?
 
-    /** Executes or recovers an assignment in the previously prepared chat, and returns its authoritative result. */
+    /**
+     * Executes or recovers an assignment and returns its authoritative result. Before every new native prompt,
+     * durably relay [SpawnRequest.causes] through [ScheduledRequestOriginObserver] using the actual native target.
+     * Observing already accepted native work must not resubmit it or change its original request identity.
+     */
     public suspend fun runTask(
         hostTask: String,
         request: SpawnRequest,
