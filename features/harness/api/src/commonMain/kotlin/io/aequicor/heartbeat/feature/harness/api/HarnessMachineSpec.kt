@@ -15,7 +15,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  * | Idle, Failed | Start | Loading preserving suspension | Load |
  * | Loading | Loaded, matching valid snapshot | Ready preserving suspension | Activate enabled supported code |
  * | Loading | Loaded invalid / LoadFailed, matching | Failed | StorageFailed |
- * | Idle, Loading, Failed | any Public | stay | Rejected(Unavailable) |
+ * | Failed, not suspended | Reload (the screen's retry) | Loading | Load |
+ * | Idle, Loading, Failed | any other Public | stay | Rejected(Unavailable) |
  * | Ready | Create valid unique and within reserved quotas | stay, pending save | Save |
  * | Ready | Update/SetEnabled/SetItemEnabled, current revision and valid | stay, pending save | Save |
  * | Ready | Delete, current revision and attachment domain free | stay, pending remove | Remove (cascade) |
@@ -58,7 +59,11 @@ public val HarnessMachineSpec: MachineSpec<HarnessState, HarnessIntent, HarnessE
             ) { stay { state.copy(isSuspended = false) } }
         }
         state<HarnessState.Failed> {
-            unavailable()
+            unavailable(isRetry = { state, intent -> intent is HarnessIntent.Public.Reload && !state.isSuspended })
+            on<HarnessIntent.Public.Reload>(guard = { !state.isSuspended }) {
+                goto<HarnessState.Loading> { HarnessState.Loading(HarnessLoad(state.loadGeneration + 1, 0), false) }
+                effect { HarnessEffect.Load(HarnessLoad(state.loadGeneration + 1, 0)) }
+            }
             on<HarnessIntent.Internal.Start> {
                 goto<HarnessState.Loading> {
                     HarnessState.Loading(
@@ -123,8 +128,12 @@ private fun <S : HarnessState> StateBuilder<
     HarnessIntent,
     HarnessEffect,
     HarnessOutput,
->.unavailable() {
-    on<HarnessIntent.Public> { output { HarnessOutput.Rejected(intent.requestId, HarnessRejection.Unavailable) } }
+>.unavailable(
+    isRetry: (S, HarnessIntent.Public) -> Boolean = { _, _ -> false },
+) {
+    on<HarnessIntent.Public>(guard = { !isRetry(state, intent) }) {
+        output { HarnessOutput.Rejected(intent.requestId, HarnessRejection.Unavailable) }
+    }
 }
 
 private fun HarnessEffect.failure(): HarnessIntent.Internal? = when (this) {

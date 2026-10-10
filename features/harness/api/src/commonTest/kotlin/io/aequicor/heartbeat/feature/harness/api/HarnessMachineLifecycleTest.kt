@@ -66,7 +66,7 @@ class HarnessMachineLifecycleTest {
             HarnessIntent.Public.Detach(request, harness.id, session),
             HarnessIntent.Public.SetApproval(request, HarnessApproval.Ask, 0), HarnessIntent.Public.Reload(request),
         )
-        val states = listOf(HarnessState.Idle(), HarnessState.Loading(HarnessLoad(1, 0)), HarnessState.Failed())
+        val states = listOf(HarnessState.Idle(), HarnessState.Loading(HarnessLoad(1, 0)), HarnessState.Failed(true))
         states.forEach { state ->
             publics.forEach { intent ->
                 HarnessMachineSpec.assertTransition(
@@ -77,6 +77,22 @@ class HarnessMachineLifecycleTest {
                 )
             }
         }
+    }
+
+    @Test
+    fun `reload retries a failed load unless the feature is suspended`() {
+        HarnessMachineSpec.assertTransition(
+            HarnessState.Failed(false, 3),
+            HarnessIntent.Public.Reload(request),
+            HarnessState.Loading(HarnessLoad(4, 0), false),
+            effects = listOf(HarnessEffect.Load(HarnessLoad(4, 0))),
+        )
+        HarnessMachineSpec.assertTransition(
+            HarnessState.Failed(false, 3),
+            HarnessIntent.Public.SetApproval(request, HarnessApproval.Ask, 0),
+            HarnessState.Failed(false, 3),
+            outputs = listOf(HarnessOutput.Rejected(request, HarnessRejection.Unavailable)),
+        )
     }
 
     @Test
