@@ -126,6 +126,10 @@ data class HbDimensions(
     val diagramPreviewMaxHeight: Dp = 480.dp,
     /** One arrow-key step of a keyboard-scrolled viewport, such as the full-size diagram viewer. */
     val keyboardScrollStep: Dp = 40.dp,
+    /** Height of a code editor holding a whole source file, such as a harness script. */
+    val codeEditorHeight: Dp = 360.dp,
+    /** Height of a code editor for a short structured value, such as a JSON schema. */
+    val codeEditorCompactHeight: Dp = 160.dp,
     val swatchSize: Dp = 64.dp,
     val scrollbarThickness: Dp = 4.dp,
     val scrollbarHoverThickness: Dp = 6.dp,
