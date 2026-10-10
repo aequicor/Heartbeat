@@ -1,17 +1,51 @@
-package io.aequicor.heartbeat.feature.harness.impl.data.authoring
+package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
-import dev.zacsweers.metro.ContributesBinding
-import dev.zacsweers.metro.Inject
-import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
-import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFacade
-import io.aequicor.heartbeat.feature.aiengine.facade.api.ProfileAgentTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
+import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
+import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
+import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import kotlinx.coroutines.flow.Flow
+
+/** Durable result of one library command, correlated only by its own request id. */
+internal sealed interface LibraryOutcome {
+    /** The exact command committed; [output] is its success receipt. */
+    data class Committed(val output: HarnessOutput) : LibraryOutcome
+
+    /** The machine refused the command without writing. */
+    data class Rejected(val reason: HarnessRejection) : LibraryOutcome
+
+    /** The write failed and the previous record stays effective. */
+    data object StorageFailed : LibraryOutcome
+
+    /** The machine did not take the command. */
+    data object NotTaken : LibraryOutcome
+
+    /** Taken but not answered in time; it may still commit, so a retry must read the library first. */
+    data object Unconfirmed : LibraryOutcome
+}
+
+/** Agent and UI side of the library machine: committed snapshots and correlated commands. */
+internal interface HarnessLibraryClient {
+    /** Current committed snapshot without waiting; null while loading, failed or suspended. */
+    val current: HarnessState.Ready?
+
+    /** Waits briefly for the restored library. */
+    suspend fun ready(): HarnessState.Ready?
+
+    /** Sends one command and waits for its own receipt. */
+    suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome
+
+    /** Source project of a session workspace: a worktree maps to its project; unknown folders have none. */
+    suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef?
+}
 
 /** Static tool metadata for policy authoring; reads never start an engine or a session. */
 internal interface HarnessToolCatalogs {
@@ -24,22 +58,11 @@ internal interface HarnessToolCatalogs {
     /** Effective native policy for a trusted scope. */
     suspend fun effective(scope: ToolPolicyScope): ResolvedToolPolicy
 
+    /** Whether gated native tools may be switched on: the `harness.native_tools` toggle. */
+    fun nativeEnabling(): Flow<Boolean>
+
     /** Checks a proposed policy against the catalogs; null means valid. */
     fun problem(spec: ToolPolicySpec): String? = toolPolicyProblem(spec, hosted(), engines())
-}
-
-/** Lazy dispatcher access breaks the contribution cycle: the dispatcher is built from this feature's tools too. */
-@ContributesBinding(ProfileScope::class)
-@Inject
-internal class FacadeHarnessToolCatalogs(
-    private val tools: Lazy<ProfileAgentTools>,
-    private val facade: Lazy<EngineFacade>,
-) : HarnessToolCatalogs {
-    override fun hosted(): List<ToolGroup> = tools.value.catalog()
-
-    override fun engines(): List<EngineDescriptor> = facade.value.engines.state.value.map { it.descriptor }
-
-    override suspend fun effective(scope: ToolPolicyScope): ResolvedToolPolicy = tools.value.nativeTools(scope)
 }
 
 /**

@@ -35,6 +35,8 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringComm
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.AuthoringScope
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.CodeCheck
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.Parsed

@@ -30,6 +30,9 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.harness.impl.domain.harness
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.dispatchSession
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.CompiledHarnessCode
@@ -44,6 +47,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHos
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -299,6 +303,8 @@ private class FakeHost : HarnessScriptHost {
 }
 
 private class FakeCatalogs : HarnessToolCatalogs {
+    override fun nativeEnabling() = flowOf(true)
+
     override fun hosted() = listOf(
         ToolGroup("search", "Поиск", listOf(ToolCatalogEntry("web_search", AgentToolAction.Read))),
         ToolGroup("harness", "Харнессы", listOf(ToolCatalogEntry("harness_create", AgentToolAction.Read))),

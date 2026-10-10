@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.kind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.label
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.referenceText
