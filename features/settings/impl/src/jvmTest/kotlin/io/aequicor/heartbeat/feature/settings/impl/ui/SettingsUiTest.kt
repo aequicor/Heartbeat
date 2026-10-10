@@ -31,6 +31,7 @@ class SettingsUiTest {
             SettingsSectionUi.Search,
             SettingsSectionUi.ComputerUse,
             SettingsSectionUi.AgentLearning,
+            SettingsSectionUi.Harness,
             SettingsSectionUi.FeatureFlags,
         ),
         selected = SettingsSectionUi.Models,
