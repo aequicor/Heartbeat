@@ -13,6 +13,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
 import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.LibraryOutcome
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeMachineKey
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeState
 import io.aequicor.heartbeat.feature.worktreemode.api.sourceProjectOf
@@ -23,39 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.seconds
-
-/** Durable result of one library command, correlated only by its own request id. */
-internal sealed interface LibraryOutcome {
-    /** The exact command committed; [output] is its success receipt. */
-    data class Committed(val output: HarnessOutput) : LibraryOutcome
-
-    /** The machine refused the command without writing. */
-    data class Rejected(val reason: HarnessRejection) : LibraryOutcome
-
-    /** The write failed and the previous record stays effective. */
-    data object StorageFailed : LibraryOutcome
-
-    /** The machine did not take the command. */
-    data object NotTaken : LibraryOutcome
-
-    /** Taken but not answered in time; it may still commit, so a retry must read the library first. */
-    data object Unconfirmed : LibraryOutcome
-}
-
-/** Agent and UI side of the library machine: committed snapshots and correlated commands. */
-internal interface HarnessLibraryClient {
-    /** Current committed snapshot without waiting; null while loading, failed or suspended. */
-    val current: HarnessState.Ready?
-
-    /** Waits briefly for the restored library. */
-    suspend fun ready(): HarnessState.Ready?
-
-    /** Sends one command and waits for its own receipt. */
-    suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome
-
-    /** Source project of a session workspace: a worktree maps to its project; unknown folders have none. */
-    suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef?
-}
 
 @ContributesBinding(ProfileScope::class)
 @Inject
@@ -71,13 +40,14 @@ internal class MachineHarnessLibraryClient(
 
     override suspend fun ready(): HarnessState.Ready? {
         log.v { "Await the restored harness library" }
-        return withTimeoutOrNull(LOAD_TIMEOUT) {
+        val loaded = withTimeoutOrNull(LOAD_TIMEOUT) {
             machine.value.state.first { it is HarnessState.Ready || it is HarnessState.Failed }
-        }.let { (it as? HarnessState.Ready)?.takeUnless(HarnessState.Ready::isSuspended) }
+        }
+        return (loaded as? HarnessState.Ready)?.takeUnless(HarnessState.Ready::isSuspended)
     }
 
     override suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome = coroutineScope {
-        log.d { "Submit harness library command ${intent::class.simpleName}" }
+        log.d { "Submit harness library command ${intent::class.simpleName.orEmpty()}" }
         val library = machine.value
         val outcome = async(start = CoroutineStart.UNDISPATCHED) {
             library.outputs.mapNotNull { it.outcomeOf(intent) }.first()
@@ -114,7 +84,7 @@ private fun HarnessOutput.outcomeOf(intent: HarnessIntent.Public): LibraryOutcom
         is HarnessOutput.ApprovalChanged -> requestId
         is HarnessOutput.Rejected -> requestId
         is HarnessOutput.StorageFailed -> requestId
-        else -> null
+        is HarnessOutput.ItemActivated, is HarnessOutput.ItemFailed, is HarnessOutput.RuntimeFailed -> null
     }
     return when {
         request != intent.requestId -> null

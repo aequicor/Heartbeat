@@ -10,6 +10,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.toolPolicyProblem
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

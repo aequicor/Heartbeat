@@ -20,6 +20,8 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
 import io.aequicor.heartbeat.feature.harness.api.ItemStatus
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessApiReference
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.kind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.label
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.referenceText
@@ -156,8 +158,8 @@ private fun HarnessEntry.describe(): String = buildString {
 
 private fun Harness.policyText(): String {
     val lines = tools.hostedOff.sorted().map { "Heartbeat $it off" } +
-        tools.native.toSortedMap().flatMap { (engine, switches) ->
-            switches.toSortedMap().map { (tool, switch) ->
+        tools.native.entries.sortedBy { it.key }.flatMap { (engine, switches) ->
+            switches.entries.sortedBy { it.key }.map { (tool, switch) ->
                 "$engine $tool ${if (switch == ToolSwitch.On) "on" else "off"}"
             }
         }
