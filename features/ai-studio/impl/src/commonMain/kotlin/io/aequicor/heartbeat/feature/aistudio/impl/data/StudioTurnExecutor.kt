@@ -16,6 +16,8 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnInspection
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TurnOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.scheduler.api.RequestInitiator
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeIntent
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreePhase
@@ -89,6 +91,7 @@ internal class StudioTurnExecutor(
     private val worktrees: StudioWorktrees,
     private val tools: ProfileAgentTools,
     private val observer: StudioTurnObserver = NoStudioTurnObserver,
+    private val harnesses: StudioHarnessAttach = NoStudioHarnessAttach,
 ) {
     private val log = Log.tag("StudioTurnExecutor")
 
@@ -111,6 +114,17 @@ internal class StudioTurnExecutor(
                     worktrees.failed(request.id, request.request, session = null, turn = null)
                 }
             }
+        }
+    }
+
+    /** A new chat's chosen harnesses are connected first; failing to connect never fails the turn. */
+    private suspend fun connectHarnesses(chatId: String, active: ActiveSession) {
+        try {
+            harnesses.beforeSubmit(chatId, active.ref)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            log.w(error) { "Chosen harnesses were not connected before the first prompt" }
         }
     }
 
@@ -154,6 +168,7 @@ internal class StudioTurnExecutor(
                 (request.submission as? StudioRunSubmission)?.adopt()
                 recovered.turn
             } else {
+                connectHarnesses(request.id, active)
                 host.submitTurn(active, request)
             }
             progress.active = active

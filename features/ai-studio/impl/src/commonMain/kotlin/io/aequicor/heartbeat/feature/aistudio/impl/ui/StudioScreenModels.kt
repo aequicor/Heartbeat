@@ -6,6 +6,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioSc
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentPreviewUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
@@ -91,6 +92,7 @@ internal data class PaneContent(
     val isAttachmentsEnabled: Boolean = false,
     val isRememberEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
+    val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
     val organism: OrganismUi? = null,
     val subSession: String = PrimarySubSession,
     val nativeTree: SessionTreeUi? = null,
@@ -119,6 +121,18 @@ internal data class SidebarInput(
     val awaitingPermission: ImmutableSet<String> = persistentSetOf(),
 )
 
+/**
+ * Harness choices of a pane: a chat shows its committed connections, a new chat the choice kept on its pane.
+ * Harnesses active by profile or project scope are shown selected and cannot be toggled.
+ */
+internal fun AiStudioScreenState.harnessChoices(pane: PaneUi, projectId: String?): ImmutableList<HarnessChoiceUi> {
+    val selected = if (pane.sessionId != null) harnessChoices.chats[pane.sessionId] else harnessChoices.panes[pane.id]
+    return harnessChoices.options.map { harness ->
+        val isPermanent = harness.isProfile || (projectId != null && projectId in harness.projects)
+        HarnessChoiceUi(harness.id, harness.title, isPermanent || selected?.contains(harness.id) == true, isPermanent)
+    }.toImmutableList()
+}
+
 /** Rename origin of the header of [paneId]. */
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
@@ -142,6 +156,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isAttachmentsEnabled = isAttachmentsEnabled,
         isRememberEnabled = isRememberEnabled,
         isOrganismEnabled = isOrganismEnabled,
+        harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
         nativeTree = nativeTrees[pane.sessionId],

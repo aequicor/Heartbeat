@@ -116,6 +116,8 @@ data class AiStudioScreenState(
     val isRememberEnabled: Boolean = false,
     /** Whether a new chat may be started as an organic AI organism. */
     val isOrganismEnabled: Boolean = false,
+    /** Harnesses offered in the "+" menu, chat connections and choices of new chats. */
+    val harnessChoices: HarnessChoicesUi = HarnessChoicesUi(),
     /** Organisms of organism chats, by chat id. */
     val organisms: ImmutableMap<String, OrganismUi> = persistentMapOf(),
     /** The sub-session each organism chat shows, by chat id; the zygote when absent. */
@@ -162,6 +164,9 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
     /** Composer input, runs and model preferences. */
     sealed interface Composer : AiStudioScreenIntent
+
+    /** Connects a harness to the chat of [paneId], or remembers the choice for a new chat. */
+    data class SelectHarness(val paneId: Int, val harness: String, val isSelected: Boolean) : AiStudioScreenIntent
 
     /** Organic AI chats: the mode of a new chat, the shown sub-session, control and the user's decisions. */
     sealed interface Organism : AiStudioScreenIntent
