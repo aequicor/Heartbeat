@@ -12,8 +12,8 @@
     <string name="harness_limit">Изменение превышает ограничения библиотеки харнессов.</string>
     <string name="harness_approval_section">Подтверждение правок агента</string>
     <string name="harness_approval_section_hint">Как принимаются харнессы, тексты и переключатели инструментов, которые пишет агент. Код и включение нативных инструментов подтверждаются всегда.</string>
-    <string name="harness_approval_ask">Всегда спрашивать</string>
-    <string name="harness_approval_ask_hint">Каждая правка агента ждёт вашего решения в чате.</string>
+    <string name="harness_approval_ask">Спрашивать подтверждение</string>
+    <string name="harness_approval_ask_hint">Правки агента ждут вашего решения, кроме режима «Подтверждать за меня» в чате. Код и снятие ограничений инструментов подтверждаются всегда.</string>
     <string name="harness_approval_by_trust">По доверию чата</string>
     <string name="harness_approval_by_trust_hint">При полном доверии правки сохраняются без вопроса, при остальных — с вопросом.</string>
     <string name="harness_approval_accept_all">Принимать любые</string>
