@@ -16,7 +16,8 @@ data class StudioHarnessChoices(
 /**
  * Chat side of the harness library; implemented over the harness machine, absent without the feature.
  * A new chat's choice stays on the screen until its submission: [claim] hands it over under the submission id,
- * [bindSubmission] names the created chat, and [StudioHarnessAttach] connects it before the first prompt.
+ * which travels with the submission to its first turn, and [StudioHarnessAttach] connects it before that prompt.
+ * The screen only claims; the turn uses and releases the claim, so leaving the screen never strands it.
  */
 interface StudioHarnesses {
     val choices: Flow<StudioHarnessChoices>
@@ -27,10 +28,7 @@ interface StudioHarnesses {
     /** A new chat's submission carries [harnesses]; called before the submission is sent. */
     fun claim(submissionId: String, harnesses: Set<String>)
 
-    /** The claimed submission created [chatId]. */
-    fun bindSubmission(submissionId: String, chatId: String)
-
-    /** The submission ended without a chat or after its first prompt; an unbound claim is dropped. */
+    /** The submission was not sent; its claim is dropped. */
     fun release(submissionId: String)
 
     /** Without the harness feature nothing is offered. */
@@ -38,17 +36,21 @@ interface StudioHarnesses {
         override val choices: Flow<StudioHarnessChoices> = flowOf(StudioHarnessChoices())
         override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean) = false
         override fun claim(submissionId: String, harnesses: Set<String>) = Unit
-        override fun bindSubmission(submissionId: String, chatId: String) = Unit
         override fun release(submissionId: String) = Unit
     }
 }
 
 /** Connects a new chat's chosen harnesses between opening its session and submitting the first prompt. */
-internal fun interface StudioHarnessAttach {
-    suspend fun beforeSubmit(chatId: String, session: SessionRef)
+internal interface StudioHarnessAttach {
+    /** Connects the harnesses claimed by [submissionId] to [session]; a claim is used once, other turns pass. */
+    suspend fun beforeSubmit(submissionId: String, session: SessionRef)
+
+    /** The turn of [submissionId] ended; a claim it did not use is dropped. */
+    fun release(submissionId: String)
 }
 
 /** Default without the harness feature. */
 internal object NoStudioHarnessAttach : StudioHarnessAttach {
-    override suspend fun beforeSubmit(chatId: String, session: SessionRef) = Unit
+    override suspend fun beforeSubmit(submissionId: String, session: SessionRef) = Unit
+    override fun release(submissionId: String) = Unit
 }

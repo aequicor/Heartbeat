@@ -22,10 +22,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.v2.runSkikoComposeUiTest
 import io.aequicor.heartbeat.ds.theme.HbTheme
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenIntent
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AiStudioScreenState
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ApprovalUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.EffortUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.PaneUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionConfigurationUi
@@ -295,6 +297,29 @@ class StudioComposerUiTest {
             onNodeWithContentDescription(addLabel).performClick()
             onNodeWithText(autoLabel).assertIsNotEnabled()
             onNodeWithText(planLabel).assertIsDisplayed()
+        }
+
+    @Test
+    fun `a chat without a project shows its connected harness and unchecking disconnects it`() =
+        runSkikoComposeUiTest(size = Size(900f, 700f)) {
+            val events = mutableListOf<AiStudioScreenIntent>()
+            val pane = PaneUi(0, sessionId = "chat")
+            val state = AiStudioScreenState(
+                panes = persistentListOf(pane),
+                harnessChoices = HarnessChoicesUi(
+                    options = persistentListOf(StudioHarness("compose", "Compose UI", false, emptySet())),
+                    chats = persistentMapOf("chat" to persistentSetOf("compose")),
+                ),
+            )
+            setContent { NativeComposerFixture(state.paneContent(pane), events::add) }
+
+            onNodeWithTag("harness-chip-0-compose").assertIsDisplayed().performClick()
+            runOnIdle {
+                assertEquals(
+                    listOf<AiStudioScreenIntent>(AiStudioScreenIntent.SelectHarness(0, "compose", false)),
+                    events,
+                )
+            }
         }
 }
 

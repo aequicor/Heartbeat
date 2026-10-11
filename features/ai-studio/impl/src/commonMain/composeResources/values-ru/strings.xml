@@ -260,4 +260,5 @@
     <string name="session_checklist_ready">Готово</string>
     <string name="harness_menu_section">Харнессы</string>
     <string name="harness_menu_permanent">Активен в этом чате по области</string>
+    <string name="harness_connect_failed">Не удалось изменить харнессы этого чата. Повторите попытку.</string>
 </resources>

@@ -66,6 +66,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.SessionUi
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.Res
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.attachments_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.connect_model_hint
+import io.aequicor.heartbeat.feature.aistudio.impl.resources.harness_connect_failed
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.jump_latest
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading
 import io.aequicor.heartbeat.feature.aistudio.impl.resources.new_heading_general
@@ -644,6 +645,13 @@ private fun PaneFooter(
             HbBadge(
                 stringResource(Res.string.attachments_failed),
                 column,
+                tone = HbTone.Danger,
+            )
+        }
+        if (content.isHarnessFailed) {
+            HbBadge(
+                stringResource(Res.string.harness_connect_failed),
+                column.testTag("harness-failed-${content.pane.id}"),
                 tone = HbTone.Danger,
             )
         }

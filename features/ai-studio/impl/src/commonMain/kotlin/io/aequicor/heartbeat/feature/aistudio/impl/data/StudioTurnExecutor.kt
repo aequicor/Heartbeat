@@ -84,6 +84,8 @@ internal data class StudioTurnRequest(
     val onOutcome: suspend (TurnOutcome) -> Unit = {},
     /** Immutable saved causal requests; host relays them to the actual native identity before prompt hooks. */
     val causes: Set<RequestInitiator> = emptySet(),
+    /** The screen submission that created this chat; its claimed harnesses connect before this first prompt. */
+    val submissionId: String = "",
 ) {
     override fun toString(): String = "StudioTurnRequest(id=$id, kind=$kind, attachments=${attachments.size})"
 }
@@ -112,6 +114,7 @@ internal class StudioTurnExecutor(
             if (progress.isPrepared || progress.active != null) recover(host, request, progress)
             return host.failedTurn(request.id, error)
         } finally {
+            if (request.submissionId.isNotEmpty()) harnesses.release(request.submissionId)
             if (request.submission?.isCancelled == true && progress.isPrepared) {
                 withContext(NonCancellable) {
                     worktrees.failed(request.id, request.request, session = null, turn = null)
@@ -121,9 +124,10 @@ internal class StudioTurnExecutor(
     }
 
     /** A new chat's chosen harnesses are connected first; failing to connect never fails the turn. */
-    private suspend fun connectHarnesses(chatId: String, active: ActiveSession) {
+    private suspend fun connectHarnesses(request: StudioTurnRequest, active: ActiveSession) {
+        if (request.submissionId.isEmpty()) return
         try {
-            harnesses.beforeSubmit(chatId, active.ref)
+            harnesses.beforeSubmit(request.submissionId, active.ref)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -171,7 +175,7 @@ internal class StudioTurnExecutor(
                 (request.submission as? StudioRunSubmission)?.adopt()
                 recovered.turn
             } else {
-                connectHarnesses(request.id, active)
+                connectHarnesses(request, active)
                 host.submitTurn(active, request)
             }
             progress.active = active

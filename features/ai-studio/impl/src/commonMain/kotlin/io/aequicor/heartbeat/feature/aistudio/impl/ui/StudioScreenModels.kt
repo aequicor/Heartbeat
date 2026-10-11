@@ -7,6 +7,7 @@ import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.Attachment
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.AttachmentUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ContextUsageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoiceUi
+import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.HarnessChoicesUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.MessageUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ModelUi
 import io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.OrganismUi
@@ -93,6 +94,7 @@ internal data class PaneContent(
     val isRememberEnabled: Boolean = false,
     val isOrganismEnabled: Boolean = false,
     val harnesses: ImmutableList<HarnessChoiceUi> = persistentListOf(),
+    val isHarnessFailed: Boolean = false,
     val organism: OrganismUi? = null,
     val subSession: String = PrimarySubSession,
     val nativeTree: SessionTreeUi? = null,
@@ -133,6 +135,9 @@ internal fun AiStudioScreenState.harnessChoices(pane: PaneUi, projectId: String?
     }.toImmutableList()
 }
 
+/** Whether the last harness connection change of [chat] was not confirmed. */
+private fun HarnessChoicesUi.isFailed(chat: String?): Boolean = chat != null && chat in failedChats
+
 /** Rename origin of the header of [paneId]. */
 internal fun paneOrigin(paneId: Int): String = "pane:$paneId"
 
@@ -157,6 +162,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         isRememberEnabled = isRememberEnabled,
         isOrganismEnabled = isOrganismEnabled,
         harnesses = harnessChoices(pane, session?.projectId ?: pane.projectId),
+        isHarnessFailed = harnessChoices.isFailed(pane.sessionId),
         organism = organism,
         subSession = selectedSubSession(pane.sessionId, session),
         nativeTree = nativeTrees[pane.sessionId],

@@ -50,6 +50,8 @@ import io.aequicor.heartbeat.feature.aistudio.api.ApprovalMode
 import io.aequicor.heartbeat.feature.aistudio.api.ReasoningEffort
 import io.aequicor.heartbeat.feature.aistudio.api.RunOutcome
 import io.aequicor.heartbeat.feature.aistudio.api.RunSettings
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.NoStudioHarnessAttach
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessAttach
 import io.aequicor.heartbeat.feature.scheduler.api.spi.ScheduledWakeAdmission
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildOperation
 import io.aequicor.heartbeat.feature.worktreemode.api.WorktreeBuildPhase
@@ -656,6 +658,36 @@ class StudioTurnExecutorTest {
     }
 
     @Test
+    fun `the first turn of a submission connects its claimed harnesses before the prompt and releases them`() =
+        runTest {
+            val harnesses = RecordingHarnessAttach()
+            val fixture = TurnFixture(harnesses)
+            fixture.host.isIsolated = false
+            fixture.host.beforeSubmit = { assertEquals(listOf("connect submission"), harnesses.calls) }
+            fixture.tools.release.complete(Unit)
+
+            fixture.executor.execute(fixture.host, fixture.request.copy(submissionId = "submission"))
+
+            assertTrue(fixture.host.submitted != null)
+            assertEquals(listOf("connect submission", "release submission"), harnesses.calls)
+            harnesses.calls.clear()
+            fixture.host.beforeSubmit = {}
+            fixture.executor.execute(fixture.host, fixture.request)
+            assertTrue(harnesses.calls.isEmpty(), "turns of existing chats claim nothing")
+        }
+
+    @Test
+    fun `a submission turn that fails before its prompt releases the unused claim`() = runTest {
+        val harnesses = RecordingHarnessAttach()
+        val fixture = TurnFixture(harnesses)
+        fixture.host.openFailure = IllegalStateException("CannotOpenNativeSession")
+
+        fixture.executor.execute(fixture.host, fixture.request.copy(submissionId = "submission"))
+
+        assertEquals(listOf("release submission"), harnesses.calls)
+    }
+
+    @Test
     fun `failed durable preparation never opens or submits a native session`() = runTest {
         val fixture = TurnFixture()
         fixture.machine.isPrepared = false
@@ -666,7 +698,7 @@ class StudioTurnExecutorTest {
     }
 }
 
-private class TurnFixture {
+private class TurnFixture(harnesses: StudioHarnessAttach = NoStudioHarnessAttach) {
     val events = mutableListOf<String>()
     val request = StudioTurnRequest(
         "chat",
@@ -689,7 +721,7 @@ private class TurnFixture {
     val tools = ExecutorTools(events)
     val machine = ExecutorMachine(events)
     val host = ExecutorHost(active, turn, events)
-    val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools, host)
+    val executor = StudioTurnExecutor(StudioWorktrees(executorRegistry(machine), tools), tools, host, harnesses)
 
     fun mainTask() = WorktreeTask(
         "main-task",
@@ -699,6 +731,16 @@ private class TurnFixture {
         run = WorktreeRun(request.request, session = active.ref, turn = turn.id, isPrepared = true),
         isIsolated = false,
     )
+}
+
+private class RecordingHarnessAttach : StudioHarnessAttach {
+    val calls = mutableListOf<String>()
+    override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
+        calls += "connect $submissionId"
+    }
+    override fun release(submissionId: String) {
+        calls += "release $submissionId"
+    }
 }
 
 private class ExecutorTools(private val events: MutableList<String>) : ProfileAgentTools by NoAgentTools {

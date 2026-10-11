@@ -23,6 +23,7 @@ import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlin.time.Duration
 import kotlin.time.Instant
@@ -303,13 +304,14 @@ private fun StudioToolRun.toUi(): ToolUi = ToolUi(
 
 /**
  * Harnesses of the "+" menu: enabled [options], committed connections by chat id and choices kept on the panes
- * of chats that have no session yet.
+ * of chats that have no session yet. [failedChats] are chats whose last connection change was not confirmed.
  */
 @Immutable
 data class HarnessChoicesUi(
     val options: ImmutableList<StudioHarness> = persistentListOf(),
     val chats: ImmutableMap<String, ImmutableSet<String>> = persistentMapOf(),
     val panes: ImmutableMap<Int, ImmutableSet<String>> = persistentMapOf(),
+    val failedChats: ImmutableSet<String> = persistentSetOf(),
 )
 
 /** One harness of a pane's "+" menu; [isPermanent] ones are active by scope and cannot be toggled. */

@@ -128,8 +128,8 @@ class AiStudioModel(
         }
         reflect(machine, onOutput = { output ->
             when (output) {
+                // A new chat's harness claim travels with its submission; the turn uses and releases it.
                 is AiStudioOutput.SubmitFailed -> {
-                    harnesses.release(output.submissionId)
                     updateState {
                         if (output.submissionId.isEmpty()) {
                             restoreDraft(output, machine.state.value)
@@ -140,18 +140,14 @@ class AiStudioModel(
                 }
 
                 is AiStudioOutput.SubmitPrepared -> {
-                    // A new chat's claimed harness choice now belongs to the created chat.
-                    harnesses.bindSubmission(output.submissionId, output.sessionId)
                     updateState { prepareSubmission(output.submissionId, output.sessionId) }
                 }
 
                 is AiStudioOutput.SubmitAccepted -> {
-                    harnesses.release(output.submissionId)
                     updateState { acceptSubmission(output.submissionId, output.sessionId) }
                 }
 
                 is AiStudioOutput.SubmitRejected -> {
-                    harnesses.release(output.submissionId)
                     updateState { rejectSubmission(output.submissionId, output.sessionId) }
                 }
 

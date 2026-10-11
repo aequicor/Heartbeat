@@ -40,12 +40,16 @@ import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPrevie
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioAttachmentPreviews
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioBackend
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioEntries
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarness
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnessChoices
+import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioHarnesses
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioMessage
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioRepository
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioSession
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.StudioWorkspace
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.TestClock
 import io.aequicor.heartbeat.feature.aistudio.impl.domain.studioModelId
+import io.aequicor.heartbeat.feature.aistudio.impl.ui.paneContent
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentDescriptor
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentId
 import io.aequicor.heartbeat.feature.attachments.api.AttachmentsCatalog
@@ -624,10 +628,79 @@ class AiStudioModelTest {
         assertEquals("photo.png", projected.last().attachments.single().name)
     }
 
+    @Test
+    fun `a new chat keeps its harness choice on the pane and hands it to its submission`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        val screen = fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "verify", true))
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "verify", false))
+        runCurrent()
+        assertEquals<Set<String>?>(setOf("compose"), screen.states.value.harnessChoices.panes[0])
+        assertTrue(harnesses.connections.isEmpty(), "a chat without a session connects nothing yet")
+
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Build the screen"))
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+        val submitted = fixture.machine.sent.filterIsInstance<AiStudioIntent.Public.Submit>().single()
+        assertEquals(listOf(submitted.submissionId to setOf("compose")), harnesses.claims)
+        assertTrue(0 !in screen.states.value.harnessChoices.panes)
+
+        fixture.machine.outputs.emit(AiStudioOutput.SubmitRejected(0, submitted.submissionId, "chat"))
+        runCurrent()
+        assertTrue(harnesses.released.isEmpty(), "the turn of a sent submission owns its claim")
+    }
+
+    @Test
+    fun `a submission the machine refuses releases its harness claim`() = runTest {
+        val harnesses = FakeStudioHarnesses()
+        val fixture = Fixture(this, ready.copy(panes = listOf(StudioPane(0))), harnesses = harnesses)
+        fixture.subscribe()
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        fixture.model.store.intent(AiStudioScreenIntent.DraftChanged(0, "Build the screen"))
+        fixture.machine.result = SendResult.Ignored
+        fixture.model.store.intent(AiStudioScreenIntent.Submit(0))
+        runCurrent()
+
+        val claimed = harnesses.claims.single().first
+        assertEquals(listOf(claimed), harnesses.released)
+    }
+
+    @Test
+    fun `an existing chat connects in the background and shows a change that was not confirmed`() = runTest {
+        val native = SessionRef(EngineId("engine"), SessionSourceId("source"), "chat")
+        val workspace = StudioWorkspace(
+            emptyList(),
+            listOf(StudioSession("s-facade", null, "Chat", TestClock(this).now(), nativeSession = native)),
+        )
+        val repository = object : StudioRepository by InMemoryStudioRepository(TestClock(this)) {
+            override fun observeWorkspace() = flowOf(workspace)
+        }
+        val harnesses = FakeStudioHarnesses()
+        harnesses.isConfirmed = false
+        val fixture = Fixture(this, ready, repository, harnesses)
+        val screen = fixture.subscribe()
+
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        runCurrent()
+        assertEquals(listOf(Triple(native, "compose", true)), harnesses.connections)
+        assertTrue(harnesses.claims.isEmpty())
+        val failed = screen.states.value
+        assertEquals<Set<String>>(setOf("s-facade"), failed.harnessChoices.failedChats)
+        assertTrue(failed.paneContent(failed.panes.single()).isHarnessFailed)
+
+        harnesses.isConfirmed = true
+        fixture.model.store.intent(AiStudioScreenIntent.SelectHarness(0, "compose", true))
+        runCurrent()
+        assertTrue(screen.states.value.harnessChoices.failedChats.isEmpty())
+    }
+
     private class Fixture(
         private val scope: TestScope,
         initial: AiStudioState,
         repository: StudioRepository = InMemoryStudioRepository(TestClock(scope)),
+        harnesses: StudioHarnesses = StudioHarnesses.None,
     ) {
         val machine = FakeMachine(initial)
         val efforts = FakeEfforts()
@@ -654,7 +727,7 @@ class AiStudioModelTest {
             previews = object : StudioAttachmentPreviews {
                 override fun observe(resources: List<ResourceRef>) = flowOf(emptyMap<String, StudioAttachmentPreview>())
             },
-
+            harnesses = harnesses,
         )
 
         suspend fun subscribe(): Provider<AiStudioScreenState, AiStudioScreenIntent, AiStudioScreenAction> {
@@ -669,6 +742,31 @@ class AiStudioModelTest {
             scope.runCurrent()
             return provider.await()
         }
+    }
+}
+
+/** Records claims and connections; the library offers one harness. */
+private class FakeStudioHarnesses : StudioHarnesses {
+    val claims = mutableListOf<Pair<String, Set<String>>>()
+    val released = mutableListOf<String>()
+    val connections = mutableListOf<Triple<SessionRef, String, Boolean>>()
+    var isConfirmed = true
+
+    override val choices = flowOf(
+        StudioHarnessChoices(listOf(StudioHarness("compose", "Compose", isProfile = false, projects = emptySet()))),
+    )
+
+    override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean {
+        connections += Triple(session, harness, isSelected)
+        return isConfirmed
+    }
+
+    override fun claim(submissionId: String, harnesses: Set<String>) {
+        if (harnesses.isNotEmpty()) claims += submissionId to harnesses
+    }
+
+    override fun release(submissionId: String) {
+        released += submissionId
     }
 }
 

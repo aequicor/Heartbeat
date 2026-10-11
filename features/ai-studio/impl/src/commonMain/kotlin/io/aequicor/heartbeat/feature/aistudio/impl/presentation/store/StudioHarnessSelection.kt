@@ -33,7 +33,8 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
 
     /**
      * A chat with a native session is connected in the background, so the screen keeps taking input; the menu
-     * follows the committed connections. A new chat keeps the choice on its pane until its first submission.
+     * follows the committed connections and an unconfirmed change is shown on the chat's pane.
+     * A new chat keeps the choice on its pane until its first submission.
      */
     suspend fun select(pipeline: HarnessPipeline, intent: AiStudioScreenIntent.SelectHarness) = with(pipeline) {
         var chat: String? = null
@@ -54,8 +55,19 @@ internal class StudioHarnessSelection(private val harnesses: StudioHarnesses, pr
             return@with
         }
         log.i { "Chat harness connection requested attach=${intent.isSelected}" }
-        launch { harnesses.connect(native, intent.harness, intent.isSelected) }
+        updateState { copy(harnessChoices = harnessChoices.failed(id, isFailed = false)) }
+        launch {
+            val isConfirmed = harnesses.connect(native, intent.harness, intent.isSelected)
+            updateState { copy(harnessChoices = harnessChoices.failed(id, isFailed = !isConfirmed)) }
+        }
     }
+}
+
+/** Marks or clears an unconfirmed connection change of [chat]. */
+private fun HarnessChoicesUi.failed(chat: String, isFailed: Boolean): HarnessChoicesUi = when {
+    isFailed && chat !in failedChats -> copy(failedChats = (failedChats + chat).toImmutableSet())
+    !isFailed && chat in failedChats -> copy(failedChats = (failedChats - chat).toImmutableSet())
+    else -> this
 }
 
 /** Toggles [harness] in the choice of a new chat's pane. */

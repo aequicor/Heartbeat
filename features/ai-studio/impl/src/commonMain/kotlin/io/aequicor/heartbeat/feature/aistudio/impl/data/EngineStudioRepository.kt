@@ -384,6 +384,7 @@ internal class EngineStudioRepository(
         prompt: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
+        submissionId: String,
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         log.i { "Run studio conversation with durable attachments count=${attachments.size}" }
@@ -395,6 +396,7 @@ internal class EngineStudioRepository(
             RequestId(Uuid.random().toString()),
             attachments = attachments,
             onAccepted = onAccepted,
+            submissionId = submissionId,
         )
     }
 
@@ -406,11 +408,13 @@ internal class EngineStudioRepository(
         request: RequestId,
         waitForIdle: Boolean = false,
         attachments: List<ResourceRef> = emptyList(),
+        submissionId: String = "",
         onAccepted: suspend () -> Unit = {},
         beforeExecute: suspend () -> Unit = {},
     ): RunOutcome = runs.run(
         this,
-        StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted),
+        StudioTurnRequest(sessionId, prompt, settings, kind, request, attachments, onAccepted)
+            .copy(submissionId = submissionId),
         waitForIdle,
         beforeExecute = beforeExecute,
     )

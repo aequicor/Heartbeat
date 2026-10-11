@@ -22,18 +22,19 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineKey
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessOutput
+import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,9 +43,9 @@ import kotlin.uuid.Uuid
 
 /**
  * Chat side of the harness library. Existing chats are connected through the harness machine at once. A new
- * chat's choice is claimed by its submission and connected before that first prompt reaches the engine, so its
- * first turn already sees the harness; only turns racing such a claim wait for the chat to be named.
- * Titles are never logged.
+ * chat's choice is claimed under its submission id and connected by that submission's first turn before the prompt
+ * reaches the engine, so the first turn already sees the harness; other turns never wait for it. The library takes
+ * one attachment write at a time, so connections are written one after another. Titles are never logged.
  */
 @SingleIn(ProfileScope::class)
 @ContributesBinding(ProfileScope::class, binding = binding<StudioHarnesses>())
@@ -54,7 +55,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     StudioHarnesses,
     StudioHarnessAttach {
     private val log = Log.tag("StudioHarnesses")
-    private val claims = MutableStateFlow<Map<String, Claim>>(emptyMap())
+
+    /** Harness choices by submission id, oldest first; submissions that never reach a turn are evicted. */
+    private val claims = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     @OptIn(ExperimentalCoroutinesApi::class)
     override val choices: Flow<StudioHarnessChoices> = toggles.observe(HarnessEnabled).flatMapLatest { isEnabled ->
@@ -83,15 +86,14 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     }
 
     override suspend fun connect(session: SessionRef, harness: String, isSelected: Boolean): Boolean {
-        val id = HarnessId(harness)
-        val request = RequestId(Uuid.random().toHexString())
-        val intent = if (isSelected) {
-            HarnessIntent.Public.Attach(request, id, session)
-        } else {
-            HarnessIntent.Public.Detach(request, id, session)
-        }
         val library = library() ?: return false
-        val isConfirmed = submit(library, intent)
+        val isConfirmed = write(library) { request ->
+            if (isSelected) {
+                HarnessIntent.Public.Attach(request, HarnessId(harness), session)
+            } else {
+                HarnessIntent.Public.Detach(request, HarnessId(harness), session)
+            }
+        }
         if (isConfirmed) {
             log.i { "Chat harness connection changed attach=$isSelected" }
         } else {
@@ -101,15 +103,9 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     }
 
     override fun claim(submissionId: String, harnesses: Set<String>) {
-        if (harnesses.isEmpty()) return
-        claims.update { it + (submissionId to Claim(harnesses)) }
+        if (submissionId.isEmpty() || harnesses.isEmpty()) return
+        claims.update { current -> (current - submissionId + (submissionId to harnesses)).newest() }
         log.d { "New chat submission claims its harness choice count=${harnesses.size}" }
-    }
-
-    override fun bindSubmission(submissionId: String, chatId: String) {
-        val claim = claims.value[submissionId] ?: return
-        claims.update { it + (submissionId to claim.copy(chatId = chatId)) }
-        log.v { "Claimed harness choice bound to its chat" }
     }
 
     override fun release(submissionId: String) {
@@ -118,40 +114,54 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
         log.v { "Harness choice claim released" }
     }
 
-    /**
-     * Turns wait only while a claimed submission has not named its chat yet; the chat's claim is then connected
-     * and dropped. Failures leave the chat without the harness instead of failing the turn.
-     */
-    override suspend fun beforeSubmit(chatId: String, session: SessionRef) {
-        if (claims.value.isEmpty()) return
-        val claimed = withTimeoutOrNull(HANDOVER) {
-            claims.first { current ->
-                current.values.any { it.chatId == chatId } ||
-                    current.values.none { it.chatId == null }
-            }
-        }?.entries?.firstOrNull { it.value.chatId == chatId } ?: return
-        claims.update { it - claimed.key }
-        val library = library() ?: return
-        val confirmed = coroutineScope {
-            claimed.value.harnesses.map { harness ->
-                async {
-                    val request = RequestId(Uuid.random().toHexString())
-                    submit(library, HarnessIntent.Public.Attach(request, HarnessId(harness), session))
-                }
-            }.awaitAll().count { it }
+    /** Failures leave the chat without the harness instead of failing the turn. */
+    override suspend fun beforeSubmit(submissionId: String, session: SessionRef) {
+        val claimed = claims.getAndUpdate { it - submissionId }[submissionId] ?: return
+        val library = library()
+        if (library == null) {
+            log.w { "Harnesses chosen for a new chat were not connected: the library is not running" }
+            return
         }
-        if (confirmed == claimed.value.harnesses.size) {
-            log.i { "Harnesses connected before the first prompt count=$confirmed" }
+        var connected = 0
+        claimed.forEach { harness ->
+            if (write(library) { HarnessIntent.Public.Attach(it, HarnessId(harness), session) }) connected++
+        }
+        if (connected == claimed.size) {
+            log.i { "Harnesses connected before the first prompt count=$connected" }
         } else {
-            val chosen = claimed.value.harnesses.size
-            log.w { "Harnesses chosen for a new chat were not all connected connected=$confirmed of=$chosen" }
+            log.w { "Harnesses chosen for a new chat were not all connected connected=$connected of=${claimed.size}" }
         }
     }
 
     private suspend fun library(): Library? =
         if (toggles.get(HarnessEnabled)) machines.find(HarnessMachineKey) else null
 
-    private suspend fun submit(library: Library, intent: HarnessIntent.Public): Boolean = coroutineScope {
+    /**
+     * Writes one connection and waits for its receipt. The library holds a single attachment write, so a busy
+     * library is retried once the write in flight has finished.
+     */
+    private suspend fun write(library: Library, change: (RequestId) -> HarnessIntent.Public): Boolean {
+        var attempts = 0
+        var receipt: HarnessOutput?
+        do {
+            attempts++
+            receipt = submit(library, change(RequestId(Uuid.random().toHexString())))
+            val isBusy = receipt is HarnessOutput.Rejected && receipt.reason == HarnessRejection.Busy
+        } while (isBusy && attempts < WRITE_ATTEMPTS && awaitWritable(library))
+        return receipt is HarnessOutput.Attached || receipt is HarnessOutput.Detached
+    }
+
+    private suspend fun awaitWritable(library: Library): Boolean {
+        log.d { "Harness library is busy with another connection; retry after it" }
+        return withTimeoutOrNull(CONFIRMATION) {
+            library.state.first { state ->
+                state is HarnessState.Ready && state.attachmentWrite == null &&
+                    state.pending.values.none { it is HarnessMutation.Remove }
+            }
+        } != null
+    }
+
+    private suspend fun submit(library: Library, intent: HarnessIntent.Public): HarnessOutput? = coroutineScope {
         val receipt = async(start = CoroutineStart.UNDISPATCHED) {
             library.outputs.first {
                 (it is HarnessOutput.Attached && it.requestId == intent.requestId) ||
@@ -161,8 +171,10 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
             }
         }
         try {
-            library.send(intent) == SendResult.Accepted && withTimeoutOrNull(CONFIRMATION) { receipt.await() }.let {
-                it is HarnessOutput.Attached || it is HarnessOutput.Detached
+            if (library.send(intent) == SendResult.Accepted) {
+                withTimeoutOrNull(CONFIRMATION) { receipt.await() }
+            } else {
+                null
             }
         } finally {
             receipt.cancel()
@@ -170,10 +182,12 @@ internal class MachineStudioHarnesses(private val machines: MachineRegistry, pri
     }
 }
 
-/** A new chat's choice in flight; [chatId] is known once the submission created the chat. */
-private data class Claim(val harnesses: Set<String>, val chatId: String? = null)
+/** Keeps the newest claims; insertion order is preserved by the map. */
+private fun Map<String, Set<String>>.newest(): Map<String, Set<String>> =
+    if (size <= CLAIMS_KEPT) this else entries.drop(size - CLAIMS_KEPT).associate { it.key to it.value }
 
 private typealias Library = MachineRef<HarnessState, HarnessIntent.Public, HarnessOutput>
 
-private val HANDOVER = 2.seconds
 private val CONFIRMATION = 3.seconds
+private const val WRITE_ATTEMPTS = 5
+private const val CLAIMS_KEPT = 16

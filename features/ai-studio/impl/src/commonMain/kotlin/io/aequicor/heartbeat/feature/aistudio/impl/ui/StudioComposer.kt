@@ -164,9 +164,10 @@ internal fun StudioComposer(
     )
 }
 
+/** Chips of selected harnesses also need the context row, in chats without a project too. */
 private fun PaneContent.hasComposerContext(): Boolean {
     val hasWorktree = worktree != null || session?.isWorktree == true
-    return pane.sessionId == null || project != null || hasWorktree
+    return pane.sessionId == null || project != null || hasWorktree || harnesses.any { it.isSelected }
 }
 
 @Composable

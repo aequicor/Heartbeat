@@ -30,12 +30,16 @@ interface StudioRuntime {
     /** Starts profile-owned work and awaits its outcome; cancelling this waiter only detaches it. */
     suspend fun run(sessionId: String, prompt: String, settings: RunSettings): RunOutcome
 
-    /** Starts a turn with durable references and reports native acceptance before awaiting completion. */
+    /**
+     * Starts a turn with durable references and reports native acceptance before awaiting completion.
+     * [submissionId] names the screen submission that created a new chat, so its first turn finds what it claimed.
+     */
     suspend fun run(
         sessionId: String,
         prompt: String,
         settings: RunSettings,
         attachments: List<ResourceRef>,
+        submissionId: String = "",
         onAccepted: suspend () -> Unit,
     ): RunOutcome {
         require(attachments.isEmpty()) { "Attachments are unavailable for this runtime" }
