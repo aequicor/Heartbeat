@@ -20,21 +20,30 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluatio
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessEvaluationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.EmptyCoroutineContext
+import kotlin.coroutines.startCoroutine
+import kotlin.script.experimental.api.CompiledScript
 import kotlin.script.experimental.api.ResultValue
 import kotlin.script.experimental.api.ResultWithDiagnostics
+import kotlin.script.experimental.api.ScriptCompilationConfiguration
 import kotlin.script.experimental.api.ScriptEvaluationConfiguration
+import kotlin.script.experimental.api.SourceCode
 import kotlin.script.experimental.api.constructorArgs
 import kotlin.script.experimental.host.StringScriptSource
 import kotlin.script.experimental.jvm.baseClassLoader
@@ -42,6 +51,8 @@ import kotlin.script.experimental.jvm.impl.KJvmCompiledScript
 import kotlin.script.experimental.jvm.jvm
 import kotlin.script.experimental.jvm.loadDependencies
 import kotlin.script.experimental.jvmhost.BasicJvmScriptingHost
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /** Profile-owned K2 compiler; cache changes cannot alter bytecode held by a live artifact lease. */
 @SingleIn(ProfileScope::class)
@@ -51,6 +62,9 @@ internal class JvmHarnessScriptHost(
     private val appVersion: String,
     private val scope: CoroutineScope,
     private val dispatchers: DispatcherProvider,
+    private val compiler: HarnessKotlinCompiler = HarnessKotlinCompiler.Embedded,
+    private val compilerThread: CoroutineDispatcher = dispatchers.io,
+    private val compilerBudget: Duration = COMPILER_RUN_BUDGET,
 ) : HarnessScriptHost {
     @Inject
     constructor(
@@ -72,6 +86,7 @@ internal class JvmHarnessScriptHost(
     private val classpath = HarnessScriptClasspath()
     private val lock = Mutex()
     private val pending = mutableMapOf<String, MutableSet<AtomicBoolean>>()
+    private var isCachePrepared = false
 
     override suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult {
         val failures = validateHarnessSource(request.source)
@@ -81,7 +96,10 @@ internal class JvmHarnessScriptHost(
         synchronized(pending) { pending.getOrPut(item) { mutableSetOf() }.add(invalidated) }
         val ticket = HarnessCompilationTicket()
         val work = scope.async(dispatchers.io) {
-            queue.run(request.isAgentInitiated) { compileOwned(request, item, invalidated).also(ticket::publish) }
+            queue.run(request.isAgentInitiated) {
+                if (!ticket.admit()) throw CancellationException("Compilation waiter left before admission")
+                compileOwned(request, item, invalidated).also(ticket::publish)
+            }
         }
         // Completion cleanup must also run when the profile was already cancelled before async started.
         work.invokeOnCompletion {
@@ -98,7 +116,8 @@ internal class JvmHarnessScriptHost(
                 onTimeout(COMPILATION_WAIT_MILLIS) { HarnessCompilationResult.TimedOut }
             }
         } finally {
-            ticket.drop()
+            // A waiter that leaves before its permit withdraws the queued request; an admitted compiler is detached.
+            if (ticket.drop()) work.cancel()
         }
     }
 
@@ -109,7 +128,10 @@ internal class JvmHarnessScriptHost(
     ): HarnessCompilationResult = try {
         log.v { "compile harness code" }
         val key = classpath.key(request, appVersion)
-        val cached = lock.withLock { if (invalidated.get()) null else readCache(item, key, request.kind) }
+        val cached = lock.withLock {
+            prepareCache()
+            if (invalidated.get()) null else readCache(item, key, request.kind)
+        }
         if (cached != null) {
             HarnessCompilationResult.Success(cached.code, cached.warnings)
         } else {
@@ -121,6 +143,17 @@ internal class JvmHarnessScriptHost(
         error.rethrowFatalHarnessFailure()
         log.w(error.safeHarnessFailure()) { "compiler operation failed" }
         HarnessCompilationResult.Failure(harnessHostFailure())
+    }
+
+    /** Called under [lock]: temporary outputs of a crashed earlier compiler are never live in a new host. */
+    private fun prepareCache() {
+        if (isCachePrepared) return
+        isCachePrepared = true
+        try {
+            cache.purgeTemporary()
+        } catch (error: IOException) {
+            log.w(error.safeHarnessFailure()) { "stale compiler outputs remain in the cache" }
+        }
     }
 
     private fun readCache(item: String, key: String, kind: HarnessCodeKind): CachedHarnessCode? = try {
@@ -141,10 +174,7 @@ internal class JvmHarnessScriptHost(
         invalidated: AtomicBoolean,
     ): HarnessCompilationResult {
         if (invalidated.get()) return HarnessCompilationResult.Failure(harnessHostFailure())
-        val result = BasicJvmScriptingHost().compiler(
-            StringScriptSource(request.source, "HarnessCode.kts"),
-            harnessCompilerConfiguration(request.kind, classpath),
-        )
+        val result = runCompiler(request)?.getOrThrow() ?: return HarnessCompilationResult.TimedOut
         currentCoroutineContext().ensureActive()
         result.reports.forEach { it.exception?.rethrowFatalHarnessFailure() }
         return when (result) {
@@ -164,6 +194,40 @@ internal class JvmHarnessScriptHost(
                     HarnessCompilationResult.Success(cached.code, cached.warnings)
                 }
             }
+        }
+    }
+
+    /**
+     * K2 runs in-process on its own interruptible job. The profile's single compiler permit is held for at most
+     * [compilerBudget]: then the run is interrupted and abandoned (its late result is discarded) and the permit
+     * returns, so one pathological source cannot time out every later compilation of the profile.
+     */
+    private suspend fun runCompiler(
+        request: HarnessCompilationRequest,
+    ): Result<ResultWithDiagnostics<CompiledScript>>? {
+        val run = scope.async(compilerThread) {
+            try {
+                Result.success(
+                    runInterruptible {
+                        compiler.compile(
+                            StringScriptSource(request.source, "HarnessCode.kts"),
+                            harnessCompilerConfiguration(request.kind, classpath),
+                        )
+                    },
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+        }
+        return try {
+            select {
+                run.onAwait { it }
+                onTimeout(compilerBudget) { null }
+            }.also { if (it == null) log.w { "compiler run exceeded its budget; interrupted and permit released" } }
+        } finally {
+            run.cancel()
         }
     }
 
@@ -231,6 +295,26 @@ internal class JvmHarnessScriptHost(
 }
 
 private const val COMPILATION_WAIT_MILLIS = 90_000L
+private val COMPILER_RUN_BUDGET = 60.seconds
+
+/** Blocking K2 entry point, so a compiler thread can be interrupted; tests substitute a fake compiler. */
+internal fun interface HarnessKotlinCompiler {
+    fun compile(
+        source: SourceCode,
+        configuration: ScriptCompilationConfiguration,
+    ): ResultWithDiagnostics<CompiledScript>
+
+    companion object {
+        /** JvmScriptCompiler never suspends: its whole compilation completes synchronously in the calling thread. */
+        val Embedded = HarnessKotlinCompiler { source, configuration ->
+            val compiler = BasicJvmScriptingHost().compiler
+            var outcome: Result<ResultWithDiagnostics<CompiledScript>>? = null
+            val completion = Continuation<ResultWithDiagnostics<CompiledScript>>(EmptyCoroutineContext) { outcome = it }
+            suspend { compiler(source, configuration) }.startCoroutine(completion)
+            checkNotNull(outcome) { "Harness compiler suspended unexpectedly" }.getOrThrow()
+        }
+    }
+}
 
 /** Compiler/evaluated code exceptions may embed source, paths or secrets; never attach their cause. */
 private fun Exception.safeHarnessFailure(): IllegalStateException = IllegalStateException(

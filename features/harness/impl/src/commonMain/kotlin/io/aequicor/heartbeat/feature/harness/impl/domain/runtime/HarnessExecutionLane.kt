@@ -4,6 +4,7 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlin.coroutines.CoroutineContext
 
@@ -18,6 +19,11 @@ internal class HarnessExecutionLane(io: CoroutineDispatcher) {
     private val shared = TrackedDispatcher(io.limitedParallelism(EXECUTION_PARALLELISM), occupied)
 
     val isExhausted: Boolean get() = occupied.value >= EXECUTION_PARALLELISM
+
+    /** Suspends until a worker is free; like [isExhausted] this reserves nothing. */
+    suspend fun awaitCapacity() {
+        occupied.first { it < EXECUTION_PARALLELISM }
+    }
 
     fun instanceDispatcher(): CoroutineDispatcher = shared.limitedParallelism(1)
 }

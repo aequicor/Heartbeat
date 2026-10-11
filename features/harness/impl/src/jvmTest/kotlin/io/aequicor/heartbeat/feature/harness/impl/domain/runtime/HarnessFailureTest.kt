@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.CompletionException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -55,6 +56,26 @@ class HarnessFailureTest {
             unknown,
             assertFailsWith<Error> {
                 captureHarnessFailure<Nothing> { throw unknown }
+            },
+        )
+    }
+
+    @Test
+    fun `cancellation nested in a script wrapper is a sanitized failure, not a cancellation`() = runTest {
+        val errors = listOf(
+            IllegalStateException("private slow call", CancellationException("private timeout")),
+            CompletionException(CancellationException("private background cancellation")),
+        )
+        for (error in errors) {
+            assertIs<ScriptFailure>(harnessScriptFailure(error))
+            val failure = assertIs<HarnessAttempt.Failure>(captureHarnessFailure<Nothing> { throw error })
+            assertNull(failure.error.cause)
+        }
+        val fatal = OutOfMemoryError("private source")
+        assertSame(
+            fatal,
+            assertFailsWith<OutOfMemoryError> {
+                harnessScriptFailure(IllegalStateException(CancellationException("nested").apply { initCause(fatal) }))
             },
         )
     }

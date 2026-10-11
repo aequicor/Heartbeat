@@ -37,12 +37,15 @@ internal fun harnessScriptFailure(error: Throwable): ScriptFailure {
 /**
  * Scripting hosts may return exceptions inside diagnostics instead of throwing them. Apply the same fatal-error
  * rule there before mapping a result to a normal script failure. Wrapper exceptions cannot hide a fatal cause.
+ * Only a top-level [CancellationException] is cancellation: a cancellation nested in a script's wrapper exception
+ * (for example a timeout cause) is an ordinary, sanitized script failure.
  */
 internal fun Throwable.rethrowFatalHarnessFailure() {
+    if (this is CancellationException) throw this
     val seen = mutableSetOf<Throwable>()
     var current: Throwable? = this
     while (current != null && seen.add(current)) {
-        if (current is CancellationException || !current.isRecoverableHarnessFailure()) throw current
+        if (!current.isRecoverableHarnessFailure()) throw current
         current = current.cause
     }
 }

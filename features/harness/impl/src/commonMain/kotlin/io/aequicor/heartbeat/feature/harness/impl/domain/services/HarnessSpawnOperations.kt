@@ -81,7 +81,8 @@ internal class HarnessSpawnOperations(
             HarnessSpawnEntry(submission.record, isRestored = false).also { entry ->
                 entry.producer = scope.launch(start = CoroutineStart.LAZY) { produce(entry, submission) }
                 entry.producer?.invokeOnCompletion { error ->
-                    if (error != null) entry.result.completeExceptionally(error)
+                    // A revoked producer is not the caller's cancellation: its waiter receives an ordinary failure.
+                    if (error != null) entry.result.completeExceptionally(revokedHelper())
                 }
                 entries[entry.record.reservation] = entry
             }
@@ -102,15 +103,17 @@ internal class HarnessSpawnOperations(
         return registry.withLock { entries.values.none { effect.covers(it) } }
     }
 
-    /** Exact instance retirement also handles successful code replacement and failure-driven unload. */
+    /**
+     * Exact instance retirement on context close (code replacement, failure-driven unload, failed candidate). It
+     * never raises a fence: a superseded candidate closing late must not revoke helpers or admission of the
+     * generation still serving the item. The closed instance's own admission ends through every producer's
+     * admission recheck; generation fences belong to [deactivate].
+     */
     suspend fun retire(owner: HarnessSpawnOwner): Boolean {
-        val selected = registry.withLock {
-            itemFences.raise(owner.harness to owner.item, owner.generation)
-            entries.values.filter { it.isCoveredBy(owner) }
-        }
+        val selected = registry.withLock { entries.values.filter { it.isRetiredBy(owner) } }
         selected.forEach { requestCleanup(it) }
         initialize()
-        return registry.withLock { entries.values.none { it.isCoveredBy(owner) } }
+        return registry.withLock { entries.values.none { it.isRetiredBy(owner) } }
     }
 
     /** Initial snapshot is always required, but old cleanup does not prevent admission to remaining shared slots. */
@@ -273,13 +276,15 @@ internal data class HarnessSpawnSubmission(
     override fun toString(): String = "HarnessSpawnSubmission(***)"
 }
 
+private fun revokedHelper() = IllegalStateException("Harness helper was revoked")
+
 private fun <K> MutableMap<K, Long>.raise(key: K, generation: Long) {
     this[key] = maxOf(this[key] ?: Long.MIN_VALUE, generation)
 }
 
 /** Old-profile generations cannot be compared with this profile's newly initialized activation counter. */
-private fun HarnessSpawnEntry.isCoveredBy(fence: HarnessSpawnOwner): Boolean = record.owner.let {
-    it.harness == fence.harness && it.item == fence.item && (isRestored || it.generation <= fence.generation)
+private fun HarnessSpawnEntry.isRetiredBy(owner: HarnessSpawnOwner): Boolean = record.owner.let {
+    it.harness == owner.harness && it.item == owner.item && (isRestored || it.generation == owner.generation)
 }
 
 private fun HarnessEffect.Deactivate.covers(entry: HarnessSpawnEntry): Boolean = entry.record.owner.let { owner ->

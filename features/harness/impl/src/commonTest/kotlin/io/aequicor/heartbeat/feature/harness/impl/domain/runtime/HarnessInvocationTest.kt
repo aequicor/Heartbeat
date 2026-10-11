@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -10,10 +11,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -153,5 +156,63 @@ class HarnessInvocationTest {
         } finally {
             owner.cancelAndJoin()
         }
+    }
+
+    @Test
+    fun `lane queueing is not author time and an unstarted callback is an expected revocation`() = runTest {
+        val control = StandardTestDispatcher(testScheduler)
+        val lane = HeldLane()
+        val invocation = HarnessInvocation(backgroundScope, control)
+        val unstarted = async { invocation.run(lane, 1.seconds) { error("Unstarted callback entered") } }
+        runCurrent()
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(HarnessInvocationResult.Cancelled(isExpected = true), unstarted.await())
+        val gate = CompletableDeferred<Unit>()
+        val queued = async {
+            invocation.run(lane, 1.seconds) {
+                gate.await()
+                "done"
+            }
+        }
+        runCurrent()
+        advanceTimeBy(900)
+        runCurrent()
+        // The callback starts after 900 ms in the queue; its whole one-second budget still remains.
+        lane.open()
+        runCurrent()
+        advanceTimeBy(900)
+        runCurrent()
+        assertFalse(queued.isCompleted)
+        gate.complete(Unit)
+        runCurrent()
+        assertEquals("done", assertIs<HarnessInvocationResult.Completed<String>>(queued.await()).value)
+    }
+
+    @Test
+    fun `author scope cancellation never stops host event pumps of the instance`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val instance = fixture.activate()
+        checkNotNull(instance.scope.coroutineContext[Job]).cancel()
+        runCurrent()
+        assertTrue(instance.dispatchScope.isActive)
+        assertTrue(instance.isActive)
+    }
+}
+
+/** Holds dispatched work until opened, then runs it in place: a lane with no free worker until [open]. */
+private class HeldLane : CoroutineDispatcher() {
+    private val queue = ArrayDeque<Runnable>()
+    private var isOpen = false
+
+    override fun isDispatchNeeded(context: CoroutineContext): Boolean = !isOpen
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        if (isOpen) block.run() else queue.addLast(block)
+    }
+
+    fun open() {
+        isOpen = true
+        while (queue.isNotEmpty()) queue.removeFirst().run()
     }
 }

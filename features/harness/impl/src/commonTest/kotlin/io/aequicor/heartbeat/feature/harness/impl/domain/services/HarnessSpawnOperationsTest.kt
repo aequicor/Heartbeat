@@ -2,7 +2,9 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.services
 
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.di.ScopeSavedState
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
+import io.aequicor.heartbeat.feature.harness.api.script.ScriptHelper
 import io.aequicor.heartbeat.feature.harness.impl.di.HarnessSpawnStartup
 import io.aequicor.heartbeat.feature.scheduler.api.ActionId
 import io.aequicor.heartbeat.feature.scheduler.api.HelperOutcome
@@ -23,6 +25,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
@@ -65,7 +68,7 @@ class HarnessSpawnOperationsTest {
         val fixture = HarnessSpawnFixture(backgroundScope)
         val write = CompletableDeferred<Unit>()
         fixture.journal.beforeGrant = { write.await() }
-        val waiting = async { fixture.operations.spawn(fixture.submission()) }
+        val waiting = async { fixture.revokedSpawn() }
         runCurrent()
         assertFalse(fixture.operations.retire(fixture.record.owner))
         runCurrent()
@@ -73,7 +76,7 @@ class HarnessSpawnOperationsTest {
         assertTrue(fixture.journal.records.isEmpty())
         write.complete(Unit)
         runCurrent()
-        assertFailsWith<CancellationException> { waiting.await() }
+        assertIs<IllegalStateException>(waiting.await().exceptionOrNull())
         assertEquals(listOf("acquire", "grant", "release", "settle"), fixture.trace)
         assertTrue(fixture.operations.isQuiescent())
         assertTrue(fixture.journal.records.isEmpty())
@@ -94,14 +97,14 @@ class HarnessSpawnOperationsTest {
         val fixture = HarnessSpawnFixture(backgroundScope)
         val write = CompletableDeferred<Unit>()
         fixture.journal.beforeBind = { write.await() }
-        val waiting = async { fixture.operations.spawn(fixture.submission()) }
+        val waiting = async { fixture.revokedSpawn() }
         runCurrent()
         fixture.operations.retire(fixture.record.owner)
         runCurrent()
         assertEquals(0, fixture.helpers.releases)
         write.complete(Unit)
         runCurrent()
-        assertFailsWith<CancellationException> { waiting.await() }
+        assertIs<IllegalStateException>(waiting.await().exceptionOrNull())
         assertTrue(fixture.helpers.prompts.isEmpty())
         assertEquals(listOf("checkpoint", "binding", "release", "settle"), fixture.trace.takeLast(4))
         assertTrue(fixture.operations.isQuiescent())
@@ -133,14 +136,38 @@ class HarnessSpawnOperationsTest {
     @Test
     fun `generation fence rejects older admission and never cancels newer instance`() = runTest {
         val fixture = HarnessSpawnFixture(backgroundScope)
-        assertTrue(fixture.operations.retire(fixture.record.owner))
+        val owner = fixture.record.owner
+        assertTrue(
+            fixture.operations.deactivate(
+                HarnessEffect.Deactivate(emptyList(), true, setOf(owner.harness), owner.generation),
+            ),
+        )
         assertFailsWith<IllegalStateException> { fixture.operations.spawn(fixture.submission()) }
-        val newer = fixture.record.copy(owner = fixture.record.owner.copy(generation = 8))
+        val newer = fixture.record.copy(owner = owner.copy(generation = 8))
         fixture.operations.spawn(fixture.submission(newer))
-        assertTrue(fixture.operations.retire(fixture.record.owner))
+        assertTrue(fixture.operations.retire(owner))
         runCurrent()
         assertEquals(0, fixture.helpers.releases)
         assertFalse(fixture.operations.isQuiescent())
+    }
+
+    @Test
+    fun `failed candidate keeps older serving generation's helpers and admission`() = runTest {
+        val fixture = HarnessSpawnFixture(backgroundScope)
+        fixture.operations.spawn(fixture.submission())
+        // Candidate 8 failed evaluation after being superseded; generation 7 still serves the item.
+        assertTrue(fixture.operations.retire(fixture.record.owner.copy(generation = 8)))
+        runCurrent()
+        assertEquals(0, fixture.helpers.releases)
+        assertFalse(fixture.operations.isQuiescent())
+        val second = fixture.record.copy(
+            reservation = ActionId("slot-2"),
+            action = ActionId("spawn-2"),
+            request = RequestId("R2"),
+        )
+        fixture.operations.spawn(fixture.submission(second))
+        assertEquals(listOf(fixture.record.request, second.request), fixture.helpers.prompts.map { it.request })
+        assertEquals(0, fixture.helpers.releases)
     }
 
     @Test
@@ -206,11 +233,11 @@ class HarnessSpawnOperationsTest {
     fun `retirement cancels queued acquisition without persisting a grant or releasing nonexistent lease`() = runTest {
         val fixture = HarnessSpawnFixture(backgroundScope)
         fixture.helpers.beforeAcquire = { awaitCancellation() }
-        val waiting = async { fixture.operations.spawn(fixture.submission()) }
+        val waiting = async { fixture.revokedSpawn() }
         runCurrent()
         fixture.operations.retire(fixture.record.owner)
         runCurrent()
-        assertFailsWith<CancellationException> { waiting.await() }
+        assertIs<IllegalStateException>(waiting.await().exceptionOrNull())
         assertTrue(fixture.operations.isQuiescent())
         assertTrue(fixture.journal.records.isEmpty())
         assertEquals(0, fixture.helpers.releases)
@@ -276,11 +303,11 @@ class HarnessSpawnOperationsTest {
             barrier.await()
             HelperReleaseResult.Unconfirmed
         }
-        val waiting = async { fixture.operations.spawn(fixture.submission()) }
+        val waiting = async { fixture.revokedSpawn() }
         runCurrent()
         assertFalse(fixture.operations.retire(fixture.record.owner))
         runCurrent()
-        assertFailsWith<CancellationException> { waiting.await() }
+        assertIs<IllegalStateException>(waiting.await().exceptionOrNull())
         repeat(3) { assertFalse(fixture.operations.retire(fixture.record.owner)) }
         runCurrent()
         assertEquals(1, fixture.helpers.releases)
@@ -312,4 +339,13 @@ class HarnessSpawnOperationsTest {
         )
         assertFalse(fixture.operations.isQuiescent(current.harness))
     }
+}
+
+/** A revoked producer fails its waiter with an ordinary error, never with the producer's own cancellation. */
+private suspend fun HarnessSpawnFixture.revokedSpawn(): Result<ScriptHelper> = try {
+    Result.success(operations.spawn(submission()))
+} catch (error: CancellationException) {
+    throw error
+} catch (error: IllegalStateException) {
+    Result.failure(error)
 }

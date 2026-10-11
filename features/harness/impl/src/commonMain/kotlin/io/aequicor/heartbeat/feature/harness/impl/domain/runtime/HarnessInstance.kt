@@ -38,8 +38,13 @@ internal class HarnessInstance(
     private val backgroundContext = environment.scope.coroutineContext + background + dispatcher + errors
     override val scope = HarnessOriginScope(CoroutineScope(backgroundContext), environment.origins)
 
-    /** Host pumps have neutral ancestry; only each delivered envelope supplies author-call provenance. */
-    internal val dispatchScope = CoroutineScope(backgroundContext + environment.origins.context(HarnessCallOrigin()))
+    /**
+     * Host pumps have neutral ancestry; only each delivered envelope supplies author-call provenance. Their own
+     * supervisor keeps author `scope.cancel()` from stopping host event delivery; [drain] stops them with [root].
+     */
+    internal val dispatchScope = CoroutineScope(
+        backgroundContext + SupervisorJob(root) + environment.origins.context(HarnessCallOrigin()),
+    )
     internal val calls = HarnessInvocation(
         CoroutineScope(environment.scope.coroutineContext + root + errors),
         environment.dispatchers.default,

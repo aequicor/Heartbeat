@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
 
 /**
@@ -66,9 +67,13 @@ internal class HarnessRuntime(
      */
     val publishedInstances: StateFlow<List<HarnessInstance>> = publication.asStateFlow()
 
-    /** Cancelling a waiter does not revoke an approved profile-owned activation. */
+    /**
+     * Cancelling a waiter does not revoke an approved profile-owned activation. A temporarily exhausted lane
+     * delays a new activation for a bounded time instead of failing it on a momentary snapshot.
+     */
     suspend fun activate(request: HarnessActivationRequest): Boolean {
         log.v { "prepare harness activation" }
+        if (lane.isExhausted) withTimeoutOrNull(HarnessInvocationBudget.Evaluation) { lane.awaitCapacity() }
         val preparation = mutex.withLock { reservePreparation(request) } ?: return false
         preparation.job?.start()
         return preparation.result.await()
@@ -235,7 +240,7 @@ internal class HarnessRuntime(
         var isTransferred = false
         try {
             return mutex.withLock {
-                if (isCandidate(preparation) && !lane.isExhausted) {
+                if (isCandidate(preparation)) {
                     HarnessInstance(
                         preparation.request,
                         compiled.code,

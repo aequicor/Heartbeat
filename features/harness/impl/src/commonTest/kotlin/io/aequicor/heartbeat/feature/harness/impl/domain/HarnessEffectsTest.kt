@@ -12,6 +12,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 class HarnessEffectsTest {
     @Test
@@ -68,6 +70,42 @@ class HarnessEffectsTest {
         runCurrent()
         assertEquals(1, storage.removed)
         assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.Removed(receipt)), feedback.sent)
+    }
+
+    @Test
+    fun `code that never drains rolls the deletion back instead of keeping it pending`() = runTest {
+        val storage = MemoryLibrary()
+        val runtime = RecordingRuntime().apply { canRemove = false }
+        val feedback = RecordingFeedback()
+        val work = backgroundScope.launch {
+            HarnessEffects(storage, runtime).handle(HarnessEffect.Remove(harness, receipt), feedback)
+        }
+        advanceTimeBy(REMOVAL_DRAIN_LIMIT - 1.seconds)
+        runCurrent()
+        assertTrue(work.isActive)
+        assertTrue(feedback.sent.isEmpty())
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        assertTrue(work.isCompleted)
+        assertEquals(0, storage.removed)
+        assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.RemoveFailed(receipt)), feedback.sent)
+    }
+
+    @Test
+    fun `long unconfirmed cleanup backs off instead of retrying every five seconds`() = runTest {
+        var attempts = 0
+        val runtime = object : HarnessRuntimeControl by RecordingRuntime() {
+            override suspend fun deactivate(effect: HarnessEffect.Deactivate): Boolean {
+                attempts++
+                return false
+            }
+        }
+        val effect = HarnessEffect.Deactivate(emptyList(), true, setOf(harness.id), 17)
+        backgroundScope.launch { HarnessEffects(MemoryLibrary(), runtime).handle(effect, RecordingFeedback()) }
+        advanceTimeBy(10.minutes)
+        runCurrent()
+        // 5 + 10 + 20 + 40 seconds, then one attempt per minute: far fewer than 120 fixed five-second retries.
+        assertTrue(attempts in 10..15, "attempts=$attempts")
     }
 
     @Test

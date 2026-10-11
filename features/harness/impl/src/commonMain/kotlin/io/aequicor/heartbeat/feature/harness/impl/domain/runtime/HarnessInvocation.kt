@@ -4,12 +4,11 @@ import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CompletableJob
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.DisposableHandle
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -36,7 +35,10 @@ internal sealed interface HarnessInvocationResult<out T> {
     data class Cancelled(val isExpected: Boolean) : HarnessInvocationResult<Nothing>
 }
 
-/** Fixed author-code budgets, measured by a control dispatcher outside the constrained execution lane. */
+/**
+ * Fixed author-code budgets, measured by a control dispatcher outside the constrained execution lane from the
+ * moment the callback actually starts running on it.
+ */
 internal object HarnessInvocationBudget {
     val Evaluation: Duration = 10.seconds
     val Event: Duration = 30.seconds
@@ -78,7 +80,9 @@ internal class HarnessInvocation(
         val inherited = currentCoroutineContext()[HarnessOriginContext]?.origin ?: HarnessCallOrigin()
         val origin = inherited.merge(options.origin)
         val context = origins?.context(origin) ?: HarnessOriginContext(origin)
+        val started = CompletableDeferred<Unit>()
         val task = ownerScope.launch(dispatcher + context, start = CoroutineStart.LAZY) {
+            started.complete(Unit)
             currentCoroutineContext().ensureActive()
             if (options.lifetime?.isActive == false) throw CancellationException("Script call lifetime ended")
             produced = HarnessInvocationResult.Completed(block())
@@ -94,7 +98,7 @@ internal class HarnessInvocation(
             result.complete(HarnessInvocationResult.Cancelled(isExpected = true))
         }
         task.invokeOnCompletion { error ->
-            lifetime?.dispose()
+            lifetime?.complete()
             jobs.update { current -> current - task }
             when (error) {
                 null -> result.complete(checkNotNull(produced))
@@ -113,23 +117,50 @@ internal class HarnessInvocation(
             options.onStarted(handle)
             return withContext(controlDispatcher) {
                 task.start()
-                select {
+                awaitStart(started, result, timeout) ?: select {
                     result.onAwait { it }
                     onTimeout(timeout) { HarnessInvocationResult.TimedOut }
                 }
             }
         } finally {
+            lifetime?.complete()
             // Cancellation is a request only: a blocked task stays in jobs until its completion handler runs.
             task.cancel()
         }
     }
 
-    /** Cancellation-start notification avoids waiting for unrelated blocked cleanup children of the lifetime. */
-    @OptIn(InternalCoroutinesApi::class)
-    private fun bindLifetime(lifetime: Job?, task: Job, onCancelled: () -> Unit): DisposableHandle? =
-        lifetime?.invokeOnCompletion(onCancelling = true, invokeImmediately = true) {
-            onCancelled()
-            task.cancel()
+    /**
+     * Waiting for the shared lane is not author execution: the budget starts only once the task actually runs, so
+     * other harnesses' blocked callbacks cannot time out (and eventually disable) this one. A call that never
+     * started within a further [timeout] is an expected revocation, not a failure of its author code.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun <T> awaitStart(
+        started: CompletableDeferred<Unit>,
+        result: CompletableDeferred<HarnessInvocationResult<T>>,
+        timeout: Duration,
+    ): HarnessInvocationResult<T>? = select {
+        result.onAwait { it }
+        started.onAwait { null }
+        onTimeout(timeout) {
+            log.w { "Harness execution lane stayed exhausted; the callback never started" }
+            HarnessInvocationResult.Cancelled(isExpected = true)
+        }
+    }
+
+    /**
+     * A child watcher is cancelled as soon as the lifetime starts cancelling, without waiting for unrelated blocked
+     * cleanup children of the lifetime; an already ended lifetime cancels it immediately. The waiter completes the
+     * watcher when it stops waiting, so the watcher never outlives the bounded wait.
+     */
+    private fun bindLifetime(lifetime: Job?, task: Job, onCancelled: () -> Unit): CompletableJob? =
+        lifetime?.let { Job(it) }?.also { watcher ->
+            watcher.invokeOnCompletion { cause ->
+                if (cause != null) {
+                    onCancelled()
+                    task.cancel()
+                }
+            }
         }
 
     @HighFrequency

@@ -68,6 +68,14 @@ internal class HarnessScriptCache(private val directory: Path) {
         }
     }
 
+    /** Temporary outputs survive only a crash between their write and the atomic move; none is live at startup. */
+    fun purgeTemporary() {
+        if (!Files.isDirectory(directory)) return
+        Files.newDirectoryStream(directory, "compiler-*").use { entries ->
+            entries.forEach { Files.deleteIfExists(it) }
+        }
+    }
+
     fun remove(itemKey: String) {
         Files.deleteIfExists(directory.resolve("$itemKey.jar"))
         Files.deleteIfExists(directory.resolve("$itemKey.json"))

@@ -50,6 +50,14 @@ internal class HarnessCompilationTicket {
     private var value: HarnessCompilationResult? = null
     private var isDropped = false
     private var isClaimed = false
+    private var isAdmitted = false
+
+    /** The compiler received its permit; false once the waiter has already left, so it must not start. */
+    @Synchronized
+    fun admit(): Boolean {
+        if (!isDropped) isAdmitted = true
+        return isAdmitted
+    }
 
     @Synchronized
     fun publish(result: HarnessCompilationResult) {
@@ -63,13 +71,15 @@ internal class HarnessCompilationTicket {
         return checkNotNull(value).also { value = null }
     }
 
+    /** Returns true when the compiler was never admitted, so its queued request can be withdrawn. */
     @Synchronized
-    fun drop() {
+    fun drop(): Boolean {
         if (!isClaimed) {
             isDropped = true
             value?.releaseCode()
             value = null
         }
+        return !isAdmitted
     }
 }
 
