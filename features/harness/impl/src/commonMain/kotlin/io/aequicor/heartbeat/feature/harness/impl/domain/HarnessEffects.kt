@@ -5,6 +5,7 @@ import io.aequicor.heartbeat.core.statemachine.EffectHandler
 import io.aequicor.heartbeat.core.statemachine.EffectScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
@@ -19,6 +20,8 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
         when (effect) {
             is HarnessEffect.Load -> {
                 val stored = durable { storage.load() }
+                // Cleanup lost to a restart (for example of a deletion whose code never drained) ends here.
+                runtime.retainCached(stored.harnesses)
                 machine.send(
                     HarnessIntent.Internal.Loaded(
                         effect.load,
@@ -79,22 +82,52 @@ internal class HarnessEffects(private val storage: HarnessLibraryStorage, privat
      * otherwise keep the receipt pending (and every library mutation Busy) until restart. Rolling back would
      * reactivate the very code that hangs, so after the limit the deletion is committed instead: the runtime,
      * helper and workflow fences installed by the attempts stay raised, retired code keeps its own artifact lease
-     * until it actually drains, and this effect then finishes the cleanup behind the same fence.
+     * until it actually drains, and this effect then finishes the cleanup behind the same fence. Past the limit a
+     * definite storage or runtime failure must not roll back either: the deletion stays pending and the exact
+     * receipt is retried, rechecked by the runtime on every attempt.
      */
     private suspend fun remove(effect: HarnessEffect.Remove, machine: EffectScope<HarnessIntent>) {
         val drain = RemovalDrain()
-        val removed = durable {
-            when (awaitRemoval(effect, drain)) {
-                HarnessRemovalResult.Ready -> storage.remove(effect.harness, effect.receipt)
+        val removed = retainExpired(drain) {
+            durable {
+                when (awaitRemoval(effect, drain)) {
+                    HarnessRemovalResult.Ready -> storage.remove(effect.harness, effect.receipt)
 
-                // Retry is returned only once the drain limit expired with the exact receipt still pending.
-                HarnessRemovalResult.Retry -> storage.remove(effect.harness, effect.receipt)
+                    // Retry is returned only once the drain limit expired with the exact receipt still pending.
+                    HarnessRemovalResult.Retry -> storage.remove(effect.harness, effect.receipt)
 
-                HarnessRemovalResult.Obsolete -> null
+                    HarnessRemovalResult.Obsolete -> null
+                }
             }
         } ?: return
         machine.send(HarnessIntent.Internal.Removed(removed))
         if (drain.isExpired) awaitCleanup { durable { runtime.cleanupRemoved(effect) } }
+    }
+
+    /**
+     * Before the drain limit a definite failure reaches the machine as a rollback. After it, rolling back would
+     * reactivate hanging code, so the failure is logged once (verbose afterwards) and the removal retried.
+     */
+    private suspend fun <T> retainExpired(drain: RemovalDrain, block: suspend () -> T): T {
+        var wait = RETRY_DELAY
+        var isReported = false
+        while (true) {
+            try {
+                return block()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (!drain.isExpired) throw error
+                if (isReported) {
+                    log.v { "expired removal still failing; retrying the exact receipt" }
+                } else {
+                    log.w(error) { "expired removal failed; keeping the deletion pending for retry" }
+                    isReported = true
+                }
+                delay(wait)
+                wait = (wait * 2).coerceAtMost(MAX_RETRY_DELAY)
+            }
+        }
     }
 
     /** First uncertainty is a warning; repeats are verbose and back off, while the exact operation is retained. */

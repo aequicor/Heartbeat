@@ -33,7 +33,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessMachine
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.content.HarnessActiveAccess
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessCallOrigin
-import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.harnessScriptFailure
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HARNESS_WAKE_OWNER
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakeOperations
 import io.aequicor.heartbeat.feature.harness.impl.domain.services.HarnessWakePort
@@ -157,7 +156,8 @@ internal class HarnessWorkflowLaunches(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                log.w(harnessScriptFailure(error)) { "Workflow launch did not complete" }
+                // Host submission runs no author code: its own failure is logged as is.
+                log.w(error) { "Workflow launch did not complete" }
                 result.completeExceptionally(IllegalStateException("Workflow launch failed"))
             }
         }

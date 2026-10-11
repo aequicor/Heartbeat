@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain
 
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 
@@ -26,6 +27,9 @@ internal interface HarnessRuntimeControl {
      * true once code, helpers and workflows are quiescent and the removed items' caches are gone; false to retry.
      */
     suspend fun cleanupRemoved(effect: HarnessEffect.Remove): Boolean
+
+    /** Sweeps cached code of items absent from the freshly loaded committed [library]; never throws. */
+    suspend fun retainCached(library: List<Harness>)
 }
 
 /** Ready proves cleanup only for the exact still-pending receipt; Retry retains the same generation fence. */

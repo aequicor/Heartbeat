@@ -35,9 +35,18 @@ public data class ToolPolicyScope(
 
 /** Profile multibinding; resolve lazily because a provider may itself use the engine facade. */
 public fun interface AgentToolPolicyProvider {
-    /** Null means this provider contributes no policy in this scope. Cancellation must propagate. */
+    /**
+     * Null means this provider contributes no policy in this scope. Cancellation must propagate. A provider whose
+     * policy source is unavailable throws; [ToolPolicyUnavailable] marks an unavailability it already reported.
+     */
     public suspend fun policy(scope: ToolPolicyScope): ToolPolicy?
 }
+
+/**
+ * Policy source unavailability its provider has already logged. The resolver still fails closed (execution is
+ * refused, declarations fall back to defaults) but does not report it again on every lookup.
+ */
+public open class ToolPolicyUnavailable(message: String = "Tool policy is unavailable") : IllegalStateException(message)
 
 /**
  * Effective catalog names. Off wins over On; nativeOn includes unchanged adapter defaults.

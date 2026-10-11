@@ -92,16 +92,46 @@ class HarnessRemovalLifecycleTest {
         fixture.pendingRemoval = null
         fixture.isItemPresent = false
         assertFalse(control.cleanupRemoved(removal))
+        // The disk cache goes at commit: retired code runs from memory, so hanging code cannot keep the files.
+        assertEquals(listOf(fixture.desired.item.id), fixture.removedCache)
+        assertFalse(instance.isClosed)
         gate.complete(Unit)
         call.await()
         runCurrent()
         assertTrue(instance.isClosed)
         assertFalse(control.cleanupRemoved(removal))
-        assertTrue(fixture.removedCache.isEmpty())
         areHelpersReleased = true
         assertTrue(control.cleanupRemoved(removal))
         assertEquals(listOf(fixture.desired.item.id), fixture.removedCache)
         assertEquals(1, fixture.code.size)
+    }
+
+    @Test
+    fun `committed deletion keeps the cache of an item restored under the same identity`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, RemovalTestRuns()) { true }
+        val instance = fixture.activate()
+        val gate = CompletableDeferred<Unit>()
+        val call = async { fixture.runtime.invoke(instance, 30.seconds) { gate.await() } }
+        runCurrent()
+        val removal = fixture.removal()
+        assertEquals(HarnessRemovalResult.Retry, control.remove(removal))
+        fixture.pendingRemoval = null
+        assertFalse(control.cleanupRemoved(removal))
+        assertTrue(fixture.removedCache.isEmpty())
+        gate.complete(Unit)
+        call.await()
+    }
+
+    @Test
+    fun `startup sweep keeps exactly the loaded library items`() = runTest {
+        val fixture = HarnessRuntimeFixture(backgroundScope, StandardTestDispatcher(testScheduler))
+        val control = ProfileHarnessRuntimeControl(fixture.runtime, RemovalTestRuns()) { true }
+        control.retainCached(listOf(fixture.desired.harness))
+        assertEquals(
+            listOf(setOf(fixture.desired.harness.id to fixture.desired.item.id)),
+            fixture.retainedCache,
+        )
     }
 
     @Test

@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
+import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessId
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
@@ -22,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -37,7 +39,9 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.TimeSource
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HarnessRuntimeCapacityTest {
@@ -47,7 +51,7 @@ class HarnessRuntimeCapacityTest {
         val io = CapacityTestDispatcher(executor)
         val control = StandardTestDispatcher(testScheduler)
         val owner = SupervisorJob(coroutineContext[Job])
-        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io)
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
         val release = CountDownLatch(1)
         try {
             val instances = fixture.requests.take(4).map { request -> activate(fixture, io, request) }
@@ -98,12 +102,53 @@ class HarnessRuntimeCapacityTest {
     }
 
     @Test
+    fun `activation waiting for lane capacity fails once its request is fenced`() = runTest {
+        val executor = Executors.newFixedThreadPool(4)
+        val io = CapacityTestDispatcher(executor)
+        val control = StandardTestDispatcher(testScheduler)
+        val owner = SupervisorJob(coroutineContext[Job])
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
+        val release = CountDownLatch(1)
+        try {
+            val instances = fixture.requests.take(4).map { request -> activate(fixture, io, request) }
+            val entered = CountDownLatch(4)
+            instances.forEach { instance ->
+                async {
+                    fixture.runtime.invoke(instance, HarnessInvocationBudget.Tool) {
+                        entered.countDown()
+                        check(release.await(10, TimeUnit.SECONDS))
+                    }
+                }
+            }
+            runCurrent()
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            assertTrue(fixture.lane.isExhausted)
+            val fifth = fixture.requests.last()
+            val waiting = async { fixture.runtime.activate(fifth) }
+            runCurrent()
+            assertFalse(waiting.isCompleted)
+            fixture.runtime.deactivate(HarnessEffect.Deactivate(listOf(fifth), false, generation = fifth.generation))
+            advanceTimeBy(1_001)
+            runCurrent()
+            assertTrue(waiting.isCompleted)
+            assertFalse(waiting.await())
+            assertTrue(fixture.lane.isExhausted)
+            assertEquals(4, fixture.compilations.get())
+        } finally {
+            release.countDown()
+            owner.cancelAndJoin()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
     fun `instance blocked by its own callback times out its queued calls and is disabled`() = runTest {
         val executor = Executors.newFixedThreadPool(4)
         val io = CapacityTestDispatcher(executor)
         val control = StandardTestDispatcher(testScheduler)
         val owner = SupervisorJob(coroutineContext[Job])
-        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io)
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
         val release = CountDownLatch(1)
         try {
             val request = fixture.requests.first()
@@ -139,6 +184,134 @@ class HarnessRuntimeCapacityTest {
         }
     }
 
+    @Test
+    fun `short calls queued behind an in-budget long call are expected cancellations, not failures`() = runTest {
+        val executor = Executors.newFixedThreadPool(4)
+        val io = CapacityTestDispatcher(executor)
+        val control = StandardTestDispatcher(testScheduler)
+        val owner = SupervisorJob(coroutineContext[Job])
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
+        val release = CountDownLatch(1)
+        try {
+            val request = fixture.requests.first()
+            val instance = activate(fixture, io, request)
+            val entered = CountDownLatch(1)
+            // Captured by the long call's worker dispatch: it counts down once that worker really exits.
+            val completed = CountDownLatch(1)
+            io.completions.set(completed)
+            val longCall = async {
+                fixture.runtime.invoke(instance, HarnessInvocationBudget.Tool) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                    "done"
+                }
+            }
+            runCurrent()
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            repeat(HarnessLimits.FAILURES + 1) {
+                val queued = async { fixture.runtime.invoke(instance, HarnessInvocationBudget.Instructions) { "late" } }
+                runCurrent()
+                advanceTimeBy(500)
+                runCurrent()
+                assertEquals(HarnessInvocationResult.Cancelled(isExpected = true), queued.await())
+            }
+            runCurrent()
+            assertTrue(fixture.failures.isEmpty())
+            assertTrue(instance.isActive)
+            release.countDown()
+            assertTrue(completed.await(10, TimeUnit.SECONDS))
+            runCurrent()
+            val value = assertIs<HarnessInvocationResult.Completed<HarnessAttempt<String>>>(longCall.await()).value
+            assertEquals("done", assertIs<HarnessAttempt.Success<String>>(value).value)
+            assertTrue(instance.isActive)
+        } finally {
+            release.countDown()
+            owner.cancelAndJoin()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `long call blocked past its own budget fails the calls queued behind it and is disabled`() = runTest {
+        val executor = Executors.newFixedThreadPool(4)
+        val io = CapacityTestDispatcher(executor)
+        val control = StandardTestDispatcher(testScheduler)
+        val owner = SupervisorJob(coroutineContext[Job])
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
+        val release = CountDownLatch(1)
+        try {
+            val request = fixture.requests.first()
+            val instance = activate(fixture, io, request)
+            val entered = CountDownLatch(1)
+            val blocked = async {
+                fixture.runtime.invoke(instance, HarnessInvocationBudget.Tool) {
+                    entered.countDown()
+                    check(release.await(10, TimeUnit.SECONDS))
+                }
+            }
+            runCurrent()
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            advanceTimeBy(HarnessInvocationBudget.Tool.inWholeMilliseconds)
+            runCurrent()
+            assertEquals(HarnessInvocationResult.TimedOut, blocked.await())
+            val queued = List(HarnessLimits.FAILURES - 1) {
+                async { fixture.runtime.invoke(instance, HarnessInvocationBudget.Instructions) { "never" } }
+            }
+            runCurrent()
+            advanceTimeBy(500)
+            runCurrent()
+            queued.forEach { assertEquals(HarnessInvocationResult.TimedOut, it.await()) }
+            runCurrent()
+            assertTrue(fixture.failures.last().isDisabled)
+            assertFalse(instance.isActive)
+        } finally {
+            release.countDown()
+            owner.cancelAndJoin()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+        }
+    }
+
+    @Test
+    fun `background work holding the worker counts only once it outlives the background budget`() = runTest {
+        val executor = Executors.newFixedThreadPool(4)
+        val io = CapacityTestDispatcher(executor)
+        val control = StandardTestDispatcher(testScheduler)
+        val owner = SupervisorJob(coroutineContext[Job])
+        val fixture = CapacityRuntimeFixture(CoroutineScope(owner + control), control, io, testScheduler.timeSource)
+        val release = CountDownLatch(1)
+        try {
+            val request = fixture.requests.first()
+            val instance = activate(fixture, io, request)
+            val entered = CountDownLatch(1)
+            instance.scope.launch {
+                entered.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+            }
+            assertTrue(entered.await(10, TimeUnit.SECONDS))
+            val early = async { fixture.runtime.invoke(instance, HarnessInvocationBudget.Instructions) { "late" } }
+            runCurrent()
+            advanceTimeBy(500)
+            runCurrent()
+            assertEquals(HarnessInvocationResult.Cancelled(isExpected = true), early.await())
+            assertTrue(fixture.failures.isEmpty())
+            advanceTimeBy(HarnessInvocationBudget.Background.inWholeMilliseconds)
+            val late = async { fixture.runtime.invoke(instance, HarnessInvocationBudget.Instructions) { "never" } }
+            runCurrent()
+            advanceTimeBy(500)
+            runCurrent()
+            assertEquals(HarnessInvocationResult.TimedOut, late.await())
+            runCurrent()
+            assertFalse(fixture.failures.last().isDisabled)
+        } finally {
+            release.countDown()
+            owner.cancelAndJoin()
+            executor.shutdown()
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS))
+        }
+    }
+
     private suspend fun TestScope.activate(
         fixture: CapacityRuntimeFixture,
         io: CapacityTestDispatcher,
@@ -157,11 +330,16 @@ class HarnessRuntimeCapacityTest {
     }
 }
 
-private class CapacityRuntimeFixture(scope: CoroutineScope, control: CoroutineDispatcher, io: CoroutineDispatcher) {
+private class CapacityRuntimeFixture(
+    scope: CoroutineScope,
+    control: CoroutineDispatcher,
+    io: CoroutineDispatcher,
+    timeSource: TimeSource,
+) {
     val requests: List<HarnessActivationRequest> = capacityRequests()
     val compilations = AtomicInteger()
     val failures = mutableListOf<HarnessIntent.Internal.ItemRuntimeFailed>()
-    val lane = HarnessExecutionLane(io)
+    val lane = HarnessExecutionLane(io, timeSource)
     private val host = object : HarnessScriptHost {
         override val isAvailable = true
         override suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult {

@@ -55,6 +55,7 @@ internal class HarnessRuntimeFixture(
     val feedback = mutableListOf<HarnessIntent.Internal.ItemRuntimeFailed>()
     val accesses = mutableListOf<HarnessInstanceAccess>()
     val removedCache = mutableListOf<ItemId>()
+    val retainedCache = mutableListOf<Set<Pair<HarnessId, ItemId>>>()
     val cacheOperations = mutableListOf<String>()
     val host = object : HarnessScriptHost {
         override val isAvailable: Boolean get() = isHostAvailable
@@ -83,6 +84,9 @@ internal class HarnessRuntimeFixture(
             beforeCacheRemoval()
             cacheOperations += "remove"
             removedCache += item
+        }
+        override suspend fun retainCached(items: Set<Pair<HarnessId, ItemId>>) {
+            retainedCache += listOf(items)
         }
     }
     private val admission = object : HarnessRuntimeAdmission {

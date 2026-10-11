@@ -1,8 +1,8 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.runtime
 
+import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessActivationRequest
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
-import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRemovalResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRunStorage
 import io.aequicor.heartbeat.feature.harness.impl.domain.HarnessRuntimeControl
@@ -51,17 +51,23 @@ internal class ProfileHarnessRuntimeControl(
         }
     }
 
-    /** The committed harness is absent from the library, so the ordinary deactivation barrier also clears caches. */
+    /**
+     * The committed harness is absent from the library. Its disk cache goes first, without waiting for hanging code
+     * (retired code runs from memory); the harness fence then waits for code, helpers and workflows to drain.
+     */
     override suspend fun cleanupRemoved(effect: HarnessEffect.Remove): Boolean {
         val generation = runtime.committedRemovalGeneration(effect) ?: return true
-        val code = effect.harness.items.filter { it is HarnessItem.Script || it is HarnessItem.Workflow }
-        return deactivate(
-            HarnessEffect.Deactivate(
-                code.map { HarnessActivationRequest(effect.harness, it, generation) },
-                true,
-                setOf(effect.harness.id),
-                generation,
-            ),
-        )
+        if (runtime.removeCached(effect, isCommitted = true) != HarnessRemovalResult.Ready) return false
+        return deactivate(HarnessEffect.Deactivate(emptyList(), true, setOf(effect.harness.id), generation))
+    }
+
+    /**
+     * Startup sweep of cached code whose item identity is absent from the committed [library], such as a deletion
+     * whose cleanup was lost to a restart. In-flight compilations keep their files; a failed sweep is logged and
+     * the files wait for the next load.
+     */
+    override suspend fun retainCached(library: List<Harness>) {
+        val items = library.flatMapTo(mutableSetOf()) { harness -> harness.items.map { harness.id to it.id } }
+        runtime.cache.retainOnly(items)
     }
 }

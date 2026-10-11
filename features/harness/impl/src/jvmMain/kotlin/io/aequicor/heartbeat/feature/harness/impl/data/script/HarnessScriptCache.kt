@@ -104,6 +104,29 @@ internal class HarnessScriptCache(private val directory: Path) {
         }
     }
 
+    /**
+     * Deletes cached jars and metadata whose item key is not in [retained]; temporary outputs and foreign files are
+     * left alone. A file that cannot be removed is logged and the sweep goes on. Returns the number removed.
+     */
+    fun retainOnly(retained: Set<String>): Int {
+        if (!Files.isDirectory(directory)) return 0
+        return Files.newDirectoryStream(directory, "*.{jar,json}").use { entries ->
+            entries.count { entry ->
+                val key = entry.fileName.toString().substringBeforeLast('.')
+                CACHE_KEY.matches(key) && key !in retained && deleteOrphan(entry)
+            }
+        }
+    }
+
+    private fun deleteOrphan(entry: Path): Boolean = try {
+        Files.deleteIfExists(entry)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error.safeHarnessFailure()) { "orphaned harness cache entry remains until the next load" }
+        false
+    }
+
     fun remove(itemKey: String) {
         Files.deleteIfExists(directory.resolve("$itemKey.jar"))
         Files.deleteIfExists(directory.resolve("$itemKey.json"))
@@ -158,6 +181,7 @@ internal fun Path.fileDigest(): String {
 }
 
 private const val CACHE_VERSION = 1
+private val CACHE_KEY = Regex("[0-9a-f]{64}")
 private const val TEMPORARY_PREFIX = "compiler-"
 private val log = Log.tag("HarnessScriptCache")
 private const val MAX_ARTIFACT_BYTES = 16 * 1024 * 1024

@@ -104,4 +104,10 @@ internal interface HarnessScriptHost {
     suspend fun compile(request: HarnessCompilationRequest): HarnessCompilationResult
     suspend fun evaluate(code: CompiledHarnessCode, context: HarnessEvaluationContext): HarnessEvaluationResult
     suspend fun removeCached(harness: HarnessId, item: ItemId)
+
+    /**
+     * Removes cached code of every item outside [items] (the committed library), except items with a compilation
+     * still in flight. Hosts without a persistent cache keep nothing to sweep.
+     */
+    suspend fun retainCached(items: Set<Pair<HarnessId, ItemId>>) = Unit
 }

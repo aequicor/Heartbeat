@@ -44,6 +44,9 @@ internal object HarnessInvocationBudget {
     val Event: Duration = 30.seconds
     val Tool: Duration = 60.seconds
     val Instructions: Duration = 500.milliseconds
+
+    /** Longest continuous worker hold by an instance's background code before it counts as the instance's fault. */
+    val Background: Duration = 30.seconds
 }
 
 /**
@@ -81,7 +84,8 @@ internal class HarnessInvocation(
         val origin = inherited.merge(options.origin)
         val context = origins?.context(origin) ?: HarnessOriginContext(origin)
         val started = CompletableDeferred<Unit>()
-        val task = ownerScope.launch(dispatcher + context, start = CoroutineStart.LAZY) {
+        val budget = HarnessCallBudget(timeout)
+        val task = ownerScope.launch(dispatcher + context + budget, start = CoroutineStart.LAZY) {
             started.complete(Unit)
             currentCoroutineContext().ensureActive()
             if (options.lifetime?.isActive == false) throw CancellationException("Script call lifetime ended")
@@ -117,10 +121,13 @@ internal class HarnessInvocation(
             options.onStarted(handle)
             return withContext(controlDispatcher) {
                 task.start()
-                awaitStart(dispatcher, started, result, timeout) ?: select {
+                val outcome = awaitStart(dispatcher, started, result, timeout) ?: select {
                     result.onAwait { it }
                     onTimeout(timeout) { HarnessInvocationResult.TimedOut }
                 }
+                // Code still running after its waiter gave up is overdue for calls queued behind it.
+                if (outcome is HarnessInvocationResult.TimedOut) budget.expire()
+                outcome
             }
         } finally {
             lifetime?.complete()
@@ -132,9 +139,10 @@ internal class HarnessInvocation(
     /**
      * Waiting for the shared lane is not author execution: the budget starts only once the task actually runs, so
      * other harnesses' blocked callbacks cannot time out (and eventually disable) this one. A call that never
-     * started within a further [timeout] is an expected revocation only while foreign work holds the lane; when the
-     * instance's own unfinished callback or background job holds its serialized worker, it is this instance's
-     * timeout and counts as a failure.
+     * started within a further [timeout] is an expected revocation while foreign work holds the lane or while the
+     * instance's own call or background work runs within its budget (a legitimately long tool call must not fail
+     * the short calls queued behind it). Only when the instance's own work holding its serialized worker is
+     * overdue is it this instance's timeout, counted as a failure.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun <T> awaitStart(
@@ -152,16 +160,26 @@ internal class HarnessInvocation(
     @HighFrequency
     private fun notStarted(dispatcher: CoroutineDispatcher): HarnessInvocationResult<Nothing> {
         val lane = dispatcher as? HarnessLaneDispatcher
-        if (lane?.isBusy == true) {
-            log.v { "callback never started behind unfinished work of its own instance" }
-            return HarnessInvocationResult.TimedOut
+        return when (lane?.occupancy) {
+            HarnessLaneOccupancy.Overdue -> {
+                log.v { "callback never started behind overdue work of its own instance" }
+                HarnessInvocationResult.TimedOut
+            }
+
+            HarnessLaneOccupancy.WithinBudget -> {
+                log.v { "callback never started behind in-budget work of its own instance" }
+                HarnessInvocationResult.Cancelled(isExpected = true)
+            }
+
+            HarnessLaneOccupancy.Idle, null -> {
+                if (lane?.markStarved() != false) {
+                    log.w { "Harness execution lane stayed exhausted; the callback never started" }
+                } else {
+                    log.v { "harness execution lane still exhausted; the callback never started" }
+                }
+                HarnessInvocationResult.Cancelled(isExpected = true)
+            }
         }
-        if (lane?.markStarved() != false) {
-            log.w { "Harness execution lane stayed exhausted; the callback never started" }
-        } else {
-            log.v { "harness execution lane still exhausted; the callback never started" }
-        }
-        return HarnessInvocationResult.Cancelled(isExpected = true)
     }
 
     /**

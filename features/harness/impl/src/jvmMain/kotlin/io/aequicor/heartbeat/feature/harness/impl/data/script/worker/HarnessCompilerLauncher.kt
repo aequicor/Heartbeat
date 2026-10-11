@@ -9,6 +9,7 @@ import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.JsonObject
 import okio.ByteString
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.script.experimental.api.ScriptCompilationConfiguration
@@ -25,13 +26,24 @@ internal fun interface HarnessCompilerLauncher {
  * launcher, so there the app launcher (`jpackage.app-path`) starts in its private worker mode, routed by the desktop
  * entry point before anything else initializes, and takes [jvmOptions] from `JAVA_TOOL_OPTIONS`. The worker runs in
  * the temporary directory with only the environment a JVM needs: none of the app's secrets reach the compiler.
+ * With [isClasspathInFile] (Windows by default, whose command line a development classpath easily exceeds) the
+ * classpath goes through a Java 9+ argument file that is deleted once the worker exits.
  */
-internal class JavaHarnessCompilerLauncher(private val jvmOptions: List<String> = WORKER_JVM_OPTIONS) :
-    HarnessCompilerLauncher {
+internal class JavaHarnessCompilerLauncher(
+    private val jvmOptions: List<String> = WORKER_JVM_OPTIONS,
+    private val isClasspathInFile: Boolean = isWindows,
+) : HarnessCompilerLauncher {
     override fun start(): Process {
         val java = Path.of(System.getProperty("java.home"), "bin", if (isWindows) "java.exe" else "java")
+        var argumentFile: Path? = null
         val (command, toolOptions) = if (Files.isRegularFile(java)) {
-            listOf(java.toString()) + jvmOptions + listOf("-cp", workerClasspath(), WORKER_MAIN) to null
+            val classpath = workerClasspath()
+            val classpathArguments = if (isClasspathInFile) {
+                listOf("@" + writeArgumentFile(classpath).also { argumentFile = it })
+            } else {
+                listOf("-cp", classpath)
+            }
+            listOf(java.toString()) + jvmOptions + classpathArguments + WORKER_MAIN to null
         } else {
             val packaged = System.getProperty("jpackage.app-path")?.let(Path::of)
             check(packaged != null && Files.isRegularFile(packaged)) { "HarnessCompilerWorkerRuntimeUnavailable" }
@@ -45,16 +57,41 @@ internal class JavaHarnessCompilerLauncher(private val jvmOptions: List<String> 
         environment.clear()
         environment.putAll(kept)
         toolOptions?.let { environment[JAVA_TOOL_OPTIONS] = it }
-        return builder.start()
+        val process = try {
+            builder.start()
+        } catch (e: IOException) {
+            argumentFile?.let(::deleteArgumentFile)
+            throw e
+        }
+        // The launcher reads the file during start-up; it goes once the worker has exited.
+        argumentFile?.let { file -> process.onExit().whenComplete { _, _ -> deleteArgumentFile(file) } }
+        return process
+    }
+
+    /** `-cp` in Java's argument-file syntax: quoted, with backslashes and quotes escaped. */
+    private fun writeArgumentFile(classpath: String): Path {
+        val file = Files.createTempFile("heartbeat-harness-worker-", ".args")
+        val quoted = classpath.replace("\\", "\\\\").replace("\"", "\\\"")
+        Files.writeString(file, "-cp \"$quoted\"\n")
+        return file
+    }
+
+    private fun deleteArgumentFile(file: Path) {
+        try {
+            Files.deleteIfExists(file)
+        } catch (e: IOException) {
+            log.w(e) { "Harness compiler worker argument file remains until exit" }
+        }
     }
 
     private companion object {
         const val WORKER_MAIN = "io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerWorkerKt"
         const val WORKER_ARGUMENT = "--heartbeat-harness-compiler-worker"
         const val JAVA_TOOL_OPTIONS = "JAVA_TOOL_OPTIONS"
-        val isWindows = System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)
     }
 }
+
+private val isWindows = System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)
 
 /**
  * A heap that ends the worker, not the app, when a source makes the compiler grow without bound (exit code

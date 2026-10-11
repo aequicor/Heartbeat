@@ -11,6 +11,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionSourceId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.aiengine.facade.api.spi.EngineRegistration
@@ -99,6 +100,14 @@ internal class ProfileToolPoliciesTest {
         val declarations = resolver.resolve(scope, emptySet(), false)!!
         assertEquals(setOf("read"), declarations.nativeOn)
         assertTrue(declarations.hostedDenied.isEmpty())
+        assertNull(resolver.resolve(scope, emptySet(), true))
+    }
+
+    @Test
+    fun `already reported provider unavailability still fails closed`() = runTest {
+        val resolver = create(lazyOf(setOf(AgentToolPolicyProvider { throw ToolPolicyUnavailable() })))
+        val declarations = resolver.resolve(scope, emptySet(), false)!!
+        assertEquals(setOf("read"), declarations.nativeOn)
         assertNull(resolver.resolve(scope, emptySet(), true))
     }
 

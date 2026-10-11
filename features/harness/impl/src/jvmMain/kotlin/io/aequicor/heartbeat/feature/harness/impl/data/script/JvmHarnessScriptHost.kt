@@ -252,6 +252,17 @@ internal class JvmHarnessScriptHost(
             cache.remove(key)
         }
     }
+
+    override suspend fun retainCached(items: Set<Pair<HarnessId, ItemId>>) = withContext(dispatchers.io) {
+        val retained = items.mapTo(mutableSetOf()) { (harness, item) ->
+            cache.itemKey(HarnessCompilationRequest(harness, item, HarnessCodeKind.Script, ""))
+        }
+        val removed = lock.withLock {
+            prepareCache()
+            cache.retainOnly(retained + synchronized(pending) { pending.keys.toSet() })
+        }
+        if (removed > 0) log.d { "removed $removed orphaned harness cache files" }
+    }
 }
 
 private const val COMPILATION_WAIT_MILLIS = 90_000L

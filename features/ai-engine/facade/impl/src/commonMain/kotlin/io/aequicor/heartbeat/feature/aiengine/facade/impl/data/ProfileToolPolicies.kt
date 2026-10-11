@@ -13,6 +13,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.AgentToolPolicyProvider
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyScope
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.EngineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.ToolPolicyResolver
 import io.aequicor.heartbeat.feature.aiengine.facade.impl.domain.mergedToolPolicy
@@ -70,13 +71,17 @@ internal class ProfileToolPolicies(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Providers may carry script text or credentials in exception messages and causes.
-            log.w(IllegalStateException("Policy lookup failed (${e::class.simpleName.orEmpty()})")) {
-                "Tool policy unavailable; execution refused or declarations restored to defaults"
+            if (e.isReportedUnavailability()) {
+                // Its provider already reported the unavailability: failing closed stays, the report does not repeat.
+                log.v { "tool policy source still unavailable; execution refused or declarations restored to defaults" }
+            } else {
+                // Providers may carry script text or credentials in exception messages and causes.
+                log.w(IllegalStateException("Policy lookup failed (${e::class.simpleName.orEmpty()})")) {
+                    "Tool policy unavailable; execution refused or declarations restored to defaults"
+                }
             }
-            if (isExecuting) return null
-            mergedToolPolicy(catalog, emptyList(), hostedNames, canEnableNative = false)
-        }
+            null
+        } ?: if (isExecuting) return null else mergedToolPolicy(catalog, emptyList(), hostedNames, false)
         return lock.withLock { commit(scope, effective, lookup) }
     }
 
@@ -101,6 +106,8 @@ internal class ProfileToolPolicies(
 
     private data class Snapshot(val policy: ResolvedToolPolicy, val lookup: Long)
 }
+
+private fun Exception.isReportedUnavailability(): Boolean = this is ToolPolicyUnavailable
 
 private const val POLICY_MILLIS = 2_000L
 private const val MAX_SNAPSHOTS = 256

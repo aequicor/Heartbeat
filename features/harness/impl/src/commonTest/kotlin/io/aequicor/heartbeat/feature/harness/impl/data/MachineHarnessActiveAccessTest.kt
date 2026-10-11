@@ -1,5 +1,6 @@
 package io.aequicor.heartbeat.feature.harness.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessEntry
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
@@ -71,6 +72,21 @@ class MachineHarnessActiveAccessTest {
         assertFalse(waiting.isCompleted)
         registry.library.value = SchedulerAccessMachine(HarnessState.Ready(listOf(HarnessEntry(entry))))
         assertEquals(listOf(entry), waiting.await())
+    }
+
+    @Test
+    fun `profile reads succeeding never reset the latch of workspace reads still missing evidence`() = runTest {
+        val entry = harness.copy(scope = HarnessScope.Projects(setOf(WorkspaceRef("project"))))
+        registry.library.value = SchedulerAccessMachine(HarnessState.Ready(listOf(HarnessEntry(entry))))
+        val first = async { assertFailsWith<HarnessActivationUnavailable> { access.active(WorkspaceRef("w"), null) } }
+        advanceTimeBy(1_001)
+        first.await()
+        assertEquals(emptyList(), access.active(null, null))
+        // The workspace read still only probes: the profile read's success did not reopen its cold-start wait.
+        val probe = async { assertFailsWith<HarnessActivationUnavailable> { access.active(WorkspaceRef("w"), null) } }
+        advanceTimeBy(51)
+        runCurrent()
+        assertTrue(probe.isCompleted)
     }
 
     @Test

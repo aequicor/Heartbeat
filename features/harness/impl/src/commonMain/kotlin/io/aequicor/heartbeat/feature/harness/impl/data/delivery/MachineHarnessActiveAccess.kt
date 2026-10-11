@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.core.featuretoggles.FeatureToggles
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.core.statemachine.MachineRegistry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.SessionRef
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolPolicyUnavailable
 import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.Harness
 import io.aequicor.heartbeat.feature.harness.api.HarnessEnabled
@@ -30,8 +31,10 @@ import kotlin.time.Duration.Companion.milliseconds
 /**
  * Registry reads do not start engines or the library and therefore cannot recurse into tool contributions.
  * A cold start waits a bounded time for committed evidence. Once that evidence proved unavailable, later reads
- * only probe the current snapshot instead of waiting again, until a read succeeds. Unavailability is reported
- * once per transition: a WARN when it starts, VERBOSE for repeats, and consumers receive
+ * of the same kind only probe the current snapshot instead of waiting again, until a read of that kind succeeds.
+ * Reads for a workspace also need the project evidence that profile reads do not, so each kind keeps its own
+ * latch: alternating calls with and without a workspace never flap. Unavailability is reported once per
+ * transition of a kind: a WARN when it starts, VERBOSE for repeats, and consumers receive
  * [HarnessActivationUnavailable], which they must not report again.
  */
 @SingleIn(ProfileScope::class)
@@ -43,18 +46,21 @@ internal class MachineHarnessActiveAccess(
     private val projects: HarnessProjectSnapshots,
 ) : HarnessActiveAccess {
     private val log = Log.tag("HarnessActive")
-    private val unavailability = MutableStateFlow(false)
+    private val unavailability = MutableStateFlow(emptySet<HarnessReadKind>())
 
     override suspend fun active(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
-        resolve { select(workspace, session) }
+        resolve(HarnessReadKind.of(workspace)) { select(workspace, session) }
 
     override suspend fun applicable(workspace: WorkspaceRef?, session: SessionRef?): List<Harness> =
-        resolve { applicable(workspace, session) }
+        resolve(HarnessReadKind.of(workspace)) { applicable(workspace, session) }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun resolve(selection: HarnessActiveSnapshot.() -> List<Harness>?): List<Harness> {
+    private suspend fun resolve(
+        kind: HarnessReadKind,
+        selection: HarnessActiveSnapshot.() -> List<Harness>?,
+    ): List<Harness> {
         if (!toggles.get(HarnessEnabled)) return emptyList()
-        val wait = if (unavailability.value) UNAVAILABLE_PROBE else COLD_START_WAIT
+        val wait = if (kind in unavailability.value) UNAVAILABLE_PROBE else COLD_START_WAIT
         val selected = try {
             withTimeoutOrNull(wait) {
                 combine(
@@ -69,27 +75,54 @@ internal class MachineHarnessActiveAccess(
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
-            fail(error)
-        } ?: fail(HarnessActivationUnavailable())
-        if (unavailability.compareAndSet(expect = true, update = false)) {
-            log.i { "harness activation is available again" }
+            fail(kind, error)
+        } ?: fail(kind, HarnessActivationUnavailable())
+        if (latch(kind, isUnavailable = false)) {
+            log.i { "harness activation is available again (${kind.name})" }
         }
         return selected
     }
 
     /** Reports the transition once and throws the already reported marker instead of the original error. */
-    private fun fail(error: Exception): Nothing {
-        if (unavailability.compareAndSet(expect = false, update = true)) {
-            log.w(error) { "Harness activation unavailable; harness tools and content are closed" }
+    private fun fail(kind: HarnessReadKind, error: Exception): Nothing {
+        if (latch(kind, isUnavailable = true)) {
+            log.w(error) { "Harness activation unavailable (${kind.name}); harness tools and content are closed" }
         } else {
             log.v { "harness activation still unavailable" }
         }
         throw error as? HarnessActivationUnavailable ?: HarnessActivationUnavailable()
     }
+
+    /** Atomically moves [kind]'s latch; true only for the caller that changed it. */
+    private fun latch(kind: HarnessReadKind, isUnavailable: Boolean): Boolean {
+        while (true) {
+            val current = unavailability.value
+            if ((kind in current) == isUnavailable) return false
+            val next = if (isUnavailable) current + kind else current - kind
+            if (unavailability.compareAndSet(current, next)) {
+                log.v { "unavailability: $current -> $next" }
+                return true
+            }
+        }
+    }
 }
 
-/** Already reported by the access that threw it; consumers close harness output and log only VERBOSE. */
-internal class HarnessActivationUnavailable : IllegalStateException("Harness activation is unavailable")
+/** Reads differ in the evidence they need: a workspace read also waits for worktrees and the project catalog. */
+private enum class HarnessReadKind {
+    Profile,
+    Workspace,
+    ;
+
+    companion object {
+        fun of(workspace: WorkspaceRef?): HarnessReadKind = if (workspace == null) Profile else Workspace
+    }
+}
+
+/**
+ * Already reported by the access that threw it; consumers close harness output and log only VERBOSE. As a
+ * [ToolPolicyUnavailable] it also keeps the facade's fail-closed policy resolver from reporting it again.
+ */
+internal class HarnessActivationUnavailable : ToolPolicyUnavailable("Harness activation is unavailable")
 
 /** True for unavailability the access has already reported; any other failure is the consumer's to report. */
 internal fun Throwable.isReportedUnavailability(): Boolean = this is HarnessActivationUnavailable

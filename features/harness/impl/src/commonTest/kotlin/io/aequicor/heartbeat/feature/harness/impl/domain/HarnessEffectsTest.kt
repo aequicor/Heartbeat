@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.harness.impl.domain
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessEffect
 import io.aequicor.heartbeat.feature.harness.api.HarnessIntent
+import io.aequicor.heartbeat.feature.harness.api.HarnessLoad
 import io.aequicor.heartbeat.feature.harness.api.HarnessMachineSpec
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -120,6 +121,63 @@ class HarnessEffectsTest {
         assertEquals(2, storage.removed)
         assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.Removed(receipt)), feedback.sent)
         assertTrue(runtime.activated.isEmpty())
+    }
+
+    @Test
+    fun `expired deletion with a definite failure stays pending and retries instead of rolling back`() = runTest {
+        val storage = MemoryLibrary().apply { beforeRemove = { if (removed == 1) throw HarnessStorageFailure() } }
+        val runtime = RecordingRuntime().apply { canRemove = false }
+        val feedback = RecordingFeedback()
+        val work = backgroundScope.launch {
+            HarnessEffects(storage, runtime).handle(HarnessEffect.Remove(harness, receipt), feedback)
+        }
+        advanceTimeBy(REMOVAL_DRAIN_LIMIT + 1.seconds)
+        runCurrent()
+        assertEquals(1, storage.removed)
+        // The definite failure did not escape to the machine, where it would restore and reactivate the code.
+        assertTrue(work.isActive)
+        assertTrue(feedback.sent.isEmpty())
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        assertEquals(2, storage.removed)
+        assertEquals(listOf<HarnessIntent>(HarnessIntent.Internal.Removed(receipt)), feedback.sent)
+        assertTrue(runtime.activated.isEmpty())
+    }
+
+    @Test
+    fun `definite failure before the drain limit still rolls the deletion back`() = runTest {
+        val storage = MemoryLibrary().apply { beforeRemove = { throw HarnessStorageFailure() } }
+        val effects = HarnessEffects(storage, RecordingRuntime())
+        assertFailsWith<HarnessStorageFailure> {
+            effects.handle(HarnessEffect.Remove(harness, receipt), RecordingFeedback())
+        }
+    }
+
+    @Test
+    fun `expired deletion stops retrying once its receipt becomes obsolete`() = runTest {
+        val storage = MemoryLibrary().apply { beforeRemove = { throw HarnessStorageFailure() } }
+        val runtime = RecordingRuntime().apply { canRemove = false }
+        val feedback = RecordingFeedback()
+        val work = backgroundScope.launch {
+            HarnessEffects(storage, runtime).handle(HarnessEffect.Remove(harness, receipt), feedback)
+        }
+        advanceTimeBy(REMOVAL_DRAIN_LIMIT + 1.seconds)
+        runCurrent()
+        assertEquals(1, storage.removed)
+        runtime.isRemovalCurrent = false
+        advanceTimeBy(5.seconds)
+        runCurrent()
+        assertTrue(work.isCompleted)
+        assertEquals(1, storage.removed)
+        assertTrue(feedback.sent.isEmpty())
+    }
+
+    @Test
+    fun `every load sweeps cached code against the loaded library`() = runTest {
+        val storage = MemoryLibrary()
+        val runtime = RecordingRuntime()
+        HarnessEffects(storage, runtime).handle(HarnessEffect.Load(HarnessLoad(1, 0)), RecordingFeedback())
+        assertEquals(listOf(listOf(harness)), runtime.retained)
     }
 
     @Test

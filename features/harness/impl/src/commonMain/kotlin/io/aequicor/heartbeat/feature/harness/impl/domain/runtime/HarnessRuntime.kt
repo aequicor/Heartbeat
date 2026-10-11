@@ -29,8 +29,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Profile-owned code lifecycle, independent of DI and persistent workflow drivers. Compilation and evaluation
@@ -43,7 +43,9 @@ internal class HarnessRuntime(
     private val environment: HarnessRuntimeEnvironment,
 ) {
     private val mutex = Mutex()
-    private val cache = HarnessRuntimeCache(host)
+
+    /** Item-ordered cache IO; a startup sweep goes straight through it, outside any generation fence. */
+    val cache = HarnessRuntimeCache(host)
     private val declarations = HarnessToolDeclarations()
     private val current = mutableMapOf<HarnessRuntimeKey, HarnessInstance>()
     private val publication = MutableStateFlow<List<HarnessInstance>>(emptyList())
@@ -70,32 +72,28 @@ internal class HarnessRuntime(
     /**
      * Cancelling a waiter does not revoke an approved profile-owned activation. An exhausted lane delays a new
      * activation until a worker frees up instead of failing it on a momentary snapshot; fences and admission are
-     * rechecked after the wait.
+     * rechecked at least every [CAPACITY_RECHECK], so a request that became stale while waiting fails at once
+     * instead of holding the rest of its Activate batch behind the lane.
      */
     suspend fun activate(request: HarnessActivationRequest): Boolean {
         log.v { "prepare harness activation" }
         var preparation: HarnessPreparation? = null
-        while (preparation == null) {
+        var isRejected = false
+        var waited = Duration.ZERO
+        while (preparation == null && !isRejected) {
             preparation = mutex.withLock {
-                existingPreparation(request)
-                    ?: if (lane.isExhausted) null else reservePreparation(request) ?: return false
+                existingPreparation(request) ?: when {
+                    !isPreparable(request) -> null.also { isRejected = true }
+                    lane.isExhausted -> null
+                    else -> reservePreparation(request).also { isRejected = it == null }
+                }
             }
-            if (preparation == null) awaitLaneCapacity()
+            if (preparation == null && !isRejected) {
+                waited = lane.awaitCapacity(CAPACITY_RECHECK, waited, HarnessInvocationBudget.Evaluation)
+            }
         }
-        preparation.job?.start()
-        return preparation.result.await()
-    }
-
-    /** Waiting is expected; a lane that stays exhausted is reported once per exhausted period. */
-    private suspend fun awaitLaneCapacity() {
-        if (!lane.isExhausted) return
-        if (withTimeoutOrNull(HarnessInvocationBudget.Evaluation) { lane.awaitCapacity() } != null) return
-        if (lane.markStarved()) {
-            log.w { "Harness execution lane stays exhausted; activation waits for a free worker" }
-        } else {
-            log.v { "harness execution lane still exhausted; activation waits" }
-        }
-        lane.awaitCapacity()
+        preparation?.job?.start()
+        return preparation?.result?.await() ?: false
     }
 
     /** Returns only an admitted current generation; retaining the handle never bypasses invoke's recheck. */
@@ -201,8 +199,44 @@ internal class HarnessRuntime(
         return true
     }
 
-    /** Cache cleanup shares the compile lock and rechecks the same receipt before and after host IO. */
-    suspend fun removeCached(effect: HarnessEffect.Remove): HarnessRemovalResult {
+    /**
+     * Disk cache of a deletion committed before its code drained. Retired code runs from memory and host removal
+     * invalidates already admitted compiler work, so the files go when the deletion commits instead of waiting for
+     * hanging code. Each item is rechecked under its lock: this receipt's fence must still be recorded and the
+     * committed library must no longer contain the item identity. Done once per receipt; false retries.
+     */
+    private suspend fun removeCommittedCache(effect: HarnessEffect.Remove): Boolean {
+        val fence = mutex.withLock { removals[effect.harness.id]?.takeIf { it.receipt == effect.receipt } }
+        if (fence == null || fence.isCacheRemoved) return true
+        for (item in effect.harness.items.filter { it is HarnessItem.Script || it is HarnessItem.Workflow }) {
+            val request = HarnessActivationRequest(effect.harness, item, fence.generation)
+            val result = cache.remove(effect.harness.id, item.id) {
+                mutex.withLock {
+                    removals[effect.harness.id]?.receipt == effect.receipt &&
+                        environment.admission.canRemoveCached(request)
+                }
+            }
+            if (result == HarnessCacheRemoval.Failed) return false
+        }
+        mutex.withLock {
+            val current = removals[effect.harness.id]
+            if (current?.receipt == effect.receipt) removals[effect.harness.id] = current.copy(isCacheRemoved = true)
+        }
+        return true
+    }
+
+    /**
+     * Cache cleanup shares the compile lock and rechecks the same receipt before and after host IO. With
+     * [isCommitted] it is the cleanup of a deletion committed before its code drained (see [removeCommittedCache]):
+     * Ready once the files are gone, Retry after failed IO.
+     */
+    suspend fun removeCached(effect: HarnessEffect.Remove, isCommitted: Boolean = false): HarnessRemovalResult = when {
+        !isCommitted -> removePendingCache(effect)
+        removeCommittedCache(effect) -> HarnessRemovalResult.Ready
+        else -> HarnessRemovalResult.Retry
+    }
+
+    private suspend fun removePendingCache(effect: HarnessEffect.Remove): HarnessRemovalResult {
         for (item in effect.harness.items.filter { it is HarnessItem.Script || it is HarnessItem.Workflow }) {
             val result = cache.remove(effect.harness.id, item.id) {
                 mutex.withLock { removalStatusLocked(effect) == HarnessRemovalResult.Ready }
@@ -224,10 +258,7 @@ internal class HarnessRuntime(
     private fun reservePreparation(request: HarnessActivationRequest): HarnessPreparation? {
         val key = request.key()
         val previous = pending[key]
-        val isValid = host.isAvailable && environment.scope.isActive && !isFenced(request) &&
-            request.generation >= (generations[key] ?: Long.MIN_VALUE) &&
-            environment.admission.canPublish(request) && request.compilation() != null
-        if (!isValid) return null
+        if (!isPreparable(request)) return null
         generations.raise(key, request.generation)
         previous?.revoke()
         return HarnessPreparation(request).also { preparation ->
@@ -238,6 +269,12 @@ internal class HarnessRuntime(
             preparation.job?.invokeOnCompletion { preparation.result.complete(false) }
         }
     }
+
+    /** Called under [mutex]: whether this exact request may still start a new preparation. */
+    private fun isPreparable(request: HarnessActivationRequest): Boolean =
+        host.isAvailable && environment.scope.isActive && !isFenced(request) &&
+            request.generation >= (generations[request.key()] ?: Long.MIN_VALUE) &&
+            environment.admission.canPublish(request) && request.compilation() != null
 
     private suspend fun prepare(preparation: HarnessPreparation) {
         var instance: HarnessInstance? = null
@@ -400,6 +437,9 @@ private class HarnessPreparation(val request: HarnessActivationRequest) {
     }
 }
 
+/** Longest wait for lane capacity before an activation rechecks that its request is still current. */
+private val CAPACITY_RECHECK: Duration = 1.seconds
+
 private data class HarnessRuntimeKey(val harness: HarnessId, val item: ItemId)
 private fun HarnessActivationRequest.key(): HarnessRuntimeKey = HarnessRuntimeKey(harness.id, item.id)
 private fun <K> MutableMap<K, Long>.raise(key: K, generation: Long) {
@@ -416,7 +456,11 @@ private fun HarnessActivationRequest.compilation(): HarnessCompilationRequest? =
     else -> null
 }
 
-private data class HarnessRemovalFence(val receipt: HarnessReceipt, val generation: Long)
+private data class HarnessRemovalFence(
+    val receipt: HarnessReceipt,
+    val generation: Long,
+    val isCacheRemoved: Boolean = false,
+)
 
 private fun HarnessEffect.Deactivate.covers(request: HarnessActivationRequest): Boolean =
     (request.harness.id in harnesses && request.generation <= generation) || items.any {

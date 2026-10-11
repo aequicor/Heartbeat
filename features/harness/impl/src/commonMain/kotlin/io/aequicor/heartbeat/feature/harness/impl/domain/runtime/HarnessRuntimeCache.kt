@@ -43,6 +43,15 @@ internal class HarnessRuntimeCache(private val host: HarnessScriptHost) {
         HarnessCacheRemoval.Failed
     }
 
+    /** Keeps only the [items]' cached code; a failed sweep is logged and retried by the next load. */
+    suspend fun retainOnly(items: Set<Pair<HarnessId, ItemId>>) = try {
+        host.retainCached(items)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        log.w(error) { "Harness code cache sweep failed" }
+    }
+
     private suspend fun itemMutex(harness: HarnessId, item: ItemId): Mutex = mutex.withLock {
         items.getOrPut(harness to item) { Mutex() }
     }

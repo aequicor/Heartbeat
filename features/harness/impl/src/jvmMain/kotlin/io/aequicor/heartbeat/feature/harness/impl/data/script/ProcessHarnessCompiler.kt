@@ -120,7 +120,8 @@ internal class ProcessHarnessCompiler(
                     served.isSuccess -> served.getOrThrow().outcome()
 
                     else -> {
-                        val exit = withContext(NonCancellable) { worker.stop() }
+                        // The streams end before the dying worker's exit is reported: let it finish exiting first.
+                        val exit = withContext(NonCancellable + timers) { worker.stop(EXIT_GRACE) }
                         log.w(served.exceptionOrNull()) { "harness compiler worker ended: ${exit.describeExit()}" }
                         if (exit == WORKER_OUT_OF_MEMORY_EXIT) {
                             HarnessCompilerOutcome.Failed(listOf(OUT_OF_MEMORY_DIAGNOSTIC))
@@ -242,12 +243,16 @@ internal class ProcessHarnessCompiler(
             process.destroyForcibly()
         }
 
-        /** Kills a live worker and waits for its death; the exit code, or null when it had to be killed. */
-        suspend fun stop(): Int? {
-            val isRunning = process.isAlive
-            if (isRunning) kill()
+        /**
+         * Waits up to [grace] for the worker to exit on its own, then kills it if it still runs, and waits for its
+         * death; the exit code, or null when it had to be killed.
+         */
+        suspend fun stop(grace: Duration = Duration.ZERO): Int? {
+            val hasExited = !process.isAlive ||
+                (grace.isPositive() && withTimeoutOrNull(grace) { process.onExit().await() } != null)
+            if (!hasExited) kill()
             process.onExit().await()
-            return if (isRunning) null else process.exitValue()
+            return if (hasExited) process.exitValue() else null
         }
 
         /**
@@ -269,6 +274,9 @@ internal class ProcessHarnessCompiler(
     private companion object {
         val log = Log.tag("HarnessCompilerWorker")
         val IDLE_TIMEOUT = 2.minutes
+
+        /** How long a worker whose streams ended may take to report its own exit code. */
+        val EXIT_GRACE = 5.seconds
         val OUT_OF_MEMORY_DIAGNOSTIC = HarnessCodeDiagnostic(
             HarnessDiagnosticSeverity.Error,
             "The compiler ran out of memory compiling this code",

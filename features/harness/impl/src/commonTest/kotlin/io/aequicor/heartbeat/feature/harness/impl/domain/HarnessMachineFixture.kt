@@ -83,6 +83,7 @@ internal class RecordingRuntime : HarnessRuntimeControl {
     var isRemovalCurrent = true
     var isRemovedCleanupDone = true
     val cleanedUp = mutableListOf<HarnessEffect.Remove>()
+    val retained = mutableListOf<List<Harness>>()
     override suspend fun activate(request: HarnessActivationRequest): Boolean {
         activated += request
         return true
@@ -99,6 +100,9 @@ internal class RecordingRuntime : HarnessRuntimeControl {
     override suspend fun cleanupRemoved(effect: HarnessEffect.Remove): Boolean {
         cleanedUp += effect
         return isRemovedCleanupDone
+    }
+    override suspend fun retainCached(library: List<Harness>) {
+        retained += listOf(library)
     }
 }
 

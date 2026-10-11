@@ -8,6 +8,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationRequest
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCompilationResult
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -168,6 +169,92 @@ class HarnessDetachedCompilationTest {
         }
     }
 
+    @Test
+    fun `admitted compiler that outlives its timed out waiter releases the permit to the next compilation`() = runTest {
+        val directory = Files.createTempDirectory("harness-permit")
+        val dispatcher = ManualCompilerDispatcher()
+        val job = SupervisorJob()
+        val compiler = FakeCompiler(CompletableDeferred())
+        val host = JvmHarnessScriptHost(
+            directory,
+            "test",
+            CoroutineScope(job + dispatcher),
+            dispatcher.provider(),
+            compiler,
+        )
+        try {
+            val first = async { host.compile(request()) }
+            runCurrent()
+            dispatcher.drain()
+            assertEquals(1, compiler.calls.get())
+            advanceTimeBy(90_000)
+            runCurrent()
+            assertEquals(HarnessCompilationResult.TimedOut, first.await())
+            val second = async { host.compile(request(ItemId("next"))) }
+            runCurrent()
+            dispatcher.drain()
+            // The detached compiler still holds the single permit.
+            assertEquals(1, compiler.calls.get())
+            checkNotNull(compiler.gate).complete(Unit)
+            dispatcher.drain()
+            runCurrent()
+            dispatcher.drain()
+            runCurrent()
+            assertEquals(2, compiler.calls.get())
+            assertIs<HarnessCompilationResult.Failure>(second.await())
+        } finally {
+            compiler.gate?.complete(Unit)
+            job.cancel()
+            dispatcher.drain()
+            job.join()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `sweep removes orphaned cache files but keeps an item still compiling`() = runTest {
+        val directory = Files.createTempDirectory("harness-sweep")
+        val dispatcher = ManualCompilerDispatcher()
+        val job = SupervisorJob()
+        val compiler = FakeCompiler(CompletableDeferred())
+        val host = JvmHarnessScriptHost(
+            directory,
+            "test",
+            CoroutineScope(job + dispatcher),
+            dispatcher.provider(),
+            compiler,
+        )
+        val cache = HarnessScriptCache(directory)
+        val compiling = cache.itemKey(request())
+        val kept = cache.itemKey(request(ItemId("kept")))
+        val orphan = cache.itemKey(request(ItemId("orphan")))
+        try {
+            listOf(compiling, kept, orphan).forEach { Files.writeString(directory.resolve("$it.jar"), "jar") }
+            val waiting = async { host.compile(request()) }
+            runCurrent()
+            dispatcher.drain()
+            assertEquals(1, compiler.calls.get())
+            val sweep = async { host.retainCached(setOf(request().harness to ItemId("kept"))) }
+            runCurrent()
+            dispatcher.drain()
+            runCurrent()
+            sweep.await()
+            assertTrue(Files.exists(directory.resolve("$compiling.jar")))
+            assertTrue(Files.exists(directory.resolve("$kept.jar")))
+            assertFalse(Files.exists(directory.resolve("$orphan.jar")))
+            checkNotNull(compiler.gate).complete(Unit)
+            dispatcher.drain()
+            runCurrent()
+            assertIs<HarnessCompilationResult.Failure>(waiting.await())
+        } finally {
+            compiler.gate?.complete(Unit)
+            job.cancel()
+            dispatcher.drain()
+            job.join()
+            directory.toFile().deleteRecursively()
+        }
+    }
+
     private fun request(item: ItemId = ItemId("workflow")) = HarnessCompilationRequest(
         HarnessId("test"),
         item,
@@ -191,11 +278,12 @@ private class ManualCompilerDispatcher : CoroutineDispatcher() {
     }
 }
 
-/** Counts compiler entries and fails without producing bytecode. */
-private class FakeCompiler : HarnessKotlinCompiler {
+/** Counts compiler entries and fails without producing bytecode, after [gate] when one is given. */
+private class FakeCompiler(val gate: CompletableDeferred<Unit>? = null) : HarnessKotlinCompiler {
     val calls = AtomicInteger()
     override suspend fun compile(kind: HarnessCodeKind, source: String, output: Path): HarnessCompilerOutcome {
         calls.incrementAndGet()
+        gate?.await()
         return HarnessCompilerOutcome.Failed(
             listOf(HarnessCodeDiagnostic(HarnessDiagnosticSeverity.Error, "fake failure")),
         )

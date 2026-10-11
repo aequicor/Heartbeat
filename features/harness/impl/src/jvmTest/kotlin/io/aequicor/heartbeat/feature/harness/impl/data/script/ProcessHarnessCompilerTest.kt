@@ -3,6 +3,7 @@ package io.aequicor.heartbeat.feature.harness.impl.data.script
 import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HARNESS_COMPILER_WORKER_READY
 import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.HarnessCompilerLauncher
 import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.JavaHarnessCompilerLauncher
+import io.aequicor.heartbeat.feature.harness.impl.data.script.worker.WORKER_OUT_OF_MEMORY_EXIT
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosticSeverity
 import kotlinx.coroutines.CompletableDeferred
@@ -13,6 +14,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.FileDescriptor
 import java.io.FileOutputStream
@@ -97,6 +99,33 @@ class ProcessHarnessCompilerTest {
         assertFalse(workers.processes.single().isAlive)
     }
 
+    @Test
+    fun `worker that runs out of memory reports the diagnostic even when its exit lags behind its streams`() = runTest {
+        val workers = RecordingLauncher(helper("oom"))
+        val compiler = compiler(workers)
+        val failed = assertIs<HarnessCompilerOutcome.Failed>(
+            compiler.compile(HarnessCodeKind.Script, "", output()),
+        )
+        assertTrue(failed.diagnostics.single().message.contains("out of memory"))
+        assertFalse(workers.processes.single().isAlive)
+    }
+
+    @Test
+    fun `worker classpath passed through an argument file starts the real worker`() {
+        val worker = JavaHarnessCompilerLauncher(isClasspathInFile = true).start()
+        try {
+            // Not every platform reports a child's arguments; where it does, no classpath is on the command line.
+            worker.info().arguments().ifPresent { arguments ->
+                assertTrue(arguments.any { it.startsWith("@") })
+                assertFalse("-cp" in arguments)
+            }
+            assertEquals(HARNESS_COMPILER_WORKER_READY, DataInputStream(worker.inputStream).readInt())
+        } finally {
+            worker.destroyForcibly()
+            worker.onExit().get(10, TimeUnit.SECONDS)
+        }
+    }
+
     private fun output(): Path = directory.resolve("output.jar")
 
     /** A stand-in worker: it announces itself and then never answers, or exits at once with "exit". */
@@ -124,6 +153,12 @@ internal object HelperCompilerWorker {
     @JvmStatic
     fun main(arguments: Array<String>) {
         if (arguments.firstOrNull() == "exit") exitProcess(EXIT_CODE)
+        if (arguments.firstOrNull() == "oom") {
+            // Like HotSpot's ExitOnOutOfMemoryError: the streams close first, the exit code follows a moment later.
+            FileOutputStream(FileDescriptor.out).close()
+            Thread.sleep(EXIT_LAG_MILLIS)
+            exitProcess(WORKER_OUT_OF_MEMORY_EXIT)
+        }
         // Never outlives the test JVM, even when a test fails before killing it.
         ProcessHandle.current().parent().ifPresent { it.onExit().thenRun { Runtime.getRuntime().halt(0) } }
         DataOutputStream(FileOutputStream(FileDescriptor.out)).apply {
@@ -134,4 +169,5 @@ internal object HelperCompilerWorker {
     }
 
     private const val EXIT_CODE = 7
+    private const val EXIT_LAG_MILLIS = 300L
 }
