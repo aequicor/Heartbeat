@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.researchchat.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
+import io.aequicor.heartbeat.feature.aiengine.facade.api.PermissionAnswer
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchChatIntent
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchResourceKind
 import io.aequicor.heartbeat.feature.researchchat.api.ResearchSession
@@ -9,7 +10,23 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 
 /** Durable research data and profile-owned execution, shared by all research screens. */
-internal interface ResearchRepository {
+internal interface ResearchRecovery {
+    suspend fun recoverResource(
+        sessionId: String,
+        resourceId: String,
+        action: io.aequicor.heartbeat.feature.researchchat.api.ResearchRecoveryAction,
+    ): Unit = throw UnsupportedOperationException("Browser recovery unavailable")
+
+    suspend fun decidePermission(
+        questionId: String,
+        requestId: String,
+        optionId: String,
+        answer: PermissionAnswer? = null,
+    ): Unit = throw UnsupportedOperationException("No pending permissions")
+}
+
+/** Durable data and profile-owned generation. */
+internal interface ResearchRepository : ResearchRecovery {
     fun observe(): Flow<ResearchWorkspace>
     suspend fun prepare(target: EngineTarget): ResearchWorkspace
     suspend fun createSession(target: EngineTarget): ResearchSession
@@ -45,9 +62,10 @@ internal interface ResearchRepository {
 }
 
 /**
- * Awaiting either acknowledgement never owns or cancels the profile job. [completion] is true when no error needs
- * reporting: the turn completed, cancellation was confirmed, or the user explicitly stopped the local stream.
- * A locally stopped stream does not imply that the remote service confirmed cancellation.
+ * Awaiting either acknowledgement never owns or cancels the profile job. [completion] is true when
+ * no error needs reporting: the turn completed, cancellation was confirmed, or the user explicitly
+ * stopped the local stream. A locally stopped stream does not imply that the remote service
+ * confirmed cancellation.
  */
 internal data class ResearchRun(val accepted: Deferred<Boolean>, val completion: Deferred<Boolean>)
 

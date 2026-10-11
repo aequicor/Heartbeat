@@ -37,6 +37,11 @@ import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.Resour
 import io.aequicor.heartbeat.feature.researchchat.impl.presentation.store.ResourceScopeUi
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.Res
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_add_source
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_browser_cancel
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_browser_continue
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_browser_help
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_browser_loading
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_browser_open
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_document
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_file_size
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_image
@@ -49,10 +54,14 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_save_f
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_selected_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_session_sources
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_share_source
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_source_browser_retry
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_source_import_error
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_source_load_cancelled
+import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_source_load_failed
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_sources_hint
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_use_source
 import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_website
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -66,7 +75,10 @@ internal fun ResearchSources(
     val resources = state.resources.filter { it.isShared == (state.selectedSourceScope == ResourceScopeUi.Session) }
     Box(modifier.testTag("research-sources")) {
         HbColumn(Modifier.fillMaxSize(), gap = HbTheme.spacing.none) {
-            HbRow(Modifier.selectableGroup().padding(horizontal = HbTheme.spacing.xs), gap = HbTheme.spacing.xxs) {
+            HbRow(
+                Modifier.selectableGroup().padding(horizontal = HbTheme.spacing.xs),
+                gap = HbTheme.spacing.xxs,
+            ) {
                 HbNavigationItem(
                     label = stringResource(Res.string.research_session_sources, sharedCount),
                     onClick = { onIntent(ResearchScreenIntent.SelectSourceScope(ResourceScopeUi.Session)) },
@@ -84,7 +96,10 @@ internal fun ResearchSources(
             }
             HbDivider()
             HbText(
-                stringResource(Res.string.research_selected_sources, state.resources.count { it.isSelected }),
+                stringResource(
+                    Res.string.research_selected_sources,
+                    state.resources.count { it.isSelected },
+                ),
                 Modifier.padding(horizontal = HbTheme.spacing.l, vertical = HbTheme.spacing.m),
                 style = HbTheme.typography.caption,
                 color = HbTheme.colors.textSecondary,
@@ -99,7 +114,12 @@ internal fun ResearchSources(
                     }
                 }
                 items(resources, key = { it.id }) { resource ->
-                    ResearchSourceRow(resource, state.isEditable, onIntent, state.thumbnails[resource.id])
+                    ResearchSourceRow(
+                        resource,
+                        state.isEditable,
+                        onIntent,
+                        state.thumbnails[resource.id],
+                    )
                     HbDivider()
                 }
             }
@@ -128,8 +148,16 @@ private fun ResearchSourceRow(
     thumbnail: ResearchThumbnailUi?,
     modifier: Modifier = Modifier,
 ) {
-    HbColumn(modifier.fillMaxWidth().testTag("research-source-${resource.id}"), gap = HbTheme.spacing.xxs) {
-        HbRow(Modifier.fillMaxWidth(), gap = HbTheme.spacing.xs, verticalAlignment = Alignment.Top) {
+    HbColumn(
+        modifier.fillMaxWidth().testTag("research-source-${resource.id}"),
+        gap = HbTheme.spacing.xxs,
+    ) {
+        ResearchSourceRecovery(resource, onIntent)
+        HbRow(
+            Modifier.fillMaxWidth(),
+            gap = HbTheme.spacing.xs,
+            verticalAlignment = Alignment.Top,
+        ) {
             HbSwitch(
                 checked = resource.isSelected,
                 onCheckedChange = { onIntent(ResearchScreenIntent.SetResourceSelected(resource.id, it)) },
@@ -140,7 +168,10 @@ private fun ResearchSourceRow(
             if (resource.kind != ResourceKindUi.Website) {
                 ResearchSourceThumbnail(resource, thumbnail, onIntent)
             }
-            HbColumn(Modifier.weight(1f).padding(top = HbTheme.spacing.m), gap = HbTheme.spacing.xxs) {
+            HbColumn(
+                Modifier.weight(1f).padding(top = HbTheme.spacing.m),
+                gap = HbTheme.spacing.xxs,
+            ) {
                 HbText(resource.title, style = HbTheme.typography.label, maxLines = 2)
                 HbText(
                     resource.detail,
@@ -206,6 +237,46 @@ private fun ResearchSourceRow(
 }
 
 @Composable
+private fun ResearchSourceRecovery(resource: ResearchResourceUi, onIntent: (ResearchScreenIntent) -> Unit) {
+    if (!resource.isBrowserRequired) return
+    if (resource.isLoadingSource) {
+        HbText(stringResource(Res.string.research_browser_loading))
+    } else {
+        HbText(stringResource(resource.loadError.sourceErrorMessage()), color = HbTheme.colors.error)
+    }
+    if (resource.isBrowserRecoveryAvailable) ResearchSourceRecoveryActions(resource, onIntent)
+}
+
+private fun String?.sourceErrorMessage(): StringResource = when (this) {
+    "cancelled" -> Res.string.research_source_load_cancelled
+    "browser_retry_required" -> Res.string.research_source_browser_retry
+    else -> Res.string.research_source_load_failed
+}
+
+@Composable
+private fun ResearchSourceRecoveryActions(resource: ResearchResourceUi, onIntent: (ResearchScreenIntent) -> Unit) {
+    HbText(stringResource(Res.string.research_browser_help))
+    HbButton(
+        stringResource(Res.string.research_browser_open),
+        { onIntent(ResearchScreenIntent.OpenSourceBrowser(resource.id)) },
+        style = HbButtonStyle.Secondary,
+        enabled = !resource.isLoadingSource,
+    )
+    if (resource.isBrowserOpened) {
+        HbButton(
+            stringResource(Res.string.research_browser_continue),
+            { onIntent(ResearchScreenIntent.ContinueSource(resource.id)) },
+            enabled = !resource.isLoadingSource,
+        )
+    }
+    HbButton(
+        stringResource(Res.string.research_browser_cancel),
+        { onIntent(ResearchScreenIntent.CancelSource(resource.id)) },
+        style = HbButtonStyle.Ghost,
+    )
+}
+
+@Composable
 private fun ResearchSourceThumbnail(
     resource: ResearchResourceUi,
     thumbnail: ResearchThumbnailUi?,
@@ -220,7 +291,9 @@ private fun ResearchSourceThumbnail(
             send(ResearchScreenIntent.LoadThumbnail(resource.id, id, mime))
         }
         onDispose {
-            if (id != null && mime != null && isPreviewable) send(ResearchScreenIntent.ReleaseThumbnail(resource.id))
+            if (id != null && mime != null && isPreviewable) {
+                send(ResearchScreenIntent.ReleaseThumbnail(resource.id))
+            }
         }
     }
     HbAttachmentThumbnail(

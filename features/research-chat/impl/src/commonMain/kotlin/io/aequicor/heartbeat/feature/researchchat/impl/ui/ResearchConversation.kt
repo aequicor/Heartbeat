@@ -43,8 +43,9 @@ import io.aequicor.heartbeat.feature.researchchat.impl.resources.research_stop
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The research conversation laid out like a studio chat: a centered transcript column and the same composer, where
- * the checked "Research" toggle returns the chat area to the regular chat and [panelToggle] shows the side panel.
+ * The research conversation laid out like a studio chat: a centered transcript column and the same
+ * composer, where the checked "Research" toggle returns the chat area to the regular chat and
+ * [panelToggle] shows the side panel.
  */
 @Composable
 internal fun ResearchConversation(
@@ -60,7 +61,10 @@ internal fun ResearchConversation(
         gap = HbTheme.spacing.none,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        ResearchContextLine(state, column.padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.spacing.s))
+        ResearchContextLine(
+            state,
+            column.padding(horizontal = HbTheme.spacing.xl, vertical = HbTheme.spacing.s),
+        )
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             if (state.messages.isEmpty()) {
                 ResearchEmptyConversation(Modifier.fillMaxSize())
@@ -78,6 +82,9 @@ internal fun ResearchConversation(
             gap = HbTheme.spacing.s,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            state.permissions.forEach { permission ->
+                key(permission.id) { ResearchPermission(permission, onIntent) }
+            }
             if (state.hasQuestionFailed) {
                 HbText(
                     stringResource(Res.string.research_previous_run_failed),
@@ -98,7 +105,10 @@ internal fun ResearchConversation(
     }
 }
 
-/** Session and question of the conversation, quiet above the transcript; the studio header names the mode. */
+/**
+ * Session and question of the conversation, quiet above the transcript; the studio header names the
+ * mode.
+ */
 @Composable
 private fun ResearchContextLine(state: ResearchScreenState, modifier: Modifier = Modifier) {
     val session = state.sessionTitle.ifBlank { stringResource(Res.string.research_new_session) }
@@ -173,8 +183,14 @@ private fun ResearchEmptyConversation(modifier: Modifier = Modifier) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             HbIcon(HbIcons.Library, contentDescription = null, tint = HbTheme.colors.primary)
-            HbText(stringResource(Res.string.research_empty_chat), style = HbTheme.typography.display)
-            HbText(stringResource(Res.string.research_empty_hint), color = HbTheme.colors.textSecondary)
+            HbText(
+                stringResource(Res.string.research_empty_chat),
+                style = HbTheme.typography.display,
+            )
+            HbText(
+                stringResource(Res.string.research_empty_hint),
+                color = HbTheme.colors.textSecondary,
+            )
         }
     }
 }

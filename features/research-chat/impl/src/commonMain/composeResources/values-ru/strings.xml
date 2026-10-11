@@ -67,4 +67,12 @@
     <string name="research_file_size">%1$d Б</string>
     <string name="research_source_import_error">Сохранённый источник не удалось перенести в хранилище вложений. Снимите выбор или удалите его.</string>
     <string name="research_attachment_limits">Выбранные файлы превышают ограничения сообщения. Снимите выбор части источников.</string>
+    <string name="research_browser_open">Открыть в браузере</string>
+    <string name="research_browser_continue">Продолжить загрузку</string>
+    <string name="research_browser_cancel">Отмена</string>
+    <string name="research_browser_help">Источник недоступен. Откройте его в браузере, при необходимости пройдите проверку доступа и продолжите загрузку.</string>
+    <string name="research_browser_loading">Загрузка источника через браузер…</string>
+    <string name="research_source_load_failed">Не удалось загрузить источник.</string>
+    <string name="research_source_load_cancelled">Загрузка источника отменена.</string>
+    <string name="research_source_browser_retry">Браузеру не удалось получить источник. Требуется повторная попытка.</string>
 </resources>

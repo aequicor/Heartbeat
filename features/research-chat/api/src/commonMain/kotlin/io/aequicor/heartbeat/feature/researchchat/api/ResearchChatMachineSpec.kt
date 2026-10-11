@@ -5,29 +5,33 @@ import io.aequicor.heartbeat.core.statemachine.StateBuilder
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 
 /**
- * Independent question conversations, with durable profile observations and transient screen selection.
+ * Independent question conversations, with durable profile observations and transient screen
+ * selection.
  *
- * | From | Intent / guard | To | Effect / output |
+ * |From|Intent / guard|To|Effect / output|
  * |---|---|---|---|
- * | Idle | Start | Loading | Load |
- * | Loading | Loaded, eligible | Ready | Observe |
- * | Loading | Loaded, ineligible | Disabled | — |
- * | Loading | LoadFailed | Failed | — |
- * | Failed | Retry | Loading | Load |
- * | Ready | Observed | Ready | — |
- * | Ready | SelectSession/Question, exists | Ready | — |
- * | Ready | NewSession/Question, enabled and no mutation | Ready, mutating | Create |
- * | Ready | AddAttachments/Add/Select/Share/RemoveResource, idle and enabled | Ready, mutating | source mutation |
- * | Ready | Created/Mutated/ResourceAdded/MutationFailed | Ready | import acknowledgement on success |
- * | Ready | Submit, text or selected sources, idle question and enabled | Ready, submitting | Run |
- * | Ready | Submitted | Ready | Submitted |
- * | Ready | RunFinished | Ready | — |
- * | Ready | Stop, native question running | Ready | Stop |
+ * |Idle|Start|Loading|Load|
+ * |Loading|Loaded, eligible|Ready|Observe|
+ * |Loading|Loaded, ineligible|Disabled|—|
+ * |Loading|LoadFailed|Failed|—|
+ * |Failed|Retry|Loading|Load|
+ * |Ready|Observed|Ready|—|
+ * |Ready|SelectSession/Question, exists|Ready|—|
+ * |Ready|NewSession/Question, enabled and no mutation|Ready, mutating|Create|
+ * |Ready|AddAttachments/Add/Select/Share/RemoveResource, idle and enabled|Ready, mutating|source mutation|
+ * |Ready|Created/Mutated/ResourceAdded/MutationFailed|Ready|import acknowledgement on success|
+ * |Ready|Submit, text or selected sources, idle question and enabled|Ready, submitting|Run|
+ * |Ready|Submitted|Ready|Submitted|
+ * |Ready|RunFinished|Ready|—|
+ * |Ready|Stop, native question running or waiting for sources|Ready|Stop|
+ * |Ready|RecoverResource, enabled and exists|Ready|RecoverResource|
+ * |Ready|DecidePermission, question selected|Ready|DecidePermission|
  *
- * Unknown selections, overlapping source mutations and duplicate submissions are ignored. Turning the
- * flag off leaves saved research readable and allows explicit stop, but blocks all new work. Profile
- * execution is never cancelled by selection changes or by leaving the screen. A turn explicitly stopped by the
- * user settles without a generic error; unsolicited interruptions and native failures remain visible.
+ * Unknown selections, overlapping source mutations and duplicate submissions are ignored. Turning
+ * the flag off leaves saved research readable and allows explicit stop, but blocks all new work.
+ * Profile execution is never cancelled by selection changes or by leaving the screen. A turn
+ * explicitly stopped by the user settles without a generic error; unsolicited interruptions and
+ * native failures remain visible.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -81,8 +85,19 @@ public val ResearchChatMachineSpec: MachineSpec<
     }
     state<ResearchChatState.Ready> {
         selection()
+        recovery()
         resources()
         execution()
+        on<ResearchChatIntent.Public.DecidePermission>(guard = { state.questionId != null }) {
+            effect {
+                ResearchChatEffect.DecidePermission(
+                    requireNotNull(state.questionId),
+                    intent.requestId,
+                    intent.optionId,
+                    intent.answer,
+                )
+            }
+        }
         on<ResearchChatIntent.Internal.Observed> {
             stay { state.copy(workspace = intent.workspace, isEnabled = intent.isEnabled) }
         }
@@ -113,6 +128,8 @@ public val ResearchChatMachineSpec: MachineSpec<
             is ResearchChatEffect.Run -> ResearchChatIntent.Internal.RunFinished(effect.questionId, true)
 
             ResearchChatEffect.Observe, is ResearchChatEffect.CreateSession, is ResearchChatEffect.CreateQuestion,
+            is ResearchChatEffect.DecidePermission,
+            is ResearchChatEffect.RecoverResource,
             is ResearchChatEffect.AddResource, is ResearchChatEffect.AddAttachments,
             is ResearchChatEffect.SelectResource,
             is ResearchChatEffect.ShareResource,
@@ -135,7 +152,9 @@ private fun ResearchTransitions.selection() {
         stay { state.copy(isMutating = true, hasError = false) }
         effect { ResearchChatEffect.CreateSession(state.target) }
     }
-    on<ResearchChatIntent.Public.SelectSession>(guard = { state.workspace.sessions.any { it.id == intent.id } }) {
+    on<ResearchChatIntent.Public.SelectSession>(
+        guard = { state.workspace.sessions.any { it.id == intent.id } },
+    ) {
         stay {
             state.copy(
                 sessionId = intent.id,
@@ -143,37 +162,65 @@ private fun ResearchTransitions.selection() {
             )
         }
     }
-    on<ResearchChatIntent.Public.NewQuestion>(guard = { state.canMutate() && state.session != null }) {
+    on<ResearchChatIntent.Public.NewQuestion>(
+        guard = { state.canMutate() && state.session != null },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect { ResearchChatEffect.CreateQuestion(requireNotNull(state.sessionId)) }
     }
-    on<ResearchChatIntent.Public.SelectQuestion>(guard = {
-        state.session?.questions?.any { it.id == intent.id } == true
-    }) {
+    on<ResearchChatIntent.Public.SelectQuestion>(
+        guard = {
+            state.session?.questions?.any { it.id == intent.id } == true
+        },
+    ) {
         stay { state.copy(questionId = intent.id) }
     }
 }
 
+private fun ResearchTransitions.recovery() {
+    on<ResearchChatIntent.Public.RecoverResource>(
+        guard = { state.isEnabled && state.hasResource(intent.resourceId) },
+    ) {
+        effect {
+            ResearchChatEffect.RecoverResource(
+                requireNotNull(state.sessionId),
+                intent.resourceId,
+                intent.action,
+            )
+        }
+    }
+}
+
 private fun ResearchTransitions.resources() {
-    on<ResearchChatIntent.Public.AddAttachments>(guard = {
-        state.canMutate() && intent.attachments.isNotEmpty() &&
-            intent.questionId !in state.workspace.running && intent.questionId !in state.submitting &&
-            state.workspace.sessions.any { session ->
-                session.id == intent.sessionId && session.questions.any { it.id == intent.questionId }
-            }
-    }) {
+    on<ResearchChatIntent.Public.AddAttachments>(
+        guard = {
+            state.canMutate() && intent.attachments.isNotEmpty() &&
+                intent.questionId !in state.workspace.running && intent.questionId !in state.submitting &&
+                state.workspace.sessions.any { session ->
+                    session.id == intent.sessionId && session.questions.any { it.id == intent.questionId }
+                }
+        },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect { ResearchChatEffect.AddAttachments(intent) }
     }
-    on<ResearchChatIntent.Public.AddResource>(guard = { state.canEditSources() && intent.value.isNotBlank() }) {
+    on<ResearchChatIntent.Public.AddResource>(
+        guard = { state.canEditSources() && intent.value.isNotBlank() },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect {
-            ResearchChatEffect.AddResource(requireNotNull(state.sessionId), requireNotNull(state.questionId), intent)
+            ResearchChatEffect.AddResource(
+                requireNotNull(state.sessionId),
+                requireNotNull(state.questionId),
+                intent,
+            )
         }
     }
-    on<ResearchChatIntent.Public.SetResourceSelected>(guard = {
-        state.canEditSources() && state.hasResource(intent.resourceId)
-    }) {
+    on<ResearchChatIntent.Public.SetResourceSelected>(
+        guard = {
+            state.canEditSources() && state.hasResource(intent.resourceId)
+        },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect {
             ResearchChatEffect.SelectResource(
@@ -184,28 +231,39 @@ private fun ResearchTransitions.resources() {
             )
         }
     }
-    on<ResearchChatIntent.Public.ShareResource>(guard = {
-        state.canEditSources() && state.hasResource(intent.resourceId)
-    }) {
+    on<ResearchChatIntent.Public.ShareResource>(
+        guard = {
+            state.canEditSources() && state.hasResource(intent.resourceId)
+        },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect { ResearchChatEffect.ShareResource(requireNotNull(state.sessionId), intent.resourceId) }
     }
-    on<ResearchChatIntent.Public.RemoveResource>(guard = {
-        state.canEditSources() && state.hasResource(intent.resourceId)
-    }) {
+    on<ResearchChatIntent.Public.RemoveResource>(
+        guard = {
+            state.canEditSources() && state.hasResource(intent.resourceId)
+        },
+    ) {
         stay { state.copy(isMutating = true, hasError = false) }
         effect { ResearchChatEffect.RemoveResource(requireNotNull(state.sessionId), intent.resourceId) }
     }
 }
 
 private fun ResearchTransitions.execution() {
-    on<ResearchChatIntent.Public.Submit>(guard = {
-        state.canEditSources() && (
-            intent.prompt.isNotBlank() ||
-                state.session?.selectedResources(requireNotNull(state.question))?.isNotEmpty() == true
-        )
-    }) {
-        stay { state.copy(submitting = state.submitting + requireNotNull(state.questionId), hasError = false) }
+    on<ResearchChatIntent.Public.Submit>(
+        guard = {
+            state.canEditSources() && (
+                intent.prompt.isNotBlank() ||
+                    state.session?.selectedResources(requireNotNull(state.question))?.isNotEmpty() == true
+            )
+        },
+    ) {
+        stay {
+            state.copy(
+                submitting = state.submitting + requireNotNull(state.questionId),
+                hasError = false,
+            )
+        }
         effect {
             ResearchChatEffect.Run(
                 requireNotNull(state.sessionId),
@@ -219,10 +277,13 @@ private fun ResearchTransitions.execution() {
     }
     on<ResearchChatIntent.Internal.RunFinished> {
         stay {
-            state.copy(submitting = state.submitting - intent.questionId, hasError = state.hasError || intent.isFailed)
+            state.copy(
+                submitting = state.submitting - intent.questionId,
+                hasError = state.hasError || intent.isFailed,
+            )
         }
     }
-    on<ResearchChatIntent.Public.Stop>(guard = { state.questionId in state.workspace.running }) {
+    on<ResearchChatIntent.Public.Stop>(guard = { state.isRunning }) {
         effect { ResearchChatEffect.Stop(requireNotNull(state.questionId)) }
     }
 }
