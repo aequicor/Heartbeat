@@ -22,16 +22,21 @@ internal class DesktopKoogWorkspaces(private val tools: ProfileAgentTools) : Koo
     // Opening without a trusted accepted turn never grants coding authority.
     override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = null
 
-    override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
+    override suspend fun open(
+        ref: WorkspaceRef,
+        context: AgentToolContext,
+        areSessionHooksEnabled: Boolean,
+    ): KoogWorkspace? {
         require(context.workspace == ref)
-        val scope = context.koogToolScope()
+        val scope = context.koogToolScope(areSessionHooksEnabled)
         val specs = tools.specifications(scope)
         if (specs.isEmpty()) return null
         val instructions = tools.instructions(scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name }))
         return KoogWorkspace(koogHostedTools(specs, tools, context), instructions)
     }
 
-    override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = detachedKoogWorkspace(tools, context)
+    override suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean): KoogWorkspace? =
+        detachedKoogWorkspace(tools, context, areSessionHooksEnabled)
 
     override suspend fun instructions(context: AgentToolContext): String = independentKoogInstructions(tools, context)
 }

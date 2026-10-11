@@ -288,6 +288,40 @@ class ClaudeHostedTest {
     }
 
     @Test
+    fun `hosted turns refresh per-turn content only for sessions that opted into hooks`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        // Like harness content: a refreshed scope gets the active content (and runs scripts), others the guide.
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.isRefreshedPerTurn) "Harness content" else "Harness guide"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        // Transfers keep their project and organic cells their detached tools, both without hooks.
+        val requests = listOf(
+            CreateSessionRequest(testTarget, workspace) to false,
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true) to false,
+            CreateSessionRequest(testTarget, workspace, areSessionHooksEnabled = true) to true,
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true, areSessionHooksEnabled = true) to true,
+        )
+        requests.forEachIndexed { index, (request, isHooked) ->
+            scopes.clear()
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            val hosted = assertNotNull(fixture.transport.hostedCalls.last())
+            assertNotNull(hosted.endpoint)
+            assertEquals(if (isHooked) "Harness content" else "Harness guide", hosted.instructions)
+            assertTrue(scopes.isNotEmpty())
+            assertTrue(scopes.all { it.isRefreshedPerTurn == isHooked && it.declared == setOf("run_command") })
+        }
+        assertEquals(listOf(workspace, null, workspace, null), bridge.attached)
+        runtime.close()
+    }
+
+    @Test
     fun `chat without a project answers when its hosted tools fail`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val failing = object : AgentToolBridge {

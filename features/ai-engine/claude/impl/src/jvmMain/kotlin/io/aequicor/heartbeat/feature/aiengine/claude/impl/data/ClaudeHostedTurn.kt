@@ -86,8 +86,17 @@ internal class ClaudeHostedTurn(
         }
     }
 
-    private fun scope(project: WorkspaceRef?) =
-        AgentToolScope(project, context.target, session = context.ref, isRefreshedPerTurn = true)
+    /**
+     * Claude rebuilds instructions every turn, yet reports it only for a session that opted into hooks: per-turn
+     * content (harness context and its scripts) stands in for those hooks, so a session without them (transfers,
+     * organic cells) gets the tool guide only, as on frozen engines.
+     */
+    private fun scope(project: WorkspaceRef?) = AgentToolScope(
+        project,
+        context.target,
+        session = context.ref,
+        isRefreshedPerTurn = context.areSessionHooksEnabled,
+    )
 
     /** Native and hosted calls establish Accepted before publishing a permission, independently of stdout. */
     suspend fun toolContext(): AgentToolContext? {

@@ -116,9 +116,10 @@ class KoogToolPolicyTest {
                 return declarations.joinToString()
             }
         }
-        assertEquals("first", detachedKoogWorkspace(tools, Context)?.instructions)
+        assertEquals("first", detachedKoogWorkspace(tools, Context, areSessionHooksEnabled = true)?.instructions)
         declarations = setOf("second")
-        assertEquals("second", detachedKoogWorkspace(tools, Context.copy(turn = TurnId("next")))?.instructions)
+        val next = Context.copy(turn = TurnId("next"))
+        assertEquals("second", detachedKoogWorkspace(tools, next, areSessionHooksEnabled = true)?.instructions)
         assertTrue(scopes.all { it.session == Context.session && it.isRefreshedPerTurn })
     }
 }

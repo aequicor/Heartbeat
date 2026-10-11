@@ -18,7 +18,8 @@ internal class UnsupportedKoogWorkspaces(private val tools: ProfileAgentTools) :
     override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = null
 
     // Hosted tools without a project need no local files or processes.
-    override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = detachedKoogWorkspace(tools, context)
+    override suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean): KoogWorkspace? =
+        detachedKoogWorkspace(tools, context, areSessionHooksEnabled)
 
     override suspend fun instructions(context: AgentToolContext): String = independentKoogInstructions(tools, context)
 }

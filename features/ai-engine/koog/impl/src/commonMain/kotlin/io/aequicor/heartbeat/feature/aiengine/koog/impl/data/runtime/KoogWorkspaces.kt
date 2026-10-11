@@ -22,27 +22,36 @@ internal fun interface KoogWorkspaces {
     /** Workspace of [ref], or null when the platform has no coding tools or the project is unavailable. */
     suspend fun open(ref: WorkspaceRef): KoogWorkspace?
 
-    /** Opens tools against the accepted native turn. Legacy fixtures retain their old opening contract. */
-    suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? = open(ref)
+    /**
+     * Opens tools against the accepted native turn; [areSessionHooksEnabled] is the turn's hook opt-in (see
+     * [koogToolScope]). Legacy fixtures retain their old opening contract.
+     */
+    suspend fun open(ref: WorkspaceRef, context: AgentToolContext, areSessionHooksEnabled: Boolean): KoogWorkspace? =
+        open(ref)
 
     /** Detached hosted tools of a session without a project, opened against the accepted native turn. */
-    suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = null
+    suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean): KoogWorkspace? = null
 
     /**
-     * Instructions independent of tools (harness content) for a turn that sends no hosted tool. Koog declares that
-     * it refreshes instructions every turn, so session hooks leave this content to the system prompt.
+     * Instructions independent of tools (harness content) for a turn that sends no hosted tool; asked only for a
+     * session that opted into hooks. Koog declares that it refreshes instructions every turn, so session hooks
+     * leave this content to the system prompt.
      */
     suspend fun instructions(context: AgentToolContext): String = ""
 }
 
 /** Content of [tools] that needs none of its tools: instructions for an empty declared set. */
 internal suspend fun independentKoogInstructions(tools: ProfileAgentTools, context: AgentToolContext): String =
-    tools.instructions(context.koogToolScope().copy(declared = emptySet()))
+    tools.instructions(context.koogToolScope(areSessionHooksEnabled = true).copy(declared = emptySet()))
 
 /** Hosted tools that serve sessions without a project; available on every platform with the common dispatcher. */
-internal suspend fun detachedKoogWorkspace(tools: ProfileAgentTools, context: AgentToolContext): KoogWorkspace? {
+internal suspend fun detachedKoogWorkspace(
+    tools: ProfileAgentTools,
+    context: AgentToolContext,
+    areSessionHooksEnabled: Boolean,
+): KoogWorkspace? {
     require(context.workspace == null)
-    val scope = context.koogToolScope()
+    val scope = context.koogToolScope(areSessionHooksEnabled)
     val specs = tools.specifications(scope)
     if (specs.isEmpty()) return null
     val instructions = tools.instructions(scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name }))
@@ -57,6 +66,10 @@ internal fun KoogWorkspace.withCodingTools(isEnabled: Boolean): KoogWorkspace? {
 
 private val CODING_TOOL_NAMES = setOf("read_file", "list_dir", "glob", "grep", "write_file", "edit_file", "run_command")
 
-/** Koog rebuilds declarations and system instructions for every accepted turn. */
-internal fun AgentToolContext.koogToolScope(): AgentToolScope =
-    AgentToolScope(workspace, target, session = session, isRefreshedPerTurn = true)
+/**
+ * Koog rebuilds declarations and system instructions for every accepted turn, yet reports it only for a session
+ * that opted into hooks: per-turn content (harness context and its scripts) stands in for those hooks, so a
+ * session without them (transfers, organic cells) gets the tool guide only, as on frozen engines.
+ */
+internal fun AgentToolContext.koogToolScope(areSessionHooksEnabled: Boolean): AgentToolScope =
+    AgentToolScope(workspace, target, session = session, isRefreshedPerTurn = areSessionHooksEnabled)

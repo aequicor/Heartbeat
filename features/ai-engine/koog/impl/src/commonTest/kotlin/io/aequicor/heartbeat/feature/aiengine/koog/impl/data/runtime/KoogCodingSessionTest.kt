@@ -329,6 +329,36 @@ class KoogCodingSessionTest {
     }
 
     @Test
+    fun `hosted turns refresh per-turn content only for sessions that opted into hooks`() = runTest {
+        val f = fixture()
+        f.isSearchEnabled = false
+        val scopes = mutableListOf<AgentToolScope>()
+        // Like harness content: a refreshed scope gets the active content (and runs scripts), others the guide.
+        f.hostedTools = object : ProfileAgentTools by DetachedTools() {
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return if (scope.isRefreshedPerTurn) "Harness content" else "Harness guide"
+            }
+        }
+        // Transfers keep their project and organic cells their detached tools, both without hooks.
+        val requests = listOf(
+            CreateSessionRequest(f.target, WorkspaceRef("project")),
+            CreateSessionRequest(f.target, WorkspaceRef("project"), areSessionHooksEnabled = true),
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true),
+            CreateSessionRequest(f.target, areDetachedToolsEnabled = true, areSessionHooksEnabled = true),
+        )
+        for ((index, request) in requests.withIndex()) {
+            f.runtime().create(request).features.require(SendsPrompts).send(f.request("turn-$index"))
+            f.executor.complete()
+            runCurrent()
+        }
+        assertEquals(listOf(false, true), f.openedHooks)
+        val detached = f.executor.prompts.drop(2).map { assertIs<Message.System>(it.messages.first()).textContent() }
+        assertEquals(listOf("Harness guide", "Harness content"), detached)
+        assertEquals(listOf(false, true), scopes.map { it.isRefreshedPerTurn })
+    }
+
+    @Test
     fun `session without project or with toggle off stays a plain chat`() = runTest {
         val f = fixture()
         f.isSearchEnabled = false

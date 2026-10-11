@@ -93,6 +93,9 @@ internal class KoogTestFixture(test: TestScope) {
     var modelSupportsImages = false
     var resources = emptyMap<String, ResolvedResource>()
     var hostedTools: ProfileAgentTools? = null
+
+    /** Hook opt-in of every project workspace opened for a turn. */
+    val openedHooks = mutableListOf<Boolean>()
     var modelContextLength: Long? = null
     var availableModels = listOf("test-model")
     var toolsByModel = emptyMap<String, Boolean>()
@@ -189,15 +192,20 @@ internal class KoogTestFixture(test: TestScope) {
         object : KoogWorkspaces {
             override val hasHostedTools: Boolean get() = hostedTools != null
             override suspend fun open(ref: WorkspaceRef): KoogWorkspace? = workspace
-            override suspend fun open(ref: WorkspaceRef, context: AgentToolContext): KoogWorkspace? {
+            override suspend fun open(
+                ref: WorkspaceRef,
+                context: AgentToolContext,
+                areSessionHooksEnabled: Boolean,
+            ): KoogWorkspace? {
+                openedHooks += areSessionHooksEnabled
                 val tools = hostedTools ?: return workspace
                 return KoogWorkspace(
                     koogHostedTools(tools.specifications(ref), tools, context),
                     tools.instructions(ref),
                 )
             }
-            override suspend fun openDetached(context: AgentToolContext): KoogWorkspace? =
-                hostedTools?.let { detachedKoogWorkspace(it, context) }
+            override suspend fun openDetached(context: AgentToolContext, areSessionHooksEnabled: Boolean) =
+                hostedTools?.let { detachedKoogWorkspace(it, context, areSessionHooksEnabled) }
             override suspend fun instructions(context: AgentToolContext): String =
                 hostedTools?.let { independentKoogInstructions(it, context) }.orEmpty()
         },

@@ -74,7 +74,11 @@ public data class AgentToolScope(
     val target: EngineTarget? = null,
     val declared: Set<String>? = null,
     val session: SessionRef? = null,
-    /** Whether the adapter rebuilds declarations at every turn instead of freezing them at session creation. */
+    /**
+     * Whether the adapter rebuilds declarations at every turn instead of freezing them at session creation. Per-turn
+     * content (harness context) stands in for session hooks, so adapters report it only for a session that opted
+     * into them ([CreateSessionRequest.areSessionHooksEnabled]); others get what frozen sessions get.
+     */
     val isRefreshedPerTurn: Boolean = false,
 )
 

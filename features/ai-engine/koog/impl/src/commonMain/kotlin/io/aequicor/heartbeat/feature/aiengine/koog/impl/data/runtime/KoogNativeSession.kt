@@ -313,7 +313,7 @@ internal class KoogNativeSession(
         val project = route.workspace
         return when {
             project != null -> project.takeIf { workspaces.hasHostedTools || isCodingEnabled }
-                ?.let { workspaces.open(it, context) }
+                ?.let { workspaces.open(it, context, isTurnHooked) }
                 ?.withCodingTools(isCodingEnabled)
 
             isTurnDetached -> openDetached(context)
@@ -326,7 +326,8 @@ internal class KoogNativeSession(
      * Hosted instructions only accompany the tools they describe. A turn sending no hosted tool still receives the
      * content independent of tools when its session opted into hooks: Koog declares per-turn instructions, so those
      * hooks leave the content to this turn. Service sessions without hooks get none, as on engines delivering via
-     * hooks. Blank text adds no system message; a failing contribution leaves the turn without it.
+     * hooks; with hosted tools they get only the tool guide (see [koogToolScope]). Blank text adds no system
+     * message; a failing contribution leaves the turn without it.
      */
     private suspend fun turnInstructions(
         workspace: KoogWorkspace?,
@@ -352,7 +353,7 @@ internal class KoogNativeSession(
 
     /** Detached hosted tools are optional: a failing contribution leaves a plain chat turn. */
     private suspend fun openDetached(context: AgentToolContext): KoogWorkspace? = try {
-        workspaces.openDetached(context)
+        workspaces.openDetached(context, isTurnHooked)
     } catch (e: CancellationException) {
         throw e
     } catch (e: Exception) {
