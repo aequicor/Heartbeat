@@ -228,6 +228,38 @@ class ClaudeHostedTest {
     }
 
     @Test
+    fun `instructions independent of tools reach every turn without hosted tools`() = runTest {
+        val fixture = ClaudeFixture(backgroundScope)
+        val bridge = TestAgentBridge()
+        val scopes = mutableListOf<AgentToolScope>()
+        val tools = object : ProfileAgentTools by TestAgentTools() {
+            override suspend fun specifications(scope: AgentToolScope): List<AgentToolSpec> = emptyList()
+            override suspend fun instructions(scope: AgentToolScope): String {
+                scopes += scope
+                return "Harness content"
+            }
+        }
+        val runtime = fixture.runtime(tools, bridge)
+        val requests = listOf(
+            CreateSessionRequest(testTarget),
+            CreateSessionRequest(testTarget, areDetachedToolsEnabled = true),
+            CreateSessionRequest(testTarget, workspace),
+        )
+        requests.forEachIndexed { index, request ->
+            runtime.create(request).features.available(SendsPrompts).send(prompt("turn-$index"))
+            runCurrent()
+            val hosted = assertNotNull(fixture.transport.hostedCalls.last())
+            assertNull(hosted.endpoint)
+            assertEquals("Harness content", hosted.instructions)
+            assertEquals(request.workspace != null, hosted.isProject)
+        }
+        assertTrue(bridge.attached.isEmpty())
+        assertEquals(3, scopes.size)
+        assertTrue(scopes.all { it.declared == emptySet<String>() && it.isRefreshedPerTurn })
+        runtime.close()
+    }
+
+    @Test
     fun `chat without a project answers when its hosted tools fail`() = runTest {
         val fixture = ClaudeFixture(backgroundScope)
         val failing = object : AgentToolBridge {
@@ -270,7 +302,10 @@ class ClaudeHostedTest {
             )
             assertFalse("--tools=" in args)
             assertTrue("--tools=WebSearch" in args)
-            assertEquals(ClaudeSearchTools.values.toSet() + "mcp__heartbeat_tools__*", claudeToolFlags(args).allowed)
+            assertEquals(
+                setOf("WebSearch") + ClaudeSearchTools.values + "mcp__heartbeat_tools__*",
+                claudeToolFlags(args).allowed,
+            )
             assertTrue("--strict-mcp-config" in args)
         } finally {
             Files.deleteIfExists(config)
@@ -573,6 +608,10 @@ private class TestAgentTools : ProfileAgentTools {
         AgentToolSpec("run_command", "Run command", JsonObject(emptyMap())),
     )
     override suspend fun instructions(workspace: WorkspaceRef?) = "Use the hosted tools for coding."
+
+    // Like the dispatcher: without declared tools only instructions independent of tools remain.
+    override suspend fun instructions(scope: AgentToolScope) =
+        if (scope.declared?.isEmpty() == true) "" else instructions(scope.workspace)
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject) = AgentToolResult(
         "done",
     )

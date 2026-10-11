@@ -407,6 +407,42 @@ class ClaudeProcessTest {
     }
 
     @Test
+    fun `a pinned transport reads the version of its executable once`() = runTest {
+        if (File.separatorChar == '\\') return@runTest
+        val directory = Files.createTempDirectory("claude-version-once")
+        try {
+            val claude = directory.resolve("claude")
+            val probes = directory.resolve("probes")
+            Files.writeString(claude, "#!/bin/sh\necho probe >> '$probes'\necho '2.1.285 (Claude Code)'\n")
+            claude.toFile().setExecutable(true)
+            val launch = LaunchContext(LaunchSettings(executable = claude.toString()))
+            val pinned = transport(launches = EngineLaunchConfig { launch }).pinned()
+            repeat(2) { assertEquals("2.1.285", withContext(nativeDispatcher) { pinned.version() }) }
+            assertEquals(1, Files.readAllLines(probes).size)
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `instructions without hosted tools are appended without an MCP bridge`() = runTest {
+        val program = Files.createTempFile("claude-instructions", ".java")
+        Files.writeString(program, INSTRUCTIONS_PROGRAM)
+        try {
+            val lines = mutableListOf<String>()
+            val hosted = ClaudeHostedTools(null, "Harness content", isProject = false)
+            val exit = transport().run(listOf(program.toString()) + claudeArguments(), hosted = hosted) {
+                lines += it
+                false
+            }
+            assertEquals(0, exit)
+            assertEquals(listOf("instructions=Harness content", "mcp=false"), lines)
+        } finally {
+            Files.deleteIfExists(program)
+        }
+    }
+
+    @Test
     fun `locating reads the version of the executable the launch names`() = runTest {
         if (File.separatorChar == '\\') return@runTest
         val directory = Files.createTempDirectory("claude-locate")
@@ -455,7 +491,7 @@ class ClaudeProcessTest {
                 listOf("WebSearch"),
                 tools,
             )
-            assertEquals(ClaudeSearchTools.values.toList(), allowed.split(','))
+            assertEquals(listOf("WebSearch") + ClaudeSearchTools.values, allowed.split(','))
             assertEquals(config.toString(), arguments[arguments.indexOf("--mcp-config") + 1])
             val contents = Files.readString(config)
             assertTrue("http://127.0.0.1:4321/mcp" in contents)
@@ -518,6 +554,23 @@ class Tree {
         var stdout = new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true);
         stdout.println(helper.pid());
         Thread.sleep(60_000);
+    }
+}
+"""
+
+/** Reports the appended instruction file and whether an MCP configuration was passed. */
+private const val INSTRUCTIONS_PROGRAM = """
+class Instructions {
+    public static void main(String[] args) throws Exception {
+        var mcp = false;
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--mcp-config")) mcp = true;
+            if (args[i].equals("--append-system-prompt-file")) {
+                var text = java.nio.file.Files.readString(java.nio.file.Path.of(args[i + 1]));
+                System.out.println("instructions=" + text);
+            }
+        }
+        System.out.println("mcp=" + mcp);
     }
 }
 """

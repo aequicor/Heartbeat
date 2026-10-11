@@ -404,16 +404,7 @@ internal class ClaudeSession(
             providerSearch = route.workspace == null,
         )
         val gated = requestedFlags.native.intersect(ClaudeNativeCatalog.filter { it.isGated }.map { it.name }.toSet())
-        val workspace = route.workspace
-        val isGateRequested = gated.isNotEmpty() &&
-            toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools)
-        val native = if (isGateRequested && workspace != null &&
-            supportsClaudeNativeGate(transport.version())
-        ) {
-            environment.native.open(workspace)
-        } else {
-            null
-        }
+        val native = if (gated.isNotEmpty()) nativeWorkspace() else null
         val flags = if (native == null) requestedFlags.copy(native = requestedFlags.native - gated) else requestedFlags
         val arguments = claudeArguments(
             target.model,
@@ -434,6 +425,23 @@ internal class ClaudeSession(
             emptyList()
         }
         return ClaudeTurnPlan(arguments + inputFlags + gateFlags, native, gated)
+    }
+
+    /** The gate for additional native tools, or null with the reason they are removed from this turn. */
+    private suspend fun nativeWorkspace(): ClaudeNativeWorkspace? {
+        val workspace = route.workspace
+        val reason = when {
+            !toggles.get(io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools) ->
+                "native tools toggle is off"
+
+            workspace == null -> "session has no project"
+
+            !supportsClaudeNativeGate(transport.version()) -> "CLI does not support the native gate"
+
+            else -> environment.native.open(workspace)?.let { return it } ?: "project directory is unavailable"
+        }
+        log.d { "Gated native tools removed from the turn: $reason" }
+        return null
     }
 
     private suspend fun receive(observer: ClaudeTurnObserver, line: String) {

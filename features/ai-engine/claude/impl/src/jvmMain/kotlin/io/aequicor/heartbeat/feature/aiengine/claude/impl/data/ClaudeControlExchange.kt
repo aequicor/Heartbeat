@@ -1,6 +1,10 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -11,17 +15,19 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Routes SDK control frames independently of interactive permissions. One exchange owns one user turn.
  * The caller validates session identity and supplies native hook/permission handlers; no payload is logged.
  * Top-level result revokes handlers before stdin EOF. Process lifetime and pipe teardown belong to transport.
+ * Ordinary events wait for a slow [observe] in a queue bounded only by size, so control frames are never delayed.
  */
 internal class ClaudeControlExchange(
     private val duplex: ClaudeDuplex,
@@ -36,12 +42,18 @@ internal class ClaudeControlExchange(
     private val pending = mutableMapOf<String, CompletableDeferred<JsonObject>>()
     private val handlers = mutableMapOf<String, Job>()
     private val seen = mutableSetOf<String>()
-    private val events = Channel<JsonObject>(MAX_CONTROL_EVENTS)
+    private val events = Channel<QueuedEvent>(Channel.UNLIMITED)
+    private val queuedChars = AtomicLong(0)
     private var isEnded = false
     private var isSubmitted = false
 
     suspend fun run(initialization: JsonObject, user: JsonObject) = coroutineScope {
-        val observer = launch { for (frame in events) observe(frame) }
+        val observer = launch {
+            for (event in events) {
+                queuedChars.addAndGet(-event.size)
+                observe(event.frame)
+            }
+        }
         val reader = launch { read(this) }
         try {
             initialized(request(initialization))
@@ -67,7 +79,8 @@ internal class ClaudeControlExchange(
             pending[id] = answer
         }
         return try {
-            withTimeout(INITIALIZE_TIMEOUT_MS) {
+            // A missing answer fails this turn; a timeout cancellation would read as the caller's own cancellation.
+            withTimeoutOrNull(INITIALIZE_TIMEOUT_MS) {
                 duplex.send(
                     buildJsonObject {
                         put("type", "control_request")
@@ -76,6 +89,9 @@ internal class ClaudeControlExchange(
                     },
                 )
                 answer.await()
+            } ?: run {
+                log.w { "Claude control request timed out" }
+                throw EngineException(EngineFailure.Transport(TransportFailureReason.Timeout))
             }
         } finally {
             synchronized(lock) { pending.remove(id) }
@@ -98,7 +114,7 @@ internal class ClaudeControlExchange(
                         val isResult = frame.text("type") == "result" &&
                             (frame["parent_tool_use_id"] == null || frame["parent_tool_use_id"] == JsonNull)
                         if (isResult) revoke()
-                        if (events.trySend(frame).isFailure) protocolFailure()
+                        enqueue(frame)
                         if (isResult) duplex.closeInput()
                     }
                 }
@@ -107,6 +123,16 @@ internal class ClaudeControlExchange(
             revoke()
             events.close()
         }
+    }
+
+    /** A lagging observer is not a protocol violation; only a backlog beyond the memory budget fails the turn. */
+    private fun enqueue(frame: JsonObject) {
+        val size = frame.toString().length.toLong()
+        if (queuedChars.addAndGet(size) > MAX_QUEUED_EVENT_CHARS) {
+            log.w { "Claude event backlog exceeded its memory budget" }
+            throw EngineException(EngineFailure.Engine(EngineFailureReason.Unavailable))
+        }
+        if (events.trySend(QueuedEvent(frame, size)).isFailure) protocolFailure()
     }
 
     private fun response(frame: JsonObject) {
@@ -187,6 +213,10 @@ internal class ClaudeControlExchange(
     }
 }
 
+private data class QueuedEvent(val frame: JsonObject, val size: Long) {
+    override fun toString(): String = "ClaudeQueuedEvent(redacted)"
+}
+
 private fun controlFailure(): Exception = IllegalStateException(
     "Claude control channel ended or rejected initialization",
 )
@@ -194,5 +224,4 @@ private const val INITIALIZE_TIMEOUT_MS = 60_000L
 private const val MAX_HANDLERS = 32
 private const val MAX_REQUESTS = 4_096
 private const val MAX_ID_CHARS = 256
-
-private const val MAX_CONTROL_EVENTS = 64
+private const val MAX_QUEUED_EVENT_CHARS = 64L * 1024 * 1024

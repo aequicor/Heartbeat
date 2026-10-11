@@ -3,11 +3,19 @@ package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HOSTED_TOOLS_SERVER
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 
-/** Built-in availability is independent of CLI preapproval, which belongs exclusively to Heartbeat MCP servers. */
+/**
+ * Built-in availability is independent of CLI preapproval, which belongs to Heartbeat MCP servers and to an
+ * available [ClaudeProviderTools] tool: it has no local effect, and a print-mode CLI cannot ask the user for it.
+ */
 internal data class ClaudeToolFlags(val native: Set<String> = emptySet(), val allowed: Set<String> = emptySet()) {
     init {
         require(native.all { name -> ClaudeNativeCatalog.any { it.name == name } })
-        require(allowed.all { it == "mcp__${HOSTED_TOOLS_SERVER}__*" || it in ClaudeSearchTools.values })
+        require(
+            allowed.all {
+                it == "mcp__${HOSTED_TOOLS_SERVER}__*" || it in ClaudeSearchTools.values ||
+                    (it in ClaudeProviderTools && it in native)
+            },
+        )
     }
 
     fun arguments(): List<String> = buildList {
@@ -36,8 +44,9 @@ internal fun claudeToolFlags(
                 emptySet()
             }
         )
-    val allowed = if (search) ClaudeSearchTools.filterKeys { it !in policy.hostedDenied }.values.toSet() else emptySet()
-    return ClaudeToolFlags(native - policy.nativeOff, allowed)
+    val available = native - policy.nativeOff
+    val bridged = if (search) ClaudeSearchTools.filterKeys { it !in policy.hostedDenied }.values.toSet() else emptySet()
+    return ClaudeToolFlags(available, available.intersect(ClaudeProviderTools) + bridged)
 }
 
 /** Recovers our already-rendered flags at the process boundary; builders never infer permissions from native names. */
@@ -51,6 +60,9 @@ private fun List<String>.flagNames(prefix: String): Set<String> = singleOrNull {
         prefix,
     )
 }?.removePrefix(prefix)?.split(',')?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+
+/** Native tools running at the provider; when available they are preapproved like the bridge search tools. */
+internal val ClaudeProviderTools: Set<String> = setOf("WebSearch")
 
 internal val ClaudeSearchTools = linkedMapOf(
     "web_search" to "mcp__heartbeat_search__web_search",

@@ -194,18 +194,17 @@ internal class ProcessClaudeTransport(
         operation: suspend (Process) -> Int,
     ): Int {
         val isSearchEnabled = SEARCH_BRIDGE_MARKER in arguments
+        val endpoint = hosted?.endpoint
         val bridgeConfig = when {
-            hosted != null -> hostedConfig(hosted.endpoint, isSearchEnabled)
+            endpoint != null -> hostedConfig(endpoint, isSearchEnabled)
             isSearchEnabled -> searchConfig()
             else -> null
         }
         var instructionFile: Path? = null
         try {
-            val effectiveArguments = if (hosted != null) {
-                instructionFile = Files.createTempFile(configDirectory, "heartbeat-instructions-", ".txt").also {
-                    restrictToOwner(it, directory = false)
-                    Files.writeString(it, hosted.instructions)
-                }
+            instructionFile = hosted?.takeIf { endpoint != null || it.instructions.isNotBlank() }
+                ?.let { instructionFile(it.instructions) }
+            val effectiveArguments = if (endpoint != null) {
                 claudeHostedArguments(
                     arguments,
                     checkNotNull(bridgeConfig),
@@ -213,7 +212,9 @@ internal class ProcessClaudeTransport(
                     claudeToolFlags(arguments),
                 )
             } else {
-                bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) } ?: arguments
+                val plain = bridgeConfig?.let { claudeSearchArguments(arguments, it, claudeToolFlags(arguments)) }
+                    ?: arguments
+                plain + instructionFile?.let { listOf("--append-system-prompt-file", it.toString()) }.orEmpty()
             }
             val process = start(processBuilder(startup, effectiveArguments, workspace))
             try {
@@ -229,6 +230,13 @@ internal class ProcessClaudeTransport(
     }
 
     private val configDirectory by lazy { mcpConfigDirectory() }
+
+    private fun instructionFile(text: String): Path {
+        val file = Files.createTempFile(configDirectory, "heartbeat-instructions-", ".txt")
+        restrictToOwner(file, directory = false)
+        Files.writeString(file, text)
+        return file
+    }
 
     /** Bridge start and config file failures surface as an unavailable engine, never as a raw exception. */
     private fun searchConfig(): Path = try {
@@ -403,10 +411,16 @@ internal class ProcessClaudeTransport(
     }
 }
 
-/** [base] with one resolved startup; the native history is the one of its config directory. */
+/**
+ * [base] with one resolved startup; the native history is the one of its config directory. The executable is
+ * fixed, so its known version is read once instead of starting `claude --version` for every turn.
+ */
 private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, private val startup: ClaudeStartup) :
     ClaudeTransport {
     override val nativeStore: String = claudeNativeStore(startup.configDirectory)
+
+    @Volatile
+    private var knownVersion: String? = null
 
     override suspend fun run(
         arguments: List<String>,
@@ -428,15 +442,17 @@ private class PinnedClaudeTransport(private val base: ProcessClaudeTransport, pr
 
     override suspend fun locate(launch: LaunchContext): Installation = base.locate(launch)
 
-    override suspend fun version(): String? = base.version(startup)
+    // An unknown version is not remembered: a probe that timed out is retried by the next turn.
+    override suspend fun version(): String? = knownVersion ?: base.version(startup)?.also { knownVersion = it }
 }
 
 /**
  * A turn-scoped bearer; trusted instructions are passed in an owner-only file, never shell-escaped JSON.
- * [isProject] is false for detached tools of a session without a project.
+ * [isProject] is false for detached tools of a session without a project. Without [endpoint] the turn has no
+ * hosted tools and only [instructions] are appended to the system prompt.
  */
 internal data class ClaudeHostedTools(
-    val endpoint: AgentToolBridgeEndpoint,
+    val endpoint: AgentToolBridgeEndpoint?,
     val instructions: String,
     val isProject: Boolean = true,
 ) {

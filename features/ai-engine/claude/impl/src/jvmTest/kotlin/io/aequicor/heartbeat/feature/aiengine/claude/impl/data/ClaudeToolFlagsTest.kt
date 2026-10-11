@@ -42,9 +42,9 @@ class ClaudeToolFlagsTest {
     }
 
     @Test
-    fun `native names never become preapprovals in any argument builder`() {
+    fun `only available provider tools become native preapprovals in any argument builder`() {
         val native = ClaudeNativeCatalog.mapTo(linkedSetOf()) { it.name }
-        val flags = ClaudeToolFlags(native, ClaudeSearchTools.values.toSet())
+        val flags = ClaudeToolFlags(native, ClaudeProviderTools + ClaudeSearchTools.values)
         val base = claudeArguments(search = true, tools = flags)
         val config = Path.of("config.json")
         for (arguments in listOf(
@@ -54,12 +54,30 @@ class ClaudeToolFlagsTest {
         )) {
             val effective = claudeToolFlags(arguments)
             assertEquals(native, effective.native)
-            assertTrue(effective.allowed.all { it.startsWith("mcp__") })
-            assertFalse(effective.allowed.any { it in native })
+            assertTrue(effective.allowed.all { it.startsWith("mcp__") || it in ClaudeProviderTools })
+            assertEquals(ClaudeProviderTools, effective.allowed.intersect(native))
             assertEquals(1, arguments.count { it.startsWith("--tools=") })
             assertEquals(1, arguments.count { it.startsWith("--allowedTools=") })
         }
         for (name in native) assertFailsWith<IllegalArgumentException> { ClaudeToolFlags(allowed = setOf(name)) }
+        for (name in native - ClaudeProviderTools) {
+            assertFailsWith<IllegalArgumentException> { ClaudeToolFlags(native, setOf(name)) }
+        }
+    }
+
+    @Test
+    fun `provider web search is preapproved only while it is available`() {
+        val available = claudeToolFlags(ResolvedToolPolicy(), search = true, subagents = true, providerSearch = true)
+        assertEquals(setOf("WebSearch") + ClaudeSearchTools.values, available.allowed)
+        assertFalse(available.allowed.any { it in ClaudeAgentTools })
+        val off = claudeToolFlags(
+            ResolvedToolPolicy(nativeOff = setOf("WebSearch")),
+            search = true,
+            subagents = false,
+            providerSearch = true,
+        )
+        assertFalse("WebSearch" in off.allowed)
+        assertFalse("WebSearch" in claudeToolFlags(ResolvedToolPolicy(), true, false, providerSearch = false).allowed)
     }
 
     @Test

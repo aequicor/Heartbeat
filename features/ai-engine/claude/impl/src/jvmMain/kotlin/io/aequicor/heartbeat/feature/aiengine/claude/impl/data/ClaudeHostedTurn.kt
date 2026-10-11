@@ -37,38 +37,51 @@ internal class ClaudeHostedTurn(
 
     /**
      * Hosted tools for this turn. A project session fails on any error; for a session without a project the tools
-     * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn.
+     * are optional, so an unavailable bridge or a failing contribution leaves a plain chat turn. Instructions that
+     * need no tool (harness content) are delivered every turn even without hosted tools: the engine declares that
+     * it refreshes them, so session hooks do not repeat them in the prompt.
      */
     suspend fun prepare(): ClaudeHostedTools? {
         val project = context.workspace
         if (project != null) return attach(project)
-        if (!context.areDetachedToolsEnabled) return null
+        if (!context.areDetachedToolsEnabled) return optional { instructionsOnly(scope(null)) }
         if (!environment.bridge.isAvailable) {
             log.i { "Hosted tools bridge is unavailable; the chat turn continues without hosted tools" }
-            return null
+            return optional { instructionsOnly(scope(null)) }
         }
-        return try {
-            attach(null)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            log.w(e.redacted()) { "Hosted tools failed to attach; the chat turn continues without them" }
-            attachment?.close()
-            attachment = null
-            null
-        }
+        return optional { attach(null) }
+    }
+
+    private suspend fun optional(block: suspend () -> ClaudeHostedTools?): ClaudeHostedTools? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        log.w(e.redacted()) { "Hosted context failed to prepare; the chat turn continues without it" }
+        attachment?.close()
+        attachment = null
+        null
     }
 
     private suspend fun attach(project: WorkspaceRef?): ClaudeHostedTools? {
-        val scope = AgentToolScope(project, context.target, session = context.ref, isRefreshedPerTurn = true)
+        val scope = scope(project)
         val specs = environment.tools.specifications(scope)
-        if (specs.isEmpty()) return null
+        if (specs.isEmpty()) return instructionsOnly(scope)
         val declared = scope.copy(declared = specs.mapTo(mutableSetOf()) { it.name })
         val capability = environment.bridge.attach(declared) { toolContext() }
         attachment = capability
         val instructions = environment.tools.instructions(declared)
         return ClaudeHostedTools(capability.endpoint, instructions, isProject = project != null)
     }
+
+    /** No tool is declared, so only content independent of tools remains; nothing when it is blank. */
+    private suspend fun instructionsOnly(scope: AgentToolScope): ClaudeHostedTools? =
+        environment.tools.instructions(scope.copy(declared = emptySet())).takeIf { it.isNotBlank() }?.let {
+            ClaudeHostedTools(null, it, isProject = scope.workspace != null)
+        }
+
+    private fun scope(project: WorkspaceRef?) =
+        AgentToolScope(project, context.target, session = context.ref, isRefreshedPerTurn = true)
 
     /** Native and hosted calls establish Accepted before publishing a permission, independently of stdout. */
     suspend fun toolContext(): AgentToolContext? {

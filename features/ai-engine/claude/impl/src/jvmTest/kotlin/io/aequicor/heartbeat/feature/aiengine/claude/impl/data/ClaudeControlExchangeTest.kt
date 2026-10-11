@@ -1,11 +1,15 @@
 package io.aequicor.heartbeat.feature.aiengine.claude.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
+import io.aequicor.heartbeat.feature.aiengine.facade.api.TransportFailureReason
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -173,6 +177,43 @@ internal class ClaudeControlExchangeTest {
     }
 
     @Test
+    fun `unanswered initialize fails the exchange instead of cancelling it`() = runTest {
+        supervisorScope {
+            val pipe = Pipe()
+            val work = async { ClaudeControlExchange(pipe, { it }, {}).run(INIT, USER) }
+            runCurrent()
+            advanceTimeBy(60_001)
+            val error = assertFailsWith<EngineException> { work.await() }
+            assertEquals(EngineFailure.Transport(TransportFailureReason.Timeout), error.failure)
+            assertEquals(1, pipe.sent.size)
+        }
+    }
+
+    @Test
+    fun `a slow observer lets ordinary events queue up without failing the protocol`() = runTest {
+        val pipe = Pipe()
+        val release = CompletableDeferred<Unit>()
+        val observed = mutableListOf<JsonObject>()
+        val work = async {
+            ClaudeControlExchange(pipe, { it }, {
+                release.await()
+                observed += it
+            }).run(INIT, USER)
+        }
+        runCurrent()
+        pipe.initialized(pipe.sent.single())
+        runCurrent()
+        repeat(EVENTS) { pipe.frames.send(frame("{\"type\":\"assistant\",\"index\":$it}")) }
+        pipe.frames.send(RESULT)
+        runCurrent()
+        assertFalse(work.isCompleted)
+        release.complete(Unit)
+        pipe.frames.close()
+        work.await()
+        assertEquals(EVENTS + 1, observed.size)
+    }
+
+    @Test
     fun `duplicate inbound ids never replace pending permission`() = runTest {
         supervisorScope {
             val pipe = Pipe()
@@ -184,7 +225,7 @@ internal class ClaudeControlExchangeTest {
             runCurrent()
             pipe.frames.send(control("same", "can_use_tool"))
             pipe.frames.send(control("same", "can_use_tool"))
-            assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
+            assertFailsWith<EngineException> { work.await() }
             assertTrue(pipe.sent.none { it.text("type") == "control_response" })
         }
     }
@@ -225,7 +266,7 @@ internal class ClaudeControlExchangeTest {
             }
             runCurrent()
             pipe.frames.send(control("early", "can_use_tool"))
-            assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
+            assertFailsWith<EngineException> { work.await() }
             assertFalse(handled)
             assertEquals(1, pipe.sent.size)
         }
@@ -255,7 +296,7 @@ internal class ClaudeControlExchangeTest {
             entered.await()
             pipe.frames.send(frame("""{"type":"system","session_id":"foreign"}"""))
             pipe.frames.send(control("later", "can_use_tool"))
-            assertFailsWith<io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException> { work.await() }
+            assertFailsWith<EngineException> { work.await() }
             assertFalse(handled)
         }
     }
@@ -295,4 +336,5 @@ private fun control(id: String, subtype: String) = frame(
 )
 private val INIT = frame("""{"subtype":"initialize","hooks":{}}""")
 private val USER = frame("""{"type":"user","message":{"role":"user","content":"hello"}}""")
+private const val EVENTS = 200
 private val RESULT = frame("""{"type":"result","parent_tool_use_id":null}""")
