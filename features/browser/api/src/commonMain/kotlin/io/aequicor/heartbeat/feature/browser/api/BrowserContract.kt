@@ -23,7 +23,12 @@ public val BrowserEnabled: FeatureToggle.Flag = FeatureToggle.Flag(
 )
 
 /** Safe error categories, without native diagnostics or potentially sensitive URLs. */
-public enum class BrowserError { InvalidAddress, LoadFailed, UnsupportedAddress, EngineUnavailable }
+public enum class BrowserError {
+    InvalidAddress,
+    LoadFailed,
+    UnsupportedAddress,
+    EngineUnavailable,
+}
 
 /** Current main frame; native history belongs to the currently attached surface. */
 public data class BrowserPage(
@@ -40,11 +45,16 @@ public sealed interface BrowserState : MachineState {
     /** Observation begins when the retained screen model starts. */
     public data object Idle : BrowserState
 
-    /** Availability and the latest main-frame projection; disabled browsers accept no navigation. */
+    /**
+     * Availability and the latest main-frame projection; disabled browsers accept no navigation.
+     */
     public data class Running(
         val isConfigured: Boolean = false,
         val isEnabled: Boolean = false,
         val page: BrowserPage = BrowserPage(),
+        val tabs: List<BrowserTab> = emptyList(),
+        val selectedTabId: String? = null,
+        val display: BrowserDisplay = BrowserDisplay.Hidden,
     ) : BrowserState
 }
 
@@ -52,6 +62,18 @@ public sealed interface BrowserState : MachineState {
 public sealed interface BrowserIntent : MachineIntent {
     /** Actions allowed from screens and feature clients. */
     public sealed interface Public : BrowserIntent {
+        /** Shows or hides the retained browser without destroying tabs. */
+        public data class Display(val mode: BrowserDisplay) : Public
+
+        /** Selects a retained tab. */
+        public data class SelectTab(val id: String) : Public
+
+        /** Executes a correlated desktop operation. */
+        public data class Perform(val request: BrowserRequest) : Public
+
+        /** Revokes an outstanding operation before the owning turn is released. */
+        public data class CancelOperation(val id: String) : Public
+
         /** Starts the availability and native state observers once. */
         public data object Start : Public
 
@@ -73,6 +95,15 @@ public sealed interface BrowserIntent : MachineIntent {
 
     /** Results delivered by feature effects. */
     public sealed interface Internal : BrowserIntent {
+        /** Cancellation finished, including native input cleanup. */
+        public data class OperationCancelled(val id: String) : Internal
+
+        /** Native tab inventory, with no document or image bodies. */
+        public data class TabsChanged(val tabs: List<BrowserTab>, val selected: String?) : Internal
+
+        /** Exactly one terminal result for an operation. */
+        public data class Completed(val result: BrowserResult) : Internal
+
         /** Resolved live toggle value. */
         public data class AvailabilityChanged(val isEnabled: Boolean) : Internal
 
@@ -86,6 +117,15 @@ public sealed interface BrowserIntent : MachineIntent {
 
 /** IO requests executed through the implementation's domain ports. */
 public sealed interface BrowserEffect : MachineEffect {
+    /** Performs one tab operation and returns a correlated result. */
+    public data class Perform(val request: BrowserRequest) : BrowserEffect
+
+    /** Selects the native tab. */
+    public data class SelectTab(val id: String) : BrowserEffect
+
+    /** Cancels a pending operation. */
+    public data class CancelOperation(val id: String) : BrowserEffect
+
     /** Observes availability and native state for the entire running state lifetime. */
     public data object Observe : BrowserEffect
 
@@ -106,7 +146,13 @@ public sealed interface BrowserEffect : MachineEffect {
 }
 
 /** All browser feedback is retained state rather than one-off outputs. */
-public sealed interface BrowserOutput : MachineOutput
+public sealed interface BrowserOutput : MachineOutput {
+    /** Acknowledges completed cancellation. */
+    public data class Cancelled(val id: String) : BrowserOutput
+
+    /** Operation results are transient and collected before submission. */
+    public data class Completed(val result: BrowserResult) : BrowserOutput
+}
 
 /** Public address of the feature-scoped browser machine. */
 public object BrowserMachineKey :

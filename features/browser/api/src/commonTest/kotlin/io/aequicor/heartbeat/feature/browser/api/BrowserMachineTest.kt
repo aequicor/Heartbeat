@@ -9,6 +9,59 @@ class BrowserMachineTest {
     private val ready = BrowserState.Running(isConfigured = true, isEnabled = true)
 
     @Test
+    fun `tools reveal the panel and cancellation remains available when disabled`() {
+        val request = BrowserRequest("operation", BrowserOperation.NewTab)
+        BrowserMachineSpec.assertTransition(
+            ready,
+            BrowserIntent.Public.Perform(request),
+            ready.copy(display = BrowserDisplay.Panel),
+            listOf(BrowserEffect.Perform(request)),
+        )
+        val disabled = ready.copy(isEnabled = false)
+        BrowserMachineSpec.assertTransition(
+            disabled,
+            BrowserIntent.Public.Perform(request),
+            disabled,
+            outputs = listOf(BrowserOutput.Completed(BrowserResult(request.id, error = "Browser disabled"))),
+        )
+        BrowserMachineSpec.assertTransition(
+            disabled,
+            BrowserIntent.Public.CancelOperation(request.id),
+            disabled,
+            listOf(BrowserEffect.CancelOperation(request.id)),
+        )
+    }
+
+    @Test
+    fun `display changes preserve tabs and never reload pages`() {
+        val state =
+            ready.copy(
+                tabs = listOf(BrowserTab("tab")),
+                selectedTabId = "tab",
+                display = BrowserDisplay.Panel,
+            )
+        listOf(BrowserDisplay.Expanded, BrowserDisplay.Hidden, BrowserDisplay.Panel).forEach { mode ->
+            BrowserMachineSpec.assertTransition(
+                state,
+                BrowserIntent.Public.Display(mode),
+                state.copy(display = mode),
+            )
+        }
+        BrowserMachineSpec.assertTransition(
+            state,
+            BrowserIntent.Public.SelectTab("tab"),
+            state,
+            listOf(BrowserEffect.SelectTab("tab")),
+        )
+    }
+
+    @Test
+    fun `both additional capabilities start disabled`() {
+        assertFalse(BrowserAgentControl.default)
+        assertFalse(BrowserResearchAccess.default)
+    }
+
+    @Test
     fun `start observes without loading any website and duplicate start is ignored`() {
         assertFalse(BrowserEnabled.default)
         BrowserMachineSpec.assertTransition(
@@ -31,9 +84,18 @@ class BrowserMachineTest {
 
     @Test
     fun `disabling clears loading and surface history but retains the address`() {
-        val from = ready.copy(page = BrowserPage("https://example.com", isLoading = true, isBackAvailable = true))
-        val disabled = from.copy(isEnabled = false, page = from.page.copy(isLoading = false, isBackAvailable = false))
-        BrowserMachineSpec.assertTransition(from, BrowserIntent.Internal.AvailabilityChanged(false), disabled)
+        val from = ready.copy(
+            page = BrowserPage("https://example.com", isLoading = true, isBackAvailable = true),
+        )
+        val disabled = from.copy(
+            isEnabled = false,
+            page = from.page.copy(isLoading = false, isBackAvailable = false),
+        )
+        BrowserMachineSpec.assertTransition(
+            from,
+            BrowserIntent.Internal.AvailabilityChanged(false),
+            disabled,
+        )
         BrowserMachineSpec.assertTransition(
             disabled,
             BrowserIntent.Internal.AvailabilityChanged(true),
@@ -81,11 +143,25 @@ class BrowserMachineTest {
         BrowserMachineSpec.assertIgnored(ready, BrowserIntent.Public.Back)
         BrowserMachineSpec.assertIgnored(ready, BrowserIntent.Public.Forward)
         val from = ready.copy(
-            page = BrowserPage("https://example.com", isBackAvailable = true, isForwardAvailable = true),
+            page = BrowserPage(
+                "https://example.com",
+                isBackAvailable = true,
+                isForwardAvailable = true,
+            ),
         )
         val loading = from.copy(page = from.page.copy(isLoading = true))
-        BrowserMachineSpec.assertTransition(from, BrowserIntent.Public.Back, loading, listOf(BrowserEffect.Back))
-        BrowserMachineSpec.assertTransition(from, BrowserIntent.Public.Forward, loading, listOf(BrowserEffect.Forward))
+        BrowserMachineSpec.assertTransition(
+            from,
+            BrowserIntent.Public.Back,
+            loading,
+            listOf(BrowserEffect.Back),
+        )
+        BrowserMachineSpec.assertTransition(
+            from,
+            BrowserIntent.Public.Forward,
+            loading,
+            listOf(BrowserEffect.Forward),
+        )
     }
 
     @Test
@@ -94,7 +170,12 @@ class BrowserMachineTest {
         BrowserMachineSpec.assertIgnored(ready, BrowserIntent.Public.Stop)
         val failed = ready.copy(page = BrowserPage("https://example.com", error = BrowserError.LoadFailed))
         val loading = failed.copy(page = failed.page.copy(error = null, isLoading = true))
-        BrowserMachineSpec.assertTransition(failed, BrowserIntent.Public.Reload, loading, listOf(BrowserEffect.Reload))
+        BrowserMachineSpec.assertTransition(
+            failed,
+            BrowserIntent.Public.Reload,
+            loading,
+            listOf(BrowserEffect.Reload),
+        )
         BrowserMachineSpec.assertTransition(
             loading,
             BrowserIntent.Public.Stop,
@@ -111,9 +192,19 @@ class BrowserMachineTest {
             isBackAvailable = true,
             error = BrowserError.LoadFailed,
         )
-        BrowserMachineSpec.assertTransition(ready, BrowserIntent.Internal.PageChanged(page), ready.copy(page = page))
-        BrowserMachineSpec.assertIgnored(ready, BrowserIntent.Internal.PageChanged(page.copy(url = "file:///secret")))
-        BrowserMachineSpec.assertIgnored(ready.copy(isEnabled = false), BrowserIntent.Internal.PageChanged(page))
+        BrowserMachineSpec.assertTransition(
+            ready,
+            BrowserIntent.Internal.PageChanged(page),
+            ready.copy(page = page),
+        )
+        BrowserMachineSpec.assertIgnored(
+            ready,
+            BrowserIntent.Internal.PageChanged(page.copy(url = "file:///secret")),
+        )
+        BrowserMachineSpec.assertIgnored(
+            ready.copy(isEnabled = false),
+            BrowserIntent.Internal.PageChanged(page),
+        )
     }
 
     @Test
@@ -122,7 +213,9 @@ class BrowserMachineTest {
         BrowserMachineSpec.assertTransition(
             from,
             BrowserIntent.Internal.Failed,
-            from.copy(page = from.page.copy(isLoading = false, error = BrowserError.EngineUnavailable)),
+            from.copy(
+                page = from.page.copy(isLoading = false, error = BrowserError.EngineUnavailable),
+            ),
         )
     }
 }

@@ -53,7 +53,7 @@ interface BrowserGraph {
 }
 
 /** Launches the browser machine with domain ports. */
-@ContributesTo(BrowserScope::class)
+@ContributesTo(ProfileScope::class)
 @BindingContainer
 object BrowserBindings {
     @Provides
@@ -61,10 +61,10 @@ object BrowserBindings {
         BrowserEffects(availability, session)
 
     @Provides
-    @SingleIn(BrowserScope::class)
+    @SingleIn(ProfileScope::class)
     internal fun machine(
         launcher: MachineLauncher,
-        @ForScope(BrowserScope::class) scope: ScopeHandle,
+        @ForScope(ProfileScope::class) scope: ScopeHandle,
         effects: BrowserEffects,
     ): Machine<BrowserState, BrowserIntent, BrowserOutput> = launcher.launch(BrowserMachineSpec, scope, effects)
 }
@@ -77,6 +77,16 @@ object BrowserToggleBindings {
     @Provides
     @IntoSet
     fun browser(): FeatureToggle<*> = BrowserEnabled
+
+    /** Opt-in agent control. */
+    @Provides
+    @IntoSet
+    fun agentControl(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserAgentControl
+
+    /** Opt-in manual source recovery. */
+    @Provides
+    @IntoSet
+    fun researchAccess(): FeatureToggle<*> = io.aequicor.heartbeat.feature.browser.api.BrowserResearchAccess
 }
 
 @ContributesIntoSet(ProfileScope::class, binding = binding<ProfileRouteBinding>())

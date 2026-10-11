@@ -30,7 +30,7 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BrowserModelTest {
     @Test
-    fun `address submit forwards raw input for machine validation`() = runTest {
+    fun `address submit normalizes host before machine validation`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()
         fixture.model.store.intent(BrowserScreenIntent.AddressChanged("localhost:8080"))
@@ -38,7 +38,10 @@ class BrowserModelTest {
         assertEquals("localhost:8080", screen.states.value.address)
         fixture.model.store.intent(BrowserScreenIntent.Open)
         runCurrent()
-        assertEquals(BrowserIntent.Public.Open("localhost:8080"), fixture.machine.sent.last())
+        assertEquals(
+            BrowserIntent.Public.Open("https://localhost:8080"),
+            fixture.machine.sent.last(),
+        )
         assertFalse(screen.states.value.isAddressEdited)
     }
 
@@ -62,7 +65,11 @@ class BrowserModelTest {
     fun `explicit history navigation and reload discard the address draft`() = runTest {
         val fixture = Fixture(this)
         val screen = fixture.subscribe()
-        for (intent in listOf(BrowserScreenIntent.Back, BrowserScreenIntent.Forward, BrowserScreenIntent.Reload)) {
+        for (intent in listOf(
+            BrowserScreenIntent.Back,
+            BrowserScreenIntent.Forward,
+            BrowserScreenIntent.Reload,
+        )) {
             fixture.machine.state.value = ready(BrowserPage("https://example.com/current"))
             runCurrent()
             fixture.model.store.intent(BrowserScreenIntent.AddressChanged("unfinished.example"))
@@ -102,7 +109,9 @@ class BrowserModelTest {
         )
 
         suspend fun subscribe(): Provider<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction> {
-            val provider = CompletableDeferred<Provider<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction>>()
+            val provider = CompletableDeferred<
+                Provider<BrowserScreenState, BrowserScreenIntent, BrowserScreenAction>,
+            >()
             scope.backgroundScope.launch {
                 model.store.collect {
                     provider.complete(this)

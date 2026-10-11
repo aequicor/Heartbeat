@@ -6,13 +6,13 @@ import dev.zacsweers.metro.SingleIn
 import dev.zacsweers.metro.binding
 import io.aequicor.heartbeat.core.common.DispatcherProvider
 import io.aequicor.heartbeat.core.di.ForScope
+import io.aequicor.heartbeat.core.di.ProfileScope
 import io.aequicor.heartbeat.core.di.ScopeHandle
 import io.aequicor.heartbeat.core.logging.HighFrequency
 import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.browser.api.BrowserError
 import io.aequicor.heartbeat.feature.browser.api.BrowserPage
 import io.aequicor.heartbeat.feature.browser.api.isBrowserUrlAllowed
-import io.aequicor.heartbeat.feature.browser.impl.di.scope.BrowserScope
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserCommand
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserNativeResources
 import io.aequicor.heartbeat.feature.browser.impl.domain.BrowserSession
@@ -22,16 +22,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Retained bridge with all mutations confined to the injected main dispatcher. Native callbacks may arrive
- * from any thread. Identity is checked after dispatch, so queued events from disposed views cannot win.
- * Commands arriving before attachment are replayed in order; a new surface restores the last safe URL.
+ * Retained bridge with all mutations confined to the injected main dispatcher. Native callbacks may
+ * arrive from any thread. Identity is checked after dispatch, so queued events from disposed views
+ * cannot win. Commands arriving before attachment are replayed in order; a new surface restores the
+ * last safe URL.
  */
-@SingleIn(BrowserScope::class)
-@ContributesBinding(BrowserScope::class, binding = binding<BrowserSession>())
-@ContributesBinding(BrowserScope::class, binding = binding<BrowserSurface>())
+@SingleIn(ProfileScope::class)
+@ContributesBinding(ProfileScope::class, binding = binding<BrowserSession>())
+@ContributesBinding(ProfileScope::class, binding = binding<BrowserSurface>())
 @Inject
 internal class BrowserSurfaceAdapter(
-    @ForScope(BrowserScope::class) private val scope: ScopeHandle,
+    @ForScope(ProfileScope::class) private val scope: ScopeHandle,
     private val dispatchers: DispatcherProvider,
     override val nativeResources: BrowserNativeResources = BrowserNativeResources.None,
 ) : BrowserSession,
@@ -105,7 +106,9 @@ internal class BrowserSurfaceAdapter(
     @HighFrequency
     override fun changed(controller: BrowserViewController, state: BrowserViewState) {
         scope.coroutineScope.launch(dispatchers.main) {
-            if (!isEnabled || isClosed || this@BrowserSurfaceAdapter.controller !== controller) return@launch
+            if (!isEnabled || isClosed || this@BrowserSurfaceAdapter.controller !== controller) {
+                return@launch
+            }
             log.v { "Updating browser page projection" }
             if (state.url.isNotEmpty() && !isBrowserUrlAllowed(state.url)) {
                 page.value = page.value.copy(isLoading = false, error = BrowserError.UnsupportedAddress)
@@ -120,7 +123,11 @@ internal class BrowserSurfaceAdapter(
             if (this@BrowserSurfaceAdapter.controller !== controller) return@launch
             log.v { "Browser surface detached" }
             this@BrowserSurfaceAdapter.controller = null
-            page.value = page.value.copy(isLoading = false, isBackAvailable = false, isForwardAvailable = false)
+            page.value = page.value.copy(
+                isLoading = false,
+                isBackAvailable = false,
+                isForwardAvailable = false,
+            )
         }
     }
 }

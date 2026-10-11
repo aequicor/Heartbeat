@@ -4,14 +4,18 @@ import io.aequicor.heartbeat.core.statemachine.MachineSpec
 import io.aequicor.heartbeat.core.statemachine.machineSpec
 
 /**
- * Transition table:
- * Idle + Start -> Running [Observe].
- * Running + AvailabilityChanged -> stay, updating availability and clearing transient native history when disabled.
- * Enabled + Open(valid HTTP/S) -> stay loading [Load]; invalid input -> stay with InvalidAddress.
- * Enabled + Back/Forward (history guard) -> stay loading [Back/Forward].
- * Enabled + Reload (nonempty URL) -> stay loading [Reload]; Stop (loading guard) -> stay stopped [Stop].
- * Enabled + PageChanged (HTTP/S or empty) -> stay with the current native page.
- * Running + Failed -> stay with EngineUnavailable. Disabled navigation and duplicate Start are ignored.
+ * Transition table: Idle + Start -> Running [Observe]. Running + AvailabilityChanged -> stay,
+ * updating availability and clearing transient native history when disabled. Enabled + Open(valid
+ * HTTP/S) -> stay loading [Load]; invalid input -> stay with InvalidAddress. Enabled + Back/Forward
+ * (history guard) -> stay loading [Back/Forward]. Enabled + Reload (nonempty URL) -> stay loading
+ * [Reload]; Stop (loading guard) -> stay stopped [Stop]. Enabled + PageChanged (HTTP/S or empty) ->
+ * stay with the current native page. Enabled + Display/SelectTab -> retain the profile runtime,
+ * change presentation/selection only. Enabled + Perform -> reveal panel [Perform]; results are
+ * emitted with their request identity. Running + CancelOperation -> [CancelOperation];
+ * OperationCancelled emits a correlated acknowledgement. Running + TabsChanged -> project tabs and
+ * active tab, independent of surface attachment. Running + Completed -> emit Completed; no page
+ * contents are retained in machine state. Running + Failed -> stay with EngineUnavailable. Disabled
+ * navigation and duplicate Start are ignored.
  *
  * ```mermaid
  * stateDiagram-v2
@@ -20,7 +24,8 @@ import io.aequicor.heartbeat.core.statemachine.machineSpec
  *     Running --> Running: AvailabilityChanged, Open, Back, Forward, Reload, Stop, PageChanged, Failed
  * ```
  *
- * All running updates use stay so the live toggle observer survives navigation, errors and disabling.
+ * All running updates use stay so the live toggle observer survives navigation, errors and
+ * disabling.
  */
 public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserEffect, BrowserOutput> =
     machineSpec(BrowserMachineKey, BrowserState.Idle) {
@@ -31,11 +36,50 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
             }
         }
         state<BrowserState.Running> {
+            on<BrowserIntent.Public.Display>(
+                guard = { state.isEnabled || intent.mode == BrowserDisplay.Hidden },
+            ) {
+                stay { state.copy(display = intent.mode) }
+            }
+            on<BrowserIntent.Public.SelectTab>(guard = { state.isEnabled }) {
+                effect { BrowserEffect.SelectTab(intent.id) }
+            }
+            on<BrowserIntent.Public.Perform>(guard = { state.isEnabled }) {
+                stay {
+                    state.copy(
+                        display =
+                            if (state.display == BrowserDisplay.Hidden) {
+                                BrowserDisplay.Panel
+                            } else {
+                                state.display
+                            },
+                    )
+                }
+                effect { BrowserEffect.Perform(intent.request) }
+            }
+            on<BrowserIntent.Public.Perform>(guard = { !state.isEnabled }) {
+                output {
+                    BrowserOutput.Completed(BrowserResult(intent.request.id, error = "Browser disabled"))
+                }
+            }
+            on<BrowserIntent.Public.CancelOperation> {
+                effect { BrowserEffect.CancelOperation(intent.id) }
+            }
+            on<BrowserIntent.Internal.TabsChanged> {
+                stay { state.copy(tabs = intent.tabs, selectedTabId = intent.selected) }
+            }
+            on<BrowserIntent.Internal.OperationCancelled> {
+                output { BrowserOutput.Cancelled(intent.id) }
+            }
+            on<BrowserIntent.Internal.Completed> {
+                output { BrowserOutput.Completed(intent.result) }
+            }
             on<BrowserIntent.Internal.AvailabilityChanged> {
                 stay {
                     state.copy(
                         isConfigured = true,
                         isEnabled = intent.isEnabled,
+                        display = if (intent.isEnabled) state.display else BrowserDisplay.Hidden,
                         page = if (intent.isEnabled) {
                             state.page
                         } else {
@@ -49,9 +93,11 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                     )
                 }
             }
-            on<BrowserIntent.Public.Open>(guard = {
-                state.isEnabled && normalizeBrowserUrl(intent.address) != null
-            }) {
+            on<BrowserIntent.Public.Open>(
+                guard = {
+                    state.isEnabled && normalizeBrowserUrl(intent.address) != null
+                },
+            ) {
                 stay {
                     state.copy(
                         page = state.page.copy(
@@ -63,20 +109,28 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 }
                 effect { BrowserEffect.Load(requireNotNull(normalizeBrowserUrl(intent.address))) }
             }
-            on<BrowserIntent.Public.Open>(guard = {
-                state.isEnabled && normalizeBrowserUrl(intent.address) == null
-            }) {
+            on<BrowserIntent.Public.Open>(
+                guard = {
+                    state.isEnabled && normalizeBrowserUrl(intent.address) == null
+                },
+            ) {
                 stay { state.copy(page = state.page.copy(error = BrowserError.InvalidAddress)) }
             }
-            on<BrowserIntent.Public.Back>(guard = { state.isEnabled && state.page.isBackAvailable }) {
+            on<BrowserIntent.Public.Back>(
+                guard = { state.isEnabled && state.page.isBackAvailable },
+            ) {
                 stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
                 effect { BrowserEffect.Back }
             }
-            on<BrowserIntent.Public.Forward>(guard = { state.isEnabled && state.page.isForwardAvailable }) {
+            on<BrowserIntent.Public.Forward>(
+                guard = { state.isEnabled && state.page.isForwardAvailable },
+            ) {
                 stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
                 effect { BrowserEffect.Forward }
             }
-            on<BrowserIntent.Public.Reload>(guard = { state.isEnabled && state.page.url.isNotEmpty() }) {
+            on<BrowserIntent.Public.Reload>(
+                guard = { state.isEnabled && state.page.url.isNotEmpty() },
+            ) {
                 stay { state.copy(page = state.page.copy(isLoading = true, error = null)) }
                 effect { BrowserEffect.Reload }
             }
@@ -84,19 +138,32 @@ public val BrowserMachineSpec: MachineSpec<BrowserState, BrowserIntent, BrowserE
                 stay { state.copy(page = state.page.copy(isLoading = false)) }
                 effect { BrowserEffect.Stop }
             }
-            on<BrowserIntent.Internal.PageChanged>(guard = {
-                state.isEnabled && (intent.page.url.isEmpty() || isBrowserUrlAllowed(intent.page.url))
-            }) {
+            on<BrowserIntent.Internal.PageChanged>(
+                guard = {
+                    state.isEnabled && (intent.page.url.isEmpty() || isBrowserUrlAllowed(intent.page.url))
+                },
+            ) {
                 stay { state.copy(page = intent.page) }
             }
             on<BrowserIntent.Internal.Failed> {
                 stay {
                     state.copy(
                         isConfigured = true,
-                        page = state.page.copy(isLoading = false, error = BrowserError.EngineUnavailable),
+                        page = state.page.copy(
+                            isLoading = false,
+                            error = BrowserError.EngineUnavailable,
+                        ),
                     )
                 }
             }
         }
-        onEffectFailure { _, _ -> BrowserIntent.Internal.Failed }
+        onEffectFailure { effect, _ ->
+            if (effect is BrowserEffect.Perform) {
+                BrowserIntent.Internal.Completed(
+                    BrowserResult(effect.request.id, error = "Browser operation failed"),
+                )
+            } else {
+                BrowserIntent.Internal.Failed
+            }
+        }
     }

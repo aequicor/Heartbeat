@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -58,7 +59,7 @@ internal fun BrowserScreen(model: BrowserModel, modifier: Modifier = Modifier) {
         model.store.collect { states.collect { value = it } }
     }
     BrowserScreenContent(state, model.store::intent, modifier) {
-        BrowserWebView(model.surface, Modifier.fillMaxSize())
+        BrowserWebView(model.surface.forTab(state.selectedTabId), Modifier.fillMaxSize())
     }
 }
 
@@ -70,7 +71,11 @@ internal fun BrowserScreenContent(
     modifier: Modifier = Modifier,
     browser: @Composable () -> Unit = {},
 ) {
-    HbColumn(modifier.fillMaxSize().background(HbTheme.surfaces.backdrop).testTag("browser")) {
+    HbColumn(
+        modifier.fillMaxSize().safeDrawingPadding()
+            .background(HbTheme.surfaces.backdrop).testTag("browser"),
+    ) {
+        BrowserTabs(state, onIntent)
         BrowserToolbar(state, onIntent)
         if (state.title.isNotEmpty()) {
             HbText(
@@ -82,7 +87,10 @@ internal fun BrowserScreenContent(
         }
         state.error?.let { HbBanner(stringResource(it.message()), Modifier.testTag("browser-error")) }
         if (state.isLoading) {
-            HbLoadingState(stringResource(Res.string.browser_loading), Modifier.testTag("browser-loading"))
+            HbLoadingState(
+                stringResource(Res.string.browser_loading),
+                Modifier.testTag("browser-loading"),
+            )
         }
         BrowserViewport(state, Modifier.weight(1f).fillMaxWidth(), browser)
     }
@@ -178,8 +186,14 @@ private fun BrowserToolbar(
         )
         HbIconButton(
             if (state.isLoading) HbIcons.Stop else HbIcons.Refresh,
-            stringResource(if (state.isLoading) Res.string.browser_stop else Res.string.browser_reload),
-            { onIntent(if (state.isLoading) BrowserScreenIntent.Stop else BrowserScreenIntent.Reload) },
+            stringResource(
+                if (state.isLoading) Res.string.browser_stop else Res.string.browser_reload,
+            ),
+            {
+                onIntent(
+                    if (state.isLoading) BrowserScreenIntent.Stop else BrowserScreenIntent.Reload,
+                )
+            },
             Modifier.testTag("browser-reload-stop"),
             enabled = isEnabled && state.url.isNotEmpty(),
         )
