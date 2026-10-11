@@ -241,6 +241,46 @@ class PiStopOpeningTest {
         second.runtime.close()
     }
 
+    @Test
+    fun `stored stop fence is resumed only after hosted work of the earlier runtime drained`() = runTest {
+        val records = MemoryPiTurnRecords()
+        val drains = PiHostedDrains()
+        val first = runtimeFixture(this, records, drains)
+        first.processes.configure = {
+            it.owner = Owner
+            it.promptAck.complete(JsonObject(emptyMap()))
+            it.stopProof = { false }
+        }
+        val session = (first.runtime.create(CreateSessionRequest(RuntimeTarget)) as PiSessionView).origin
+        val turn = session.send(prompt("request"))
+        val gate = CompletableDeferred<Unit>()
+        backgroundScope.launch(backgroundScope.coroutineContext + checkNotNull(session.hostedJobs.lifetime(turn))) {
+            try {
+                awaitCancellation()
+            } finally {
+                withContext(NonCancellable) { gate.await() }
+            }
+        }
+        runCurrent()
+        first.runtime.close()
+        val journal = PiTurnJournal(records, session.ref, session.route, "fingerprint")
+        assertNotNull(journal.fenceStop(prompt("request").id, turn))
+        val second = runtimeFixture(this, records, drains)
+        // The fence stays unresumed while hosted work drains, so the reopening is refused without a launch.
+        val error = assertFailsWith<EngineException> { second.runtime.attach(session.ref, RuntimeRequest) }
+        assertEquals(EngineFailure.Session(SessionFailureReason.Busy), error.failure)
+        assertEquals(0, second.processes.stopCalls)
+        assertTrue(second.processes.connections.isEmpty())
+        assertEquals(turn, journal.restore()?.stopping?.turn?.id)
+        gate.complete(Unit)
+        runCurrent()
+        val restored = second.runtime.attach(session.ref, RuntimeRequest)
+        assertEquals(1, second.processes.stopCalls)
+        assertEquals(null, journal.restore()?.stopping)
+        assertEquals(TurnOutcome.Unknown, assertIs<ActiveSessionState.Ready>(restored.state.value).lastTurn?.outcome)
+        second.runtime.close()
+    }
+
     /** A turn whose runtime closed without confirming its process exit, as after a crash. */
     private suspend fun TestScope.interrupted(
         records: PiTurnRecords,

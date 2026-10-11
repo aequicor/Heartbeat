@@ -24,8 +24,11 @@ internal class PiProcessStop(
     private val lock = Any()
     private val children = mutableSetOf<ProcessHandle>()
 
+    // Descendants without a start instant: watched until they exit, never signalled.
+    private val unidentified = mutableSetOf<ProcessHandle>()
+
     // Whether the latest listing of the live root succeeded; a root that exited unobserved has nothing to list.
-    private var isCaptured = true
+    private var isListed = true
 
     /** Requests termination, retaining evidence for a later suspending wait. Safe to call from close hooks. */
     fun request() = synchronized(lock) {
@@ -42,26 +45,37 @@ internal class PiProcessStop(
 
     /**
      * Called under [lock] while the root was alive; an exit during the listing voids it. A live descendant without
-     * a start instant cannot be told apart from a later reuse of its PID: it is never signalled, and the capture
-     * stays incomplete so no exit is confirmed without it.
+     * a start instant cannot be told apart from a later reuse of its PID: it is never signalled, and its handle is
+     * kept so no exit is confirmed while it stays alive, including after the root itself has exited.
      */
     private fun capture() {
         var identified: List<ProcessHandle> = emptyList()
-        var unidentified: List<ProcessHandle> = emptyList()
-        val isListed = attempt {
+        var unknown: List<ProcessHandle> = emptyList()
+        val isListing = attempt {
             val listed = process.descendants().use { it.toList() }
-            listed.partition { it.info().startInstant().isPresent }.let { (known, unknown) ->
+            listed.partition { it.info().startInstant().isPresent }.let { (known, other) ->
                 identified = known
-                unidentified = unknown
+                unknown = other
             }
         }
-        isCaptured = isListed
+        isListed = isListing
         if (process.isAlive) {
             children += identified
-            isCaptured = isListed && unidentified.none { it.isAlive }
-        } else if (identified.isNotEmpty() || unidentified.isNotEmpty()) {
+            // A handle that now reports its start instant is identified and signalled from here on.
+            unidentified -= identified.toSet()
+            unidentified += unknown
+        } else if (identified.isNotEmpty() || unknown.isNotEmpty()) {
             log.d { "Pi process exited during descendant inspection; its listing was discarded" }
         }
+    }
+
+    /**
+     * Called under [lock]: complete when the latest listing succeeded and no unidentified descendant is alive now.
+     * An exited one is dropped, so a later reuse of its PID cannot revive it.
+     */
+    private fun isCaptured(): Boolean {
+        unidentified.removeAll { !it.isAlive }
+        return isListed && unidentified.isEmpty()
     }
 
     private fun attempt(action: () -> Unit): Boolean = try {
@@ -79,13 +93,13 @@ internal class PiProcessStop(
     /** True only after all observed exits; cancellation propagates and retains the handles for a retry. */
     suspend fun awaitStopped(): Boolean = withContext(dispatchers.io) {
         request()
-        val observed = synchronized(lock) { if (isCaptured) children.toList() else null } ?: return@withContext false
+        val observed = synchronized(lock) { if (isCaptured()) children.toList() else null } ?: return@withContext false
         try {
             withTimeoutOrNull(timeoutMillis) {
                 process.onExit().await()
                 observed.forEach { it.onExit().await() }
                 // Another waiter may have discovered children while this one waited for the root.
-                synchronized(lock) { isCaptured && !process.isAlive && children.none { it.isAlive } }
+                synchronized(lock) { isCaptured() && !process.isAlive && children.none { it.isAlive } }
             } ?: false
         } catch (error: CancellationException) {
             throw error

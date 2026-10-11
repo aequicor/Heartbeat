@@ -134,6 +134,21 @@ class PiProcessStopTest {
         assertTrue(waiting.await())
     }
 
+    @Test
+    fun `descendant without start instant outliving the killed root is confirmed once it exits`() = runTest {
+        val child = StopChild().apply { startedAt = null }
+        val process = StopProcess(child).apply { isKilledByStop = true }
+        val stop = PiProcessStop(process, dispatchers())
+        assertFalse(stop.awaitStopped())
+        assertFalse(process.isAlive)
+        // A retry never lists the dead root again; the handle captured earlier still bars confirmation.
+        assertFalse(stop.awaitStopped())
+        assertEquals(1, process.enumerations)
+        child.exit()
+        assertTrue(stop.awaitStopped())
+        assertFalse(child.isStopRequested)
+    }
+
     private fun TestScope.dispatchers(): DispatcherProvider = object : DispatcherProvider {
         override val main: CoroutineDispatcher = StandardTestDispatcher(testScheduler)
         override val io: CoroutineDispatcher = main
@@ -143,8 +158,16 @@ class PiProcessStopTest {
 
 private class StopProcess(private val child: StopChild? = null) : Process() {
     private val exited = CompletableFuture<Process>()
-    private val root = PiTestProcessHandle({ isAlive }, { isStopRequested = true }, exited)
+    private val root = PiTestProcessHandle(
+        { isAlive },
+        {
+            isStopRequested = true
+            if (isKilledByStop) exit()
+        },
+        exited,
+    )
     var isStopRequested = false
+    var isKilledByStop = false
     var isChildVisible = true
     var isEnumerationAllowed = true
     var enumerations = 0
