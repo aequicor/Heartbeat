@@ -2,6 +2,7 @@ package io.aequicor.heartbeat.feature.scheduler.impl.domain
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.Fence
 import io.aequicor.heartbeat.feature.scheduler.api.EventOrigin
+import io.aequicor.heartbeat.feature.scheduler.api.ScheduledWake
 import io.aequicor.heartbeat.feature.scheduler.api.SchedulerTools
 import io.aequicor.heartbeat.feature.scheduler.api.WakeDelivery
 import io.aequicor.heartbeat.feature.scheduler.api.WakeId
@@ -16,7 +17,7 @@ import io.aequicor.heartbeat.feature.scheduler.api.spi.WakePrompt
  * reason, the event payload and the sleeper's own note. The request id and the text are stable per wake, so a
  * repeated delivery after a restart or a deferral is recognisable as the same immutable request.
  */
-internal fun wakePrompt(delivery: WakeDelivery, fence: Fence = wakeFence(delivery.wake.id)): WakePrompt {
+internal fun wakePrompt(delivery: WakeDelivery, fence: Fence = wakeFence(delivery.wake)): WakePrompt {
     val wake = delivery.wake
     val reason = delivery.reason
     val heading = when (reason) {
@@ -75,11 +76,16 @@ internal fun wakePrompt(delivery: WakeDelivery, fence: Fence = wakeFence(deliver
 }
 
 /**
- * The fence of every delivery of wake [id]. A fresh fence per delivery would change the prompt a host journals as
- * immutable. Fencing stays safe with a derivable nonce: [Fence.wrap] removes the nonce from the wrapped note, so
- * the nonce is a stable 64-bit FNV-1a digest of the id rather than a secret.
+ * The fence of every delivery of [wake]. A fresh fence per delivery would change the prompt a host journals as
+ * immutable, so it uses the secret random nonce stored with the wake when it was scheduled. Wakes persisted before
+ * that nonce existed fall back to [legacyWakeFence]; [Fence.wrap] still removes that derivable nonce from the note.
  */
-internal fun wakeFence(id: WakeId): Fence {
+internal fun wakeFence(wake: ScheduledWake): Fence =
+    wake.fenceNonce?.takeIf { nonce -> nonce.isNotEmpty() && nonce.all(Char::isLetterOrDigit) }?.let(::Fence)
+        ?: legacyWakeFence(wake.id)
+
+/** A stable 64-bit FNV-1a digest of [id], only for wakes stored without their own nonce. */
+internal fun legacyWakeFence(id: WakeId): Fence {
     var hash = FNV_OFFSET
     for (byte in "$FENCE_DOMAIN${id.value}".encodeToByteArray()) {
         hash = (hash xor (byte.toULong() and BYTE_MASK)) * FNV_PRIME

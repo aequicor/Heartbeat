@@ -46,9 +46,11 @@ internal class StudioHelperAttempts(
     /**
      * Prepares a host delivery whose stable request may arrive again after its previous preparation ended before
      * native send: rolled back by its own gate (a deferred or cancelled scheduled wake) or abandoned in Preparing by
-     * a closed profile. Only such a receipt of the same immutable prompt is prepared anew; a tombstone written before
-     * the prompt arrived and a final external revocation stay final. Callers are serialized by the chat's execution
-     * reservation, so the earlier sender has already left; Submitting and later phases are never prepared again.
+     * a closed profile. Only such a receipt is prepared anew, even when its text changed: a wake's visible line
+     * names the cause of this delivery (an event, then its deadline after a deferral), and nothing was sent natively
+     * under the old text. A tombstone written before the prompt arrived and a final external revocation stay final.
+     * Callers are serialized by the chat's execution reservation, so the earlier sender has already left;
+     * Submitting and later phases are never prepared again and keep their text immutable.
      */
     suspend fun prepareDelivery(helper: HelperId, prompt: HelperPrompt): StudioHelperPreparation =
         prepare(helper, prompt, isRedelivery = true)
@@ -61,7 +63,7 @@ internal class StudioHelperAttempts(
         val records = read(helper)
         val fingerprint = prompt.fingerprint()
         val existing = records[prompt.request.value]
-        val isRedelivered = isRedelivery && existing?.isRedeliveryOf(prompt, fingerprint) == true
+        val isRedelivered = isRedelivery && existing?.isRedeliveryOf(prompt) == true
         if (existing != null && !isRedelivered) {
             check(
                 existing.fingerprint == null ||
@@ -235,11 +237,11 @@ internal class StudioHelperAttempts(
     }
 
     /**
-     * The same immutable prompt whose earlier preparation never crossed the native submission boundary and was not
-     * revoked by an external barrier.
+     * A delivery of the same request whose earlier preparation never crossed the native submission boundary and was
+     * not revoked by an external barrier. Its text may differ (see [prepareDelivery]); its handoff may not.
      */
-    private fun StudioHelperReceipt.isRedeliveryOf(prompt: HelperPrompt, fingerprint: String): Boolean =
-        phase in REPREPARABLE_PHASES && !isFinal && this.fingerprint == fingerprint && handoff == prompt.handoff
+    private fun StudioHelperReceipt.isRedeliveryOf(prompt: HelperPrompt): Boolean =
+        phase in REPREPARABLE_PHASES && !isFinal && fingerprint != null && handoff == prompt.handoff
 
     private companion object {
         val NATIVE_PHASES = setOf(StudioHelperPhase.Submitting, StudioHelperPhase.Accepted, StudioHelperPhase.Terminal)

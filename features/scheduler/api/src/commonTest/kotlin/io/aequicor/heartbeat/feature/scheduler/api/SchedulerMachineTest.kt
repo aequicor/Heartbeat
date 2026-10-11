@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.minutes
@@ -63,13 +64,24 @@ class SchedulerMachineTest {
 
     @Test
     fun `schedule adds a wake and persists it`() {
+        val scheduled = wake("w1").copy(fenceNonce = "n1")
         spec.assertTransition(
             SchedulerState.Ready(),
-            SchedulerIntent.Public.Schedule(request("w1"), now),
-            SchedulerState.Ready(listOf(wake("w1")), revision = 1),
-            effects = listOf(SchedulerEffect.Persist(listOf(wake("w1")), 1)),
-            outputs = listOf(SchedulerOutput.Scheduled(wake("w1"))),
+            SchedulerIntent.Public.Schedule(request("w1"), now, fenceNonce = "n1"),
+            SchedulerState.Ready(listOf(scheduled), revision = 1),
+            effects = listOf(SchedulerEffect.Persist(listOf(scheduled), 1)),
+            outputs = listOf(SchedulerOutput.Scheduled(scheduled)),
         )
+    }
+
+    @Test
+    fun `every scheduling draws a fresh secret fence nonce kept out of diagnostics`() {
+        val first = SchedulerIntent.Public.Schedule(request("w1"), now)
+        val second = SchedulerIntent.Public.Schedule(request("w1"), now)
+        assertNotEquals(first.fenceNonce, second.fenceNonce)
+        assertTrue(first.fenceNonce.length >= 32 && first.fenceNonce.all(Char::isLetterOrDigit))
+        assertFalse(first.fenceNonce in first.toString())
+        assertFalse(first.fenceNonce in wake("w1").copy(fenceNonce = first.fenceNonce).toString())
     }
 
     @Test

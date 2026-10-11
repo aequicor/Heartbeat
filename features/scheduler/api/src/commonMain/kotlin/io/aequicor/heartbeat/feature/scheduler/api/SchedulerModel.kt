@@ -10,6 +10,8 @@ import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
 
 /** Identity of a scheduled wake, chosen by the caller; `[a-z0-9_-]`, at most 64 characters. */
 @Serializable
@@ -110,9 +112,13 @@ public data class WakeRequest(
         "deadline=${condition.deadline ?: "none"}, origin=${origin::class.simpleName.orEmpty()})"
 }
 
-/** A pending wake, persisted in the profile until it is delivered or cancelled. */
+/**
+ * A pending wake, persisted in the profile until it is delivered or cancelled. [fenceNonce] is the secret nonce of
+ * the fence around foreign text in every delivery of this wake: random when scheduled, so redeliveries stay
+ * byte-identical while nobody can predict it. Null only for wakes persisted before it was stored.
+ */
 @Serializable
-public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant) {
+public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant, val fenceNonce: String? = null) {
     /** Wake identity. */
     public val id: WakeId get() = request.id
 
@@ -124,7 +130,14 @@ public data class ScheduledWake(val request: WakeRequest, val createdAt: Instant
 
     /** Whether the deadline has passed at [now]. */
     public fun isDue(now: Instant): Boolean = request.condition.deadline?.let { it <= now } == true
+
+    /** Omits [fenceNonce]: a nonce in diagnostics would no longer be secret. */
+    override fun toString(): String = "ScheduledWake(request=$request, createdAt=$createdAt)"
 }
+
+/** A fresh secret fence nonce for a newly scheduled wake: 128 random bits as hex letters and digits. */
+@OptIn(ExperimentalUuidApi::class)
+internal fun newWakeFenceNonce(): String = Uuid.random().toHexString()
 
 /** Why a session woke. */
 public sealed interface WakeReason {

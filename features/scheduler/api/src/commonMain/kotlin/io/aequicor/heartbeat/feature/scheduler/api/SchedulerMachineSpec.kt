@@ -49,9 +49,9 @@ public val SchedulerMachineSpec: MachineSpec<SchedulerState, SchedulerIntent, Sc
         }
         state<SchedulerState.Ready> {
             on<SchedulerIntent.Public.Schedule>(guard = { state.rejection(intent.request, intent.at) == null }) {
-                stay { state.changed(state.wakes + ScheduledWake(intent.request, intent.at)) }
-                effect { state.persist(state.wakes + ScheduledWake(intent.request, intent.at)) }
-                output { SchedulerOutput.Scheduled(ScheduledWake(intent.request, intent.at)) }
+                stay { state.changed(state.wakes + ScheduledWake(intent.request, intent.at, intent.fenceNonce)) }
+                effect { state.persist(state.wakes + ScheduledWake(intent.request, intent.at, intent.fenceNonce)) }
+                output { SchedulerOutput.Scheduled(ScheduledWake(intent.request, intent.at, intent.fenceNonce)) }
             }
             on<SchedulerIntent.Public.Schedule>(guard = { state.rejection(intent.request, intent.at) != null }) {
                 // The guard proved a rejection; the fallback is unreachable.

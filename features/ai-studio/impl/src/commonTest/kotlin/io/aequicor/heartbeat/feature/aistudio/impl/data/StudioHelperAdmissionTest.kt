@@ -51,6 +51,18 @@ class StudioHelperAdmissionTest {
     }
 
     @Test
+    fun `a wake deferred on its event and redelivered at its deadline is not lost`() = runTest {
+        val attempts = StudioHelperAttempts(ChecklistTestStores())
+        val admission = StudioHelperAdmission(attempts, emptyHelperAdmissions())
+        val byEvent = runRequest("wake_w1").copy(id = record.id, prompt = "event", submission = StudioRunSubmission())
+        assertNotNull(admission.prepare(record, byEvent).submission).cancel()
+        val byDeadline = byEvent.copy(prompt = "deadline", submission = StudioRunSubmission())
+        val redelivered = admission.prepare(record, byDeadline)
+        assertNotNull(redelivered.submission).begin()
+        assertEquals(StudioHelperPhase.Submitting, attempts.receipt(HelperId(record.id), byEvent.request)?.phase)
+    }
+
+    @Test
     fun `a helper gate belonging to another chat or request is rejected`() = runTest {
         val attempts = StudioHelperAttempts(ChecklistTestStores())
         val request = runRequest("manual").copy(id = record.id)

@@ -10,8 +10,8 @@ public fun cut(text: String, max: Int): String =
 /**
  * The marker around text other sessions wrote, in one prompt. Its nonce is never left in the text it wraps, so nothing
  * a cell, user or judge wrote can close the fence and go on as the host, however it spells or disguises a marker.
- * [random] gives a fresh nonce per prompt; a redelivered prompt that must stay byte-identical (scheduler wakes) may use
- * a nonce derived from its own identity, which stays safe because wrapping strips any nonce from the text.
+ * [random] gives a fresh nonce per prompt; a redelivered prompt that must stay byte-identical (scheduler wakes) keeps
+ * one random nonce stored, secret, with its own record, so every delivery repeats it while nobody can predict it.
  */
 public class Fence(private val nonce: String) {
     init {

@@ -205,12 +205,31 @@ class StudioHelperAttemptsTest {
         assertTrue(journal.prepareDelivery(helper, prompt).isNew)
         assertEquals(StudioHelperPhase.Preparing, journal.receipt(helper, prompt.request)?.phase)
         assertFalse(journal.prepare(helper, prompt).isNew)
-        assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, prompt.copy(text = "changed")) }
         journal.begin(helper, prompt.request, "sender")
         assertFalse(journal.prepareDelivery(helper, prompt).isNew)
+        assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, prompt.copy(text = "changed")) }
         val tombstone = RequestId("cancelled-before-arrival")
         journal.cancelBeforeSubmission(helper, tombstone)
         assertFalse(journal.prepareDelivery(helper, prompt.copy(request = tombstone)).isNew)
+    }
+
+    @Test
+    fun `a wake deferred on its event is prepared again at its deadline with the new visible line`() = runTest {
+        val journal = StudioHelperAttempts(ChecklistTestStores())
+        val byEvent = prompt.copy(text = "wake: event")
+        val byDeadline = prompt.copy(text = "wake: deadline")
+        assertTrue(journal.prepareDelivery(helper, byEvent).isNew)
+        // The owner deferred the event delivery before native send; the deadline delivers the same wake again.
+        journal.cancelBeforeSubmission(helper, prompt.request, isFinal = false)
+        assertTrue(journal.prepareDelivery(helper, byDeadline).isNew)
+        assertTrue(journal.begin(helper, prompt.request, "sender"))
+        // Once its native boundary is crossed, the delivered text is immutable again.
+        assertFailsWith<IllegalStateException> { journal.prepareDelivery(helper, byEvent) }
+        assertFalse(journal.prepareDelivery(helper, byDeadline).isNew)
+        // An ordinary helper prompt is never re-prepared with another text, even before its boundary.
+        val other = HelperId("other")
+        journal.prepare(other, byEvent)
+        assertFailsWith<IllegalStateException> { journal.prepare(other, byDeadline) }
     }
 
     @Test

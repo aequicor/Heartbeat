@@ -36,10 +36,18 @@ public sealed interface SchedulerIntent : MachineIntent {
     /** Commands sent through [SchedulerMachineKey]. */
     public sealed interface Public : SchedulerIntent {
         /**
-         * Puts a session to sleep until [request]'s condition holds; [at] is the caller's current time (the spec is
-         * pure). Answered by [SchedulerOutput.Scheduled] or [SchedulerOutput.Rejected]; ignored while loading.
+         * Puts a session to sleep until [request]'s condition holds; [at] is the caller's current time and
+         * [fenceNonce] the wake's secret fence nonce, random by default (the spec is pure). Answered by
+         * [SchedulerOutput.Scheduled] or [SchedulerOutput.Rejected]; ignored while loading.
          */
-        public data class Schedule(val request: WakeRequest, val at: Instant) : Public
+        public data class Schedule(
+            val request: WakeRequest,
+            val at: Instant,
+            val fenceNonce: String = newWakeFenceNonce(),
+        ) : Public {
+            /** Omits [fenceNonce], which must stay secret. */
+            override fun toString(): String = "Schedule(request=$request, at=$at)"
+        }
 
         /**
          * Cancels a pending wake; [session] and [expectedRequest], when supplied, must still match at transition
