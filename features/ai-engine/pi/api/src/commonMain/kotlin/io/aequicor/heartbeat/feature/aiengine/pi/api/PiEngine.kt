@@ -15,6 +15,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineDescriptor
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EnginePlatform
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ProviderInfo
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ReconcilesSession
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestsPermissions
@@ -59,6 +60,7 @@ public val PiDescriptor: EngineDescriptor = EngineDescriptor(
         RequestsPermissions.id,
         AppliesTrustLevels.id,
         ChangesSessionConfiguration.id,
+        ListsComposerAssists.id,
     ),
     connectionMethods = listOf(
         ConnectionMethod.ApiKey(

@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineTarget
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
 import io.aequicor.heartbeat.feature.aiengine.facade.api.FeatureAccess
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LifecycleFailureReason
+import io.aequicor.heartbeat.feature.aiengine.facade.api.ListsComposerAssists
 import io.aequicor.heartbeat.feature.aiengine.facade.api.LocalWorkspaces
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestFailureReason
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResumeSessionRequest
@@ -82,8 +83,14 @@ internal class PiRuntime(
 
     @Volatile override var isClosed: Boolean = false
         private set
-    override val features: EngineFeatures =
-        PiFeatures(listOf(CreatesSessions to this, AttachesSessions to this, NativeWebFetch to services.nativeWeb))
+    override val features: EngineFeatures = PiFeatures(
+        listOf(
+            CreatesSessions to this,
+            AttachesSessions to this,
+            NativeWebFetch to services.nativeWeb,
+            ListsComposerAssists to PiComposerAssists(services.workspaces, environment.dispatchers),
+        ),
+    )
 
     suspend fun validate() {
         if (isClosed || profile.isClosed) {
