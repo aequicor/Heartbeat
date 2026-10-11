@@ -31,6 +31,8 @@ public interface ScriptScheduler {
     /**
      * Schedules a session visible to this harness, subject to harness wake quotas and live owner admission.
      * [note] is private, fenced data. The host fixes the harness owner; scripts cannot impersonate another owner.
+     * Forbidden from hooks. A wake counts like [ScriptSessions.send]: it shares the
+     * [HarnessLimits.SENDS_PER_MINUTE] quota and the send-chain depth across callbacks and child jobs.
      */
     public suspend fun wake(session: SessionRef, condition: WakeCondition, note: String): WakeId
 

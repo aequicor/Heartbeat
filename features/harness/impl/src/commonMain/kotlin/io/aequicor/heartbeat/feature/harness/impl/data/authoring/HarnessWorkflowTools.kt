@@ -30,6 +30,7 @@ import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowRun
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowStatus
 import io.aequicor.heartbeat.feature.harness.api.workflow.WorkflowViewer
 import io.aequicor.heartbeat.feature.harness.api.workflow.isVisibleTo
+import io.aequicor.heartbeat.feature.harness.impl.data.run.ApprovedWorkflow
 import io.aequicor.heartbeat.feature.harness.impl.data.run.HarnessWorkflowLaunches
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessRequestOrigins
@@ -123,9 +124,10 @@ internal class HarnessWorkflowTools(
                 RequestInitiator(context.session, request),
                 origins.value.origin(context.session, request),
                 WorkflowOrigin.Agent,
+                // The library is read again at launch; only the snapshot the user approved may start.
+                ApprovedWorkflow(harness.revision, workflow.id),
             )
             val result = launches.value.start(launch)
-            log.i { "Agent workflow start submitted confirmed=${result.isConfirmed}" }
             val wake = if (result.hasWake) {
                 "This chat is woken when it finishes."
             } else {

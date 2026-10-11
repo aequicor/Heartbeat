@@ -11,8 +11,6 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessDiagnosti
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessScriptHost
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /** Outcome of compiling code before it is put to the user; diagnostics are UI/model data, never logged. */
 internal sealed interface CodeCheck {
@@ -30,12 +28,13 @@ internal sealed interface CodeCheck {
 
 /**
  * Compiles agent and user code before it is saved. The approval presentation and execution of one call see the
- * same outcome: results are memoized by digest of the exact request. The artifact lease is released immediately;
- * activation compiles again from the host cache. A timeout is not memoized, so a later call can retry.
+ * same outcome: results are memoized by digest of the exact request, the newest [CODE_CHECK_MEMO] kept. The
+ * artifact lease is released immediately; activation compiles again from the host cache. A timeout is not memoized,
+ * so a later call can retry. Only the memo is shared state: a slow compile never holds other checks back, and two
+ * concurrent checks of the same request may both compile, the host cache sharing the artifact.
  */
 internal class HarnessCodeChecks(private val host: HarnessScriptHost, private val digest: (String) -> String) {
     private val log = Log.tag("HarnessTools")
-    private val lock = Mutex()
     private val memo = MutableStateFlow<Map<String, CodeCheck>>(emptyMap())
 
     val isAvailable: Boolean get() = host.isAvailable
@@ -50,12 +49,10 @@ internal class HarnessCodeChecks(private val host: HarnessScriptHost, private va
         if (!host.isAvailable) return CodeCheck.Unsupported
         val key = digest(listOf(harness.value, item.value, kind.name, source).joinToString("\u0000"))
         memo.value[key]?.let { return it }
-        return lock.withLock {
-            memo.value[key] ?: compile(HarnessCompilationRequest(harness, item, kind, source, isAgent)).also { result ->
-                if (result != CodeCheck.TimedOut) memo.update { (it - key + (key to result)).newest() }
-                log.d { "Harness code checked kind=$kind result=$result" }
-            }
-        }
+        val result = compile(HarnessCompilationRequest(harness, item, kind, source, isAgent))
+        if (result != CodeCheck.TimedOut) memo.update { (it - key + (key to result)).newest() }
+        log.d { "Harness code checked kind=$kind result=$result" }
+        return result
     }
 
     private suspend fun compile(request: HarnessCompilationRequest): CodeCheck =
@@ -87,6 +84,6 @@ internal fun List<HarnessCodeDiagnostic>.listing(): String = joinToString("\n") 
 
 /** Insertion order of LinkedHashMap keeps the most recent checks. */
 private fun Map<String, CodeCheck>.newest(): Map<String, CodeCheck> =
-    if (size <= MEMO) this else entries.drop(size - MEMO).associate { it.key to it.value }
+    if (size <= CODE_CHECK_MEMO) this else entries.drop(size - CODE_CHECK_MEMO).associate { it.key to it.value }
 
-private const val MEMO = 16
+internal const val CODE_CHECK_MEMO = 16

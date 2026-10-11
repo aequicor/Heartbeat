@@ -18,6 +18,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.HarnessMutation
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
+import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ItemName
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsIntent
 import io.aequicor.heartbeat.feature.harness.api.workflow.HarnessRunsOutput
@@ -81,6 +82,9 @@ internal data class WorkflowLaunch(
 
 internal data class WorkflowLaunchResult(val run: RunId, val hasWake: Boolean, val isConfirmed: Boolean)
 
+/** The exact harness revision and workflow item a user decision covered; anything else is refused at launch. */
+internal data class ApprovedWorkflow(val revision: Long, val item: ItemId)
+
 /** Admission and wake preparation belong to a profile job, independently of the calling script/tool wait. */
 @SingleIn(ProfileScope::class)
 @Inject
@@ -109,6 +113,7 @@ internal class HarnessWorkflowLaunches(
         initiator: RequestInitiator?,
         origin: HarnessCallOrigin,
         kind: WorkflowOrigin,
+        approved: ApprovedWorkflow? = null,
     ): WorkflowLaunch {
         check(!origin.isHookRestricted && toggles.get(HarnessEnabled)) { "Workflow launch is unavailable" }
         check(code.value.isAvailable && helpers.value.canHost(caller)) { "Workflow helpers are unavailable" }
@@ -119,6 +124,9 @@ internal class HarnessWorkflowLaunches(
             ?.takeIf { it.isEnabled } ?: error("Harness is unavailable")
         val item = current.items.singleOrNull { it.name == workflow && it.isEnabled } as? HarnessItem.Workflow
             ?: error("Workflow is unavailable")
+        check(approved == null || approved == ApprovedWorkflow(current.revision, item.id)) {
+            "Workflow admission changed"
+        }
         require(isWorkflowInput(item.input, input)) { "Workflow input does not match its schema" }
         val launch =
             WorkflowLaunch(current, item, input, caller, workspace, initiator, origin, kind, state.activationGeneration)
@@ -188,7 +196,7 @@ internal class HarnessWorkflowLaunches(
             if (wake != null) wakePort.value.cancel(wake)
             error("Workflow start was rejected")
         }
-        log.i { "Workflow start submitted" }
+        log.i { "Workflow start submitted origin=${launch.kind} confirmed=${isAccepted == true}" }
         return WorkflowLaunchResult(id, wake != null, isAccepted == true)
     }
 

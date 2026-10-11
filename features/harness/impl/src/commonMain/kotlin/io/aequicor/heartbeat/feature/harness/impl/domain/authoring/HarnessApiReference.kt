@@ -2,6 +2,8 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
 import io.aequicor.heartbeat.feature.harness.api.script.HARNESS_API_VERSION
+import io.aequicor.heartbeat.feature.harness.impl.domain.content.HARNESS_CONTEXT_CHARS
+import io.aequicor.heartbeat.feature.harness.impl.domain.runtime.HarnessInvocationBudget
 
 /** Topics of harness_api_reference; the examples are compiled by a desktop test against the current API. */
 internal enum class HarnessApiReference(val key: String) {
@@ -41,10 +43,11 @@ private val GUIDE = """
     back (removing an off switch, disconnecting, deleting or narrowing a harness that turns tools off, connecting or
     widening one that switches native tools on) always ask the user.
     Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
-    shares about 8000 characters per chat; skills are not in the block, only their index.
+    shares $HARNESS_CONTEXT_CHARS characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}
-    script tools, ${HarnessLimits.TIMERS} timers (≥ 30 s), ${HarnessLimits.RUNS} concurrent workflow runs with
-    ${HarnessLimits.HELPERS_PER_RUN} helpers, ${HarnessLimits.STEPS} steps and 6 hours per run.
+    script tools, ${HarnessLimits.TIMERS} timers (≥ ${HarnessLimits.MIN_TIMER}), ${HarnessLimits.RUNS} concurrent
+    workflow runs with ${HarnessLimits.HELPERS_PER_RUN} helpers, ${HarnessLimits.STEPS} steps and
+    ${HarnessLimits.RUN_TIME} per run.
 """.trimIndent()
 
 private val API = """
@@ -53,27 +56,29 @@ private val API = """
     seconds/minutes/hours. Import other types explicitly (package io.aequicor.heartbeat.feature.harness.api.*
     and io.aequicor.heartbeat.feature.aiengine.facade.api.*).
 
-    Script top level runs once per activation (≤ 10 s) and only registers handlers:
+    Script top level runs once per activation (≤ ${HarnessInvocationBudget.Evaluation}) and only registers handlers:
     - script.harness / script.name / script.item / script.revision; script.scope for launch { } work.
     - hooks.beforePrompt { context, text -> String? } — extra context appended to the user's prompt.
     - hooks.beforeTool { call -> ToolHookVerdict } — Continue, Deny(reason) or Ask(reason); never allows.
       call.name, call.action (Read/Edit/Command), call.arguments (untrusted JsonObject), call.isNative.
     - hooks.afterTool { call, result -> String? } — a note shown to the agent before the result (≤ 2000 chars).
-    - events.on<SessionEvent.TurnFinished> { event -> } — see topic events. Handlers run ≤ 30 s.
+    - events.on<SessionEvent.TurnFinished> { event -> } — see topic events.
+      Handlers run ≤ ${HarnessInvocationBudget.Event}.
     - agent.tool(ItemName("check"), description, schema, action = AgentToolAction.Command) { call ->
         ScriptToolResult(text, isError) } — published as hs_<harness>_<name>; the schema is frozen once published.
-    - agent.instructions { scope -> String } — dynamic guidance (≤ 0.5 s).
+    - agent.instructions { scope -> String } — dynamic guidance (≤ ${HarnessInvocationBudget.Instructions}).
     - sessions.list(), sessions.history(session) — only chats where this harness is active.
     - sessions.send(session, text) — a visible message to that chat (quota ${HarnessLimits.SENDS_PER_MINUTE}/min).
     - sessions.spawn(parent, title, prompt) — a helper chat with Ask trust.
     - scheduler.every(5.minutes) { } / scheduler.at(instant) { } — in-process timers.
-    - scheduler.wake(session, condition, note) / scheduler.cancel(id) — owned wakes of a chat.
+    - scheduler.wake(session, condition, note) / scheduler.cancel(id) — owned wakes of a chat; a wake shares the
+      ${HarnessLimits.SENDS_PER_MINUTE}/min quota with sessions.send.
     - scheduler.publish(ItemName("built"), payload) — bus event custom.harness.<harness>.<name>.
     - prompts.render(ItemName("step"), mapOf("arg" to "value")) — render a template of this harness.
     - workflows.start(ItemName("screen"), input) — start a workflow of this harness (covered by script approval).
-    Hooks cannot send, spawn or start workflows. Not available: top-level suspend (use script.scope.launch),
+    Hooks cannot send, wake, spawn or start workflows. Not available: top-level suspend (use script.scope.launch),
     @Serializable, println, exitProcess, global coroutine scopes, blocking bridges and @file annotations.
-    Five failures in a row disable the item. Exceptions are reported by type only.
+    ${HarnessLimits.FAILURES} failures in a row disable the item. Exceptions are reported by type only.
 
     Workflow source registers one definition: workflow { input -> … JsonElement }. Inside (WorkflowScope):
     - agent(prompt, AgentOptions(title, target = null)): String — runs a helper chat and returns its answer;
