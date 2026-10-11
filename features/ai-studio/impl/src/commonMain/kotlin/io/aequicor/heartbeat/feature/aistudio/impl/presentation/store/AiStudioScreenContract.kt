@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aistudio.impl.presentation.store
 
 import androidx.compose.runtime.Immutable
+import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableSet
@@ -100,6 +101,10 @@ data class AiStudioScreenState(
     val sessions: ImmutableList<SessionUi> = persistentListOf(),
     val transcripts: ImmutableMap<String, ImmutableList<MessageUi>> = persistentMapOf(),
     val drafts: ImmutableMap<String, String> = persistentMapOf(),
+    /** Caret position of each composer draft; drives the active autocomplete token. */
+    val draftCarets: ImmutableMap<String, Int> = persistentMapOf(),
+    /** Suggestions of each composer draft's active token; absent hides the popup. */
+    val composerSuggestions: ImmutableMap<String, ComposerSuggestionsUi> = persistentMapOf(),
     val draftAttachments: ImmutableMap<String, ImmutableList<AttachmentUi>> = persistentMapOf(),
     val submissions: ImmutableMap<String, SubmissionUi> = persistentMapOf(),
     val attachmentRequests: ImmutableMap<String, String> = persistentMapOf(),
@@ -144,6 +149,12 @@ data class AiStudioScreenState(
 
     /** Durable metadata of files in the transient composer draft. */
     fun attachments(paneId: Int): ImmutableList<AttachmentUi> = draftAttachments[draftKey(paneId)] ?: persistentListOf()
+
+    /** Suggestions of the pane's active token; null while no token is being completed. */
+    fun suggestions(paneId: Int): ComposerSuggestionsUi? = composerSuggestions[draftKey(paneId)]
+
+    /** The caret of the pane's draft; end of text until the editor reports a position. */
+    fun draftCaret(paneId: Int): Int = draftCarets[draftKey(paneId)] ?: draft(paneId).length
 }
 
 /** User events of the studio screen. */
@@ -214,8 +225,23 @@ sealed interface AiStudioScreenIntent : MVIIntent {
     /** Moves the composer focus to another pane. */
     data class FocusPane(val paneId: Int) : Navigation
 
-    /** The composer text of a pane changed. */
-    data class DraftChanged(val paneId: Int, val text: String) : Composer
+    /** Composer autocomplete: draft and caret changes, navigation, acceptance and dismissal. */
+    sealed interface Suggestions : Composer {
+        /** The composer text of a pane changed. */
+        data class DraftChanged(val paneId: Int, val text: String) : Suggestions
+
+        /** The caret of a pane's composer moved; the active token is resolved against it. */
+        data class CaretMoved(val paneId: Int, val caret: Int) : Suggestions
+
+        /** Keyboard navigation moved the suggestion selection by [delta] within the pane's list. */
+        data class MoveSuggestion(val paneId: Int, val delta: Int) : Suggestions
+
+        /** Takes the suggestion at [index] of the pane's list, or the selected one when null. */
+        data class AcceptSuggestion(val paneId: Int, val index: Int? = null) : Suggestions
+
+        /** Hides the pane's suggestion list until the active token changes. */
+        data class DismissSuggestions(val paneId: Int) : Suggestions
+    }
 
     /** Adds files using a lifecycle-owned native picker. */
     data class PickAttachments(val paneId: Int) : Attachment
@@ -324,6 +350,47 @@ sealed interface AiStudioScreenIntent : MVIIntent {
 
 /** No one-shot screen actions: every reaction is state. */
 sealed interface AiStudioScreenAction : MVIAction
+
+/** What a suggestion completes; the section label and icon derive from kind and origin. */
+enum class SuggestionKindUi { Command, Skill, File }
+
+/** Where a suggestion comes from: Heartbeat itself or a native engine. */
+@Immutable
+data class SuggestionOriginUi(val engine: EngineId?) {
+    val isHeartbeat: Boolean get() = engine == null
+
+    /** Named origins of the screen projection. */
+    companion object {
+        val Heartbeat = SuggestionOriginUi(null)
+    }
+}
+
+/** One row of the composer suggestion popup; the API suggestion projected for the screen. */
+@Immutable
+data class SuggestionUi(
+    val id: String,
+    val label: String,
+    val description: String,
+    val kind: SuggestionKindUi,
+    val origin: SuggestionOriginUi,
+    /** Text replacing the active token; empty for files, which complete from their path. */
+    val insert: String,
+    /** File suggestions the current model cannot take stay visible, greyed. */
+    val isSupported: Boolean = true,
+    val relativePath: String? = null,
+    val location: String? = null,
+    val sizeBytes: Long = 0,
+    val mediaType: String? = null,
+)
+
+/** Suggestions of one pane's active composer token; [selectedIndex] follows keyboard navigation. */
+@Immutable
+data class ComposerSuggestionsUi(
+    val items: ImmutableList<SuggestionUi>,
+    val selectedIndex: Int,
+    /** Token the list belongs to; Escape hides it until the token changes. */
+    val token: String,
+)
 
 /** One actionable permission exposed by the current native session. */
 @Immutable

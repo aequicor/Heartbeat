@@ -94,6 +94,8 @@ internal data class PaneContent(
     val nativeTree: SessionTreeUi? = null,
     val isAttachmentFailed: Boolean = false,
     val attachmentPreviews: ImmutableMap<String, AttachmentPreviewUi> = persistentMapOf(),
+    /** Suggestions of the pane's active composer token; null hides the popup. */
+    val suggestions: io.aequicor.heartbeat.feature.aistudio.impl.presentation.store.ComposerSuggestionsUi? = null,
 ) {
     /** A descendant view has no execution controls; root ownership remains unchanged. */
     val isNativeChild: Boolean get() = nativeTree?.sessions?.any {
@@ -144,6 +146,7 @@ internal fun AiStudioScreenState.paneContent(pane: PaneUi): PaneContent {
         nativeTree = nativeTrees[pane.sessionId],
         isAttachmentFailed = pane.id in attachmentErrorPanes,
         attachmentPreviews = attachmentPreviews,
+        suggestions = composerSuggestions[draftKey(pane.id)]?.takeIf { it.items.isNotEmpty() },
         isSubmitFailed = pane.id in failedPanes,
         renaming = sidebar.renaming?.takeIf { it.origin == paneOrigin(pane.id) },
         settings = effectiveSettings,

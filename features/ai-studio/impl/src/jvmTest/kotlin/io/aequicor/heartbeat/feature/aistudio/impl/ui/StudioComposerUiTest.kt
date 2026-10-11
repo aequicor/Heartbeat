@@ -126,7 +126,7 @@ class StudioComposerUiTest {
                         AiStudioScreenIntent.SelectApproval(ApprovalUi.AutoApprove, 0),
                         AiStudioScreenIntent.SelectEffort(EffortUi.Low, 0),
                         AiStudioScreenIntent.SelectModel("pulse-mini", 0),
-                        AiStudioScreenIntent.DraftChanged(0, planPrompt),
+                        AiStudioScreenIntent.Suggestions.DraftChanged(0, planPrompt),
                     ),
                     events,
                 )
@@ -154,7 +154,7 @@ class StudioComposerUiTest {
                         StudioComposer(
                             state.paneContent(pane),
                             { intent ->
-                                if (intent is AiStudioScreenIntent.DraftChanged) {
+                                if (intent is AiStudioScreenIntent.Suggestions.DraftChanged) {
                                     state = state.withDraft(intent.paneId, intent.text)
                                 }
                             },
