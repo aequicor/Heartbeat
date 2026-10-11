@@ -1,6 +1,7 @@
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
 import io.aequicor.heartbeat.core.logging.Log
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFailure
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ExecutionRoute
@@ -22,17 +23,12 @@ internal class CodexTurnJournal(
 ) {
     private val log = Log.tag("CodexTurnJournal")
 
-    suspend fun restore(): CodexTurnSnapshot? = guarded {
-        records.get(ref)?.also {
-            checkNotNull(ownership) { "Native store ownership unavailable" }
-            validate(it)
-        }
-    }
+    suspend fun restore(): CodexTurnSnapshot? = guarded { records.get(ref)?.also(::validate) }
 
     suspend fun begin(turn: Turn, trust: TrustLevel, processOwner: CodexExecutionOwner? = null) = guarded {
-        checkNotNull(ownership) { "Native store ownership unavailable" }
+        val owner = checkNotNull(ownership) { "Native store ownership unavailable" }
         records.update(ref) { previous ->
-            val before = previous?.also(::validate) ?: CodexTurnSnapshot(ref, route, ownership)
+            val before = previous?.let(::rebound) ?: CodexTurnSnapshot(ref, route, owner)
             check(
                 before.active == null && before.stopping == null && before.last?.turn?.id != turn.id,
             ) { "Previous turn is unresolved" }
@@ -49,7 +45,7 @@ internal class CodexTurnJournal(
         checkNotNull(ownership) { "Native store ownership unavailable" }
         val turn = submission.turn
         val snapshot = records.update(ref) { previous ->
-            val before = previous?.also(::validate) ?: CodexTurnSnapshot(ref, route, ownership)
+            val before = previous?.let(::rebound) ?: CodexTurnSnapshot(ref, route, ownership)
             check(before.stopping == null) { "A process stop is still pending" }
             val active = before.active
             check(active == null || (active.turn == turn && active.nativeId == null)) {
@@ -107,11 +103,15 @@ internal class CodexTurnJournal(
         snapshot.stopping?.takeIf { it.matches(request, turn) }
     }
 
-    /** A pending inspection survives cancellation/crash and fails closed rather than forgetting unknown children. */
+    /**
+     * Marks discovery pending before enumerating children. Signals follow only [observeStop] of the same
+     * inspection, so a marker left by an interrupted attempt signalled nothing and a newer inspection replaces it;
+     * the superseded attempt can no longer record or signal.
+     */
     suspend fun inspectStop(stop: CodexTurnRecord, inspection: String): Boolean = guarded {
         val snapshot = records.update(ref) { previous ->
             val before = checkNotNull(previous).also(::validate)
-            if (before.stopping?.sameStop(stop) != true || before.stopInspection != null) return@update before
+            if (before.stopping?.sameStop(stop) != true) return@update before
             before.copy(stopInspection = inspection)
         }
         snapshot.stopInspection == inspection
@@ -158,10 +158,22 @@ internal class CodexTurnJournal(
         snapshot.last?.takeIf { snapshot.stopping == null && it.sameStop(stop) && it.isProcessStopped }
     }
 
+    /**
+     * Unresolved work stays bound to the native store, account and route that began it. The credential revision is
+     * not part of that ownership: a renewed CLI login must still be able to stop and settle its own turns.
+     */
     private fun validate(snapshot: CodexTurnSnapshot) {
-        check(snapshot.ref == ref && snapshot.route == route && snapshot.ownership == ownership) {
+        check(snapshot.ref == ref) { "Codex turn ownership changed" }
+        if (!snapshot.isUnresolved) return
+        check(ownership != null && snapshot.ownership == ownership && snapshot.route.isSameOwner(route)) {
             "Codex turn ownership changed"
         }
+    }
+
+    /** History alone proves no running work, so it follows the current store, account and route. */
+    private fun rebound(snapshot: CodexTurnSnapshot): CodexTurnSnapshot {
+        validate(snapshot)
+        return if (snapshot.isUnresolved) snapshot else snapshot.copy(route = route, ownership = ownership)
     }
 
     private fun CodexTurnRecord.bind(native: String): CodexTurnRecord {
@@ -186,6 +198,9 @@ internal class CodexTurnJournal(
 
 internal fun CodexTurnRecord.matches(request: RequestId, turn: TurnId?): Boolean =
     this.turn.request == request && (turn == null || this.turn.id == turn)
+
+private fun ExecutionRoute.isSameOwner(other: ExecutionRoute): Boolean =
+    copy(revision = AuthRevision.Unknown) == other.copy(revision = AuthRevision.Unknown)
 
 private fun CodexTurnRecord.sameStop(other: CodexTurnRecord): Boolean =
     turn.id == other.turn.id && turn.request == other.turn.request &&

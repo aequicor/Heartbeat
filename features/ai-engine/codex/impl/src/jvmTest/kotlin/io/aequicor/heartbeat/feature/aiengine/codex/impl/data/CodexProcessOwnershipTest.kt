@@ -45,6 +45,21 @@ class CodexProcessOwnershipTest {
     }
 
     @Test
+    fun `descendant exiting during capture is skipped without losing later stop evidence`() = runTest {
+        val root = TestProcess(10)
+        val exited = TestProcess(11).apply {
+            alive = false
+            startedAt = null
+        }
+        val live = TestProcess(12)
+        root.observed = listOf(exited, live)
+        val tracker = tracker(root)
+        assertEquals(listOf(12L), assertNotNull(tracker.capture()).observedChildren.map { it.pid })
+        root.observed = listOf(live)
+        assertEquals(listOf(12L), assertNotNull(tracker.capture()).observedChildren.map { it.pid })
+    }
+
+    @Test
     fun `denied descendants or dead root cannot become an empty complete snapshot`() = runTest {
         val root = TestProcess(10)
         root.canEnumerate = false

@@ -221,6 +221,37 @@ class LocalCodexTransportTest {
         }
     }
 
+    @Test
+    fun `restricted execution connections reuse one version probe of the captured executable`() = runTest {
+        assumeFalse(System.getProperty("os.name").startsWith("Windows"))
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val dispatchers = object : DispatcherProvider {
+            override val main = dispatcher
+            override val default = dispatcher
+            override val io = dispatcher
+        }
+        val probes = temporaryFolder.newFile("version-probes")
+        val arguments = temporaryFolder.newFile("probed-arguments")
+        val context = LaunchContext(
+            LaunchSettings(
+                executable = executable("probed", "0.160.0").absolutePath,
+                environment = listOf(
+                    EnvironmentEntry("HEARTBEAT_TEST_VERSIONS", probes.absolutePath),
+                    EnvironmentEntry("HEARTBEAT_TEST_ARGS", arguments.absolutePath),
+                ),
+            ),
+        )
+        val launch = LocalCodexTransport(
+            CodexLocalConfiguration(),
+            EngineLaunchConfig { context },
+            dispatchers,
+            FakeScope(backgroundScope),
+        ).prepare()
+        repeat(2) { launch.open(CodexNativeOff(isShellDisabled = true)).close() }
+        assertEquals("0.160.0", launch.version())
+        assertEquals(1, probes.readLines().size)
+    }
+
     /** Cancels after IO has created the process but before the awaiting coroutine resumes on main. */
     private class HandoffDispatcher(private val delegate: CoroutineDispatcher) : CoroutineDispatcher() {
         var afterDispatch: () -> Unit = {}
@@ -238,6 +269,7 @@ class LocalCodexTransportTest {
             """
             #!/bin/sh
             if [ "${'$'}1" = "--version" ]; then
+                if [ -n "${'$'}HEARTBEAT_TEST_VERSIONS" ]; then printf 'probe\n' >> "${'$'}HEARTBEAT_TEST_VERSIONS"; fi
                 printf 'codex-cli $version\n'
                 exit 0
             fi

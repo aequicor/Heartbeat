@@ -55,28 +55,33 @@ internal class CodexProcessStop(
         for (identity in listOf(owner.root) + owner.observedChildren) {
             // beginInspection writes to storage; a handle obtained before that await may now have a reused PID.
             val process = matching(identity) ?: continue
-            val descendants = process.descendants().use { stream ->
-                stream.map { child -> if (child.isAlive) checkNotNull(child.identity()) else null }.toList()
-            }
-            // descendants() resolves the current PID tree, unlike ProcessHandle.isAlive's identity check.
-            // Refuse the entire observation if the parent changed while enumeration was in flight.
-            checkNotNull(matching(identity)) { "Parent changed during descendant inspection" }
-            observed += descendants.filterNotNull()
+            // A descendant that exits during enumeration is gone; a live one without a start instant is unknown.
+            val descendants = process.descendants().use { stream -> stream.toList() }.mapNotNull { it.liveIdentity() }
+            // descendants() resolves the current PID tree, unlike ProcessHandle.isAlive's identity check. A parent
+            // that exited meanwhile leaves a valid snapshot; only a live replacement makes it someone else's tree.
+            val after = lookup(identity.pid)?.liveIdentity()
+            check(after == null || after.isSameStart(identity)) { "Parent changed during descendant inspection" }
+            observed += descendants
         }
         return owner.copy(observedChildren = observed.toList())
     }
 
     private fun matching(identity: CodexProcessIdentity): ProcessHandle? {
         val process = lookup(identity.pid) ?: return null
-        if (!process.isAlive) return null
-        val current = checkNotNull(process.identity()) { "Live process start instant unavailable" }
-        return process.takeIf {
-            current.pid == identity.pid && Instant.parse(current.startedAt) == Instant.parse(identity.startedAt)
-        }
+        val current = process.liveIdentity() ?: return null
+        return process.takeIf { current.isSameStart(identity) }
     }
 
-    private fun ProcessHandle.identity(): CodexProcessIdentity? =
-        info().startInstant().orElse(null)?.let { CodexProcessIdentity(pid(), it.toString()) }
+    /** Null for an exited process; a live process without a start instant cannot be identified at all. */
+    private fun ProcessHandle.liveIdentity(): CodexProcessIdentity? {
+        if (!isAlive) return null
+        val identity = info().startInstant().orElse(null)?.let { CodexProcessIdentity(pid(), it.toString()) }
+        check(identity != null || !isAlive) { "Live process start instant unavailable" }
+        return identity
+    }
+
+    private fun CodexProcessIdentity.isSameStart(other: CodexProcessIdentity): Boolean =
+        pid == other.pid && Instant.parse(startedAt) == Instant.parse(other.startedAt)
 
     private companion object {
         const val STOP_TIMEOUT = 5_000L

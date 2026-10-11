@@ -23,6 +23,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CodexTurnRecordsTest {
     @Test
@@ -84,11 +85,29 @@ class CodexTurnRecordsTest {
         journal.finish(turn.id, TurnOutcome.Cancelled)
         assertEquals(TurnOutcome.Cancelled, records.get(session.ref)?.last?.turn?.outcome)
     }
+
+    @Test
+    fun `interrupted first write never leaves a required marker without its record`() = runTest {
+        val stores = TurnStores()
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val turn = Turn(TurnId("logical"), Prompt.id, fixture.target)
+        val journal = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        stores.failingPrefix = "turn_"
+        assertFailsWith<EngineException> { journal.begin(turn, TrustLevel.Ask) }
+        assertTrue(stores.values.keys.none { it.startsWith("required_") })
+        stores.failingPrefix = null
+        val reopened = CodexTurnJournal(StoredCodexTurnRecords(stores), session.ref, session.route, "owner")
+        assertNull(reopened.restore())
+        reopened.begin(turn, TrustLevel.Ask)
+        assertEquals(turn, reopened.restore()?.active?.turn)
+    }
 }
 
 private class TurnStores : DataStores {
     val values = mutableMapOf<String, Any>()
     var isFailing = false
+    var failingPrefix: String? = null
     override val owner: StorageOwner = StorageOwner.App
     override fun filesDirectory(name: String): String = error("Unused")
     override fun <T : RoomDatabase> database(spec: DatabaseSpec<T>): T = error("Unused")
@@ -101,7 +120,7 @@ private class TurnStores : DataStores {
         override suspend fun <T : Any> get(key: StoreKey<T>): T? = values[key.name] as T?
         override fun <T : Any> observe(key: StoreKey<T>): Flow<T?> = flowOf(null)
         override suspend fun <T : Any> set(key: StoreKey<T>, value: T, retention: Retention) {
-            check(!isFailing) { "Storage unavailable" }
+            check(!isFailing && failingPrefix?.let { key.name.startsWith(it) } != true) { "Storage unavailable" }
             values[key.name] = value
         }
         override suspend fun remove(key: StoreKey<*>) {

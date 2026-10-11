@@ -2,6 +2,7 @@
 
 package io.aequicor.heartbeat.feature.aiengine.codex.impl.data
 
+import io.aequicor.heartbeat.feature.aiengine.authenticator.api.AuthRevision
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineException
 import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
@@ -18,7 +19,6 @@ import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -89,16 +89,61 @@ class CodexStoredTurnStopTest {
     }
 
     @Test
-    fun `incomplete discovery survives serialization and cannot become an empty successful retry`() = runTest {
+    fun `interrupted discovery is replaced before any signal and its stale attempt cannot record`() = runTest {
         val setup = setup()
         val stop = assertNotNull(setup.journal.fenceStop(Prompt.id, null))
         assertTrue(setup.journal.inspectStop(stop, "interrupted"))
         val snapshot = Json.decodeFromString<CodexTurnSnapshot>(Json.encodeToString(setup.journal.restore()))
         assertEquals("interrupted", snapshot.stopInspection)
-        assertFalse(setup.journal.inspectStop(stop, "retry"))
+        // A pending discovery is never an exit receipt.
         assertNull(setup.journal.stopped(stop, Owner))
-        assertNull(CodexStoredTurnStop(setup.journal, StopLaunch { true }).stop(Prompt.id))
-        assertNotNull(setup.journal.restore()?.stopping)
+        assertTrue(setup.journal.inspectStop(stop, "retry"))
+        assertNull(setup.journal.observeStop(stop, "interrupted", Owner))
+        assertEquals("retry", setup.journal.restore()?.stopInspection)
+        val launch = StopLaunch { true }
+        assertTrue(CodexStoredTurnStop(setup.journal, launch).stop(Prompt.id)?.isProcessStopped == true)
+        assertEquals(1, launch.stops)
+        assertNull(setup.journal.restore()?.stopping)
+        setup.journal.begin(setup.next(), TrustLevel.Ask, Owner.copy(launchId = "next"))
+    }
+
+    @Test
+    fun `renewed credential revision still stops its own turn while another account cannot`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = MemoryCodexTurnRecords()
+        val before = session.route.copy(revision = AuthRevision.Known("before"))
+        CodexTurnJournal(records, session.ref, before, "account")
+            .begin(Turn(TurnId("turn"), Prompt.id, fixture.target), TrustLevel.Ask, Owner)
+        val launch = StopLaunch { true }
+        val foreign = CodexTurnJournal(records, session.ref, session.route, "other")
+        assertFailsWith<EngineException> { CodexStoredTurnStop(foreign, launch).stop(Prompt.id) }
+        assertEquals(0, launch.stops)
+        val renewed = CodexTurnJournal(records, session.ref, session.route, "account")
+        val result = assertNotNull(CodexStoredTurnStop(renewed, launch).stop(Prompt.id))
+        assertEquals(TurnOutcome.Unknown, result.turn.outcome)
+        assertTrue(result.isProcessStopped)
+    }
+
+    @Test
+    fun `settled history follows a new account while unresolved work stays bound`() = runTest {
+        val fixture = Fixture(this)
+        val session = fixture.open()
+        val records = MemoryCodexTurnRecords()
+        val first = CodexTurnJournal(records, session.ref, session.route, "first")
+        val turn = Turn(TurnId("turn"), Prompt.id, fixture.target)
+        val next = turn.copy(id = TurnId("next"), request = RequestId("next"))
+        first.begin(turn, TrustLevel.Ask)
+        val second = CodexTurnJournal(records, session.ref, session.route, "second")
+        assertFailsWith<EngineException> { second.restore() }
+        assertFailsWith<EngineException> { second.begin(next, TrustLevel.Ask) }
+        first.finish(turn.id, TurnOutcome.Completed)
+        assertEquals(TurnOutcome.Completed, second.restore()?.last?.turn?.outcome)
+        val withoutOwner = CodexTurnJournal(records, session.ref, session.route, null)
+        assertEquals(TurnOutcome.Completed, withoutOwner.restore()?.last?.turn?.outcome)
+        second.begin(next, TrustLevel.Ask)
+        assertEquals("second", records.get(session.ref)?.ownership)
+        assertFailsWith<EngineException> { first.restore() }
     }
 
     @Test

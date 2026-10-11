@@ -69,6 +69,9 @@ internal class LocalCodexTransport(
             }
             val environment = capturedCodexEnvironment(resolved)
             object : PreparedCodexLaunch {
+                private val versionLock = Mutex()
+                private var knownVersion: String? = null
+
                 override suspend fun open(): CodexWire = openResolved(resolved, environment)
                 override suspend fun open(off: CodexNativeOff): CodexWire {
                     if (off.isRestricted) off.requireVersion(version())
@@ -81,12 +84,15 @@ internal class LocalCodexTransport(
                     record: suspend (CodexExecutionOwner) -> CodexExecutionOwner?,
                 ): Boolean = CodexProcessStop(dispatchers).stop(owner, beginInspection, record)
 
-                override suspend fun version(): String? = withContext(dispatchers.io) {
-                    if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
-                        version(resolved, environment)
-                    } else {
-                        null
-                    }
+                /** The captured executable cannot change: one successful probe serves every later connection. */
+                override suspend fun version(): String? = versionLock.withLock {
+                    knownVersion ?: withContext(dispatchers.io) {
+                        if (resolved.isRunnable && resolved.source != InstallSource.Missing) {
+                            version(resolved, environment)
+                        } else {
+                            null
+                        }
+                    }.also { knownVersion = it }
                 }
             }
         }

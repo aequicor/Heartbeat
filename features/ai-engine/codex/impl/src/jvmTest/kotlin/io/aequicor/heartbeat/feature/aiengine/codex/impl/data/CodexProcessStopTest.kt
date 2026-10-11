@@ -183,6 +183,56 @@ class CodexProcessStopTest {
     }
 
     @Test
+    fun `descendant exiting during enumeration counts as gone`() = runTest {
+        val root = StopProcess(1)
+        val leaving = StopProcess(2).apply {
+            startedAt = null
+            exitOnInfo = true
+        }
+        val staying = StopProcess(3)
+        root.observed = listOf(leaving, staying)
+        val stop = stopper {
+            when (it) {
+                1L -> root
+                2L -> leaving
+                else -> staying
+            }
+        }
+        val waiting = async {
+            stop.stop(Owner, { true }) {
+                assertEquals(listOf(3L), it.observedChildren.map { identity -> identity.pid })
+                it
+            }
+        }
+        runCurrent()
+        assertEquals(0, leaving.signals)
+        assertEquals(1, staying.signals)
+        root.exit()
+        staying.exit()
+        assertTrue(waiting.await())
+    }
+
+    @Test
+    fun `parent exiting during enumeration keeps its observed children`() = runTest {
+        val root = StopProcess(1)
+        val child = StopProcess(2)
+        root.observed = listOf(child)
+        root.onEnumerate = { root.exit() }
+        val stop = stopper { if (it == 1L) root else child }
+        val waiting = async {
+            stop.stop(Owner, { true }) {
+                assertEquals(listOf(2L), it.observedChildren.map { identity -> identity.pid })
+                it
+            }
+        }
+        runCurrent()
+        assertEquals(0, root.signals)
+        assertEquals(1, child.signals)
+        child.exit()
+        assertTrue(waiting.await())
+    }
+
+    @Test
     fun `failure persisting observed children cannot signal any process`() = runTest {
         val root = StopProcess(1)
         assertFalse(stopper { root }.stop(Owner, { true }) { error("Storage private details") })
@@ -210,6 +260,7 @@ class CodexProcessStopTest {
         var observed: List<ProcessHandle> = emptyList()
         var signals = 0
         var onEnumerate: () -> Unit = {}
+        var exitOnInfo = false
         private val exited = CompletableFuture<ProcessHandle>()
         fun exit() {
             exited.complete(this)
@@ -222,6 +273,9 @@ class CodexProcessStopTest {
             return observed.stream()
         }
         override fun info(): ProcessHandle.Info = object : ProcessHandle.Info {
+            init {
+                if (exitOnInfo) exit()
+            }
             override fun startInstant(): Optional<Instant> = Optional.ofNullable(startedAt)
             override fun command(): Optional<String> = error("Unused")
             override fun commandLine(): Optional<String> = error("Unused")

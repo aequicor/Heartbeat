@@ -43,7 +43,8 @@ internal interface PreparedCodexLaunch {
      * Stops only identity-checked stored processes, without opening a thread. Newly observed descendants are
      * recorded before signalling; the returned owner includes concurrent observations. Null aborts signalling.
      * [beginInspection] durably marks discovery pending before enumerating new children; [record] clears it only
-     * after a complete snapshot. An interrupted inspection must never be retried as an empty complete snapshot.
+     * after a complete snapshot, and no signal precedes it. A newer inspection replaces an interrupted one, which
+     * can then neither record nor signal; a descendant that exits during enumeration is gone, not unknown.
      * True proves exit of those observed processes only, not containment of unobserved descendants.
      */
     suspend fun stop(

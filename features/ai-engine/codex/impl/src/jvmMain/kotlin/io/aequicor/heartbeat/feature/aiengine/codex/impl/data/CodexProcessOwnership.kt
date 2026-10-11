@@ -44,7 +44,8 @@ internal class CodexProcessOwnership(
         val process = root()
         val identity = process.identity() ?: return incomplete()
         val descendants = process.descendants().use { it.toList() }
-        val current = descendants.map { it.identity() ?: return incomplete() }
+        // A child that exited during enumeration is gone, not unidentified; only a live unknown breaks evidence.
+        val current = descendants.mapNotNull { it.identity() ?: if (it.isAlive) return incomplete() else null }
         children += current
         if (!process.isAlive) return incomplete()
         return CodexExecutionOwner(launchId, identity, children.toList())
@@ -52,6 +53,7 @@ internal class CodexProcessOwnership(
 
     /** A later empty snapshot cannot repair an earlier gap in the same launch's observed descendants. */
     private fun incomplete(): CodexExecutionOwner? {
+        if (isComplete) log.i { "Codex process ownership incomplete; owned stops unavailable for this launch" }
         isComplete = false
         return null
     }

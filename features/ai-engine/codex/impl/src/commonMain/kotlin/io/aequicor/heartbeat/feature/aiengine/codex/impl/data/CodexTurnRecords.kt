@@ -46,9 +46,12 @@ internal data class CodexTurnSnapshot(
     val last: CodexTurnRecord? = null,
     /** Persists across terminal events until all observed process exits are confirmed. Blocks a new submission. */
     val stopping: CodexTurnRecord? = null,
-    /** An interrupted/incomplete descendant inspection cannot be repaired by a later empty OS snapshot. */
+    /** Discovery in progress; no signal is sent until it is cleared, so a newer inspection may replace it. */
     val stopInspection: String? = null,
 ) {
+    /** Work that may still execute natively; only it stays bound to the store, account and route that began it. */
+    val isUnresolved: Boolean get() = active != null || stopping != null
+
     init {
         require(active?.turn?.outcome == null)
         require(last == null || last.turn.outcome != null)
@@ -104,8 +107,9 @@ internal class StoredCodexTurnRecords(
         val next = transform(read(ref))
         check(next.ref == ref)
         val key = codexTurnKey(ref)
-        store.set(booleanKey("required_$key"), true)
+        // Record before marker: a crash between them must leave a readable record, never a marker without one.
         store.set(stringKey("turn_$key"), Json.encodeToString(next))
+        store.set(booleanKey("required_$key"), true)
         next
     }
 
