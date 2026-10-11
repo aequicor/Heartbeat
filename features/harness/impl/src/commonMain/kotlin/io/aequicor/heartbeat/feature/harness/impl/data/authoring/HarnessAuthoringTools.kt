@@ -40,12 +40,14 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCa
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemDraft
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.ItemKind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.Parsed
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.hasNativeOn
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.hasRestrictions
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.isWiderThan
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.key
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.kind
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.label
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.listing
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.map
-import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.newlyEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseCreate
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseHarnessRef
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseItemDelete
@@ -53,6 +55,7 @@ import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseItemPut
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseToolsSet
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.parseUpdate
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.policyDiff
+import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.reEnabled
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.requiresDecision
 import io.aequicor.heartbeat.feature.harness.impl.domain.script.HarnessCodeKind
 import kotlinx.serialization.json.JsonObject
@@ -65,7 +68,8 @@ import kotlin.uuid.Uuid
  * Agent side of the library: creating harnesses, their items and tool policy. Every call resolves the committed
  * library, presents the whole content and binds the approval to the harness revision; the machine applies the
  * edit only to that revision. Item texts and code are never logged. Code is compiled before the question, and a
- * failing compile is reported to the agent without asking the user or saving anything.
+ * failing compile is reported to the agent without asking the user or saving anything. Code, switching a tool on
+ * and anything that gives a tool back to a chat always ask, whatever the approval level.
  */
 @ContributesIntoSet(ProfileScope::class)
 @Inject
@@ -101,7 +105,10 @@ internal class HarnessAuthoringTools(
                         "шага с {{аргументами}}; скрипт — хуки, события и свои инструменты (только Desktop); " +
                         "workflow — оркестрация помощников.",
                 )
-                add("Код и включение нативных инструментов пользователь подтверждает всегда. Не сохраняй секреты.")
+                add(
+                    "Код, включение инструментов и снятие их ограничений пользователь подтверждает всегда. " +
+                        "Не сохраняй секреты.",
+                )
             }
             if (has(HarnessTools.TOOLS_SET)) {
                 add("Чтобы убрать инструмент, выключай его через harness_tools_set, а не Deny-хуком.")
@@ -113,10 +120,12 @@ internal class HarnessAuthoringTools(
         context: AgentToolContext,
         spec: AgentToolSpec,
         arguments: JsonObject,
-    ): Boolean {
-        // Invalid requests are refused by execution deterministically, so they are never put to the user.
-        val plan = plan(context, spec.name, arguments) as? Plan.Ready ?: return false
-        return plan.level.requiresDecision(context.trust, plan.isAlwaysAsked)
+    ): Boolean = when (val plan = plan(context, spec.name, arguments)) {
+        is Plan.Ready -> plan.level.requiresDecision(context.trust, plan.isAlwaysAsked)
+
+        // A refusal resting on mutable state may not hold at execution, which would then save without a
+        // decision; only refusals execution repeats deterministically are kept from the user.
+        is Plan.Invalid -> !plan.isFinal
     }
 
     override suspend fun approval(
@@ -131,43 +140,41 @@ internal class HarnessAuthoringTools(
     override suspend fun execute(context: AgentToolContext, name: String, arguments: JsonObject): AgentToolResult {
         if (!toggles.get(HarnessEnabled)) return failure("harnesses are turned off")
         val plan = when (val planned = plan(context, name, arguments)) {
-            is Plan.Invalid -> return failure("not saved: ${planned.message}")
+            is Plan.Invalid -> {
+                log.d { "Harness authoring request refused name=$name final=${planned.isFinal}" }
+                return failure("not saved: ${planned.message}")
+            }
+
             is Plan.Ready -> planned
         }
         if (context.authorization?.binding != plan.approval.binding) {
+            log.d { "Harness authoring approval is stale name=$name" }
             return failure("the harness changed while awaiting approval; request it again")
         }
-        val result = apply(context, plan)
-        log.i { "Harness tool finished name=$name failed=${result.isError}" }
-        return result
+        return apply(context, plan)
     }
 
     private suspend fun plan(context: AgentToolContext, name: String, arguments: JsonObject): Plan {
-        val state = library.value.current ?: return Plan.Invalid("the harness library is unavailable")
         val command = when (val parsed = parse(name, arguments)) {
-            is Parsed.Invalid -> return Plan.Invalid(parsed.message)
+            is Parsed.Invalid -> return Plan.Invalid(parsed.message, isFinal = true)
             is Parsed.Valid -> parsed.value
         }
+        val state = library.value.current ?: return Plan.Invalid("the harness library is unavailable")
         val plan = when (command) {
             is AuthoringCommand.Create -> planCreate(context, state, command)
 
             is AuthoringCommand.Update -> withHarness(state, command.harness.value) { planUpdate(context, it, command) }
 
-            is AuthoringCommand.Delete -> withHarness(state, command.harness.value) {
-                val text = "Deletes ${it.items.size} items, its connections and runs; running workflows are cancelled."
-                ready(state, it, "Delete harness ${it.name.value}", text, command)
-            }
+            is AuthoringCommand.Delete -> withHarness(state, command.harness.value) { planDelete(state, it, command) }
 
-            is AuthoringCommand.Attach -> withHarness(state, command.harness.value) {
-                val verb = if (command.isAttached) "Connect" else "Disconnect"
-                ready(state, it, "$verb harness ${it.name.value}", "", command)
-            }
+            is AuthoringCommand.Attach -> withHarness(state, command.harness.value) { planAttach(state, it, command) }
 
             is AuthoringCommand.PutItem -> withHarness(state, command.harness.value) { planItem(state, it, command) }
 
             is AuthoringCommand.DeleteItem -> withHarness(state, command.harness.value) { harness ->
+                // Harness content is fenced by the bound revision, so a missing item stays missing at execution.
                 val item = harness.items.singleOrNull { it.name == command.item }
-                    ?: return@withHarness Plan.Invalid("no item ${command.item.value} in ${harness.name.value}")
+                    ?: return@withHarness Plan.Invalid("no item ${command.item.value} in ${harness.name.value}", true)
                 ready(state, harness, "Delete item ${harness.name.value}/${item.name.value}", "", command)
             }
 
@@ -225,12 +232,41 @@ internal class HarnessAuthoringTools(
         command: AuthoringCommand.Update,
     ): Plan {
         val scope = command.scope?.let { scopeOf(context, it) ?: return Plan.Invalid(NO_PROJECT) }
+        val isWidening = scope != null && harness.tools.hasNativeOn && scope.isWiderThan(harness.scope)
+        val isLifting = scope != null && harness.tools.hasRestrictions && harness.scope.isWiderThan(scope)
         val text = buildString {
             command.title?.let { append("Title: ").append(it).append('\n') }
             command.description?.let { append("Description: ").append(it.ifEmpty { "(none)" }).append('\n') }
-            scope?.let { append("Scope: ${it.label()} (was ${harness.scope.label()})") }
+            scope?.let { append("Scope: ${it.label()} (was ${harness.scope.label()})\n") }
+            if (isWidening) append(NATIVE_ON_SPREAD).append('\n')
+            if (isLifting) append(RESTRICTIONS_LIFTED)
         }.trimEnd()
         return ready(library.value.current, harness, "Update harness ${harness.name.value}", text, command, scope)
+            .alwaysAskedIf(isWidening || isLifting)
+    }
+
+    /** Deleting gives back every tool the harness turned off, so such a harness always asks. */
+    private fun planDelete(state: HarnessState.Ready, harness: Harness, command: AuthoringCommand.Delete): Plan {
+        val isLifting = harness.tools.hasRestrictions
+        val text = buildString {
+            append("Deletes ${harness.items.size} items, its connections and runs; running workflows are cancelled.")
+            if (isLifting) append('\n').append(RESTRICTIONS_LIFTED)
+        }
+        return ready(state, harness, "Delete harness ${harness.name.value}", text, command).alwaysAskedIf(isLifting)
+    }
+
+    /** Connecting spreads tools switched on; disconnecting gives back tools the harness turned off. */
+    private fun planAttach(state: HarnessState.Ready, harness: Harness, command: AuthoringCommand.Attach): Plan {
+        val isWidening = command.isAttached && harness.tools.hasNativeOn
+        val isLifting = !command.isAttached && harness.tools.hasRestrictions
+        val verb = if (command.isAttached) "Connect" else "Disconnect"
+        val text = when {
+            isWidening -> NATIVE_ON_SPREAD
+            isLifting -> RESTRICTIONS_LIFTED
+            else -> ""
+        }
+        val plan = ready(state, harness, "$verb harness ${harness.name.value}", text, command)
+        return plan.alwaysAskedIf(isWidening || isLifting)
     }
 
     private suspend fun planItem(
@@ -241,13 +277,25 @@ internal class HarnessAuthoringTools(
         val draft = command.item
         val existing = harness.items.singleOrNull { it.name == draft.name }
         if (existing != null && existing.kind() != draft.kind) {
-            return Plan.Invalid("item ${draft.name.value} is a ${existing.kind().key}; delete it first or rename")
+            val message = "item ${draft.name.value} is a ${existing.kind().key}; delete it first or rename"
+            return Plan.Invalid(message, isFinal = true)
         }
         // A stable id lets the approval compile and the saved item share one cache entry.
         val id = existing?.id ?: ItemId("it_" + "${harness.id.value}/${draft.name.value}".digest().take(ID_CHARS))
         val check = when (val compiled = compile(harness, id, draft)) {
-            is Parsed.Invalid -> return Plan.Invalid(compiled.message)
-            is Parsed.Valid -> compiled.value
+            is CodeCheck.Failed -> {
+                return Plan.Invalid("compilation failed:\n" + compiled.diagnostics.listing(), isFinal = true)
+            }
+
+            CodeCheck.TimedOut -> return Plan.Invalid("compilation timed out; retry later")
+
+            CodeCheck.Unsupported -> {
+                return Plan.Invalid("Kotlin scripts and workflows run only on Desktop", isFinal = true)
+            }
+
+            is CodeCheck.Compiled -> compiled
+
+            null -> null
         }
         val title = "Save ${draft.kind.key} ${draft.name.value} in ${harness.name.value}"
         val plan = ready(state, harness, title, itemText(harness, draft, existing == null, check), command)
@@ -256,26 +304,30 @@ internal class HarnessAuthoringTools(
     }
 
     /** Code is compiled before the question; texts need no compilation and yield null. */
-    private suspend fun compile(harness: Harness, id: ItemId, draft: ItemDraft): Parsed<CodeCheck.Compiled?> {
-        if (!draft.kind.isCode) return Parsed.Valid(null)
+    private suspend fun compile(harness: Harness, id: ItemId, draft: ItemDraft): CodeCheck? {
+        if (!draft.kind.isCode) return null
         val kind = if (draft.kind == ItemKind.Script) HarnessCodeKind.Script else HarnessCodeKind.Workflow
-        return when (val result = checks.value.check(harness.id, id, kind, draft.body, isAgent = true)) {
-            is CodeCheck.Compiled -> Parsed.Valid(result)
-            is CodeCheck.Failed -> Parsed.Invalid("compilation failed:\n" + result.diagnostics.listing())
-            CodeCheck.TimedOut -> Parsed.Invalid("compilation timed out; retry later")
-            CodeCheck.Unsupported -> Parsed.Invalid("Kotlin scripts and workflows run only on Desktop")
-        }
+        return checks.value.check(harness.id, id, kind, draft.body, isAgent = true)
     }
 
+    /**
+     * The agent replaces the policy, except switches of engines that are not available now: the agent cannot see
+     * them in the catalog, so they are kept rather than silently dropped.
+     */
     private fun planTools(state: HarnessState.Ready, harness: Harness, command: AuthoringCommand.SetTools): Plan {
-        val next = ToolPolicySpec(command.hostedOff, command.native)
-        catalogs.value.problem(next)?.let { return Plan.Invalid(it) }
-        val enabled = newlyEnabled(harness.tools, next)
+        val registered = catalogs.value.engines().map { it.id.value }.toSet()
+        val kept = harness.tools.native.filterKeys { it !in registered && it !in command.native }
+        val next = ToolPolicySpec(command.hostedOff, command.native + kept)
+        catalogs.value.problem(harness.tools, next)?.let { return Plan.Invalid(it) }
+        val enabled = reEnabled(harness.tools, next)
         val diff = policyDiff(harness.tools, next).ifEmpty { listOf("No changes") }
         val text = buildString {
             append(diff.joinToString("\n"))
+            if (kept.isNotEmpty()) {
+                append("\n\nKept switches of engines unavailable now: ").append(kept.keys.sorted().joinToString())
+            }
             if (enabled.isNotEmpty()) {
-                append("\n\nEnabled native tools run under the trust level of each chat and its hooks.")
+                append("\n\nTools switched on or given back run under the trust level of each chat and its hooks.")
             }
         }
         val plan = ready(state, harness, "Tool policy of ${harness.name.value}", text, command)
@@ -351,7 +403,10 @@ internal class HarnessAuthoringTools(
             ?: AgentToolResult("Created harness ${command.name.value}$connection. Add items with harness_item_put.")
     }
 
-    /** Metadata and scope are separate revisions; the second expects the revision the first committed. */
+    /**
+     * Metadata and scope are separate revisions; the second expects the revision the first committed. When only the
+     * metadata commits, the result says so instead of claiming nothing changed.
+     */
     private suspend fun update(
         context: AgentToolContext,
         harness: Harness,
@@ -364,12 +419,17 @@ internal class HarnessAuthoringTools(
                 .takeIf { command.title != null || command.description != null },
             scope?.let(HarnessChange::Scope),
         )
-        val failed = changes.withIndex().firstNotNullOfOrNull { (index, change) ->
+        changes.forEachIndexed { index, change ->
             val revision = harness.revision + index
             val intent = HarnessIntent.Public.Update(request(), harness.id, change, revision, author, clock.now())
-            library.value.submit(intent).failureText()
+            val failed = library.value.submit(intent).failureText() ?: return@forEachIndexed
+            return if (index == 0) {
+                failure("not updated: $failed")
+            } else {
+                failure("partly updated harness ${harness.name.value}: title and description saved, scope not: $failed")
+            }
         }
-        return failed?.let { failure("not updated: $it") } ?: AgentToolResult("Updated harness ${harness.name.value}")
+        return AgentToolResult("Updated harness ${harness.name.value}")
     }
 
     private suspend fun edit(
@@ -431,8 +491,9 @@ internal class HarnessAuthoringTools(
     }
 
     private inline fun withHarness(state: HarnessState.Ready, name: String, block: (Harness) -> Plan): Plan {
+        // Ids are never reused, so a harness missing now cannot match the revision an approval was bound to.
         val harness = state.harnesses.map { it.harness }.singleOrNull { it.name.value == name }
-            ?: return Plan.Invalid("no harness named $name; see harness_list")
+            ?: return Plan.Invalid("no harness named $name; see harness_list", isFinal = true)
         return block(harness)
     }
 
@@ -440,8 +501,17 @@ internal class HarnessAuthoringTools(
 
     private fun failure(message: String) = AgentToolResult(message.replaceFirstChar(Char::uppercase), isError = true)
 
+    /** Adds the always-ask flag to a ready plan; an invalid plan stays as it is. */
+    private fun Plan.alwaysAskedIf(isAlwaysAsked: Boolean): Plan =
+        if (this is Plan.Ready) copy(isAlwaysAsked = this.isAlwaysAsked || isAlwaysAsked) else this
+
     private sealed interface Plan {
-        data class Invalid(val message: String) : Plan
+        /**
+         * [isFinal] marks refusals execution repeats deterministically: malformed arguments, names missing from the
+         * bound revision and code that failed to compile. Other refusals rest on state that may change before
+         * execution.
+         */
+        data class Invalid(val message: String, val isFinal: Boolean = false) : Plan
 
         data class Ready(
             val command: AuthoringCommand,
@@ -461,4 +531,7 @@ internal class HarnessAuthoringTools(
 private fun String.digest(): String = encodeUtf8().sha256().hex()
 
 private const val NO_PROJECT = "this chat has no saved project; use scope attached or profile"
+private const val NATIVE_ON_SPREAD = "Native tools switched on by this harness become available in more chats."
+private const val RESTRICTIONS_LIFTED =
+    "Tools turned off by this harness become available again where it stops applying."
 private const val ID_CHARS = 24

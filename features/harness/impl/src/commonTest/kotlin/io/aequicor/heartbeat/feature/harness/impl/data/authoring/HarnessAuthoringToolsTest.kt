@@ -9,6 +9,7 @@ import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineFamily
 import io.aequicor.heartbeat.feature.aiengine.facade.api.EngineId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.HarnessNativeTools
 import io.aequicor.heartbeat.feature.aiengine.facade.api.NativeToolSpec
+import io.aequicor.heartbeat.feature.aiengine.facade.api.RequestId
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ResolvedToolPolicy
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolCatalogEntry
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolGroup
@@ -29,6 +30,7 @@ import io.aequicor.heartbeat.feature.harness.api.HarnessRejection
 import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.HarnessState
 import io.aequicor.heartbeat.feature.harness.api.HarnessTools
+import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessCodeChecks
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessLibraryClient
 import io.aequicor.heartbeat.feature.harness.impl.domain.authoring.HarnessToolCatalogs
@@ -49,6 +51,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -67,11 +70,12 @@ class HarnessAuthoringToolsTest {
     private val toggles = AuthoringToggles()
     private val library = FakeLibrary()
     private val host = FakeHost()
+    private val catalogs = FakeCatalogs()
     private val tools = HarnessAuthoringTools(
         toggles,
         lazyOf(library),
         lazyOf(HarnessCodeChecks(host) { it.hashCode().toString() }),
-        lazyOf(FakeCatalogs()),
+        lazyOf(catalogs),
         FixedClock,
     )
     private val context = AgentToolContext(dispatchSession, PROJECT, TurnId("turn"), trust = TrustLevel.Full)
@@ -195,6 +199,111 @@ class HarnessAuthoringToolsTest {
     }
 
     @Test
+    fun `giving back a tool always asks while turning tools off follows the level`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        library.tools = ToolPolicySpec(setOf("web_search"), mapOf("claude" to mapOf("WebFetch" to ToolSwitch.Off)))
+        val cleared = tools()
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.TOOLS_SET), cleared))
+        val description = tools.approval(context, spec(HarnessTools.TOOLS_SET), cleared).description.orEmpty()
+        assertTrue(description.contains("Heartbeat tool web_search: default"), description)
+        assertTrue(description.contains("claude tool WebFetch: default (was off)"), description)
+        val stricter = buildJsonObject {
+            put("harness", harness.name.value)
+            put("hosted_off", JsonArray(listOf(JsonPrimitive("web_search"))))
+            putJsonObject("native") {
+                putJsonObject("claude") {
+                    put("WebFetch", "off")
+                    put("Bash", "off")
+                }
+            }
+        }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.TOOLS_SET), stricter))
+    }
+
+    @Test
+    fun `membership changes that spread switched on tools or lift restrictions always ask`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        val ref = buildJsonObject { put("harness", harness.name.value) }
+        listOf(HarnessTools.ATTACH, HarnessTools.DETACH, HarnessTools.DELETE).forEach {
+            assertFalse(tools.requiresDecision(context, spec(it), ref), it)
+        }
+        val widen = buildJsonObject {
+            put("harness", harness.name.value)
+            put("scope", "profile")
+        }
+        library.tools = ToolPolicySpec(native = mapOf("claude" to mapOf("Bash" to ToolSwitch.On)))
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ATTACH), ref))
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.DETACH), ref))
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
+        library.tools = ToolPolicySpec(hostedOff = setOf("web_search"))
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ATTACH), ref))
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.DETACH), ref))
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.DELETE), ref))
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), widen))
+        library.scope = HarnessScope.Profile
+        val narrow = buildJsonObject {
+            put("harness", harness.name.value)
+            put("scope", "attached")
+        }
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.UPDATE), narrow))
+        val title = buildJsonObject {
+            put("harness", harness.name.value)
+            put("title", "Renamed")
+        }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.UPDATE), title))
+    }
+
+    @Test
+    fun `switches of engines unavailable now are kept and never block the edit`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        library.tools = ToolPolicySpec(native = mapOf("pi" to mapOf("bash" to ToolSwitch.Off)))
+        val arguments = tools(native = "WebFetch" to "off")
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.TOOLS_SET), arguments))
+        val approval = tools.approval(context, spec(HarnessTools.TOOLS_SET), arguments)
+        assertTrue(approval.description.orEmpty().contains("Kept switches of engines unavailable now: pi"))
+        val result = tools.execute(context.copy(authorization = approval), HarnessTools.TOOLS_SET, arguments)
+        assertFalse(result.isError, result.text)
+        val change = (library.sent.single() as HarnessIntent.Public.Update).change as HarnessChange.Tools
+        assertEquals(mapOf("bash" to ToolSwitch.Off), change.tools.native["pi"])
+        assertEquals(mapOf("WebFetch" to ToolSwitch.Off), change.tools.native["claude"])
+    }
+
+    @Test
+    fun `a refusal resting on mutable state asks while malformed or missing requests do not`() = runTest {
+        library.approval = HarnessApproval.AcceptAll
+        val skill = put("skill", "design", "Design tokens", description = "Load before UI work")
+        library.isAvailable = false
+        // The library may be back before execution, which would then save without the decision.
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), skill))
+        library.isAvailable = true
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), skill))
+        val malformed = buildJsonObject { put("harness", "X") }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), malformed))
+        val missing = buildJsonObject { put("harness", "missing") }
+        assertFalse(tools.requiresDecision(context, spec(HarnessTools.DELETE), missing))
+        catalogs.available = emptyList()
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.TOOLS_SET), tools(native = "WebFetch" to "off")))
+        host.result = HarnessCompilationResult.TimedOut
+        assertTrue(tools.requiresDecision(context, spec(HarnessTools.ITEM_PUT), put("script", "verify", "hooks")))
+    }
+
+    @Test
+    fun `an update whose scope fails after the title reports the partial change`() = runTest {
+        val arguments = buildJsonObject {
+            put("harness", harness.name.value)
+            put("title", "Renamed")
+            put("scope", "profile")
+        }
+        val approval = tools.approval(context, spec(HarnessTools.UPDATE), arguments)
+        library.outcomes += LibraryOutcome.Committed(HarnessOutput.Updated(RequestId("meta"), harness.id))
+        library.outcomes += LibraryOutcome.Rejected(HarnessRejection.Busy)
+        val result = tools.execute(context.copy(authorization = approval), HarnessTools.UPDATE, arguments)
+        assertTrue(result.isError)
+        assertTrue(result.text.startsWith("Partly updated harness test: title and description saved"), result.text)
+        assertEquals(2, library.sent.size)
+    }
+
+    @Test
     fun `rejections become fixed explanations`() = runTest {
         library.outcome = LibraryOutcome.Rejected(HarnessRejection.Conflict)
         val arguments = buildJsonObject { put("harness", harness.name.value) }
@@ -225,7 +334,7 @@ class HarnessAuthoringToolsTest {
 
     private fun tools(native: Pair<String, String>? = null, hosted: String? = null): JsonObject = buildJsonObject {
         put("harness", harness.name.value)
-        hosted?.let { put("hosted_off", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(it)))) }
+        hosted?.let { put("hosted_off", JsonArray(listOf(JsonPrimitive(it)))) }
         native?.let { (tool, switch) -> putJsonObject("native") { putJsonObject("claude") { put(tool, switch) } } }
     }
 
@@ -256,21 +365,27 @@ private class FakeLibrary : HarnessLibraryClient {
     var approval = HarnessApproval.Ask
     var revision = harness.revision
     var items: List<HarnessItem> = emptyList()
+    var tools = ToolPolicySpec()
+    var scope: HarnessScope = harness.scope
+    var isAvailable = true
     var harnesses: List<io.aequicor.heartbeat.feature.harness.api.Harness>? = null
     var outcome: LibraryOutcome? = null
+    val outcomes = ArrayDeque<LibraryOutcome>()
     val sent = mutableListOf<HarnessIntent.Public>()
 
-    override val current: HarnessState.Ready
-        get() = HarnessState.Ready(
-            harnesses = (harnesses ?: listOf(harness.copy(revision = revision, items = items))).map(::HarnessEntry),
-            approval = approval,
-        )
+    override val current: HarnessState.Ready?
+        get() {
+            val default = harness.copy(revision = revision, items = items, tools = tools, scope = scope)
+            val entries = (harnesses ?: listOf(default)).map(::HarnessEntry)
+            return HarnessState.Ready(harnesses = entries, approval = approval).takeIf { isAvailable }
+        }
 
-    override suspend fun ready(): HarnessState.Ready = current
+    override suspend fun ready(): HarnessState.Ready? = current
 
     override suspend fun submit(intent: HarnessIntent.Public): LibraryOutcome {
         sent += intent
-        return outcome ?: LibraryOutcome.Committed(HarnessOutput.Updated(intent.requestId, HarnessId("any")))
+        return outcomes.removeFirstOrNull() ?: outcome
+            ?: LibraryOutcome.Committed(HarnessOutput.Updated(intent.requestId, HarnessId("any")))
     }
 
     override suspend fun sourceProject(workspace: WorkspaceRef?): WorkspaceRef? = SOURCE.takeIf { workspace == PROJECT }
@@ -303,14 +418,7 @@ private class FakeHost : HarnessScriptHost {
 }
 
 private class FakeCatalogs : HarnessToolCatalogs {
-    override fun nativeEnabling() = flowOf(true)
-
-    override fun hosted() = listOf(
-        ToolGroup("search", "Поиск", listOf(ToolCatalogEntry("web_search", AgentToolAction.Read))),
-        ToolGroup("harness", "Харнессы", listOf(ToolCatalogEntry("harness_create", AgentToolAction.Read))),
-    )
-
-    override fun engines() = listOf(
+    var available = listOf(
         EngineDescriptor(
             EngineId("claude"),
             "Claude",
@@ -324,6 +432,15 @@ private class FakeCatalogs : HarnessToolCatalogs {
             ),
         ),
     )
+
+    override fun nativeEnabling() = flowOf(true)
+
+    override fun hosted() = listOf(
+        ToolGroup("search", "Поиск", listOf(ToolCatalogEntry("web_search", AgentToolAction.Read))),
+        ToolGroup("harness", "Харнессы", listOf(ToolCatalogEntry("harness_create", AgentToolAction.Read))),
+    )
+
+    override fun engines() = available
 
     override suspend fun effective(scope: ToolPolicyScope) = ResolvedToolPolicy()
 }

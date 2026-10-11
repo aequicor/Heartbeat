@@ -93,7 +93,7 @@ internal class HarnessToolsModel(
 
             is HarnessToolsIntent.SetHostedOff -> harness?.let {
                 val off = if (intent.isOff) it.tools.hostedOff + intent.tool else it.tools.hostedOff - intent.tool
-                save(it.revision, it.tools.copy(hostedOff = off))
+                save(it.revision, it.tools, it.tools.copy(hostedOff = off))
             }
 
             is HarnessToolsIntent.SetNative -> harness?.let {
@@ -105,15 +105,15 @@ internal class HarnessToolsModel(
                 }
                 val native = (it.tools.native + (intent.engine to switches))
                     .filterValues { tools -> tools.isNotEmpty() }
-                save(it.revision, it.tools.copy(native = native))
+                save(it.revision, it.tools, it.tools.copy(native = native))
             }
         }
     }
 
     // PipelineContext is FlowMVI's coroutine-backed receiver for store updates and sendTo.
     @Suppress("SuspendFunWithCoroutineScopeReceiver")
-    private suspend fun ToolsPipeline.save(revision: Long, tools: ToolPolicySpec) {
-        if (catalogs.problem(tools) != null) {
+    private suspend fun ToolsPipeline.save(revision: Long, current: ToolPolicySpec, tools: ToolPolicySpec) {
+        if (catalogs.problem(current, tools) != null) {
             log.i { "Tool policy edit does not match the current catalogs" }
             updateState { copy(isSaveFailed = true) }
             return

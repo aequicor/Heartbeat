@@ -80,8 +80,9 @@ internal val HARNESS_AUTHORING_SPECS = listOf(
     AgentToolSpec(
         HarnessTools.TOOLS_SET,
         "Replace the tool policy of a harness: Heartbeat tools to turn off and native engine tools to switch on or " +
-            "off (omitted tools keep their defaults). Read harness_tools_catalog first. Enabling a native tool " +
-            "always needs the user's approval.",
+            "off (omitted tools keep their defaults; switches of engines unavailable now are kept). Read " +
+            "harness_tools_catalog first. Switching a tool on or giving a turned-off tool back always needs the " +
+            "user's approval.",
         schema(required = listOf("harness")) {
             text("harness", "Harness slug")
             putJsonObject("hosted_off") {

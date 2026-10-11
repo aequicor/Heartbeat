@@ -2,9 +2,11 @@ package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.TrustLevel
+import io.aequicor.heartbeat.feature.aiengine.facade.api.WorkspaceRef
 import io.aequicor.heartbeat.feature.harness.api.HarnessApproval
 import io.aequicor.heartbeat.feature.harness.api.HarnessItem
 import io.aequicor.heartbeat.feature.harness.api.HarnessLimits
+import io.aequicor.heartbeat.feature.harness.api.HarnessScope
 import io.aequicor.heartbeat.feature.harness.api.ItemId
 import io.aequicor.heartbeat.feature.harness.api.ToolPolicySpec
 import kotlinx.serialization.json.JsonArray
@@ -166,7 +168,7 @@ class HarnessAuthoringDraftsTest {
     }
 
     @Test
-    fun `policy diff names every change and detects newly enabled native tools`() {
+    fun `policy diff names every change and detects tools switched on or given back`() {
         val current = ToolPolicySpec(setOf("web_fetch"), mapOf("claude" to mapOf("Bash" to ToolSwitch.On)))
         val next = ToolPolicySpec(
             setOf("web_search"),
@@ -175,7 +177,7 @@ class HarnessAuthoringDraftsTest {
                 "pi" to mapOf("read" to ToolSwitch.Off),
             ),
         )
-        assertEquals(mapOf("claude" to setOf("Write")), newlyEnabled(current, next))
+        assertEquals(listOf("web_fetch", "claude/Write"), reEnabled(current, next))
         assertEquals(
             listOf(
                 "Heartbeat tool web_search: off",
@@ -185,7 +187,36 @@ class HarnessAuthoringDraftsTest {
             ),
             policyDiff(current, next),
         )
-        assertTrue(newlyEnabled(next, current).isEmpty())
+        // Back to current: web_search leaves hosted_off and pi read leaves Off; dropping On restricts only.
+        assertEquals(listOf("web_search", "pi/read"), reEnabled(next, current))
+    }
+
+    @Test
+    fun `releasing an off switch counts as enabling whatever the default`() {
+        val off = ToolPolicySpec(native = mapOf("codex" to mapOf("shell" to ToolSwitch.Off)))
+        assertEquals(listOf("codex/shell"), reEnabled(off, ToolPolicySpec()))
+        val on = ToolPolicySpec(native = mapOf("codex" to mapOf("shell" to ToolSwitch.On)))
+        assertEquals(listOf("codex/shell"), reEnabled(off, on))
+        assertTrue(reEnabled(ToolPolicySpec(), off).isEmpty())
+        assertTrue(reEnabled(on, off).isEmpty())
+        assertTrue(off.hasRestrictions && !off.hasNativeOn)
+        assertTrue(on.hasNativeOn && !on.hasRestrictions)
+        assertTrue(ToolPolicySpec(hostedOff = setOf("web_search")).hasRestrictions)
+    }
+
+    @Test
+    fun `a scope is wider when it covers a chat the other one does not`() {
+        val a = HarnessScope.Projects(setOf(WorkspaceRef("a")))
+        val ab = HarnessScope.Projects(setOf(WorkspaceRef("a"), WorkspaceRef("b")))
+        assertTrue(HarnessScope.Profile.isWiderThan(HarnessScope.Attached))
+        assertTrue(HarnessScope.Profile.isWiderThan(ab))
+        assertTrue(a.isWiderThan(HarnessScope.Attached))
+        assertTrue(ab.isWiderThan(a))
+        assertTrue(HarnessScope.Projects(setOf(WorkspaceRef("b"))).isWiderThan(a))
+        assertFalse(a.isWiderThan(ab))
+        assertFalse(ab.isWiderThan(HarnessScope.Profile))
+        assertFalse(HarnessScope.Attached.isWiderThan(a))
+        assertFalse(HarnessScope.Profile.isWiderThan(HarnessScope.Profile))
     }
 
     private fun args(vararg values: Pair<String, String>): JsonObject =

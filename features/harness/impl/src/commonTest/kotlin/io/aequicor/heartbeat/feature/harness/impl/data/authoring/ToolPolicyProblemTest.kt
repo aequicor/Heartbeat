@@ -58,6 +58,24 @@ class ToolPolicyProblemTest {
         assertEquals("read is also a Heartbeat tool; use hosted_off", collision)
     }
 
+    @Test
+    fun `only changed entries are checked so switches of an unavailable engine never block an edit`() {
+        val current = ToolPolicySpec(
+            setOf("retired_tool"),
+            mapOf("claude" to mapOf("Bash" to ToolSwitch.Off), "pi" to mapOf("grep" to ToolSwitch.On)),
+        )
+        val edited = current.copy(native = current.native + ("codex" to mapOf("shell" to ToolSwitch.Off)))
+        assertNull(toolPolicyProblem(edited, groups, listOf(codex, pi), current))
+        assertNull(toolPolicyProblem(ToolPolicySpec(), groups, listOf(codex, pi), current))
+        val changed = current.copy(native = mapOf("claude" to mapOf("Bash" to ToolSwitch.On)))
+        assertEquals("unknown or disabled engine claude", toolPolicyProblem(changed, groups, listOf(pi), current))
+        val added = current.copy(hostedOff = current.hostedOff + "nope")
+        assertEquals(
+            "unknown Heartbeat tools: nope; see harness_tools_catalog",
+            toolPolicyProblem(added, groups, listOf(pi), current),
+        )
+    }
+
     private fun problem(hosted: Set<String> = emptySet(), native: Map<String, Map<String, ToolSwitch>> = emptyMap()) =
         toolPolicyProblem(ToolPolicySpec(hosted, native), groups, listOf(codex, pi))
 }

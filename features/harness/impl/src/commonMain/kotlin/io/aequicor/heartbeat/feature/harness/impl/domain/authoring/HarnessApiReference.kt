@@ -37,7 +37,9 @@ private val GUIDE = """
        better than a Deny hook. Enabled native tools still go through the trust level of the chat.
     5. Check with harness_get, then tell the user what was set up.
 
-    Approval: texts follow the profile approval level; code and enabling native tools always ask the user.
+    Approval: texts follow the profile approval level; code, switching a tool on and giving a turned-off tool
+    back (removing an off switch, disconnecting, deleting or narrowing a harness that turns tools off, connecting or
+    widening one that switches native tools on) always ask the user.
     Never store secrets, tokens or personal data in a harness. Keep instructions short: the whole harness block
     shares about 8000 characters per chat; skills are not in the block, only their index.
     Limits: ${HarnessLimits.HARNESSES} harnesses, ${HarnessLimits.ITEMS} items each, ${HarnessLimits.SCRIPT_TOOLS}

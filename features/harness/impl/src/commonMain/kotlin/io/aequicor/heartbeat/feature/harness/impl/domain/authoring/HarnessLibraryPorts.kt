@@ -61,22 +61,29 @@ internal interface HarnessToolCatalogs {
     /** Whether gated native tools may be switched on: the `harness.native_tools` toggle. */
     fun nativeEnabling(): Flow<Boolean>
 
-    /** Checks a proposed policy against the catalogs; null means valid. */
-    fun problem(spec: ToolPolicySpec): String? = toolPolicyProblem(spec, hosted(), engines())
+    /**
+     * Checks the changes from [current] to [next] against the catalogs; null means valid. Unchanged entries are not
+     * checked again, so switches of an engine that is unavailable now never block other edits.
+     */
+    fun problem(current: ToolPolicySpec, next: ToolPolicySpec): String? =
+        toolPolicyProblem(next, hosted(), engines(), current)
 }
 
 /**
  * Harness tools stay available so that a harness cannot lock the agent out of its own repair. Only gated native
- * tools can be switched on; a native name colliding with a Heartbeat tool must use hosted_off.
+ * tools can be switched on; a native name colliding with a Heartbeat tool must use hosted_off. Only entries that
+ * differ from [current] are checked: removing a switch never needs the catalog.
  */
 internal fun toolPolicyProblem(
     spec: ToolPolicySpec,
     groups: List<ToolGroup>,
     engines: List<EngineDescriptor>,
+    current: ToolPolicySpec = ToolPolicySpec(),
 ): String? {
     val hosted = groups.flatMap { it.tools }.map { it.name }.toSet()
-    val unknown = spec.hostedOff.filter { it !in hosted }
-    val own = spec.hostedOff.filter { it.startsWith("harness_") || it.startsWith(HarnessTools.SCRIPT_PREFIX) }
+    val added = spec.hostedOff - current.hostedOff
+    val unknown = added.filter { it !in hosted }
+    val own = added.filter { it.startsWith("harness_") || it.startsWith(HarnessTools.SCRIPT_PREFIX) }
     val registered = engines.associateBy { it.id.value }
     return when {
         own.isNotEmpty() -> "harness tools cannot be turned off by a harness"
@@ -84,9 +91,11 @@ internal fun toolPolicyProblem(
         unknown.isNotEmpty() -> "unknown Heartbeat tools: ${unknown.joinToString()}; see harness_tools_catalog"
 
         else -> spec.native.entries.firstNotNullOfOrNull { (engine, switches) ->
+            val changed = switches.filter { (tool, switch) -> current.native[engine]?.get(tool) != switch }
+            if (changed.isEmpty()) return@firstNotNullOfOrNull null
             val descriptor = registered[engine] ?: return@firstNotNullOfOrNull "unknown or disabled engine $engine"
             val native = descriptor.nativeTools.associateBy { it.name }
-            switches.entries.firstNotNullOfOrNull { (tool, switch) ->
+            changed.entries.firstNotNullOfOrNull { (tool, switch) ->
                 val known = native[tool]
                 when {
                     known == null -> "$engine has no native tool $tool"

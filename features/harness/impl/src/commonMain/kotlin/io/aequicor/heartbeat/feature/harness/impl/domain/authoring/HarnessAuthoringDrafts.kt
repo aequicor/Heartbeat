@@ -1,6 +1,5 @@
 package io.aequicor.heartbeat.feature.harness.impl.domain.authoring
 
-import io.aequicor.heartbeat.core.logging.Log
 import io.aequicor.heartbeat.feature.aiengine.facade.api.ToolSwitch
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hasHiddenCharacters
 import io.aequicor.heartbeat.feature.aiengine.facade.api.hostedToolName
@@ -92,6 +91,14 @@ internal sealed interface AuthoringCommand {
 internal sealed interface Parsed<out T> {
     data class Valid<T>(val value: T) : Parsed<T>
     data class Invalid(val message: String) : Parsed<Nothing>
+
+    companion object {
+        /**
+         * A rejected argument is an answer for the model, not a fault: it travels as a value with its fixed
+         * explanation, and the tool call reports the refusal once instead of every parse logging it.
+         */
+        fun failure(rejection: IllegalArgumentException): Invalid = Invalid(rejection.message ?: "invalid arguments")
+    }
 }
 
 internal inline fun <T, R> Parsed<T>.map(transform: (T) -> R): Parsed<R> = when (this) {
@@ -244,13 +251,10 @@ private fun invalid(message: String): Nothing = throw InvalidArguments(message)
 
 private inline fun <T> parsing(block: () -> T): Parsed<T> = try {
     Parsed.Valid(block())
-} catch (error: IllegalArgumentException) {
+} catch (rejection: IllegalArgumentException) {
     // Model-supplied values never reach the message: every requirement above uses a fixed explanation.
-    authoringLog.w(error) { "Harness authoring arguments rejected" }
-    Parsed.Invalid(error.message ?: "invalid arguments")
+    Parsed.failure(rejection)
 }
-
-private val authoringLog = Log.tag("HarnessTools")
 
 private fun only(arguments: JsonObject, vararg names: String) {
     val unknown = arguments.keys - names.toSet()
